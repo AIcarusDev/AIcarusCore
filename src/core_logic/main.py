@@ -231,20 +231,24 @@ def _initialize_core_llm_clients(root_cfg: AlcarusRootConfig) -> None:
             default_provider_name="gemini"
         )
         if not main_consciousness_llm_client:
-            raise RuntimeError("主意识 LLM 客户端初始化失败。")
+            raise RuntimeError("主意识 LLM 客户端初始化失败。请检查日志。")
             
         intrusive_thoughts_llm_client = _create_single_processor_client(
-            purpose_key="intrusive_thoughts",
-            default_provider_name="gemini"
+            purpose_key="intrusive_thoughts",    # 第一个参数
+            default_provider_name="gemini"     # 第二个参数
         )
         if not intrusive_thoughts_llm_client:
-            raise RuntimeError("侵入性思维 LLM 客户端初始化失败。")
+            raise RuntimeError("侵入性思维 LLM 客户端初始化失败。请检查日志。")
             
         logger.info("核心LLM客户端 (主意识和侵入性思维) 已成功初始化。")
         
-    except Exception as e_init_core:
-        logger.critical(f"初始化核心LLM客户端过程中发生严重错误: {e_init_core}", exc_info=True)
-        raise RuntimeError(f"核心LLM客户端初始化失败: {e_init_core}") from e_init_core
+    except RuntimeError: # 只捕获我们自己抛出的 RuntimeError，以便重新抛出
+        raise
+    except Exception as e_init_core: # 捕获其他意外错误
+        logger.critical(f"初始化核心LLM客户端过程中发生未预期的严重错误: {e_init_core}", exc_info=True)
+        # 将原始错误包装后重新抛出
+        raise RuntimeError(f"核心LLM客户端初始化因意外错误失败: {e_init_core}") from e_init_core
+
 
     try:
         main_consciousness_llm_client = _create_single_processor_client("main_llm_settings")
