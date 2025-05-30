@@ -126,5 +126,5 @@ class AlcarusRootConfig(ConfigBase):
     core_logic_settings: CoreLogicSettings # 没有默认值，必须提供
     intrusive_thoughts_module_settings: IntrusiveThoughtsSettings # 没有默认值，必须提供
     providers: ProvidersConfig | None = None
-    database: DatabaseSettings | None = None # <--- 修改：添加默认值 None
-    logging: LoggingSettings | None = None # <--- 修改：添加默认值 None
+    database: DatabaseSettings = field(default_factory=DatabaseSettings)
+    logging: LoggingSettings = field(default_factory=LoggingSettings)

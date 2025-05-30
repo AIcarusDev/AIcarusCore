@@ -26,24 +26,32 @@ def connect_to_arangodb(db_config: DatabaseSettings) -> tuple[ArangoClient, Stan
     连接到ArangoDB并返回客户端和数据库对象。
     如果连接失败，则打印错误并引发 RuntimeError。
     """
-    host = os.getenv(db_config.arangodb_host_env_var)
-    user = os.getenv(db_config.arangodb_user_env_var)
-    password = os.getenv(db_config.arangodb_password_env_var)
-    db_name_from_env = os.getenv(db_config.arangodb_database_env_var)
+    host_env_var_name = "ARANGODB_HOST"
+    user_env_var_name = "ARANGODB_USER"
+    password_env_var_name = "ARANGODB_PASSWORD"
+    database_env_var_name = "ARANGODB_DATABASE"
+
+    host = os.getenv(host_env_var_name)
+    user = os.getenv(user_env_var_name)
+    password = os.getenv(password_env_var_name)
+    db_name_from_env = os.getenv(database_env_var_name)
 
     if not all([host, user, password, db_name_from_env]):
+        missing_vars = []
+        if not host: missing_vars.append(host_env_var_name)
+        if not user: missing_vars.append(user_env_var_name)
+        if not password: missing_vars.append(password_env_var_name)
+        if not db_name_from_env: missing_vars.append(database_env_var_name)
+
         message = (
-            f"错误：ArangoDB 连接所需的环境变量 "
-            f"('{db_config.arangodb_host_env_var}', "
-            f"'{db_config.arangodb_user_env_var}', "
-            f"'{db_config.arangodb_password_env_var}', "
-            f"'{db_config.arangodb_database_env_var}') 未完全设置。"
+            f"错误：ArangoDB 连接所需的环境变量未完全设置。缺失: {', '.join(missing_vars)}"
         )
         logger.critical(message)
-        raise ValueError(message)
+        raise ValueError(message) # 改为 ValueError 更合适，因为是配置问题
 
     try:
         client: ArangoClient = ArangoClient(hosts=host)
+        # 确保使用从环境中获取的凭据
         sys_db: StandardDatabase = client.db("_system", username=user, password=password)
 
         if not sys_db.has_database(db_name_from_env):
@@ -52,15 +60,15 @@ def connect_to_arangodb(db_config: DatabaseSettings) -> tuple[ArangoClient, Stan
             logger.info(f"数据库 '{db_name_from_env}' 创建成功。")
 
         db: StandardDatabase = client.db(db_name_from_env, username=user, password=password)
-        db.properties()
+        db.properties() # 验证连接和权限
         logger.info(f"成功连接到 ArangoDB！主机: {host}, 数据库: {db_name_from_env}")
         return client, db
     except (ArangoServerError, ArangoClientError) as e:
         message = f"连接 ArangoDB 时发生错误 (Host: {host}, DB: {db_name_from_env}): {e}"
         logger.critical(message, exc_info=True)
         raise RuntimeError(message) from e
-    except Exception as e:
-        message = f"连接 ArangoDB 时发生未知错误 (Host: {host}, DB: {db_name_from_env}): {e}"
+    except Exception as e: # 捕获其他潜在错误，如权限问题
+        message = f"连接 ArangoDB 时发生未知或权限错误 (Host: {host}, DB: {db_name_from_env}, User: {user}): {e}"
         logger.critical(message, exc_info=True)
         raise RuntimeError(message) from e
 
