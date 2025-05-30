@@ -1,7 +1,5 @@
-# src/config/alcarus_configs.py
 from dataclasses import dataclass, field
-from typing import Any # 用于 ProviderModels
-
+from typing import Any 
 # 导入 ConfigBase
 from .config_base import ConfigBase
 
@@ -121,14 +119,12 @@ class InnerConfig(ConfigBase):
 # --- Root Configuration Class for Alcarus ---
 @dataclass
 class AlcarusRootConfig(ConfigBase):
-    inner: InnerConfig
-    llm_client_settings: LLMClientSettings
-    # 不再有 main_llm_settings, intrusive_llm_settings 等字段
-    # 这些模型的配置现在嵌套在 providers 字段中
-    providers: ProvidersConfig | None = None # 改为可选，以防配置文件中没有providers节
-    database: DatabaseSettings # 保留结构，即使内容为空
-    proxy: ProxySettings
-    core_logic_settings: CoreLogicSettings
-    intrusive_thoughts_module_settings: IntrusiveThoughtsSettings
-    logging: LoggingSettings # 保留结构，即使内容为空
-    persona: PersonaSettings
+    inner: InnerConfig # 没有默认值，必须提供
+    llm_client_settings: LLMClientSettings # 没有默认值，必须提供
+    persona: PersonaSettings # 没有默认值，必须提供
+    proxy: ProxySettings # 没有默认值，必须提供
+    core_logic_settings: CoreLogicSettings # 没有默认值，必须提供
+    intrusive_thoughts_module_settings: IntrusiveThoughtsSettings # 没有默认值，必须提供
+    providers: ProvidersConfig | None = None
+    database: DatabaseSettings | None = None # <--- 修改：添加默认值 None
+    logging: LoggingSettings | None = None # <--- 修改：添加默认值 None
