@@ -1,13 +1,14 @@
 # src/config/alcarus_configs.py
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any # 用于 ProviderModels
 
-# 导入我们刚刚创建的 ConfigBase
-from .config_base import ConfigBase  # 使用相对导入，因为它们在同一个包 (src.config)
+# 导入 ConfigBase
+from .config_base import ConfigBase
 
 
 @dataclass
 class PersonaSettings(ConfigBase):
-    bot_name: str = "霜"  # 可以给一个默认值
+    bot_name: str = "霜"
     description: str = ""
     profile: str = ""
 
@@ -20,73 +21,78 @@ class LLMClientSettings(ConfigBase):
     enable_image_compression: bool = True
     image_compression_target_bytes: int = 1048576
     rate_limit_disable_duration_seconds: int = 1800
-    abandoned_keys_env_var: str | None = None  # 示例，可以设为 None
-
-
-# --- LLM Purpose Definitions ---
-@dataclass
-class LLMPurpose(ConfigBase):
-    provider: str
-    model_key_in_toml: str
+    # abandoned_keys_env_var 已被移除
 
 
 # --- Specific Model Parameters (within a provider) ---
 @dataclass
 class ModelParams(ConfigBase):
+    provider: str # 新增：明确指定此模型配置属于哪个提供商
     model_name: str
-    temperature: float | None = None  # 让温度等参数可选
+    temperature: float | None = None
     max_output_tokens: int | None = None
     top_p: float | None = None
     top_k: int | None = None
+    # 可以根据需要添加其他特定于模型的参数，例如 vision_config 等
 
 
 # --- Provider Configuration ---
 @dataclass
-class ProviderModels(ConfigBase):  # 用于 [providers.gemini.models]
-    main_consciousness: ModelParams | None = None  # 键名应与 toml 中的完全一致
+class ProviderModels(ConfigBase):  # 用于 [providers.<provider_name>.models]
+    # 这些字段名需要与 TOML 中定义的模型用途键名完全一致
+    # 例如：main_consciousness, intrusive_thoughts, action_decision, information_summary
+    # 我们使用 dict[str, ModelParams] 来更灵活地处理不同用途的模型
+    # 或者，如果用途是固定的，可以继续像之前那样显式列出，但类型是 ModelParams
+    main_consciousness: ModelParams | None = None
     intrusive_thoughts: ModelParams | None = None
-    action_decision: ModelParams | None = None  # 之前是 action_decision_model
-    information_summary: ModelParams | None = None  # 之前是 information_summary_model
+    action_decision: ModelParams | None = None
+    information_summary: ModelParams | None = None
     embedding_default: ModelParams | None = None
-    # ... Alcarus 可能需要的其他模型key，例如您在 official_configs.py 中看到的各种模型用途
+    # 如果您希望更动态地处理模型用途，可以使用以下方式：
+    # _dynamic_models: dict[str, ModelParams] = field(default_factory=dict)
+    # 但这需要 ConfigBase.from_dict 支持解析到这种动态字典中，或者在加载后进行额外处理。
+    # 为简单起见，暂时显式列出已知用途。
 
 
 @dataclass
-class ProviderSettings(ConfigBase):
-    api_keys_env_var: str
-    base_url_env_var: str
-    models: ProviderModels  # 嵌套的 ProviderModels
+class ProviderSettings(ConfigBase): # 用于 [providers.<provider_name>]
+    # api_keys_env_var 和 base_url_env_var 已被移除
+    # models 字段现在直接持有 ProviderModels
+    models: ProviderModels | None = None # 改为可选，因为一个provider可能只定义了API而没有具体模型
 
 
 @dataclass
-class ProvidersConfig(ConfigBase):  # 用于 [providers]
+class ProvidersConfig(ConfigBase):  # 用于 [providers] 表
+    # 键名应与 toml 中的提供商名称一致 (例如 "gemini", "openai")
     gemini: ProviderSettings | None = None
     openai: ProviderSettings | None = None
-    # ... 其他提供商
+    # 可以添加其他提供商...
+    # 为了更动态地处理，也可以考虑使用 dict[str, ProviderSettings]
+    # _dynamic_providers: dict[str, ProviderSettings] = field(default_factory=dict)
+    # 同样，为简单起见，暂时显式列出。
 
 
 # --- Database Settings ---
 @dataclass
 class DatabaseSettings(ConfigBase):
-    # mongodb_connection_string_env_var: str # 移除 MongoDB 特定的配置
-    arangodb_host_env_var: str = "ARANGODB_HOST"
-    arangodb_user_env_var: str = "ARANGODB_USER"
-    arangodb_password_env_var: str = "ARANGODB_PASSWORD"
-    arangodb_database_env_var: str = "ARANGODB_DATABASE"
+    # 所有 *_env_var 字段已被移除。
+    # 此数据类现在为空，但保留它作为配置结构的一部分。
+    # 代码将直接从固定名称的环境变量读取数据库连接信息。
+    pass # 表示这是一个空类，但它仍然是一个有效的 dataclass
 
 
 # --- Proxy Settings ---
 @dataclass
 class ProxySettings(ConfigBase):
     use_proxy: bool = False
-    http_proxy_url: str | None = ""  # "" 或 None 都可以作为默认
+    http_proxy_url: str | None = ""
 
 
 # --- Core Logic Settings ---
 @dataclass
 class CoreLogicSettings(ConfigBase):
     thinking_interval_seconds: int = 30
-    time_format_string: str = "%Y年%m月%d日 %H点%M分%S秒"
+    # time_format_string 已被移除
 
 
 # --- Intrusive Thoughts Settings ---
@@ -100,13 +106,10 @@ class IntrusiveThoughtsSettings(ConfigBase):
 # --- Logging Settings ---
 @dataclass
 class LoggingSettings(ConfigBase):
-    app_log_level_env_var: str = "APP_LOG_LEVEL"
-    # default_app_log_level: str = "INFO" # 如果想在toml中硬编码默认值
-    pymongo_log_level_env_var: str = (
-        "PYMONGO_LOG_LEVEL"  # 这个可以保留，或者如果ArangoDB驱动有自己的日志控制，可以相应修改
-    )
-    asyncio_log_level_env_var: str = "ASYNCIO_LOG_LEVEL"
-    llm_client_log_level_env_var: str = "LLM_CLIENT_LOG_LEVEL"
+    # 所有 *_env_var 字段已被移除。
+    # 此数据类现在为空，但保留它作为配置结构的一部分。
+    # 代码将直接从固定名称的环境变量读取日志级别。
+    pass # 表示这是一个空类
 
 
 # --- Inner Version Control ---
@@ -118,16 +121,14 @@ class InnerConfig(ConfigBase):
 # --- Root Configuration Class for Alcarus ---
 @dataclass
 class AlcarusRootConfig(ConfigBase):
-    inner: InnerConfig  # 必须有，且与 toml 中的 [inner] 对应
+    inner: InnerConfig
     llm_client_settings: LLMClientSettings
-    main_llm_settings: LLMPurpose
-    intrusive_llm_settings: LLMPurpose
-    action_llm_settings: LLMPurpose
-    summary_llm_settings: LLMPurpose
-    providers: ProvidersConfig
-    database: DatabaseSettings
+    # 不再有 main_llm_settings, intrusive_llm_settings 等字段
+    # 这些模型的配置现在嵌套在 providers 字段中
+    providers: ProvidersConfig | None = None # 改为可选，以防配置文件中没有providers节
+    database: DatabaseSettings # 保留结构，即使内容为空
     proxy: ProxySettings
     core_logic_settings: CoreLogicSettings
-    intrusive_thoughts_module_settings: IntrusiveThoughtsSettings  # 注意键名与 toml 一致
-    logging: LoggingSettings
+    intrusive_thoughts_module_settings: IntrusiveThoughtsSettings
+    logging: LoggingSettings # 保留结构，即使内容为空
     persona: PersonaSettings

@@ -1,24 +1,20 @@
-import json
+import json # 确保导入
 import logging
 import os
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
-# ArangoDB 相关的导入移至 arangodb_handler
 from arango.database import StandardDatabase
 
-# from arango.exceptions import AQLQueryExecuteError, ArangoServerError, ArangoClientError # 已移走
 from src.config.alcarus_configs import (
     AlcarusRootConfig,
     LLMClientSettings,
-    LLMPurpose,
-    ModelParams,
-    ProviderSettings,
+    # LLMPurpose, # 已移除
+    ModelParams, # 需要
+    # ProviderSettings, # ProviderSettings 现在内容变化了，但我们可能仍会访问它下面的 models
     ProxySettings,
 )
 from src.config.config_manager import get_typed_settings
-
-# --- 新增：导入新的数据库处理器函数 ---
 from src.database import arangodb_handler
 from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.tools.failure_reporter import report_action_failure
@@ -115,51 +111,64 @@ INFORMATION_SUMMARY_PROMPT_TEMPLATE = """你是一个高效的信息处理和摘
 
 
 def _create_llm_client_from_config(
-    settings_purpose_name: str,
+    purpose_key: str, # 例如 "action_decision" 或 "information_summary"
+                      # 不再是 "action_llm_settings", 而是直接的模型用途键名
+    default_provider_name: str, # 例如 "gemini", 作为查找 provider 配置的默认名
     root_cfg: AlcarusRootConfig,
 ) -> ProcessorClient | None:
-    # (此函数逻辑不变)
     try:
-        llm_purpose_cfg = getattr(root_cfg, settings_purpose_name, None)
-        if not isinstance(llm_purpose_cfg, LLMPurpose):
-            logger.error(
-                f"配置错误：在 AlcarusRootConfig 中未找到有效的 LLMPurpose 配置段，或类型不匹配，对应键名: '{settings_purpose_name}'。"
-            )
-            return None
-        provider_name_str: str = llm_purpose_cfg.provider
-        model_key_in_toml_str: str = llm_purpose_cfg.model_key_in_toml
-        if not provider_name_str or not model_key_in_toml_str:
-            logger.error(
-                f"配置错误：LLMPurpose 配置段 '{settings_purpose_name}' 中缺少 'provider' 或 'model_key_in_toml'。"
-            )
-            return None
+        # 1. 从 root_cfg.providers.<default_provider_name>.models.<purpose_key> 获取 ModelParams 对象
+        #    例如 root_cfg.providers.gemini.models.action_decision
         if root_cfg.providers is None:
             logger.error("配置错误：AlcarusRootConfig 中缺少 'providers' 配置段。")
             return None
-        provider_cfg = getattr(root_cfg.providers, provider_name_str.lower(), None)
-        if not isinstance(provider_cfg, ProviderSettings):
+
+        provider_settings = getattr(root_cfg.providers, default_provider_name.lower(), None)
+        if provider_settings is None or provider_settings.models is None:
             logger.error(
-                f"配置错误：在 AlcarusRootConfig.providers 中未找到提供商 '{provider_name_str}' 的有效 ProviderSettings 配置，或类型不匹配。"
+                f"配置错误：在 AlcarusRootConfig.providers 下未找到提供商 '{default_provider_name}' 的有效配置或其 'models' 配置段。"
             )
             return None
-        if provider_cfg.models is None:
-            logger.error(f"配置错误：提供商 '{provider_name_str}' 下缺少 'models' 配置段。")
-            return None
-        model_params_cfg = getattr(provider_cfg.models, model_key_in_toml_str, None)
+
+        model_params_cfg = getattr(provider_settings.models, purpose_key, None)
         if not isinstance(model_params_cfg, ModelParams):
             logger.error(
-                f"配置错误：在提供商 '{provider_name_str}' 的 models 配置下未找到模型键 '{model_key_in_toml_str}' 对应的有效 ModelParams 配置，或类型不匹配。"
+                f"配置错误：在提供商 '{default_provider_name}' 的 models 配置下未找到模型用途键 '{purpose_key}' 对应的有效 ModelParams 配置，或类型不匹配。"
             )
             return None
-        actual_model_name_str = model_params_cfg.model_name
-        if not actual_model_name_str:
-            logger.error(f"配置错误：模型 '{model_key_in_toml_str}' 未指定 'model_name'。")
+
+        # ModelParams 内部现在应该有 provider 字段
+        actual_provider_name_str: str = model_params_cfg.provider 
+        actual_model_name_str: str = model_params_cfg.model_name
+
+        if not actual_provider_name_str or not actual_model_name_str:
+            logger.error(
+                f"配置错误：模型 '{purpose_key}' (提供商: {actual_provider_name_str or '未知'}) 未指定 'provider' 或 'model_name'。"
+            )
             return None
+
+        # 2. 准备 abandoned_keys (直接从固定环境变量名读取)
+        general_llm_settings_obj: LLMClientSettings = root_cfg.llm_client_settings
+        resolved_abandoned_keys: list[str] | None = None
+        env_val_abandoned = os.getenv("LLM_ABANDONED_KEYS") # 固定名称
+        if env_val_abandoned:
+            try:
+                keys_from_env = json.loads(env_val_abandoned)
+                if isinstance(keys_from_env, list):
+                    resolved_abandoned_keys = [str(k).strip() for k in keys_from_env if str(k).strip()]
+            except json.JSONDecodeError:
+                # 如果不是JSON，可以尝试按逗号分隔，或记录警告
+                logger.warning(f"环境变量 'LLM_ABANDONED_KEYS' 的值不是有效的JSON列表，将尝试按逗号分隔。值: {env_val_abandoned[:50]}...")
+                resolved_abandoned_keys = [k.strip() for k in env_val_abandoned.split(",") if k.strip()]
+            if not resolved_abandoned_keys and env_val_abandoned.strip(): # 如果解析后为空但原始值不空
+                 resolved_abandoned_keys = [env_val_abandoned.strip()] # 视为单个key
+
+        # 3. 准备构造 ProcessorClient 的参数
         model_for_client_constructor: dict[str, str] = {
-            "provider": provider_name_str.upper(),
+            "provider": actual_provider_name_str.upper(), # 从 ModelParams 获取
             "name": actual_model_name_str,
         }
-        general_llm_settings_obj: LLMClientSettings = root_cfg.llm_client_settings
+        
         proxy_settings_obj: ProxySettings = root_cfg.proxy
         final_proxy_host: str | None = None
         final_proxy_port: int | None = None
@@ -180,18 +189,7 @@ def _create_llm_client_from_config(
                 )
                 final_proxy_host = None
                 final_proxy_port = None
-        resolved_abandoned_keys: list[str] | None = None
-        if hasattr(general_llm_settings_obj, "abandoned_keys") and general_llm_settings_obj.abandoned_keys is not None:
-            resolved_abandoned_keys = general_llm_settings_obj.abandoned_keys  # type: ignore
-        elif general_llm_settings_obj.abandoned_keys_env_var:
-            env_val = os.getenv(general_llm_settings_obj.abandoned_keys_env_var)
-            if env_val:
-                try:
-                    keys_from_env = json.loads(env_val)
-                    if isinstance(keys_from_env, list):
-                        resolved_abandoned_keys = [str(k).strip() for k in keys_from_env if str(k).strip()]
-                except json.JSONDecodeError:
-                    resolved_abandoned_keys = [k.strip() for k in env_val.split(",") if k.strip()]
+        
         model_specific_kwargs: dict[str, Any] = {}
         if model_params_cfg.temperature is not None:
             model_specific_kwargs["temperature"] = model_params_cfg.temperature
@@ -201,6 +199,7 @@ def _create_llm_client_from_config(
             model_specific_kwargs["top_p"] = model_params_cfg.top_p
         if model_params_cfg.top_k is not None:
             model_specific_kwargs["top_k"] = model_params_cfg.top_k
+
         processor_constructor_args: dict[str, Any] = {
             "model": model_for_client_constructor,
             "image_placeholder_tag": general_llm_settings_obj.image_placeholder_tag,
@@ -210,31 +209,32 @@ def _create_llm_client_from_config(
             "rate_limit_disable_duration_seconds": general_llm_settings_obj.rate_limit_disable_duration_seconds,
             "proxy_host": final_proxy_host,
             "proxy_port": final_proxy_port,
-            "abandoned_keys_config": resolved_abandoned_keys,
+            "abandoned_keys_config": resolved_abandoned_keys, # 传递解析好的列表
             **model_specific_kwargs,
         }
+        
         final_constructor_args = {k: v for k, v in processor_constructor_args.items() if v is not None}
-        client_instance = ProcessorClient(**final_constructor_args)  # type: ignore
+        client_instance = ProcessorClient(**final_constructor_args) # type: ignore
+        
         logger.info(
-            f"成功创建 ProcessorClient 实例用于 '{settings_purpose_name}' "
-            f"(模型: {client_instance.llm_client.model_name}, 提供商: {client_instance.llm_client.provider})."
+            f"成功创建 ProcessorClient 实例用于 '{purpose_key}' (模型: {client_instance.llm_client.model_name}, 提供商: {client_instance.llm_client.provider})."
         )
         return client_instance
+        
     except AttributeError as e_attr:
         logger.error(
-            f"配置访问错误 (AttributeError) 创建LLM客户端 ({settings_purpose_name}) 时: {e_attr}", exc_info=True
+            f"配置访问错误 (AttributeError) 创建LLM客户端 (用途: {purpose_key}) 时: {e_attr}", exc_info=True
         )
         logger.error(
             "这通常意味着 AlcarusRootConfig 的 dataclass 定义与 config.toml 文件结构不匹配，或者某个必需的配置段/字段缺失。"
         )
         return None
     except Exception as e:
-        logger.error(f"创建LLM客户端 ({settings_purpose_name}) 时发生未知错误: {e}", exc_info=True)
+        logger.error(f"创建LLM客户端 (用途: {purpose_key}) 时发生未知错误: {e}", exc_info=True)
         return None
 
 
 async def initialize_llm_clients_for_action_module() -> None:
-    # (此函数逻辑不变)
     global action_llm_client, summary_llm_client
     if action_llm_client and summary_llm_client:
         return
@@ -244,18 +244,24 @@ async def initialize_llm_clients_for_action_module() -> None:
     except Exception as e:
         logger.critical(f"无法加载类型化配置对象: {e}", exc_info=True)
         raise RuntimeError(f"行动模块LLM客户端初始化失败：无法加载类型化配置 - {e}") from e
+    
     action_llm_client = _create_llm_client_from_config(
-        settings_purpose_name="action_llm_settings",
+        purpose_key="action_decision",         # 直接使用模型用途的键名
+        default_provider_name="gemini",      # 指定默认查找的provider
         root_cfg=root_config,
     )
     if not action_llm_client:
+        # 错误已在 _create_llm_client_from_config 中记录，这里直接抛出关键错误
         raise RuntimeError("行动决策LLM客户端初始化失败。请检查日志和配置文件。")
+
     summary_llm_client = _create_llm_client_from_config(
-        settings_purpose_name="summary_llm_settings",
+        purpose_key="information_summary",     # 直接使用模型用途的键名
+        default_provider_name="gemini",      # 指定默认查找的provider
         root_cfg=root_config,
     )
     if not summary_llm_client:
         raise RuntimeError("信息总结LLM客户端初始化失败。请检查日志和配置文件。")
+    
     logger.info("行动处理模块的LLM客户端初始化完成。")
 
 

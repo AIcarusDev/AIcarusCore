@@ -1,22 +1,20 @@
 import asyncio
 import contextlib
 import datetime
-import json
+import json # 确保导入
 import logging
-import os
+import os # 确保导入
 import random
 import re
 import threading
 import uuid
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urlparse
+from urllib.parse import urlparse # 确保导入
 
-from arango import ArangoClient  # Keep for type hint if needed
+from arango import ArangoClient
 from arango.collection import StandardCollection
 from arango.database import StandardDatabase
 
-# ArangoDB 异常已移至 arangodb_handler
-# --- 项目内部模块导入 ---
 from src.action.action_handler import initialize_llm_clients_for_action_module, process_action_flow
 from src.config.alcarus_configs import (
     AlcarusRootConfig,
@@ -24,18 +22,13 @@ from src.config.alcarus_configs import (
     DatabaseSettings,
     IntrusiveThoughtsSettings,
     LLMClientSettings,
-    LLMPurpose,
-    ModelParams,
-    ProviderSettings,
+    ModelParams, 
     ProxySettings,
 )
 from src.config.config_manager import get_typed_settings
-
-# --- 新增：导入新的数据库处理器 ---
 from src.database import arangodb_handler
 from src.llmrequest.llm_processor import Client as ProcessorClient
-
-from . import intrusive_thoughts  # 侵入性思维模块
+from . import intrusive_thoughts
 
 if TYPE_CHECKING:
     pass
@@ -110,7 +103,7 @@ stop_intrusive_thread: threading.Event = threading.Event()
 
 
 def _initialize_core_llm_clients(root_cfg: AlcarusRootConfig) -> None:
-    # (此函数逻辑不变)
+
     global main_consciousness_llm_client, intrusive_thoughts_llm_client
     logger.info("开始初始化核心LLM客户端 (主意识和侵入性思维)...")
     general_llm_settings_obj: LLMClientSettings = root_cfg.llm_client_settings
@@ -131,74 +124,61 @@ def _initialize_core_llm_clients(root_cfg: AlcarusRootConfig) -> None:
         except Exception as e_parse_proxy:
             logger.warning(f"解析代理URL '{proxy_settings_obj.http_proxy_url}' 失败: {e_parse_proxy}。将不使用代理。")
             final_proxy_host, final_proxy_port = None, None
-    resolved_abandoned_keys: list[str] | None = None
-    if hasattr(general_llm_settings_obj, "abandoned_keys") and general_llm_settings_obj.abandoned_keys is not None:
-        if isinstance(general_llm_settings_obj.abandoned_keys, list):
-            resolved_abandoned_keys = [
-                str(k).strip() for k in general_llm_settings_obj.abandoned_keys if str(k).strip()
-            ]
-        else:
-            logger.warning(
-                f"'llm_client_settings.abandoned_keys' 在配置中存在但不是列表类型 (实际类型: {type(general_llm_settings_obj.abandoned_keys).__name__})，将被忽略。"
-            )
-    elif general_llm_settings_obj.abandoned_keys_env_var:
-        env_val = os.getenv(general_llm_settings_obj.abandoned_keys_env_var)
-        if env_val:
-            try:
-                keys_from_env = json.loads(env_val)
-                if isinstance(keys_from_env, list):
-                    resolved_abandoned_keys = [str(k).strip() for k in keys_from_env if str(k).strip()]
-                else:
-                    logger.warning(
-                        f"环境变量 '{general_llm_settings_obj.abandoned_keys_env_var}' 的值不是有效的JSON列表，将尝试按逗号分隔处理。"
-                    )
-                    resolved_abandoned_keys = [k.strip() for k in env_val.split(",") if k.strip()]
-            except json.JSONDecodeError:
-                resolved_abandoned_keys = [k.strip() for k in env_val.split(",") if k.strip()]
 
-    def _create_single_processor_client(purpose_config_key_name: str) -> ProcessorClient | None:
+
+    resolved_abandoned_keys: list[str] | None = None
+    env_val_abandoned = os.getenv("LLM_ABANDONED_KEYS") # 固定名称
+    if env_val_abandoned:
         try:
-            llm_purpose_cfg = getattr(root_cfg, purpose_config_key_name, None)
-            if not isinstance(llm_purpose_cfg, LLMPurpose):
-                logger.error(
-                    f"配置错误：在 AlcarusRootConfig 中未找到有效的 LLMPurpose 配置段，或类型不匹配，对应键名: '{purpose_config_key_name}'。"
-                )
-                return None
-            provider_name_str: str = llm_purpose_cfg.provider
-            model_key_in_toml_str: str = llm_purpose_cfg.model_key_in_toml
-            if not provider_name_str or not model_key_in_toml_str:
-                logger.error(
-                    f"配置错误：LLMPurpose 配置段 '{purpose_config_key_name}' 中缺少 'provider' 或 'model_key_in_toml'。"
-                )
-                return None
+            keys_from_env = json.loads(env_val_abandoned)
+            if isinstance(keys_from_env, list):
+                resolved_abandoned_keys = [str(k).strip() for k in keys_from_env if str(k).strip()]
+        except json.JSONDecodeError:
+            logger.warning(f"环境变量 'LLM_ABANDONED_KEYS' 的值不是有效的JSON列表，将尝试按逗号分隔。值: {env_val_abandoned[:50]}...")
+            resolved_abandoned_keys = [k.strip() for k in env_val_abandoned.split(",") if k.strip()]
+        if not resolved_abandoned_keys and env_val_abandoned.strip():
+             resolved_abandoned_keys = [env_val_abandoned.strip()]
+
+
+    def _create_single_processor_client(
+        purpose_key: str, # 例如 "main_consciousness" 或 "intrusive_thoughts"
+        default_provider_name: str, # 例如 "gemini"
+    ) -> ProcessorClient | None:
+        try:
+            # 1. 获取 ModelParams 对象
             if root_cfg.providers is None:
                 logger.error("配置错误：AlcarusRootConfig 中缺少 'providers' 配置段。")
                 return None
-            provider_cfg = getattr(root_cfg.providers, provider_name_str.lower(), None)
-            if not isinstance(provider_cfg, ProviderSettings):
+
+            provider_settings = getattr(root_cfg.providers, default_provider_name.lower(), None)
+            if provider_settings is None or provider_settings.models is None:
                 logger.error(
-                    f"配置错误：在 AlcarusRootConfig.providers 中未找到提供商 '{provider_name_str}' 的有效 ProviderSettings 配置，或类型不匹配。"
+                    f"配置错误：在 AlcarusRootConfig.providers 下未找到提供商 '{default_provider_name}' 的有效配置或其 'models' 配置段。"
                 )
                 return None
-            if provider_cfg.models is None:
-                logger.error(f"配置错误：提供商 '{provider_name_str}' 下缺少 'models' 配置段。")
-                return None
-            model_params_cfg = getattr(provider_cfg.models, model_key_in_toml_str, None)
+
+            model_params_cfg = getattr(provider_settings.models, purpose_key, None)
             if not isinstance(model_params_cfg, ModelParams):
                 logger.error(
-                    f"配置错误：在提供商 '{provider_name_str}' 的 models 配置下未找到模型键 '{model_key_in_toml_str}' 对应的有效 ModelParams 配置，或类型不匹配。"
+                    f"配置错误：在提供商 '{default_provider_name}' 的 models 配置下未找到模型用途键 '{purpose_key}' 对应的有效 ModelParams 配置，或类型不匹配。"
                 )
                 return None
-            actual_model_api_name = model_params_cfg.model_name
-            if not actual_model_api_name:
+
+            actual_provider_name_str: str = model_params_cfg.provider
+            actual_model_api_name: str = model_params_cfg.model_name
+
+            if not actual_provider_name_str or not actual_model_api_name:
                 logger.error(
-                    f"配置错误：模型 '{model_key_in_toml_str}' (用途: {purpose_config_key_name}) 未指定 'model_name'。"
+                    f"配置错误：模型 '{purpose_key}' (提供商: {actual_provider_name_str or '未知'}) 未指定 'provider' 或 'model_name'。"
                 )
                 return None
+            
+            # 2. 准备构造函数参数
             model_for_client_constructor: dict[str, str] = {
-                "provider": provider_name_str.upper(),
+                "provider": actual_provider_name_str.upper(),
                 "name": actual_model_api_name,
             }
+            
             model_specific_kwargs: dict[str, Any] = {}
             if model_params_cfg.temperature is not None:
                 model_specific_kwargs["temperature"] = model_params_cfg.temperature
@@ -208,6 +188,7 @@ def _initialize_core_llm_clients(root_cfg: AlcarusRootConfig) -> None:
                 model_specific_kwargs["top_p"] = model_params_cfg.top_p
             if model_params_cfg.top_k is not None:
                 model_specific_kwargs["top_k"] = model_params_cfg.top_k
+            
             processor_constructor_args: dict[str, Any] = {
                 "model": model_for_client_constructor,
                 "image_placeholder_tag": general_llm_settings_obj.image_placeholder_tag,
@@ -215,21 +196,24 @@ def _initialize_core_llm_clients(root_cfg: AlcarusRootConfig) -> None:
                 "enable_image_compression": general_llm_settings_obj.enable_image_compression,
                 "image_compression_target_bytes": general_llm_settings_obj.image_compression_target_bytes,
                 "rate_limit_disable_duration_seconds": general_llm_settings_obj.rate_limit_disable_duration_seconds,
-                "proxy_host": final_proxy_host,
-                "proxy_port": final_proxy_port,
-                "abandoned_keys_config": resolved_abandoned_keys,
+                "proxy_host": final_proxy_host, # 使用外层函数准备好的代理信息
+                "proxy_port": final_proxy_port, # 使用外层函数准备好的代理信息
+                "abandoned_keys_config": resolved_abandoned_keys, # 使用外层函数准备好的废弃密钥列表
                 **model_specific_kwargs,
             }
+            
             final_constructor_args = {k: v for k, v in processor_constructor_args.items() if v is not None}
-            client_instance = ProcessorClient(**final_constructor_args)  # type: ignore
+            client_instance = ProcessorClient(**final_constructor_args) # type: ignore
+            
             logger.info(
-                f"成功为用途 '{purpose_config_key_name}' 创建 ProcessorClient 实例 "
+                f"成功为用途 '{purpose_key}' 创建 ProcessorClient 实例 "
                 f"(模型: {client_instance.llm_client.model_name}, 提供商: {client_instance.llm_client.provider})."
             )
             return client_instance
+            
         except AttributeError as e_attr:
             logger.error(
-                f"配置访问错误 (AttributeError) 为用途 '{purpose_config_key_name}' 创建LLM客户端时: {e_attr}",
+                f"配置访问错误 (AttributeError) 为用途 '{purpose_key}' 创建LLM客户端时: {e_attr}",
                 exc_info=True,
             )
             logger.error(
@@ -237,8 +221,30 @@ def _initialize_core_llm_clients(root_cfg: AlcarusRootConfig) -> None:
             )
             return None
         except Exception as e:
-            logger.error(f"为用途 '{purpose_config_key_name}' 创建LLM客户端时发生未知错误: {e}", exc_info=True)
+            logger.error(f"为用途 '{purpose_key}' 创建LLM客户端时发生未知错误: {e}", exc_info=True)
             return None
+
+    try:
+        # 假设这些客户端默认使用 "gemini" 提供商
+        main_consciousness_llm_client = _create_single_processor_client(
+            purpose_key="main_consciousness",
+            default_provider_name="gemini"
+        )
+        if not main_consciousness_llm_client:
+            raise RuntimeError("主意识 LLM 客户端初始化失败。")
+            
+        intrusive_thoughts_llm_client = _create_single_processor_client(
+            purpose_key="intrusive_thoughts",
+            default_provider_name="gemini"
+        )
+        if not intrusive_thoughts_llm_client:
+            raise RuntimeError("侵入性思维 LLM 客户端初始化失败。")
+            
+        logger.info("核心LLM客户端 (主意识和侵入性思维) 已成功初始化。")
+        
+    except Exception as e_init_core:
+        logger.critical(f"初始化核心LLM客户端过程中发生严重错误: {e_init_core}", exc_info=True)
+        raise RuntimeError(f"核心LLM客户端初始化失败: {e_init_core}") from e_init_core
 
     try:
         main_consciousness_llm_client = _create_single_processor_client("main_llm_settings")
@@ -530,7 +536,7 @@ async def start_consciousness_flow() -> None:
     else:
         logger.info("侵入性思维模块在配置文件中未启用。")
 
-    if main_thoughts_collection_instance is None or arango_db_instance is None:
+    if main_thoughts_collection_instance is None or arango_db_instance is None: # 确保检查的是实例
         logger.critical("严重错误：主 ArangoDB 数据库或集合未能初始化，无法开始意识流。")
         return
 
@@ -540,15 +546,19 @@ async def start_consciousness_flow() -> None:
     current_internal_state, action_id_whose_result_was_loaded = _process_db_document_to_state(latest_doc_from_db)
 
     core_logic_cfg: CoreLogicSettings = root_cfg.core_logic_settings
-    time_format_str: str = core_logic_cfg.time_format_string
+    # time_format_str: str = core_logic_cfg.time_format_string # 这一行被移除
     thinking_interval_sec: int = core_logic_cfg.thinking_interval_seconds
 
+    # --- 硬编码的时间格式化字符串 ---
+    TIME_FORMAT_HARDCODED: str = "%Y年%m月%d日 %H点%M分%S秒"
+    # ---------------------------------
     logger.info("\n--- 霜的意识开始流动 (使用 ArangoDB) ---")
+
     try:
         loop_count: int = 0
-        while not stop_intrusive_thread.is_set():
+        while not stop_intrusive_thread.is_set(): # 确保使用的是 stop_intrusive_thread
             loop_count += 1
-            current_time_formatted_str = datetime.datetime.now().strftime(time_format_str)
+            current_time_formatted_str = datetime.datetime.now().strftime(TIME_FORMAT_HARDCODED) # <--- 使用硬编码的格式
             background_action_tasks: set[asyncio.Task] = set()
             task_desc_for_prompt = current_internal_state.get("current_task", "")
             current_internal_state["current_task_info_for_prompt"] = (
