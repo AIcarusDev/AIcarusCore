@@ -1,0 +1,6 @@
+pymongo
+toml
+python-dotenv
+aiohttp
+Pillow
+duckduckgo_search

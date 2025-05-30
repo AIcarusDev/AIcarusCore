@@ -1,0 +1,63 @@
+name: Ruff
+
+# 工作流触发条件
+on:
+  push:
+    branches: [ main, dev ] # 推送到 main 或 master 分支时触发
+  pull_request:
+    branches: [ main, dev ] # 向 main 或 master 分支发起 Pull Request 时触发
+
+# 作业（Jobs）
+jobs:
+  # 作业 ID，可以自定义
+  auto-fix-and-commit:
+    # 作业名称，显示在 GitHub Actions 界面
+    name: 使用 Ruff 自动修复、格式化并提交 Python 代码
+    # 运行环境，使用最新的 Ubuntu
+    runs-on: ubuntu-latest
+
+    # 为 GITHUB_TOKEN 授予权限，允许工作流将提交推送回仓库
+    permissions:
+      contents: write # 需要此权限来写入（推送）提交
+
+    # 步骤（Steps）
+    steps:
+      # 第 1 步：检出代码
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          # 对于 Pull Request，需要检出 PR 的头部引用（即源分支）才能提交更改到该分支
+          ref: ${{ github.head_ref }} # 如果是 PR 事件，则检出 PR 的分支
+
+      # 第 2 步：设置 Python 3.12 环境
+      - name: 设置 Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12' # 明确指定 Python 3.12
+          cache: 'pip'          # 缓存 pip 依赖，加快后续构建
+
+      # 第 3 步：安装 Ruff
+      - name: 安装 Ruff
+        run: pip install ruff
+
+      # 第 4 步：使用 Ruff 格式化代码
+      - name: 使用 Ruff 格式化代码
+        run: ruff format . # 直接应用格式化更改，不带 --check
+
+      # 第 5 步：使用 Ruff 检查并修复代码问题
+      - name: 使用 Ruff 检查并修复代码
+        run: ruff check . --fix # 直接应用可自动修复的 lint 问题
+
+      # 第 6 步：提交并推送更改
+      - name: 提交并推送更改
+        uses: stefanzweifel/git-auto-commit-action@v5 # 使用社区提供的 Action 来自动提交
+        with:
+          commit_message: "style: Ruff 自动应用代码修复与格式化 ✨" # 自动提交的提交信息
+          # 这个 Action 会自动检测是否有文件更改，只有在有更改时才会提交。
+          # 它默认使用 GitHub Actions 机器人作为提交者。
+          # 对于 Pull Request，它会提交到 PR 的源分支。
+          # 对于直接推送，它会提交到被推送的分支。
+          branch: ${{ github.head_ref || github.ref_name }} # 确保提交到正确的分支 (PR 分支或直接推送的分支)
+          # 可选：配置提交者名称和邮箱
+          # commit_user_name: GitHub Actions
+          # commit_user_email: actions@github.com
