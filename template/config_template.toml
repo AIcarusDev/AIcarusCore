@@ -5,7 +5,7 @@
 
 # 内部配置，用于版本控制
 [inner]
-version = "0.0.2" # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
+version = "0.0.3" # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
 
 # 通用 LLM 客户端设置 (应用于所有 LLM 实例)
 [llm_client_settings]
