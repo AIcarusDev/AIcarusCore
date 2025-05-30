@@ -249,20 +249,6 @@ def _initialize_core_llm_clients(root_cfg: AlcarusRootConfig) -> None:
         # 将原始错误包装后重新抛出
         raise RuntimeError(f"核心LLM客户端初始化因意外错误失败: {e_init_core}") from e_init_core
 
-
-    try:
-        main_consciousness_llm_client = _create_single_processor_client("main_llm_settings")
-        if not main_consciousness_llm_client:
-            raise RuntimeError("主意识 LLM 客户端初始化失败。")
-        intrusive_thoughts_llm_client = _create_single_processor_client("intrusive_llm_settings")
-        if not intrusive_thoughts_llm_client:
-            raise RuntimeError("侵入性思维 LLM 客户端初始化失败。")
-        logger.info("核心LLM客户端 (主意识和侵入性思维) 已成功初始化。")
-    except Exception as e_init_core:
-        logger.critical(f"初始化核心LLM客户端过程中发生严重错误: {e_init_core}", exc_info=True)
-        raise RuntimeError(f"核心LLM客户端初始化失败: {e_init_core}") from e_init_core
-
-
 def _process_db_document_to_state(latest_document: dict[str, Any] | None) -> tuple[dict[str, Any], str | None]:
     """
     将从数据库获取的原始文档处理成用于Prompt的状态字典。
