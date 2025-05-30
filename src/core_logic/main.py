@@ -86,13 +86,13 @@ PROMPT_TEMPLATE: str = """当前时间：{current_time}
 
 严格以json字段输出：
 {{
-    "think": "string",
-    "emotion": "string",
-    "to_do": "string",
-    "done": "boolean",
-    "action_to_take": "string",
-    "action_motivation": "string",
-    "next_think": "string"
+    "think": "string", // 思考内容文本，注意不要过于冗长
+    "emotion": "string", // 当前心情和造成这个心情的原因
+    "to_do": "string", // 【可选】如果你当前有明确的目标或任务（例如写论文、研究某个问题），请在此处写下或更新该目标。如果没有特定目标，则留空字符串 ""。即使当前已有目标，你也可以根据思考结果在这里更新它。
+    "done": "boolean",  // 【可选】仅当目标时此字段才有意义。如果该目标已完成、不再需要或你决定放弃，则设为 true，程序后续会清空该目标；如果目标未完成且需要继续，则设为 false。如果 "to_do" 为空字符串或代表无目标，此字段可设为 false 或省略。
+    "action_to_take": "string", // 【可选】描述你当前最想做的、需要与外界交互的具体动作。如果无，则为空字符串。
+    "action_motivation": "string", // 【可选】如果你有想做的动作，请说明其动机。如果 "action_to_take" 为空，此字段也应为空。
+    "next_think": "string"// 下一步打算思考的方向
 }}
 
 请输出你的思考 JSON：
