@@ -1,5 +1,5 @@
 import json # 确保导入
-import logging
+from src.common.custom_logging.logger_manager import get_logger
 import os
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
@@ -9,9 +9,7 @@ from arango.database import StandardDatabase
 from src.config.alcarus_configs import (
     AlcarusRootConfig,
     LLMClientSettings,
-    # LLMPurpose, # 已移除
     ModelParams, # 需要
-    # ProviderSettings, # ProviderSettings 现在内容变化了，但我们可能仍会访问它下面的 models
     ProxySettings,
 )
 from src.config.config_manager import get_typed_settings
@@ -23,7 +21,7 @@ from src.tools.web_searcher import search_web
 if TYPE_CHECKING:
     pass
 
-logger = logging.getLogger(__name__)
+logger = get_logger("AIcarusCore.action_handler")
 action_llm_client: ProcessorClient | None = None
 summary_llm_client: ProcessorClient | None = None
 

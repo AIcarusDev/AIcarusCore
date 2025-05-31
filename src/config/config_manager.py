@@ -4,12 +4,15 @@ import sys
 from datetime import datetime  # 用于生成时间戳
 from pathlib import Path  # 用于面向对象的路径操作
 from typing import Any  # 类型提示
+from src.common.custom_logging.logger_manager import get_logger
 
 import tomlkit  # 用于处理 TOML 文件，保留注释和格式
 from dotenv import load_dotenv  # 用于加载 .env 文件
 
 # 从同级目录的 alcarus_configs.py 导入类型化的配置根类
 from .alcarus_configs import AlcarusRootConfig
+
+logger = get_logger("AIcarusCore.config_manager")
 
 # --- 全局模块级变量 ---
 
@@ -44,13 +47,13 @@ def _prompt_user_and_exit(message: str) -> None:
     向用户显示重要提示信息，并正常退出程序。
     用于在配置文件首次创建或更新后，引导用户检查配置。
     """
-    print("-" * 70)  # 使用更宽的分隔线
-    print("重要提示:")
-    print(message)
-    print(f"请检查并根据需要修改位于 '{RUNTIME_CONFIG_DIR / ACTUAL_CONFIG_FILENAME}' 的配置文件。")
-    print("特别是涉及到 API 密钥等敏感信息的配置项，它们通常需要您在 .env 文件中正确设置对应的环境变量。")
-    print("完成配置后，请重新运行程序。")
-    print("-" * 70)
+    logger.info("-" * 70)  # 使用更宽的分隔线
+    logger.info("重要提示:")
+    logger.info(message)
+    logger.info(f"请检查并根据需要修改位于 '{RUNTIME_CONFIG_DIR / ACTUAL_CONFIG_FILENAME}' 的配置文件。")
+    logger.info("特别是涉及到 API 密钥等敏感信息的配置项，它们通常需要您在 .env 文件中正确设置对应的环境变量。")
+    logger.info("完成配置后，请重新运行程序。")
+    logger.info("-" * 70)
     sys.exit(0)  # 正常退出程序，返回码 0
 
 
@@ -93,10 +96,10 @@ class ConfigIOHandler:
             with open(file_path, encoding="utf-8") as f:
                 return tomlkit.load(f)
         except tomlkit.exceptions.TOMLKitError as e:
-            print(f"错误：解析 TOML 文件 '{file_path}' 失败：{e}")
+            logger.info(f"错误：解析 TOML 文件 '{file_path}' 失败：{e}")
             return None  # 返回 None 表示加载或解析失败
         except Exception as e:
-            print(f"错误：读取文件 '{file_path}' 时发生未知错误：{e}")
+            logger.info(f"错误：读取文件 '{file_path}' 时发生未知错误：{e}")
             return None
 
     def save_toml_file(self, file_path: Path, data: tomlkit.TOMLDocument) -> bool:
@@ -106,36 +109,36 @@ class ConfigIOHandler:
                 tomlkit.dump(data, f)
             return True
         except Exception as e:
-            print(f"错误：保存 TOML 文件 '{file_path}' 失败：{e}")
+            logger.info(f"错误：保存 TOML 文件 '{file_path}' 失败：{e}")
             return False
 
     def copy_template_to_runtime(self) -> bool:
         """从模板复制配置文件到运行时位置。"""
         if not self.template_exists():
-            print(f"错误：模板文件 '{self.template_path}' 不存在，无法复制。")
+            logger.info(f"错误：模板文件 '{self.template_path}' 不存在，无法复制。")
             return False
         try:
             shutil.copy2(self.template_path, self.runtime_path)
-            print(f"已从模板 '{self.template_path}' 复制到运行时位置 '{self.runtime_path}'。")
+            logger.info(f"已从模板 '{self.template_path}' 复制到运行时位置 '{self.runtime_path}'。")
             return True
         except Exception as e:
-            print(f"错误：复制模板文件失败：{e}")
+            logger.info(f"错误：复制模板文件失败：{e}")
             return False
 
     def backup_runtime_config(self, prefix: str = "") -> Path | None:
         """备份当前的运行时配置文件到备份目录，文件名包含时间戳和可选前缀。"""
         if not self.runtime_config_exists():
-            print(f"信息：运行时配置文件 '{self.runtime_path}' 不存在，无需备份。")
+            logger.info(f"信息：运行时配置文件 '{self.runtime_path}' 不存在，无需备份。")
             return None
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_filename = f"{prefix}{self.runtime_filename}_{timestamp}.toml"
         backup_file_path = self.backup_dir / backup_filename
         try:
             shutil.move(self.runtime_path, backup_file_path)
-            print(f"已备份运行时配置文件 '{self.runtime_path}' 到 '{backup_file_path}'。")
+            logger.info(f"已备份运行时配置文件 '{self.runtime_path}' 到 '{backup_file_path}'。")
             return backup_file_path
         except Exception as e:
-            print(f"错误：备份运行时配置文件失败：{e}")
+            logger.info(f"错误：备份运行时配置文件失败：{e}")
             return None
 
 
@@ -161,7 +164,7 @@ def _merge_configs_recursive(
                 and "version" in target_config["inner"]
             ):  # type: ignore
                 # 打印版本信息，但版本号最终由新模板决定
-                print(
+                logger.info(
                     f"  信息：保留新配置的版本号: {target_config['inner']['version']} (旧配置版本是: {old_value['version']})"
                 )  # type: ignore
             continue  # 跳过 'inner' 表的进一步合并
@@ -188,15 +191,15 @@ def _merge_configs_recursive(
                     else:
                         # 对于其他简单类型 (包括None)，直接用tomlkit.item处理
                         target_config[key] = tomlkit.item(old_value)
-                    # print(f"  合并值: [{key}] = {str(old_value)[:50]}{'...' if len(str(old_value)) > 50 else ''}") # 日志可以按需开启
+                    # logger.info(f"  合并值: [{key}] = {str(old_value)[:50]}{'...' if len(str(old_value)) > 50 else ''}") # 日志可以按需开启
                 except Exception as e:
-                    print(f"  警告：合并键 '{key}' 的值 '{str(old_value)[:50]}' 时发生错误: {e}。将保留模板中的值。")
+                    logger.info(f"  警告：合并键 '{key}' 的值 '{str(old_value)[:50]}' 时发生错误: {e}。将保留模板中的值。")
             else:
                 # 类型不匹配 (例如，旧的是简单值，新的是表)，通常保留新模板的结构和值
-                print(f"  信息：键 '{key}' 在新旧配置中类型不匹配，将保留新模板的结构/值。")
+                logger.info(f"  信息：键 '{key}' 在新旧配置中类型不匹配，将保留新模板的结构/值。")
         else:
             # 如果旧配置中的键在新模板中不存在，说明该配置项可能已被废弃，忽略它
-            print(f"  信息：旧配置中的键 '{key}' 在新模板中不存在，已忽略。")
+            logger.info(f"  信息：旧配置中的键 '{key}' 在新模板中不存在，已忽略。")
 
 
 def _substitute_env_vars_recursive(
@@ -240,9 +243,9 @@ def _substitute_env_vars_recursive(
                                 else:
                                     processed_value = env_value  # 其他情况保持为原始字符串
                     config_node[key] = processed_value  # 使用处理后的值替换占位符
-                    # print(f"  配置值 '{key}' 从环境变量 '{env_var_name}' 加载。") # 日志可以按需开启
+                    # logger.info(f"  配置值 '{key}' 从环境变量 '{env_var_name}' 加载。") # 日志可以按需开启
                 else:
-                    print(
+                    logger.info(
                         f"  警告：配置请求环境变量 '{env_var_name}' (用于键 '{key}'), 但该变量未在环境中设置。将使用原始占位符值 '{value}'。"
                     )
             elif isinstance(value, dict | tomlkit.items.Table | list | tomlkit.items.Array):
@@ -269,9 +272,9 @@ def _substitute_env_vars_recursive(
                             except ValueError:
                                 processed_value = env_value
                     config_node[i] = processed_value  # type: ignore # 更新列表中的元素
-                    # print(f"  配置列表元素从环境变量 '{env_var_name}' 加载。")
+                    # logger.info(f"  配置列表元素从环境变量 '{env_var_name}' 加载。")
                 else:
-                    print(f"  警告：配置列表中的元素请求环境变量 '{env_var_name}', 但该变量未设置。将保留原始占位符。")
+                    logger.info(f"  警告：配置列表中的元素请求环境变量 '{env_var_name}', 但该变量未设置。将保留原始占位符。")
             elif isinstance(item, dict | tomlkit.items.Table | list | tomlkit.items.Array):
                 # 如果列表项是嵌套的字典/表或列表/数组，则递归处理
                 _substitute_env_vars_recursive(item)
@@ -289,7 +292,7 @@ def _perform_config_update_check(io_handler: ConfigIOHandler) -> bool:
     if _config_checked_this_session:  # 如果本会话已检查过
         return False  # 则不再执行更新逻辑，直接返回False
 
-    print("开始检查和更新配置文件...")
+    logger.info("开始检查和更新配置文件...")
     _config_checked_this_session = True  # 标记本会话已执行过检查
 
     config_was_created_or_updated: bool = False  # 初始化标志
@@ -298,36 +301,36 @@ def _perform_config_update_check(io_handler: ConfigIOHandler) -> bool:
     if not io_handler.template_exists():
         # 这是严重错误，没有模板无法进行任何操作
         message = f"配置文件模板 '{io_handler.template_path}' 未找到！程序无法继续。"
-        print(f"错误：{message}")
+        logger.info(f"错误：{message}")
         # 不直接调用 _prompt_user_and_exit，因为这更像是一个部署/开发环境问题
         raise FileNotFoundError(message)
 
     # 2. 处理运行时配置文件不存在或损坏的情况
     if not io_handler.runtime_config_exists():
-        print(f"运行时配置文件 '{io_handler.runtime_path}' 不存在，将从模板创建。")
+        logger.info(f"运行时配置文件 '{io_handler.runtime_path}' 不存在，将从模板创建。")
         if io_handler.copy_template_to_runtime():
             config_was_created_or_updated = True  # 标记为新创建
-            print("已成功创建新的运行时配置文件。")
+            logger.info("已成功创建新的运行时配置文件。")
         else:
             # 如果复制失败，这是严重问题
             message = f"从模板创建运行时配置文件 '{io_handler.runtime_path}' 失败！请检查权限和路径。"
-            print(f"严重错误：{message}")
+            logger.info(f"严重错误：{message}")
             _prompt_user_and_exit(message)  # 提示用户并退出
         return config_was_created_or_updated  # 返回 True，因为需要用户检查
 
     # 运行时配置文件存在，加载它
-    print(f"发现现有运行时配置文件: '{io_handler.runtime_path}'")
+    logger.info(f"发现现有运行时配置文件: '{io_handler.runtime_path}'")
     actual_config = io_handler.load_toml_file(io_handler.runtime_path)
 
     if actual_config is None:  # 配置文件存在但无法加载 (损坏)
-        print(f"错误：无法解析现有的运行时配置文件 '{io_handler.runtime_path}'。它可能已损坏。")
+        logger.info(f"错误：无法解析现有的运行时配置文件 '{io_handler.runtime_path}'。它可能已损坏。")
         io_handler.backup_runtime_config(prefix="broken_")  # 备份损坏的配置
         if io_handler.copy_template_to_runtime():  # 从模板重新创建
             config_was_created_or_updated = True  # 标记为已更新 (通过重新创建)
-            print("已从模板重新创建配置文件。您可能需要从备份中恢复您的旧设置。")
+            logger.info("已从模板重新创建配置文件。您可能需要从备份中恢复您的旧设置。")
         else:
             message = f"从模板重新创建损坏的配置文件 '{io_handler.runtime_path}' 失败！"
-            print(f"严重错误：{message}")
+            logger.info(f"严重错误：{message}")
             _prompt_user_and_exit(message)
         return config_was_created_or_updated  # 返回 True
 
@@ -335,7 +338,7 @@ def _perform_config_update_check(io_handler: ConfigIOHandler) -> bool:
     template_config = io_handler.load_toml_file(io_handler.template_path)
     if template_config is None:  # 模板文件此时应该存在且可读，如果不是，则是严重问题
         message = f"无法加载模板配置文件 '{io_handler.template_path}' 进行版本比较！"
-        print(f"严重错误：{message}")
+        logger.info(f"严重错误：{message}")
         raise RuntimeError(message)  # 抛出运行时错误
 
     # 获取版本号
@@ -344,12 +347,12 @@ def _perform_config_update_check(io_handler: ConfigIOHandler) -> bool:
 
     # 4. 版本比较和更新处理
     if actual_runtime_version == current_template_version:
-        print(
+        logger.info(
             f"运行时配置文件版本 (v{actual_runtime_version}) 与模板版本 (v{current_template_version}) 相同，无需更新。"
         )
         return False  # 版本相同，未发生更新
 
-    print(f"运行时配置文件版本 (v{actual_runtime_version}) 与模板版本 (v{current_template_version}) 不同。需要更新...")
+    logger.info(f"运行时配置文件版本 (v{actual_runtime_version}) 与模板版本 (v{current_template_version}) 不同。需要更新...")
 
     # 备份当前运行时配置
     if io_handler.backup_runtime_config(prefix="pre_update_"):
@@ -358,20 +361,20 @@ def _perform_config_update_check(io_handler: ConfigIOHandler) -> bool:
             # 加载这个新的基础配置 (即当前模板的内容)
             new_config_base = io_handler.load_toml_file(io_handler.runtime_path)
             if new_config_base:
-                print("开始将旧配置值合并到新模板结构中...")
+                logger.info("开始将旧配置值合并到新模板结构中...")
                 _merge_configs_recursive(new_config_base, actual_config)  # actual_config 是旧的、已加载的配置内容
                 if io_handler.save_toml_file(io_handler.runtime_path, new_config_base):
-                    print(f"配置文件已成功更新并合并旧值: '{io_handler.runtime_path}'")
+                    logger.info(f"配置文件已成功更新并合并旧值: '{io_handler.runtime_path}'")
                     config_was_created_or_updated = True  # 标记为已更新
                 else:
-                    print(f"严重错误：保存合并后的配置文件 '{io_handler.runtime_path}' 失败！程序可能无法按预期运行。")
+                    logger.info(f"严重错误：保存合并后的配置文件 '{io_handler.runtime_path}' 失败！程序可能无法按预期运行。")
                     # 此时可以考虑是否要恢复备份，或者提示用户手动处理
             else:
-                print(f"严重错误：无法加载新复制的模板文件 '{io_handler.runtime_path}' 进行合并！")
+                logger.info(f"严重错误：无法加载新复制的模板文件 '{io_handler.runtime_path}' 进行合并！")
         else:
-            print("严重错误：从模板复制新的配置文件基础失败！无法完成更新。")
+            logger.info("严重错误：从模板复制新的配置文件基础失败！无法完成更新。")
     else:
-        print("严重错误：备份旧的运行时配置文件失败！无法安全地进行更新。")
+        logger.info("严重错误：备份旧的运行时配置文件失败！无法安全地进行更新。")
 
     return config_was_created_or_updated
 
@@ -395,11 +398,11 @@ def load_settings() -> dict[str, Any]:
     dotenv_path = PROJECT_ROOT / ".env"
     if dotenv_path.exists():
         if load_dotenv(dotenv_path=dotenv_path, override=True, verbose=True):
-            print(f".env 文件已成功加载: '{dotenv_path}'")
+            logger.info(f".env 文件已成功加载: '{dotenv_path}'")
         else:
-            print(f"信息：从 '{dotenv_path}' 未加载任何新的环境变量 (可能为空或所有变量已存在)。")
+            logger.info(f"信息：从 '{dotenv_path}' 未加载任何新的环境变量 (可能为空或所有变量已存在)。")
     else:
-        print(f"警告：.env 文件未在 '{dotenv_path}' 找到。某些配置可能依赖于此文件中的环境变量。")
+        logger.info(f"警告：.env 文件未在 '{dotenv_path}' 找到。某些配置可能依赖于此文件中的环境变量。")
 
     # 2. 初始化 IO 处理器并执行配置更新检查
     io_handler = ConfigIOHandler(
@@ -435,16 +438,16 @@ def load_settings() -> dict[str, Any]:
     if final_config_data is None:
         # 如果到这里配置文件仍然无法加载，说明存在严重问题
         message = f"最终的运行时配置文件 '{io_handler.runtime_path}' 未找到或无法解析！请检查之前的错误信息。"
-        print(f"严重错误：{message}")
+        logger.info(f"严重错误：{message}")
         _prompt_user_and_exit(message)  # 提示用户并退出
         return {}  # 理论上不会执行到这里，因为 _prompt_user_and_exit 会退出
 
-    print(f"已成功加载运行时配置文件: '{io_handler.runtime_path}'")
+    logger.info(f"已成功加载运行时配置文件: '{io_handler.runtime_path}'")
 
     # 5. 替换配置中的环境变量占位符
-    print("开始替换配置文件中的环境变量占位符...")
+    logger.info("开始替换配置文件中的环境变量占位符...")
     _substitute_env_vars_recursive(final_config_data)  # type: ignore
-    print("环境变量占位符替换完成。")
+    logger.info("环境变量占位符替换完成。")
 
     _loaded_settings_dict = final_config_data  # 缓存加载的字典
     return _loaded_settings_dict
@@ -479,22 +482,22 @@ def get_typed_settings() -> AlcarusRootConfig:
         # 使用 AlcarusRootConfig.from_dict 方法将字典转换为类型化对象
         typed_config = AlcarusRootConfig.from_dict(config_dict)
         _loaded_typed_settings = typed_config  # 缓存类型化对象
-        print("配置已成功加载并转换为类型化对象 AlcarusRootConfig。")
+        logger.info("配置已成功加载并转换为类型化对象 AlcarusRootConfig。")
         return typed_config
     except Exception as e:
         # 捕获在类型转换过程中发生的任何错误 (例如字段缺失、类型不匹配等)
-        print(f"严重错误：将配置字典转换为 AlcarusRootConfig 类型化对象失败: {e}")
-        print(
+        logger.info(f"严重错误：将配置字典转换为 AlcarusRootConfig 类型化对象失败: {e}")
+        logger.info(
             "这通常意味着 'config/config.toml' 文件的结构或数据类型与 'src/config/alcarus_configs.py' 中的 dataclass 定义不匹配。"
         )
-        print("请仔细检查以下几点：")
-        print("  1. TOML 文件中的所有键名是否与 dataclass 中的字段名完全一致（包括大小写）。")
-        print("  2. 嵌套结构是否匹配（例如，TOML 中的表是否对应 dataclass 中的嵌套 dataclass）。")
-        print("  3. 数据类型是否兼容（例如，期望整数的地方是否是字符串）。")
-        print("  4. 是否所有在 dataclass 中没有默认值的必需字段都在 TOML 文件中提供了。")
+        logger.info("请仔细检查以下几点：")
+        logger.info("  1. TOML 文件中的所有键名是否与 dataclass 中的字段名完全一致（包括大小写）。")
+        logger.info("  2. 嵌套结构是否匹配（例如，TOML 中的表是否对应 dataclass 中的嵌套 dataclass）。")
+        logger.info("  3. 数据类型是否兼容（例如，期望整数的地方是否是字符串）。")
+        logger.info("  4. 是否所有在 dataclass 中没有默认值的必需字段都在 TOML 文件中提供了。")
         import traceback
 
-        traceback.print_exc()  # 打印完整的错误堆栈信息，帮助定位问题
+        traceback.logger.info_exc()  # 打印完整的错误堆栈信息，帮助定位问题
         _prompt_user_and_exit("类型化配置加载失败，请检查上述错误和您的配置文件/dataclass定义。")
         # _prompt_user_and_exit 会导致程序退出，所以下面的 return 理论上不会执行
         raise  # 或者直接重新抛出异常，让上层处理（但不推荐，因为配置错误应尽早终止）

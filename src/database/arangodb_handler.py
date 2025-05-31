@@ -1,6 +1,6 @@
 import asyncio
 import datetime
-import logging
+from src.common.custom_logging.logger_manager import get_logger
 import os
 from typing import Any  # Python 3.9+ can use tuple, Optional directly
 
@@ -16,7 +16,7 @@ from arango.exceptions import (
 
 from src.config.alcarus_configs import DatabaseSettings  # 用于类型提示
 
-logger = logging.getLogger(__name__)
+logger = get_logger("AIcarusCore.database")
 
 # --- 数据库连接与集合管理 ---
 

@@ -1,7 +1,7 @@
 import asyncio
 import datetime
 import json
-import logging  # 新增导入
+from src.common.custom_logging.logger_manager import get_logger
 from typing import TYPE_CHECKING
 
 # ArangoDB 相关的导入移至 arangodb_handler
@@ -12,13 +12,12 @@ from src.config.alcarus_configs import PersonaSettings
 # --- 新增：导入新的数据库处理器函数 ---
 from src.database import arangodb_handler
 
-# from arango.exceptions import DocumentInsertError, ArangoServerError, ArangoClientError # 已移走
 from src.llmrequest.llm_processor import Client
 
 if TYPE_CHECKING:
     from arango.collection import StandardCollection  # 仅用于类型提示，如果直接操作集合对象
 
-logger = logging.getLogger(__name__)  # 新增：获取 logger 实例
+logger = get_logger("AIcarusCore.intrusive.thoughts") 
 
 INTRUSIVE_PROMPT_TEMPLATE = """
 你是{bot_name}；
@@ -60,11 +59,11 @@ async def generate_new_intrusive_thoughts_async(
             persona_profile=persona_cfg.profile,
         )
     except KeyError as e:
-        # print(f"(Intrusive) 错误：填充侵入性思维Prompt模板时缺少键: {e}") # 可以考虑也用 logger
+        # logger.info(f"(Intrusive) 错误：填充侵入性思维Prompt模板时缺少键: {e}") # 可以考虑也用 logger
         logger.error(f"(Intrusive) 错误：填充侵入性思维Prompt模板时缺少键: {e}")
         return None
     except AttributeError as e:
-        # print(f"(Intrusive) 错误：persona_cfg 对象不完整: {e}") # 可以考虑也用 logger
+        # logger.info(f"(Intrusive) 错误：persona_cfg 对象不完整: {e}") # 可以考虑也用 logger
         logger.error(f"(Intrusive) 错误：persona_cfg 对象不完整: {e}")
         return None
 
@@ -74,10 +73,10 @@ async def generate_new_intrusive_thoughts_async(
     )
     # --------------------
 
-    print(
+    logger.info(
         f"(Intrusive) 正在请求 {llm_client.llm_client.provider} API ({llm_client.llm_client.model_name}) 生成侵入性思维..."
     )
-    # print(f"(Intrusive) 使用的Prompt:\n{filled_prompt}") # 可选：调试时打印Prompt
+    # logger.info(f"(Intrusive) 使用的Prompt:\n{filled_prompt}") # 可选：调试时打印Prompt
 
     # 确保 raw_text 在 try 外部定义，以便 except 块可以访问
     raw_text: str = ""  # 初始化以避免引用前未赋值的警告

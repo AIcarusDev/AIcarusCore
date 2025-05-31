@@ -2,7 +2,7 @@ import asyncio
 import contextlib
 import datetime
 import json # 确保导入
-import logging
+from src.common.custom_logging.logger_manager import get_logger
 import os # 确保导入
 import random
 import re
@@ -33,7 +33,7 @@ from . import intrusive_thoughts
 if TYPE_CHECKING:
     pass
 
-logger = logging.getLogger(__name__)
+logger = get_logger("AIcarusCore.core_logic.main")
 
 INITIAL_STATE: dict[str, Any] = {
     "mood": "你现在的心情大概是：平静。",

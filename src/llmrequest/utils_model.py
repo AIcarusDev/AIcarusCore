@@ -2,7 +2,7 @@ import asyncio
 import base64
 import io
 import json
-import logging
+from src.common.custom_logging.logger_manager import get_logger
 import mimetypes
 import os
 import random
@@ -13,11 +13,7 @@ import aiohttp
 from PIL import Image
 
 # --- 日志配置 ---
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(filename)s:%(lineno)d | %(message)s",
-)
-logger = logging.getLogger(__name__)
+logger = get_logger("AIcarusCore.llm.utils")
 
 
 # --- 定义 TypedDict 用于 default_generation_config ---
@@ -711,14 +707,14 @@ class LLMClient:
                 if current_chunk_text is not None:
                     if self.stream_chunk_delay_seconds > 0:
                         await asyncio.sleep(self.stream_chunk_delay_seconds)
-                    print(current_chunk_text, end="", flush=True)
+                    logger.info(current_chunk_text, end="", flush=True)
                     full_streamed_text += current_chunk_text
 
-            if not interrupted_by_event:  # Only print newline if not interrupted (already logged interruption)
-                print()  # Newline after stream completion
+            if not interrupted_by_event:  # Only logger.info newline if not interrupted (already logged interruption)
+                logger.info()  # Newline after stream completion
                 logger.info(f"'{self.api_endpoint_style}' streaming complete ({chunk_count} data chunks).")
             else:
-                print(" [STREAM INTERRUPTED]")  # Indicate interruption on the same line as printed chunks
+                logger.info(" [STREAM INTERRUPTED]")  # Indicate interruption on the same line as logger.infoed chunks
 
             result = {
                 "streamed_text_summary": (

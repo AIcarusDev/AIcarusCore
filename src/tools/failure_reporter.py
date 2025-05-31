@@ -1,5 +1,7 @@
 # Core_thinking/tools/failure_reporter.py
 import asyncio
+from src.common.custom_logging.logger_manager import get_logger
+logger = get_logger("AIcarusCore.failure_reporter")
 
 
 async def report_action_failure(
@@ -14,7 +16,7 @@ async def report_action_failure(
     Returns:
         str: A formatted failure message.
     """
-    print(
+    logger.info(
         f"[FailureReporter] 报告动作失败: '{intended_action_description}', "
         f"原因: '{reason_for_failure_short or '未指定'}'"
     )
@@ -39,11 +41,11 @@ if __name__ == "__main__":
             intended_action_motivation="想知道火星人最近怎么样",
             reason_for_failure_short="目前没有可以发送邮件到火星的工具",
         )
-        print(test_report1)
+        logger.info(test_report1)
 
         test_report2 = await report_action_failure(
             intended_action_description="瞬间移动到月球", intended_action_motivation="想看看月球上的风景"
         )
-        print(test_report2)
+        logger.info(test_report2)
 
     asyncio.run(main_test())
