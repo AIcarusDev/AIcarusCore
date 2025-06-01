@@ -4,10 +4,11 @@ import sys
 from datetime import datetime  # 用于生成时间戳
 from pathlib import Path  # 用于面向对象的路径操作
 from typing import Any  # 类型提示
-from src.common.custom_logging.logger_manager import get_logger
 
 import tomlkit  # 用于处理 TOML 文件，保留注释和格式
 from dotenv import load_dotenv  # 用于加载 .env 文件
+
+from src.common.custom_logging.logger_manager import get_logger
 
 # 从同级目录的 alcarus_configs.py 导入类型化的配置根类
 from .alcarus_configs import AlcarusRootConfig
@@ -193,7 +194,9 @@ def _merge_configs_recursive(
                         target_config[key] = tomlkit.item(old_value)
                     # logger.info(f"  合并值: [{key}] = {str(old_value)[:50]}{'...' if len(str(old_value)) > 50 else ''}") # 日志可以按需开启
                 except Exception as e:
-                    logger.info(f"  警告：合并键 '{key}' 的值 '{str(old_value)[:50]}' 时发生错误: {e}。将保留模板中的值。")
+                    logger.info(
+                        f"  警告：合并键 '{key}' 的值 '{str(old_value)[:50]}' 时发生错误: {e}。将保留模板中的值。"
+                    )
             else:
                 # 类型不匹配 (例如，旧的是简单值，新的是表)，通常保留新模板的结构和值
                 logger.info(f"  信息：键 '{key}' 在新旧配置中类型不匹配，将保留新模板的结构/值。")
@@ -274,7 +277,9 @@ def _substitute_env_vars_recursive(
                     config_node[i] = processed_value  # type: ignore # 更新列表中的元素
                     # logger.info(f"  配置列表元素从环境变量 '{env_var_name}' 加载。")
                 else:
-                    logger.info(f"  警告：配置列表中的元素请求环境变量 '{env_var_name}', 但该变量未设置。将保留原始占位符。")
+                    logger.info(
+                        f"  警告：配置列表中的元素请求环境变量 '{env_var_name}', 但该变量未设置。将保留原始占位符。"
+                    )
             elif isinstance(item, dict | tomlkit.items.Table | list | tomlkit.items.Array):
                 # 如果列表项是嵌套的字典/表或列表/数组，则递归处理
                 _substitute_env_vars_recursive(item)
@@ -352,7 +357,9 @@ def _perform_config_update_check(io_handler: ConfigIOHandler) -> bool:
         )
         return False  # 版本相同，未发生更新
 
-    logger.info(f"运行时配置文件版本 (v{actual_runtime_version}) 与模板版本 (v{current_template_version}) 不同。需要更新...")
+    logger.info(
+        f"运行时配置文件版本 (v{actual_runtime_version}) 与模板版本 (v{current_template_version}) 不同。需要更新..."
+    )
 
     # 备份当前运行时配置
     if io_handler.backup_runtime_config(prefix="pre_update_"):
@@ -367,7 +374,9 @@ def _perform_config_update_check(io_handler: ConfigIOHandler) -> bool:
                     logger.info(f"配置文件已成功更新并合并旧值: '{io_handler.runtime_path}'")
                     config_was_created_or_updated = True  # 标记为已更新
                 else:
-                    logger.info(f"严重错误：保存合并后的配置文件 '{io_handler.runtime_path}' 失败！程序可能无法按预期运行。")
+                    logger.info(
+                        f"严重错误：保存合并后的配置文件 '{io_handler.runtime_path}' 失败！程序可能无法按预期运行。"
+                    )
                     # 此时可以考虑是否要恢复备份，或者提示用户手动处理
             else:
                 logger.info(f"严重错误：无法加载新复制的模板文件 '{io_handler.runtime_path}' 进行合并！")

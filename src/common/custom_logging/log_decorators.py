@@ -1,8 +1,11 @@
 import functools
 import inspect
-from typing import Callable, Any
-from .logger import logger, add_custom_style_handler
+from collections.abc import Callable
+from typing import Any
+
 from rich.traceback import install
+
+from .logger import add_custom_style_handler, logger
 
 install(extra_lines=3)
 

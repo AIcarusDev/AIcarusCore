@@ -2,7 +2,6 @@ import asyncio
 import base64
 import io
 import json
-from src.common.custom_logging.logger_manager import get_logger
 import mimetypes
 import os
 import random
@@ -11,6 +10,8 @@ from typing import Any, TypedDict, Unpack  # Added List, Optional
 
 import aiohttp
 from PIL import Image
+
+from src.common.custom_logging.logger_manager import get_logger
 
 # --- 日志配置 ---
 logger = get_logger("AIcarusCore.llm.utils")
@@ -211,9 +212,9 @@ class LLMClient:
             str, float
         ] = {}  # <-- 新增: key=api_key, value=disable_until_timestamp
 
-        api_keys_env_var_name = f"{self.provider}_API_KEYS" # <--- 将会使用这种固定模式
+        api_keys_env_var_name = f"{self.provider}_API_KEYS"  # <--- 将会使用这种固定模式
         raw_api_key_config = os.getenv(api_keys_env_var_name)
-        api_keys_env_var_name_singular = f"{self.provider}_KEY" # <--- 保留对单数KEY的兼容
+        api_keys_env_var_name_singular = f"{self.provider}_KEY"  # <--- 保留对单数KEY的兼容
         if not raw_api_key_config:
             raw_api_key_config = os.getenv(api_keys_env_var_name_singular)
             if raw_api_key_config:
@@ -222,11 +223,12 @@ class LLMClient:
                 # 如果环境变量直接是 provider 名称，例如 GEMINI="key1,key2"
                 raw_api_key_config_provider_direct = os.getenv(self.provider)
                 if raw_api_key_config_provider_direct:
-                     raw_api_key_config = raw_api_key_config_provider_direct
-                     logger.debug(f"找到环境变量 {self.provider} 作为API密钥源。")
+                    raw_api_key_config = raw_api_key_config_provider_direct
+                    logger.debug(f"找到环境变量 {self.provider} 作为API密钥源。")
                 else:
-                    logger.debug(f"环境变量 {api_keys_env_var_name}, {api_keys_env_var_name_singular}, 和 {self.provider} 均未找到。")
-
+                    logger.debug(
+                        f"环境变量 {api_keys_env_var_name}, {api_keys_env_var_name_singular}, 和 {self.provider} 均未找到。"
+                    )
 
         self.api_keys_config: list[str] = []
         if raw_api_key_config:
@@ -235,35 +237,36 @@ class LLMClient:
                 parsed_keys = json.loads(raw_api_key_config)
                 if isinstance(parsed_keys, list):
                     self.api_keys_config = [str(k).strip() for k in parsed_keys if str(k).strip()]
-                elif isinstance(parsed_keys, str) and parsed_keys.strip(): # 如果解析出来是单个字符串
+                elif isinstance(parsed_keys, str) and parsed_keys.strip():  # 如果解析出来是单个字符串
                     self.api_keys_config = [parsed_keys.strip()]
             except json.JSONDecodeError:
                 # 如果不是有效的JSON，则尝试按逗号分隔（如果包含逗号），或者作为单个密钥处理
                 if "," in raw_api_key_config:
                     self.api_keys_config = [k.strip() for k in raw_api_key_config.split(",") if k.strip()]
                     if len(self.api_keys_config) > 1:
-                         logger.warning(f"环境变量 {self.provider} 的API密钥 '{raw_api_key_config[:20]}...' 不是有效的JSON列表，已按逗号分隔处理。建议使用JSON数组格式。")
+                        logger.warning(
+                            f"环境变量 {self.provider} 的API密钥 '{raw_api_key_config[:20]}...' 不是有效的JSON列表，已按逗号分隔处理。建议使用JSON数组格式。"
+                        )
                 else:
                     self.api_keys_config = [raw_api_key_config.strip()] if raw_api_key_config.strip() else []
-                if not self.api_keys_config and raw_api_key_config.strip(): # 确保如果原始字符串不空，至少有一个key
-                     self.api_keys_config = [raw_api_key_config.strip()]
-
+                if not self.api_keys_config and raw_api_key_config.strip():  # 确保如果原始字符串不空，至少有一个key
+                    self.api_keys_config = [raw_api_key_config.strip()]
 
         if not self.api_keys_config:
             raise APIKeyError(
                 f"未能为提供商 '{self.provider}' 从环境变量 "
-                f"({api_keys_env_var_name} 或 {api_keys_env_var_name_singular} 或 {self.provider}) " # 更新了错误信息
+                f"({api_keys_env_var_name} 或 {api_keys_env_var_name_singular} 或 {self.provider}) "  # 更新了错误信息
                 "加载API密钥。"
             )
 
         # 这部分处理 Base URL
-        self.base_url = os.getenv(f"{self.provider}_BASE_URL") # <--- 将会使用这种固定模式
+        self.base_url = os.getenv(f"{self.provider}_BASE_URL")  # <--- 将会使用这种固定模式
         if not self.base_url:
             # 兼容旧的 GEMINI_BASE_URL（如果 provider 是 GEMINI 但 GEMINI_BASE_URL 未设置）
             # 这种情况其实不太可能，因为上面已经用了 self.provider
             if self.provider == "GEMINI" and os.getenv("GEMINI_BASE_URL"):
-                 self.base_url = os.getenv("GEMINI_BASE_URL")
-                 logger.debug(f"使用了通用的 GEMINI_BASE_URL 环境变量。")
+                self.base_url = os.getenv("GEMINI_BASE_URL")
+                logger.debug("使用了通用的 GEMINI_BASE_URL 环境变量。")
             else:
                 raise ValueError(f"未能为提供商 '{self.provider}' 从环境变量 ({self.provider}_BASE_URL) 加载Base URL。")
         self.base_url = self.base_url.rstrip("/")

@@ -1,6 +1,8 @@
 # Core_thinking/tools/failure_reporter.py
 import asyncio
+
 from src.common.custom_logging.logger_manager import get_logger
+
 logger = get_logger("AIcarusCore.failure_reporter")
 
 

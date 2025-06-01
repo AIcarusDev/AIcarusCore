@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any 
+
 # 导入 ConfigBase
 from .config_base import ConfigBase
 
@@ -25,7 +25,7 @@ class LLMClientSettings(ConfigBase):
 # --- Specific Model Parameters (within a provider) ---
 @dataclass
 class ModelParams(ConfigBase):
-    provider: str # 新增：明确指定此模型配置属于哪个提供商
+    provider: str  # 新增：明确指定此模型配置属于哪个提供商
     model_name: str
     temperature: float | None = None
     max_output_tokens: int | None = None
@@ -53,10 +53,10 @@ class ProviderModels(ConfigBase):  # 用于 [providers.<provider_name>.models]
 
 
 @dataclass
-class ProviderSettings(ConfigBase): # 用于 [providers.<provider_name>]
+class ProviderSettings(ConfigBase):  # 用于 [providers.<provider_name>]
     # api_keys_env_var 和 base_url_env_var 已被移除
     # models 字段现在直接持有 ProviderModels
-    models: ProviderModels | None = None # 改为可选，因为一个provider可能只定义了API而没有具体模型
+    models: ProviderModels | None = None  # 改为可选，因为一个provider可能只定义了API而没有具体模型
 
 
 @dataclass
@@ -76,7 +76,7 @@ class DatabaseSettings(ConfigBase):
     # 所有 *_env_var 字段已被移除。
     # 此数据类现在为空，但保留它作为配置结构的一部分。
     # 代码将直接从固定名称的环境变量读取数据库连接信息。
-    pass # 表示这是一个空类，但它仍然是一个有效的 dataclass
+    pass  # 表示这是一个空类，但它仍然是一个有效的 dataclass
 
 
 # --- Proxy Settings ---
@@ -107,7 +107,7 @@ class LoggingSettings(ConfigBase):
     # 所有 *_env_var 字段已被移除。
     # 此数据类现在为空，但保留它作为配置结构的一部分。
     # 代码将直接从固定名称的环境变量读取日志级别。
-    pass # 表示这是一个空类
+    pass  # 表示这是一个空类
 
 
 # --- Inner Version Control ---
@@ -119,12 +119,12 @@ class InnerConfig(ConfigBase):
 # --- Root Configuration Class for Alcarus ---
 @dataclass
 class AlcarusRootConfig(ConfigBase):
-    inner: InnerConfig # 没有默认值，必须提供
-    llm_client_settings: LLMClientSettings # 没有默认值，必须提供
-    persona: PersonaSettings # 没有默认值，必须提供
-    proxy: ProxySettings # 没有默认值，必须提供
-    core_logic_settings: CoreLogicSettings # 没有默认值，必须提供
-    intrusive_thoughts_module_settings: IntrusiveThoughtsSettings # 没有默认值，必须提供
+    inner: InnerConfig  # 没有默认值，必须提供
+    llm_client_settings: LLMClientSettings  # 没有默认值，必须提供
+    persona: PersonaSettings  # 没有默认值，必须提供
+    proxy: ProxySettings  # 没有默认值，必须提供
+    core_logic_settings: CoreLogicSettings  # 没有默认值，必须提供
+    intrusive_thoughts_module_settings: IntrusiveThoughtsSettings  # 没有默认值，必须提供
     providers: ProvidersConfig | None = None
     database: DatabaseSettings = field(default_factory=DatabaseSettings)
     logging: LoggingSettings = field(default_factory=LoggingSettings)

@@ -1,6 +1,9 @@
 import asyncio
-from src.common.custom_logging.logger_manager import get_logger
+
 from duckduckgo_search import DDGS
+
+from src.common.custom_logging.logger_manager import get_logger
+
 logger = get_logger("AIcarusCore.web_searcher")
 
 

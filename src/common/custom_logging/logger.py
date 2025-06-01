@@ -1,11 +1,10 @@
-from loguru import logger
-from typing import Optional, Union, List, Tuple
-import sys
 import os
-from types import ModuleType
+import sys
 from pathlib import Path
-from dotenv import load_dotenv
+from types import ModuleType
 
+from dotenv import load_dotenv
+from loguru import logger
 
 # 加载 .env 文件
 env_path = Path(os.getcwd()) / ".env"
@@ -16,10 +15,10 @@ load_dotenv(dotenv_path=env_path)
 bot_nickname_from_env = os.getenv("BOT_LOG_NICKNAME", "bot").strip()
 if not bot_nickname_from_env:
     bot_nickname = "bot"
-    print("BOT_LOG_NICKNAME 环境变量为空或未设置，日志昵称将使用默认值: bot") # 可以替换为早期日志记录
+    print("BOT_LOG_NICKNAME 环境变量为空或未设置，日志昵称将使用默认值: bot")  # 可以替换为早期日志记录
 else:
     bot_nickname = bot_nickname_from_env
-    print(f"日志昵称已从环境变量配置为: {bot_nickname}") # 可以替换为早期日志记录
+    print(f"日志昵称已从环境变量配置为: {bot_nickname}")  # 可以替换为早期日志记录
 
 # 保存原生处理器ID
 default_handler_id = None
@@ -35,8 +34,8 @@ if default_handler_id is not None:
 LoguruLogger = logger.__class__
 
 # 全局注册表：记录模块与处理器ID的映射
-_handler_registry: dict[str, List[int]] = {}
-_custom_style_handlers: dict[Tuple[str, str], List[int]] = {}  # 记录自定义样式处理器ID
+_handler_registry: dict[str, list[int]] = {}
+_custom_style_handlers: dict[tuple[str, str], list[int]] = {}  # 记录自定义样式处理器ID
 
 # 获取日志存储根地址
 ROOT_PATH = os.getcwd()
@@ -966,12 +965,12 @@ class LogConfig:
 
 
 def get_module_logger(
-    module: Union[str, ModuleType],
+    module: str | ModuleType,
     *,
-    console_level: Optional[str] = None,
-    file_level: Optional[str] = None,
-    extra_handlers: Optional[List[dict]] = None,
-    config: Optional[LogConfig] = None,
+    console_level: str | None = None,
+    file_level: str | None = None,
+    extra_handlers: list[dict] | None = None,
+    config: LogConfig | None = None,
 ) -> LoguruLogger:
     module_name = module if isinstance(module, str) else module.__name__
     current_config = config.config if config else DEFAULT_CONFIG

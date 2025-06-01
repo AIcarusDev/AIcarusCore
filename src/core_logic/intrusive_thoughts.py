@@ -1,23 +1,22 @@
 import asyncio
 import datetime
 import json
-from src.common.custom_logging.logger_manager import get_logger
 from typing import TYPE_CHECKING
 
 # ArangoDB 相关的导入移至 arangodb_handler
 from arango.database import StandardDatabase  # 需要 StandardDatabase 来调用 get_random_intrusive_thought
 
+from src.common.custom_logging.logger_manager import get_logger
 from src.config.alcarus_configs import PersonaSettings
 
 # --- 新增：导入新的数据库处理器函数 ---
 from src.database import arangodb_handler
-
 from src.llmrequest.llm_processor import Client
 
 if TYPE_CHECKING:
     from arango.collection import StandardCollection  # 仅用于类型提示，如果直接操作集合对象
 
-logger = get_logger("AIcarusCore.intrusive.thoughts") 
+logger = get_logger("AIcarusCore.intrusive.thoughts")
 
 INTRUSIVE_PROMPT_TEMPLATE = """
 你是{bot_name}；
