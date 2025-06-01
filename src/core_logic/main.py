@@ -542,15 +542,6 @@ async def handle_incoming_adapter_message(
             "raw_aicarus_message": message.to_dict(),  # 存储完整的原始AIcarus消息
         }
 
-        # 将消息追加到最新思考文档的 adapter_messages 列表
-        success = await arangodb_handler.append_to_adapter_messages_in_latest_thought(
-            db_instance_for_actions, "event_collection", message_entry_for_db
-        )
-        if success:
-            logger.info(f"来自 {sender_nickname} ({sender_id}) 的用户消息已追加到最新思考文档，将在下一轮思考中处理。")
-        else:
-            logger.error(f"将来自 {sender_nickname} 的用户消息追加到 ArangoDB 失败。")
-
     elif message.message_info.interaction_purpose == "platform_notification":
         logger.info(f"收到平台通知: {message.message_segment.to_dict() if message.message_segment else '无内容段'}")
         # 简单记录，或根据具体通知类型触发更复杂的逻辑 (例如，更新群成员列表)
@@ -580,9 +571,6 @@ async def handle_incoming_adapter_message(
                 "is_platform_request": True,  # 特殊标记
                 "raw_aicarus_message": message.to_dict(),
             }
-            await arangodb_handler.append_to_adapter_messages_in_latest_thought(
-                db_instance_for_actions, "event_collection", message_entry_for_db
-            )
             logger.info(f"平台请求 (来自: {message_entry_for_db['sender_id']}) 已记录，将在下一轮思考中处理。")
         else:
             logger.warning("收到的平台请求消息段为空或格式不正确。")
