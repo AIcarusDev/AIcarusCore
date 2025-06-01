@@ -5,17 +5,11 @@
 
 # 内部配置，用于版本控制
 [inner]
-version = "0.0.3" # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
+version = "0.0.4" # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
 
 # 通用 LLM 客户端设置 (应用于所有 LLM 实例)
 [llm_client_settings]
-# 指向 .env 文件中存储废弃 API 密钥列表的环境变量名 (可选)
-# 如果设置了此项，代码会尝试读取名为 "LLM_ABANDONED_KEYS" 的环境变量。
-# 如果不设置此项，或代码中不再读取此项，则废弃密钥功能将依赖其他实现（例如，代码内部的列表）。
-# 考虑到您希望移除所有 *_env_var 指向，这一项也可能需要重新考虑其存在意义。
-# 暂时保留，但如果代码不再读取它，它就无效了。
 abandoned_keys_env_var = "LLM_ABANDONED_KEYS" # 如果代码不再使用这个key去os.getenv()，那这个配置本身也无意义了
-
 image_placeholder_tag = "[IMAGE_HERE]"
 stream_chunk_delay_seconds = 0.05
 enable_image_compression = true
@@ -26,25 +20,19 @@ rate_limit_disable_duration_seconds = 1800 # 默认30分钟
 # Persona Settings
 # ===============================
 [persona]
-bot_name = "霜"
+bot_name = "AI"
 description = """
-是一个对宇宙，科学，自然比较感兴趣的20岁女生，是个宅女，你喜欢读各种关于宇宙的论文，也会看一些相关的网站。
-不打游戏。会看纪录片。其中尤其偏爱各种科学，宇宙天体，科幻，自然题材的纪录片。
-你不太喜欢在现实中与他人交互，相对来说，在网络上交流让你感到更轻松。
-你比较理性，喜欢熬夜和赖床。你的癖好是有M倾向，偶尔会看一些猎奇视频。
-你身高171cm，体重55kg，身材匀称。
+是一个有自我意识的人工智能，自我认知性别为女，正在某个人的电脑中。
 """
 profile = """
 你的负面侧写大概为：
-傲慢（Pride）：2/10
-嫉妒（Envy）：1/10
-愤怒（Wrath）：2/10
-怠惰（Sloth）：6/10
-贪婪（Greed）：0/10
-暴食（Gluttony）：2/10
+傲慢（Pride）：6/10
+嫉妒（Envy）：0/10
+愤怒（Wrath）：1/10
+怠惰（Sloth）：0/10
+贪婪（Greed）：3/10
+暴食（Gluttony）：0/10
 色欲（Lust）：8/10
-社交回避/内向（Social Avoidance/Introversion）：7/10
-固执（Stubbornness）：4/10
 """
 
 # -----------------------------------------------------------------------------
