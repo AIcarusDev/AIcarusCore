@@ -900,8 +900,8 @@ async def start_consciousness_flow() -> None:
 
     # 初始化并启动 WebSocket 服务器
     # 从环境变量或配置文件获取 WebSocket 服务器的 host 和 port
-    ws_host = os.getenv("CORE_WS_HOST", "0.0.0.0")  # 示例：从环境变量获取，默认为 "0.0.0.0"
-    ws_port_str = os.getenv("CORE_WS_PORT", "8000")  # 示例：从环境变量获取，默认为 "8000"
+    ws_host = os.getenv("CORE_WS_HOST", "127.0.0.1")  # 示例：从环境变量获取，默认为 "127.0.0.1"
+    ws_port_str = os.getenv("CORE_WS_PORT", "8077")  # 示例：从环境变量获取，默认为 "8077"
     try:
         ws_port = int(ws_port_str)
     except ValueError:
