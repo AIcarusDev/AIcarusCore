@@ -52,7 +52,7 @@ def use_log_style(
         )
 
         @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
+        def wrapper(*args: object, **kwargs: dict[str, Any]) -> object:
             # 创建绑定了模块名和自定义样式标记的 logger 实例
             custom_logger = logger.bind(module=module_name, custom_style=style_name)
             # 将自定义 logger 作为第一个参数传递给原函数

@@ -21,7 +21,7 @@ MODULE_LOGGER_CONFIGS = {
 }
 
 
-def get_logger(module_name: str):
+def get_logger(module_name: str) -> LogConfig:
     style_config = MODULE_LOGGER_CONFIGS.get(module_name)
     if style_config:
         log_config = LogConfig(

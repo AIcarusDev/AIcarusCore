@@ -1,3 +1,4 @@
+import contextlib
 import os
 import sys
 from pathlib import Path
@@ -42,10 +43,7 @@ ROOT_PATH = os.getcwd()
 LOG_ROOT = str(ROOT_PATH) + "/" + "logs"
 
 SIMPLE_OUTPUT = os.getenv("SIMPLE_OUTPUT", "false").strip().lower()
-if SIMPLE_OUTPUT == "true":
-    SIMPLE_OUTPUT = True
-else:
-    SIMPLE_OUTPUT = False
+SIMPLE_OUTPUT = SIMPLE_OUTPUT == "true"
 print(f"SIMPLE_OUTPUT: {SIMPLE_OUTPUT}")
 
 if not SIMPLE_OUTPUT:
@@ -953,14 +951,14 @@ logger.configure(patcher=log_patcher)
 class LogConfig:
     """日志配置类"""
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: str | int | bool | dict) -> None:
         self.config = DEFAULT_CONFIG.copy()
         self.config.update(kwargs)
 
     def to_dict(self) -> dict:
         return self.config.copy()
 
-    def update(self, **kwargs):
+    def update(self, **kwargs: str | int | bool | dict) -> None:
         self.config.update(kwargs)
 
 
@@ -1095,13 +1093,9 @@ def remove_custom_style_handler(module_name: str, style_name: str) -> None:
     handler_key = (module_name, style_name)
     if handler_key in _custom_style_handlers:
         for handler_id in _custom_style_handlers[handler_key]:
-            try:
+            with contextlib.suppress(ValueError):
                 logger.remove(handler_id)
                 # print(f"Removed custom handler {handler_id} for {handler_key}")
-            except ValueError:
-                # 可能已经被移除或不存在
-                # print(f"Handler {handler_id} for {handler_key} already removed or invalid.")
-                pass
         del _custom_style_handlers[handler_key]
 
 
