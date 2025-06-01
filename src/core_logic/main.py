@@ -388,10 +388,10 @@ async def _generate_thought_from_llm(
         intrusive_thought=intrusive_thought_str,
     )
 
-    logger.info(
-        f"--- 主思维LLM接收到的完整Prompt (模型: {llm_client.llm_client.model_name}) ---\n{prompt_text}\n--- Prompt结束 ---"
+    logger.debug(
+        f"--- 主思维LLM接收到的完整Prompt (模型: {llm_client.llm_client.model_name}) ---\\n{prompt_text}\\n--- Prompt结束 ---"
     )
-    logger.info(f"正在请求 {llm_client.llm_client.provider} API ({llm_client.llm_client.model_name}) 生成主思考...")
+    logger.debug(f"正在请求 {llm_client.llm_client.provider} API ({llm_client.llm_client.model_name}) 生成主思考...")
     raw_response_text: str = ""
     try:
         response_data = await llm_client.make_llm_request(prompt=prompt_text, is_stream=False)
@@ -544,7 +544,7 @@ async def handle_incoming_adapter_message(
 
         # 将消息追加到最新思考文档的 adapter_messages 列表
         success = await arangodb_handler.append_to_adapter_messages_in_latest_thought(
-            db_instance_for_actions, main_thoughts_collection_name_for_actions, message_entry_for_db
+            db_instance_for_actions, "event_collection", message_entry_for_db
         )
         if success:
             logger.info(f"来自 {sender_nickname} ({sender_id}) 的用户消息已追加到最新思考文档，将在下一轮思考中处理。")
@@ -581,7 +581,7 @@ async def handle_incoming_adapter_message(
                 "raw_aicarus_message": message.to_dict(),
             }
             await arangodb_handler.append_to_adapter_messages_in_latest_thought(
-                db_instance_for_actions, main_thoughts_collection_name_for_actions, message_entry_for_db
+                db_instance_for_actions, "event_collection", message_entry_for_db
             )
             logger.info(f"平台请求 (来自: {message_entry_for_db['sender_id']}) 已记录，将在下一轮思考中处理。")
         else:
@@ -696,9 +696,9 @@ async def _core_thinking_loop(
             if random_thought_doc and "text" in random_thought_doc:
                 intrusive_thought_to_inject_this_cycle = f"你突然有一个神奇的念头：{random_thought_doc['text']}"
 
-        logger.info(f"\n[{datetime.datetime.now().strftime('%H:%M:%S')} - 轮次 {loop_count}] 霜正在思考...")
+        logger.debug(f"\\n[{datetime.datetime.now().strftime('%H:%M:%S')} - 轮次 {loop_count}] 霜正在思考...")
         if intrusive_thought_to_inject_this_cycle:
-            logger.info(f"  注入侵入性思维: {intrusive_thought_to_inject_this_cycle[:60]}...")
+            logger.debug(f"  注入侵入性思维: {intrusive_thought_to_inject_this_cycle[:60]}...")
 
         if main_consciousness_llm_client is None:  # 检查主意识LLM客户端是否已初始化
             logger.error("主意识LLM客户端未初始化，无法生成思考。跳过本轮。")
@@ -719,8 +719,8 @@ async def _core_thinking_loop(
         saved_doc_key: str | None = None  # 保存到DB后获取的文档key
 
         if generated_thought_json:  # 如果成功生成了思考
-            logger.info(
-                f"  主思维LLM输出的完整JSON:\n{json.dumps(generated_thought_json, indent=2, ensure_ascii=False)}"
+            logger.debug(
+                f"  主思维LLM输出的完整JSON:\\n{json.dumps(generated_thought_json, indent=2, ensure_ascii=False)}"
             )
             action_desc_raw = generated_thought_json.get("action_to_take")
             action_desc_from_llm = action_desc_raw.strip() if isinstance(action_desc_raw, str) else ""
@@ -743,7 +743,7 @@ async def _core_thinking_loop(
                     "action_motivation": action_motive_from_llm,
                     "current_thought_context": generated_thought_json.get("think", "无特定思考上下文。"),
                 }
-                logger.info(f"  >>> 行动意图产生: '{action_desc_from_llm}' (ID: {action_id_this_cycle[:8]})")
+                logger.debug(f"  >>> 行动意图产生: '{action_desc_from_llm}' (ID: {action_id_this_cycle[:8]})")
 
             # 构建要保存到主思考集合的文档
             document_to_save_in_main: dict[str, Any] = {
@@ -801,7 +801,7 @@ async def _core_thinking_loop(
                 )
                 background_action_tasks.add(action_task)  # 将任务添加到集合中以便追踪
                 action_task.add_done_callback(background_action_tasks.discard)  # 任务完成后从集合中移除
-                logger.info(
+                logger.debug(
                     f"      动作 '{action_info_for_task['action_description']}' (ID: {action_info_for_task['action_id'][:8]}, DocKey: {saved_doc_key}) 已异步启动处理。"
                 )
             elif action_info_for_task and not saved_doc_key:  # 如果有行动但保存文档失败
@@ -819,7 +819,7 @@ async def _core_thinking_loop(
         else:  # 如果LLM未能生成思考
             logger.warning("  本轮思考生成失败或无内容。")
 
-        logger.info(f"  等待 {thinking_interval_sec} 秒...")
+        logger.debug(f"  等待 {thinking_interval_sec} 秒...")
         try:
             # 等待一段时间或直到停止事件被设置
             await asyncio.wait_for(
@@ -842,12 +842,12 @@ async def _core_thinking_loop(
             break
 
         # 为下一轮循环加载最新的数据库状态
-        logger.info("主循环：即将调用 arangodb_handler.get_latest_thought_document_raw 来获取 ArangoDB 状态...")
+        logger.debug("主循环：即将调用 arangodb_handler.get_latest_thought_document_raw 来获取 ArangoDB 状态...")
         latest_doc_from_db = await arangodb_handler.get_latest_thought_document_raw(
             arango_db_instance, main_thoughts_collection.name
         )
         current_internal_state, action_id_whose_result_was_loaded = _process_db_document_to_state(latest_doc_from_db)
-        logger.info("主循环：数据库状态获取与处理完成。")
+        logger.debug("主循环：数据库状态获取与处理完成。")
 
 
 async def start_consciousness_flow() -> None:
@@ -908,8 +908,8 @@ async def start_consciousness_flow() -> None:
         logger.critical(f"无效的 CORE_WS_PORT: '{ws_port_str}'。必须是一个整数。")
         return
 
-    # 创建 WebSocket 服务器实例，并传入消息处理回调
-    core_comm_layer = CoreWebsocketServer(ws_host, ws_port, handle_incoming_adapter_message)
+    # 创建 WebSocket 服务器实例，并传入消息处理回调和数据库实例
+    core_comm_layer = CoreWebsocketServer(ws_host, ws_port, handle_incoming_adapter_message, arango_db_instance)
     # 将通信层实例传递给 action_handler 模块
     set_core_communication_layer_for_actions(core_comm_layer)
 

@@ -353,35 +353,72 @@ async def append_to_adapter_messages_in_latest_thought(
     """
     异步将新的消息条目追加到最新思考文档的 'adapter_messages' 数组中。
     如果 'adapter_messages' 字段不存在，则会创建它。
+    如果集合为空，则插入一个初始文档。
     """
     aql_query = """
         FOR doc IN @@collection_name
             SORT doc.timestamp DESC
             LIMIT 1
-            // 如果 adapter_messages 不存在或不是数组，则初始化为空数组，然后追加
             LET current_messages = IS_ARRAY(doc.adapter_messages) ? doc.adapter_messages : []
             LET new_adapter_messages = PUSH(current_messages, @message_entry)
-            // 更新文档，同时记录本次更新的时间
             UPDATE doc WITH {
                 adapter_messages: new_adapter_messages,
-                updated_at_adapter_msg: @now // 新增一个时间戳记录适配器消息更新时间
+                updated_at_adapter_msg: @now
             } IN @@collection_name
-            RETURN NEW._key // 返回被更新文档的key，以便确认操作成功
+            RETURN NEW
     """
     bind_vars = {
         "@collection_name": collection_name,
-        "message_entry": message_entry,  # 要追加的消息条目
-        "now": datetime.datetime.now(datetime.UTC).isoformat(),  # 当前UTC时间
+        "message_entry": message_entry,
+        "now": datetime.datetime.now(datetime.UTC).isoformat(),
     }
     try:
-        cursor = await asyncio.to_thread(db.aql.execute, aql_query, bind_vars=bind_vars)
-        if cursor.count() > 0:  # 检查是否有文档被更新
-            logger.info(f"成功将消息追加到最新思考文档的 'adapter_messages' 字段 (集合: {collection_name})。")
+        # 确保集合存在
+        if not await asyncio.to_thread(db.has_collection, collection_name):
+            logger.info(f"集合 {collection_name} 不存在，正在创建...")
+            await asyncio.to_thread(db.create_collection, collection_name)
+
+        # 检查集合是否为空
+        collection = await asyncio.to_thread(db.collection, collection_name)
+        if await asyncio.to_thread(collection.count) == 0:
+            logger.warning(f"集合 {collection_name} 为空，插入初始文档...")
+            initial_doc = {
+                "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
+                "adapter_messages": []
+            }
+            await asyncio.to_thread(collection.insert, initial_doc)
+
+            # 验证初始文档插入
+            inserted_docs = await asyncio.to_thread(collection.all)
+            logger.debug(f"初始文档插入后集合内容: {list(inserted_docs)}")
+
+        # 执行 AQL 查询
+        logger.debug(f"执行 AQL 查询以追加消息到最新文档 (集合: {collection_name})，绑定变量: {bind_vars}...")
+        cursor = await asyncio.to_thread(db.aql.execute, aql_query, bind_vars=bind_vars, count=True)  # 启用统计功能
+        if cursor is None:
+            logger.warning(f"AQL 查询未返回任何结果 (集合: {collection_name})。可能集合为空或查询条件不匹配。")
+            return False
+
+        # 打印查询结果以调试
+        result = []
+        for doc in cursor:
+            result.append(doc)
+
+        if not result:
+            logger.warning(f"AQL 查询未找到任何文档 (集合: {collection_name})。可能集合为空或查询条件不匹配。")
+            return False
+
+        logger.debug(f"AQL 查询结果: {result}")
+
+        # 使用 statistics() 验证写入操作
+        stats = cursor.statistics() if cursor else None
+        writes_executed = stats.get("writes_executed", 0) if stats else 0
+
+        if writes_executed > 0 or result:
+            logger.info(f"成功将消息追加到最新事件文档的 'adapter_messages' 字段 (集合: {collection_name})。")
             return True
         else:
-            # 这种情况可能发生在集合为空，或者由于某些并发问题最新文档刚被删除等边缘情况
-            logger.warning(f"未能找到最新的思考文档来追加适配器消息 (集合: {collection_name})。可能集合为空。")
-            # 可以考虑在这里创建一个新的思考文档并包含此消息，但这会改变Core的逻辑流程
+            logger.warning(f"未能找到最新的事件文档来追加适配器消息 (集合: {collection_name})。可能集合为空或查询条件不匹配。")
             return False
     except Exception as e:
         logger.error(f"在 ArangoDB 中追加 'adapter_messages' 时发生错误: {e}", exc_info=True)

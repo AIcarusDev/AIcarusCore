@@ -1,6 +1,7 @@
 # src/core_communication/core_ws_server.py
 import asyncio
 import json
+import datetime
 from collections.abc import Awaitable, Callable
 
 import websockets  # type: ignore
@@ -9,6 +10,9 @@ from websockets.exceptions import ConnectionClosed, ConnectionClosedError, Conne
 from websockets.server import WebSocketServerProtocol  # type: ignore
 
 from src.common.custom_logging.logger_manager import get_logger  # 假设你的日志模块路径
+from src.database.arangodb_handler import append_to_adapter_messages_in_latest_thought
+from src.database.arangodb_handler import ensure_collection_exists
+from arango.database import StandardDatabase
 
 logger = get_logger("AIcarusCore.ws_server")  # 获取日志记录器
 
@@ -18,13 +22,20 @@ AdapterMessageCallback = Callable[[MessageBase, WebSocketServerProtocol], Awaita
 
 
 class CoreWebsocketServer:
-    def __init__(self, host: str, port: int, message_handler_callback: AdapterMessageCallback) -> None:
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        message_handler_callback: AdapterMessageCallback,
+        db_instance: StandardDatabase | None = None,
+    ) -> None:
         self.host: str = host  # 服务器监听的主机地址
         self.port: int = port  # 服务器监听的端口
         self.server: websockets.WebSocketServer | None = None  # WebSocket 服务器实例
         self.connected_adapters: set[WebSocketServerProtocol] = set()  # 存储所有已连接的适配器客户端
         self._message_handler_callback: AdapterMessageCallback = message_handler_callback  # 处理接收到消息的回调函数
         self._stop_event: asyncio.Event = asyncio.Event()  # 用于优雅停止服务器的事件
+        self.db_instance: StandardDatabase | None = db_instance  # 数据库实例
 
     async def _register_adapter(self, websocket: WebSocketServerProtocol) -> None:
         """注册一个新的适配器连接。"""
@@ -69,6 +80,22 @@ class CoreWebsocketServer:
                     logger.error(f"从适配器解码 JSON 失败: {message_str}")
                 except Exception as e:
                     logger.error(f"处理来自适配器的消息时发生错误: {e}", exc_info=True)
+
+                # 在接收到消息时直接存储到数据库
+                from src.database.arangodb_handler import append_to_adapter_messages_in_latest_thought
+
+                # 假设 db_instance 是通过依赖注入传递到服务器的
+                if hasattr(self, 'db_instance') and self.db_instance:
+                    message_entry = {
+                        "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+                        "message": message_dict
+                    }
+                    await append_to_adapter_messages_in_latest_thought(
+                        self.db_instance, "event_collection", message_entry
+                    )
+                    logger.info(f"消息已存储到 event_collection: {message_entry}")
+                else:
+                    logger.error("数据库实例未正确初始化，无法存储消息。")
 
         except ConnectionClosedOK:
             logger.info(f"适配器连接正常关闭: {websocket.remote_address}")
