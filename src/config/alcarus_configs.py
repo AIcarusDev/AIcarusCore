@@ -1,4 +1,6 @@
+# AIcarusCore/src/config/alcarus_configs.py
 from dataclasses import dataclass, field
+from typing import Optional, Dict, Any, List # 🐾 小猫爪：确保导入 List
 
 # 导入 ConfigBase
 from .config_base import ConfigBase
@@ -11,7 +13,6 @@ class PersonaSettings(ConfigBase):
     profile: str = ""
 
 
-# --- LLMClient Settings ---
 @dataclass
 class LLMClientSettings(ConfigBase):
     image_placeholder_tag: str = "[IMAGE_HERE]"
@@ -19,81 +20,58 @@ class LLMClientSettings(ConfigBase):
     enable_image_compression: bool = True
     image_compression_target_bytes: int = 1048576
     rate_limit_disable_duration_seconds: int = 1800
-    # abandoned_keys_env_var 已被移除
 
 
-# --- Specific Model Parameters (within a provider) ---
 @dataclass
 class ModelParams(ConfigBase):
-    provider: str  # 新增：明确指定此模型配置属于哪个提供商
+    provider: str
     model_name: str
-    temperature: float | None = None
-    max_output_tokens: int | None = None
-    top_p: float | None = None
-    top_k: int | None = None
-    # 可以根据需要添加其他特定于模型的参数，例如 vision_config 等
-
-
-# --- Provider Configuration ---
-@dataclass
-class ProviderModels(ConfigBase):  # 用于 [providers.<provider_name>.models]
-    # 这些字段名需要与 TOML 中定义的模型用途键名完全一致
-    # 例如：main_consciousness, intrusive_thoughts, action_decision, information_summary
-    # 我们使用 dict[str, ModelParams] 来更灵活地处理不同用途的模型
-    # 或者，如果用途是固定的，可以继续像之前那样显式列出，但类型是 ModelParams
-    main_consciousness: ModelParams | None = None
-    intrusive_thoughts: ModelParams | None = None
-    action_decision: ModelParams | None = None
-    information_summary: ModelParams | None = None
-    embedding_default: ModelParams | None = None
-    # 如果您希望更动态地处理模型用途，可以使用以下方式：
-    # _dynamic_models: dict[str, ModelParams] = field(default_factory=dict)
-    # 但这需要 ConfigBase.from_dict 支持解析到这种动态字典中，或者在加载后进行额外处理。
-    # 为简单起见，暂时显式列出已知用途。
+    temperature: Optional[float] = None
+    max_output_tokens: Optional[int] = None
+    top_p: Optional[float] = None
+    top_k: Optional[int] = None
 
 
 @dataclass
-class ProviderSettings(ConfigBase):  # 用于 [providers.<provider_name>]
-    # api_keys_env_var 和 base_url_env_var 已被移除
-    # models 字段现在直接持有 ProviderModels
-    models: ProviderModels | None = None  # 改为可选，因为一个provider可能只定义了API而没有具体模型
+class ProviderModels(ConfigBase):
+    main_consciousness: Optional[ModelParams] = None
+    intrusive_thoughts: Optional[ModelParams] = None
+    action_decision: Optional[ModelParams] = None
+    information_summary: Optional[ModelParams] = None
+    embedding_default: Optional[ModelParams] = None
+    # 🐾 小猫爪：为子思维聊天回复新增的LLM配置字段！
+    sub_mind_chat_reply: Optional[ModelParams] = None
 
 
 @dataclass
-class ProvidersConfig(ConfigBase):  # 用于 [providers] 表
-    # 键名应与 toml 中的提供商名称一致 (例如 "gemini", "openai")
-    gemini: ProviderSettings | None = None
-    openai: ProviderSettings | None = None
-    # 可以添加其他提供商...
-    # 为了更动态地处理，也可以考虑使用 dict[str, ProviderSettings]
-    # _dynamic_providers: dict[str, ProviderSettings] = field(default_factory=dict)
-    # 同样，为简单起见，暂时显式列出。
+class ProviderSettings(ConfigBase):
+    models: Optional[ProviderModels] = None
 
 
-# --- Database Settings ---
+@dataclass
+class ProvidersConfig(ConfigBase):
+    gemini: Optional[ProviderSettings] = None
+    openai: Optional[ProviderSettings] = None
+    # 🐾 小猫爪：如果未来有更多提供商，可以在这里添加
+
+
 @dataclass
 class DatabaseSettings(ConfigBase):
-    # 所有 *_env_var 字段已被移除。
-    # 此数据类现在为空，但保留它作为配置结构的一部分。
-    # 代码将直接从固定名称的环境变量读取数据库连接信息。
-    pass  # 表示这是一个空类，但它仍然是一个有效的 dataclass
+    pass
 
 
-# --- Proxy Settings ---
 @dataclass
 class ProxySettings(ConfigBase):
     use_proxy: bool = False
-    http_proxy_url: str | None = ""
+    http_proxy_url: Optional[str] = "" # 🐾 小猫爪：保持 Optional[str]
 
 
-# --- Core Logic Settings ---
 @dataclass
 class CoreLogicSettings(ConfigBase):
     thinking_interval_seconds: int = 30
-    # time_format_string 已被移除
+    chat_history_context_duration_minutes: int = 10 # 🐾 小猫爪：之前讨论中提到，这里明确一下
 
 
-# --- Intrusive Thoughts Settings ---
 @dataclass
 class IntrusiveThoughtsSettings(ConfigBase):
     enabled: bool = True
@@ -101,30 +79,24 @@ class IntrusiveThoughtsSettings(ConfigBase):
     insertion_probability: float = 0.15
 
 
-# --- Logging Settings ---
 @dataclass
 class LoggingSettings(ConfigBase):
-    # 所有 *_env_var 字段已被移除。
-    # 此数据类现在为空，但保留它作为配置结构的一部分。
-    # 代码将直接从固定名称的环境变量读取日志级别。
-    pass  # 表示这是一个空类
+    pass
 
 
-# --- Inner Version Control ---
 @dataclass
 class InnerConfig(ConfigBase):
     version: str
 
 
-# --- Root Configuration Class for Alcarus ---
 @dataclass
 class AlcarusRootConfig(ConfigBase):
-    inner: InnerConfig  # 没有默认值，必须提供
-    llm_client_settings: LLMClientSettings  # 没有默认值，必须提供
-    persona: PersonaSettings  # 没有默认值，必须提供
-    proxy: ProxySettings  # 没有默认值，必须提供
-    core_logic_settings: CoreLogicSettings  # 没有默认值，必须提供
-    intrusive_thoughts_module_settings: IntrusiveThoughtsSettings  # 没有默认值，必须提供
-    providers: ProvidersConfig | None = None
+    inner: InnerConfig
+    llm_client_settings: LLMClientSettings
+    persona: PersonaSettings
+    proxy: ProxySettings
+    core_logic_settings: CoreLogicSettings
+    intrusive_thoughts_module_settings: IntrusiveThoughtsSettings
+    providers: Optional[ProvidersConfig] = None # 🐾 小猫爪：保持 Optional
     database: DatabaseSettings = field(default_factory=DatabaseSettings)
     logging: LoggingSettings = field(default_factory=LoggingSettings)

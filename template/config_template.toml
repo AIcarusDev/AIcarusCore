@@ -5,7 +5,7 @@
 
 # 内部配置，用于版本控制
 [inner]
-version = "0.0.4" # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
+version = "0.0.5" # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
 
 # 通用 LLM 客户端设置 (应用于所有 LLM 实例)
 [llm_client_settings]
@@ -64,6 +64,12 @@ provider = "gemini"
 model_name = "gemini-2.0-flash"
 temperature = 0.5
 max_output_tokens = 1000
+
+[providers.gemini.models.sub_mind_chat_reply]
+provider = "gemini"
+model_name = "gemini-2.0-flash"
+temperature = 0.65
+max_output_tokens = 3000
 
 # -----------------------------------------------------------------------------
 # 网络代理配置
