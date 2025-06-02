@@ -44,13 +44,9 @@ class CoreLogic:
         "recent_contextual_information": "最近未感知到任何特定信息或通知。",
     }
 
-    PROMPT_TEMPLATE: str = """当前时间：{current_time}
-你是{bot_name}；
-{persona_description}
-
-{persona_profile}
-
-{current_task_info}
+    # ███ 小懒猫改动开始 ███
+    # PROMPT_TEMPLATE 修改：移除了 current_time, bot_name, persona_description, persona_profile
+    PROMPT_TEMPLATE: str = """{current_task_info}
 
 {action_result_info}
 {pending_action_status}
@@ -85,6 +81,7 @@ class CoreLogic:
 
 请输出你的思考 JSON：
 """
+    # ███ 小懒猫改动结束 ███
 
     def __init__(self):
         self.logger = get_logger(f"AIcarusCore.{self.__class__.__name__}")
@@ -295,18 +292,28 @@ class CoreLogic:
         current_state_for_prompt: dict[str, Any],
         current_time_str: str,
         intrusive_thought_str: str = "",
-    ) -> tuple[dict[str, Any] | None, str | None]:
+    ) -> tuple[dict[str, Any] | None, str | None, str | None]: # 返回值增加了 system_prompt
         if not self.root_cfg:
             self.logger.error("Root config not available for LLM thought generation.")
-            return None, None
+            return None, None, None
+        
+        persona_cfg = self.root_cfg.persona
         task_desc = current_state_for_prompt.get("current_task", "")
         task_info_prompt = f"你当前的目标/任务是：【{task_desc}】" if task_desc else "你当前没有什么特定的目标或任务。"
-        persona_cfg = self.root_cfg.persona
+
+        # ███ 小懒猫改动开始 ███
+        # 组装 system_prompt
+        system_prompt_parts = [
+            f"当前时间：{current_time_str}",
+            f"你是{persona_cfg.bot_name}；",
+            persona_cfg.description,
+            persona_cfg.profile
+        ]
+        system_prompt_str = "\n".join(filter(None, system_prompt_parts)) # 过滤掉空字符串并用换行符连接
+        # ███ 小懒猫改动结束 ███
+
         prompt_text = self.PROMPT_TEMPLATE.format(
-            current_time=current_time_str,
-            bot_name=persona_cfg.bot_name,
-            persona_description=persona_cfg.description,
-            persona_profile=persona_cfg.profile,
+            # 移除了 current_time, bot_name, persona_description, persona_profile
             current_task_info=task_info_prompt,
             mood=current_state_for_prompt.get("mood", self.INITIAL_STATE["mood"]),
             previous_thinking=current_state_for_prompt.get(
@@ -326,29 +333,42 @@ class CoreLogic:
             ),
             intrusive_thought=intrusive_thought_str,
         )
+        # ███ 小懒猫改动开始 ███
         self.logger.debug(
-            f"--- 主思维LLM接收到的完整Prompt (模型: {llm_client.llm_client.model_name}) ---\n{prompt_text}\n--- Prompt结束 ---"
+            f"--- 主思维LLM接收到的 System Prompt (模型: {llm_client.llm_client.model_name}) ---\n{system_prompt_str}\n--- System Prompt结束 ---"
+        )
+        # ███ 小懒猫改动结束 ███
+        self.logger.debug(
+            f"--- 主思维LLM接收到的 User Prompt (模型: {llm_client.llm_client.model_name}) ---\n{prompt_text}\n--- User Prompt结束 ---"
         )
         self.logger.debug(
             f"正在请求 {llm_client.llm_client.provider} API ({llm_client.llm_client.model_name}) 生成主思考..."
         )
         raw_response_text: str = ""
         try:
-            response_data = await llm_client.make_llm_request(prompt=prompt_text, is_stream=False)
+            # ███ 小懒猫改动开始 ███
+            # 调用 make_llm_request 时传入 system_prompt_str
+            response_data = await llm_client.make_llm_request(
+                prompt=prompt_text, 
+                system_prompt=system_prompt_str, # 把 system_prompt 传进去！
+                is_stream=False
+            )
+            # ███ 小懒猫改动结束 ███
+
             if response_data.get("error"):
                 error_type = response_data.get("type", "UnknownError")
                 error_msg = response_data.get("message", "LLM客户端返回了一个错误")
                 self.logger.error(f"主思维LLM调用失败 ({error_type}): {error_msg}")
                 if response_data.get("details"):
                     self.logger.error(f"  错误详情: {str(response_data.get('details'))[:300]}...")
-                return None, prompt_text
+                return None, prompt_text, system_prompt_str # 返回 system_prompt
             raw_response_text = response_data.get("text")  # type: ignore
             if not raw_response_text:
                 error_msg = "错误：主思维LLM响应中缺少文本内容。"
                 if response_data:
                     error_msg += f"\n  完整响应: {str(response_data)[:500]}..."
                 self.logger.error(error_msg)
-                return None, prompt_text
+                return None, prompt_text, system_prompt_str # 返回 system_prompt
             json_to_parse = raw_response_text.strip()
             if json_to_parse.startswith("```json"):
                 json_to_parse = json_to_parse[7:-3].strip()
@@ -359,14 +379,14 @@ class CoreLogic:
             self.logger.info("主思维LLM API 响应已成功解析为JSON。")
             if response_data.get("usage"):
                 thought_json["_llm_usage_info"] = response_data["usage"]
-            return thought_json, prompt_text
+            return thought_json, prompt_text, system_prompt_str # 返回 system_prompt
         except json.JSONDecodeError as e:
             self.logger.error(f"错误：解析主思维LLM的JSON响应失败: {e}")
             self.logger.error(f"未能解析的文本内容: {raw_response_text}")
-            return None, prompt_text
+            return None, prompt_text, system_prompt_str # 返回 system_prompt
         except Exception as e:
             self.logger.error(f"错误：调用主思维LLM或处理其响应时发生意外错误: {e}", exc_info=True)
-            return None, prompt_text
+            return None, prompt_text, system_prompt_str # 返回 system_prompt
 
     async def _core_thinking_loop(self) -> None:
         if not self.root_cfg or not self.db_handler or not self.main_consciousness_llm_client:
@@ -377,7 +397,6 @@ class CoreLogic:
         time_format_str: str = "%Y年%m月%d日 %H点%M分%S秒"
         thinking_interval_sec: int = core_logic_cfg.thinking_interval_seconds
 
-        # 使用 getattr 获取配置，如果不存在则使用默认值10分钟
         chat_history_duration_minutes: int = getattr(core_logic_cfg, "chat_history_context_duration_minutes", 10)
         self.logger.info(
             f"聊天记录上下文时长配置为: {chat_history_duration_minutes} 分钟 (如果配置中未找到则使用默认值)。"
@@ -396,7 +415,6 @@ class CoreLogic:
                 raw_context_messages = await self.db_handler.get_recent_chat_messages_for_context(
                     duration_minutes=chat_history_duration_minutes, conversation_id=self.current_focused_conversation_id
                 )
-                # 在它后面加上:
                 self.logger.info(f"从数据库获取到的原始上下文消息数量: {len(raw_context_messages)}")
                 if raw_context_messages:
                     self.logger.debug(f"获取到的原始上下文消息样本 (前2条): {raw_context_messages[:2]}")
@@ -433,13 +451,17 @@ class CoreLogic:
             )
             if intrusive_thought_to_inject_this_cycle:
                 self.logger.debug(f"  注入侵入性思维: {intrusive_thought_to_inject_this_cycle[:60]}...")
-
-            generated_thought_json, full_prompt_text_sent = await self._generate_thought_from_llm(
+            
+            # ███ 小懒猫改动开始 ███
+            # _generate_thought_from_llm 现在返回三个值
+            generated_thought_json, full_prompt_text_sent, system_prompt_sent = await self._generate_thought_from_llm(
                 llm_client=self.main_consciousness_llm_client,  # type: ignore
                 current_state_for_prompt=current_state_for_prompt,
                 current_time_str=current_time_formatted_str,
                 intrusive_thought_str=intrusive_thought_to_inject_this_cycle,
             )
+            # ███ 小懒猫改动结束 ███
+
             initiated_action_data_for_db: dict[str, Any] | None = None
             action_info_for_task: dict[str, Any] | None = None
             saved_thought_doc_key: str | None = None
@@ -447,16 +469,13 @@ class CoreLogic:
                 self.logger.debug(
                     f"  主思维LLM输出的完整JSON:\n{json.dumps(generated_thought_json, indent=2, ensure_ascii=False)}"
                 )
-                # --- 你想添加的日志从这里开始 ---
                 think_output = generated_thought_json.get("think") or "未思考"
                 emotion_output = generated_thought_json.get("emotion") or "无特定情绪"
-                to_do_output = generated_thought_json.get("to_do")  # 如果是None，下面会处理
-                action_to_take_output = generated_thought_json.get("action_to_take")  # 如果是None，下面会处理
-                action_motivation_output = generated_thought_json.get("action_motivation")  # 如果是None，下面会处理
+                to_do_output = generated_thought_json.get("to_do") 
+                action_to_take_output = generated_thought_json.get("action_to_take") 
+                action_motivation_output = generated_thought_json.get("action_motivation") 
                 next_think_output = generated_thought_json.get("next_think") or "未明确下一步思考方向"
-
                 bot_name_for_log = self.root_cfg.persona.bot_name if self.root_cfg else "机器人"
-
                 log_message = (
                     f'{bot_name_for_log}现在的想法是 "{think_output}"，'
                     f'心情 "{emotion_output}"，'
@@ -466,7 +485,6 @@ class CoreLogic:
                     f'{bot_name_for_log}的下一步大概思考方向是 "{next_think_output}"'
                 )
                 self.logger.info(log_message)
-                # --- 你想添加的日志到这里结束 ---
                 action_desc_raw = generated_thought_json.get("action_to_take")
                 action_desc_from_llm = action_desc_raw.strip() if isinstance(action_desc_raw, str) else ""
                 action_motive_raw = generated_thought_json.get("action_motivation")
@@ -488,9 +506,13 @@ class CoreLogic:
                         "current_thought_context": generated_thought_json.get("think", "无特定思考上下文。"),
                     }
                     self.logger.debug(f"  >>> 行动意图产生: '{action_desc_from_llm}' (ID: {action_id_this_cycle[:8]})")
+                
+                # ███ 小懒猫改动开始 ███
+                # 保存思考文档时，也记录下发送的 system_prompt
                 document_to_save_in_main: dict[str, Any] = {
                     "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
-                    "time_injected_to_prompt": current_time_formatted_str,
+                    "time_injected_to_prompt": current_time_formatted_str, # 这个是当时 system_prompt 里的时间
+                    "system_prompt_sent": system_prompt_sent if system_prompt_sent else "System Prompt 未能构建", # 保存 system_prompt
                     "intrusive_thought_injected": intrusive_thought_to_inject_this_cycle,
                     "mood_input": current_state_for_prompt["mood"],
                     "previous_thinking_input": current_state_for_prompt["previous_thinking"],
@@ -499,7 +521,7 @@ class CoreLogic:
                     "action_result_input": current_state_for_prompt.get("action_result_info", ""),
                     "pending_action_status_input": current_state_for_prompt.get("pending_action_status", ""),
                     "recent_contextual_information_input": formatted_recent_contextual_info,
-                    "full_prompt_sent": full_prompt_text_sent if full_prompt_text_sent else "Prompt未能构建",
+                    "full_user_prompt_sent": full_prompt_text_sent if full_prompt_text_sent else "User Prompt 未能构建", # 修改键名以区分
                     "think_output": generated_thought_json.get("think"),
                     "emotion_output": generated_thought_json.get("emotion"),
                     "next_think_output": generated_thought_json.get("next_think"),
@@ -509,6 +531,8 @@ class CoreLogic:
                     "action_motivation_output": generated_thought_json.get("action_motivation", ""),
                     "action_attempted": initiated_action_data_for_db,
                 }
+                # ███ 小懒猫改动结束 ███
+
                 if "_llm_usage_info" in generated_thought_json:
                     document_to_save_in_main["_llm_usage_info"] = generated_thought_json["_llm_usage_info"]
                 saved_thought_doc_key = await self.db_handler.save_thought_document(document_to_save_in_main)
@@ -556,7 +580,6 @@ class CoreLogic:
                 break
 
     async def start(self) -> None:
-        # ... (start 方法的前半部分，包括配置加载、LLM客户端初始化、数据库处理器初始化、消息处理器初始化等保持不变)
         try:
             self.root_cfg = get_typed_settings()
             self.logger.info("应用配置已成功加载并转换为类型化对象。")
