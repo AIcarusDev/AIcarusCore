@@ -1,12 +1,13 @@
 # src/action/action_handler.py
 import asyncio
+import datetime
 import json
 import os
 import time  # 保留 time 模块
 import uuid
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
-import datetime
+
 from aicarus_protocols import BaseMessageInfo, GroupInfo, MessageBase, Seg, UserInfo  # 保留协议导入
 
 # StandardDatabase 仅用于类型提示，实际操作通过 ArangoDBHandler
@@ -110,21 +111,18 @@ class ActionHandler:
                         "properties": {
                             "active_threshold_days": {
                                 "type": "integer",
-                                "description": "可选。定义多少天内有消息记录的会话被认为是活跃的。默认为7天。"
+                                "description": "可选。定义多少天内有消息记录的会话被认为是活跃的。默认为7天。",
                             },
                             "max_instances_to_return": {
                                 "type": "integer",
-                                "description": "可选。最多返回多少个活跃的会话实例。默认为20个。"
-                            }
+                                "description": "可选。最多返回多少个活跃的会话实例。默认为20个。",
+                            },
                         },
                     },
-                }
+                },
             ]
         }
     ]
-
-
- 
 
     ACTION_DECISION_PROMPT_TEMPLATE = """你是一个智能行动辅助系统。你的主要任务是分析用户当前的思考、他们明确提出的行动意图以及背后的动机，以及最近收到的外部消息和请求。根据这些信息，你需要从下方提供的可用工具列表中，选择一个最合适的工具来帮助用户完成这个行动，或者判断行动是否无法完成。
 
@@ -361,7 +359,6 @@ class ActionHandler:
         # ).timestamp() * 1000
         # self.logger.debug(f"计算出的活跃阈值时间戳 (ms): {threshold_timestamp_ms}")
 
-
         # 第一步：查询数据库，找出所有活跃的 conversation_id 及其最新的消息时间戳
         # 注意：这里的 @bot_id 可能需要从配置或者其他地方获取，暂时写成一个占位符
         # 实际上，我们可能不需要 bot_id 来判断私聊对方，因为 conversation_id 已经可以区分
@@ -424,7 +421,7 @@ class ActionHandler:
                         RETURN msg.raw_message_info_dump // 直接返回元信息部分
                 """
                 bind_vars_latest_msg = {"conv_id": conv_id}
-                
+
                 latest_message_info_list = await self.db_handler.execute_query(
                     query_latest_message_for_conv, bind_vars=bind_vars_latest_msg
                 )
@@ -432,20 +429,20 @@ class ActionHandler:
                 if not latest_message_info_list:
                     self.logger.warning(f"未能为活跃会话 {conv_id} 获取到最新消息的元信息。")
                     continue
-                
-                raw_info = latest_message_info_list[0] # execute_query 返回的是列表
-                
+
+                raw_info = latest_message_info_list[0]  # execute_query 返回的是列表
+
                 instance_platform = raw_info.get("platform", "未知平台")
                 instance_type = "unknown"
                 instance_name = "未知名称"
 
                 group_info = raw_info.get("group_info")
-                user_info = raw_info.get("user_info") # 这是消息发送者的信息
+                user_info = raw_info.get("user_info")  # 这是消息发送者的信息
 
                 if group_info and group_info.get("group_id"):
                     instance_type = "group"
                     instance_name = group_info.get("group_name", f"群组_{group_info.get('group_id')}")
-                elif user_info and user_info.get("user_id"): # 假设没有group_id就是私聊
+                elif user_info and user_info.get("user_id"):  # 假设没有group_id就是私聊
                     instance_type = "private"
                     # 对于私聊，conversation_id 通常是 platform_dm_userid1_userid2
                     # 我们需要知道 bot_id 来确定对方是谁
@@ -454,8 +451,10 @@ class ActionHandler:
                     # 这里先用简单方式，如果消息发送者是对方，那么 user_info 就是对方的
                     # 但如果最新消息是机器人发的，user_info 就是机器人的，这时需要从 conversation_id 推断或找更早的对方消息
                     # 为了简化，我们假设能从 user_info 中获取一个有意义的名称，或者从conv_id中获取
-                    bot_id_placeholder = self.root_cfg.persona.bot_name if self.root_cfg else "bot" # 理论上 bot_id 应该从配置或 message_info.bot_id 获取
-                    
+                    bot_id_placeholder = (
+                        self.root_cfg.persona.bot_name if self.root_cfg else "bot"
+                    )  # 理论上 bot_id 应该从配置或 message_info.bot_id 获取
+
                     # 尝试从 conversation_id 解析私聊对象 (这是一个简化版本)
                     if "_dm_" in conv_id:
                         parts = conv_id.split("_dm_")
@@ -463,31 +462,55 @@ class ActionHandler:
                             user_ids_in_dm = parts[1].split("_")
                             # 假设 user_info.user_id 是这条最新消息的发送者
                             # 如果发送者不是机器人，那这个昵称就是对方的
-                            if user_info.get("user_id") and user_info.get("user_id") not in conv_id: # 一个简单的判断，可能不完全准确
-                                 instance_name = user_info.get("user_nickname") or user_info.get("user_cardname") or f"用户_{user_info.get('user_id')}"
-                            else: # 如果最新消息是机器人发的，或者无法判断，尝试从conv_id里的id找
-                                other_user_id = next((uid for uid in user_ids_in_dm if uid != bot_id_placeholder), None) # 假设你知道 bot_id
+                            if (
+                                user_info.get("user_id") and user_info.get("user_id") not in conv_id
+                            ):  # 一个简单的判断，可能不完全准确
+                                instance_name = (
+                                    user_info.get("user_nickname")
+                                    or user_info.get("user_cardname")
+                                    or f"用户_{user_info.get('user_id')}"
+                                )
+                            else:  # 如果最新消息是机器人发的，或者无法判断，尝试从conv_id里的id找
+                                other_user_id = next(
+                                    (uid for uid in user_ids_in_dm if uid != bot_id_placeholder), None
+                                )  # 假设你知道 bot_id
                                 if other_user_id:
-                                     instance_name = f"与用户_{other_user_id}的私聊"
-                                else: # 如果无法确定对方，使用消息发送者昵称作为备选
-                                     instance_name = user_info.get("user_nickname") or user_info.get("user_cardname") or f"用户_{user_info.get('user_id')}"
+                                    instance_name = f"与用户_{other_user_id}的私聊"
+                                else:  # 如果无法确定对方，使用消息发送者昵称作为备选
+                                    instance_name = (
+                                        user_info.get("user_nickname")
+                                        or user_info.get("user_cardname")
+                                        or f"用户_{user_info.get('user_id')}"
+                                    )
                         else:
-                             instance_name = user_info.get("user_nickname") or user_info.get("user_cardname") or f"用户_{user_info.get('user_id','未知')}"
-                    else: # 如果 conv_id 不是预期的私聊格式，也用发送者昵称
-                        instance_name = user_info.get("user_nickname") or user_info.get("user_cardname") or f"用户_{user_info.get('user_id','未知')}"
+                            instance_name = (
+                                user_info.get("user_nickname")
+                                or user_info.get("user_cardname")
+                                or f"用户_{user_info.get('user_id', '未知')}"
+                            )
+                    else:  # 如果 conv_id 不是预期的私聊格式，也用发送者昵称
+                        instance_name = (
+                            user_info.get("user_nickname")
+                            or user_info.get("user_cardname")
+                            or f"用户_{user_info.get('user_id', '未知')}"
+                        )
 
-                detailed_instances.append({
-                    "conversation_id": conv_id,
-                    "type": instance_type,
-                    "name": instance_name,
-                    "platform": instance_platform,
-                    "last_active_time_ms": last_active_ts_ms, # 保留毫秒用于可能的精确排序
-                    "last_active_time_iso": datetime.datetime.fromtimestamp(last_active_ts_ms / 1000.0, tz=datetime.timezone.utc).isoformat()
-                })
+                detailed_instances.append(
+                    {
+                        "conversation_id": conv_id,
+                        "type": instance_type,
+                        "name": instance_name,
+                        "platform": instance_platform,
+                        "last_active_time_ms": last_active_ts_ms,  # 保留毫秒用于可能的精确排序
+                        "last_active_time_iso": datetime.datetime.fromtimestamp(
+                            last_active_ts_ms / 1000.0, tz=datetime.UTC
+                        ).isoformat(),
+                    }
+                )
 
             # 可以根据 last_active_time_ms 再次排序，因为上面的LIMIT可能不完全按时间
             detailed_instances.sort(key=lambda x: x["last_active_time_ms"], reverse=True)
-            
+
             # 准备返回给LLM的，通常不需要毫秒时间戳
             for inst in detailed_instances:
                 del inst["last_active_time_ms"]
@@ -700,7 +723,9 @@ class ActionHandler:
                     tools=self.AVAILABLE_TOOLS_SCHEMA_FOR_GEMINI,
                     is_stream=False,
                 )
-                self.logger.debug(f"--- [Action ID: {action_id}, DocKey: {doc_key_for_updates}] 行动决策LLM调用完成 ---")
+                self.logger.debug(
+                    f"--- [Action ID: {action_id}, DocKey: {doc_key_for_updates}] 行动决策LLM调用完成 ---"
+                )
 
                 if decision_response.get("error"):
                     error_msg = decision_response.get("message", "行动决策LLM调用时返回了错误状态")
@@ -932,7 +957,7 @@ class ActionHandler:
                     # --- 执行工具 ---
                     if proceed_with_tool_execution_logic:
                         self.logger.info(
-                            f"开始执行动作: {tool_name},参数：{tool_args}" # 修改：打印参数
+                            f"开始执行动作: {tool_name},参数：{tool_args}"  # 修改：打印参数
                         )
                         raw_tool_output: str = "工具未返回任何输出或执行时发生错误。"  # 默认值
 
@@ -976,25 +1001,25 @@ class ActionHandler:
                         # --- 我们新加的工具的调用逻辑 ---
                         elif tool_name == "get_active_chat_instances":
                             # 从 tool_args 中获取参数，如果LLM提供了的话
-                            threshold_days = tool_args.get("active_threshold_days", 7) # 默认7天
-                            max_to_return = tool_args.get("max_instances_to_return", 20) # 默认20个
-                            try: # 做个类型转换和保护
+                            threshold_days = tool_args.get("active_threshold_days", 7)  # 默认7天
+                            max_to_return = tool_args.get("max_instances_to_return", 20)  # 默认20个
+                            try:  # 做个类型转换和保护
                                 threshold_days = int(threshold_days) if threshold_days is not None else 7
                                 max_to_return = int(max_to_return) if max_to_return is not None else 20
                             except (ValueError, TypeError):
-                                self.logger.warning(f"工具 get_active_chat_instances 的参数类型不正确，将使用默认值。收到参数: {tool_args}")
+                                self.logger.warning(
+                                    f"工具 get_active_chat_instances 的参数类型不正确，将使用默认值。收到参数: {tool_args}"
+                                )
                                 threshold_days = 7
                                 max_to_return = 20
-                            
+
                             raw_tool_output = await self._execute_get_active_chat_instances(
-                                active_threshold_days=threshold_days,
-                                max_instances_to_return=max_to_return
+                                active_threshold_days=threshold_days, max_instances_to_return=max_to_return
                             )
                             # 这个工具的结果通常直接就是给用户（或LLM进一步处理）看的，所以 action_was_successful 可以认为是True
                             # 除非你想根据列表是否为空来判断成功与否
-                            action_was_successful = True # 假设获取列表本身就是成功的动作
-                            final_result_for_shuang = str(raw_tool_output) # 直接把JSON字符串给双
-
+                            action_was_successful = True  # 假设获取列表本身就是成功的动作
+                            final_result_for_shuang = str(raw_tool_output)  # 直接把JSON字符串给双
 
                         elif tool_name == "send_reply_message_to_adapter":
                             if self.core_communication_layer:

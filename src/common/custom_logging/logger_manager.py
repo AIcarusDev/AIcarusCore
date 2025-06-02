@@ -1,3 +1,5 @@
+from loguru import logger as loguru_logger  # <--- 确保这个导入或者类似 LoguruLogger 的类型导入
+
 from .logger import (
     CONFIG_STYLE_CONFIG,
     HEARTFLOW_STYLE_CONFIG,
@@ -6,10 +8,12 @@ from .logger import (
     PROCESSOR_STYLE_CONFIG,
     TOOL_USE_STYLE_CONFIG,
     LogConfig,
+)
+from .logger import (
     get_module_logger as get_module_logger_from_logger_py,
 )
-from loguru import logger as loguru_logger # <--- 确保这个导入或者类似 LoguruLogger 的类型导入
-LoguruLoggerType = loguru_logger.__class__ # 获取 Loguru logger 实例的类型
+
+LoguruLoggerType = loguru_logger.__class__  # 获取 Loguru logger 实例的类型
 
 # 新增这个对应表
 MODULE_NAME_TRANSLATIONS = {
@@ -38,7 +42,7 @@ MODULE_LOGGER_CONFIGS = {
 }
 
 
-def get_logger(original_english_module_name: str) -> LoguruLoggerType: # <--- 返回类型改成 logger 实例的类型
+def get_logger(original_english_module_name: str) -> LoguruLoggerType:  # <--- 返回类型改成 logger 实例的类型
     # 1. 先用原始英文模块名获取样式配置 (如果这个模块有特定样式)
     style_config_data = MODULE_LOGGER_CONFIGS.get(original_english_module_name)
 
@@ -47,9 +51,9 @@ def get_logger(original_english_module_name: str) -> LoguruLoggerType: # <--- �
 
     actual_log_config_to_use: LogConfig | None = None
     if style_config_data:
-        if isinstance(style_config_data, LogConfig): # 如果 MODULE_LOGGER_CONFIGS 里直接存的是 LogConfig 实例
+        if isinstance(style_config_data, LogConfig):  # 如果 MODULE_LOGGER_CONFIGS 里直接存的是 LogConfig 实例
             actual_log_config_to_use = style_config_data
-        elif isinstance(style_config_data, dict) and "console_format" in style_config_data: # 如果存的是包含格式的字典
+        elif isinstance(style_config_data, dict) and "console_format" in style_config_data:  # 如果存的是包含格式的字典
             actual_log_config_to_use = LogConfig(
                 console_format=style_config_data.get("console_format", ""),
                 file_format=style_config_data.get("file_format", ""),

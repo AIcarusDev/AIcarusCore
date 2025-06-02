@@ -450,11 +450,11 @@ class CoreLogic:
                 # --- 你想添加的日志从这里开始 ---
                 think_output = generated_thought_json.get("think") or "未思考"
                 emotion_output = generated_thought_json.get("emotion") or "无特定情绪"
-                to_do_output = generated_thought_json.get("to_do") # 如果是None，下面会处理
-                action_to_take_output = generated_thought_json.get("action_to_take") # 如果是None，下面会处理
-                action_motivation_output = generated_thought_json.get("action_motivation") # 如果是None，下面会处理
+                to_do_output = generated_thought_json.get("to_do")  # 如果是None，下面会处理
+                action_to_take_output = generated_thought_json.get("action_to_take")  # 如果是None，下面会处理
+                action_motivation_output = generated_thought_json.get("action_motivation")  # 如果是None，下面会处理
                 next_think_output = generated_thought_json.get("next_think") or "未明确下一步思考方向"
-                
+
                 bot_name_for_log = self.root_cfg.persona.bot_name if self.root_cfg else "机器人"
 
                 log_message = (

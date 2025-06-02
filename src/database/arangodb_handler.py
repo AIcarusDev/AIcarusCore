@@ -290,10 +290,10 @@ class ArangoDBHandler:
     ) -> list[dict[str, Any]]:
         now_utc = datetime.datetime.now(datetime.UTC)
         cutoff_datetime_obj = now_utc - datetime.timedelta(minutes=duration_minutes)
-         # --- 修改开始 ---
+        # --- 修改开始 ---
         # 我们不再需要ISO字符串给AQL了
-        # cutoff_time_iso_for_aql_conversion = cutoff_datetime_obj.isoformat() 
-        
+        # cutoff_time_iso_for_aql_conversion = cutoff_datetime_obj.isoformat()
+
         # 直接在Python里计算出截止时间的UTC毫秒数
         calculated_cutoff_ms_in_python = int(cutoff_datetime_obj.timestamp() * 1000)
         # --- 修改结束 ---
@@ -340,7 +340,7 @@ class ArangoDBHandler:
         # AQL LET 语句，用于将 @cutoff_time_iso_str (ISO string) 转换为毫秒级 Unix 时间戳
         # let_cutoff_conversion_aql = "LET cutoff_timestamp_ms = DATE_TIMESTAMP(@cutoff_time_iso_str) * 1000"
         # 过滤条件现在基于数值型的 doc.timestamp
-        filter_condition_time_aql = "doc.timestamp >= @cutoff_timestamp_ms_param" 
+        filter_condition_time_aql = "doc.timestamp >= @cutoff_timestamp_ms_param"
         # 排序字段现在是数值型的 doc.timestamp
         sort_timestamp_field_aql = "doc.timestamp"
 
@@ -374,7 +374,7 @@ class ArangoDBHandler:
             )
             cursor = await asyncio.to_thread(self.db.aql.execute, aql_query, bind_vars=bind_vars, ttl=60)
             messages_from_db = list(cursor)  # type: ignore
-            messages_from_db_direct = list(cursor) # type: ignore 
+            messages_from_db_direct = list(cursor)  # type: ignore
             self.logger.info(f"AQL查询直接从cursor转换后的原始结果数量: {len(messages_from_db_direct)}")
             # --- ↑↑↑ 加在这里 ↑↑↑ ---
 
