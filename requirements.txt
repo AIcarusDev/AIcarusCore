@@ -6,3 +6,4 @@ tomlkit
 python-dotenv
 loguru
 rich
+PyYAML
