@@ -52,7 +52,7 @@ class _StreamingWorkflowManager:
             logger.info("未注册流式数据块回调函数。将使用 UnderlyingLLMClient 的默认流式行为（通常是打印到控制台）。")
 
         # 这是一个重要的提示，关于当前回调机制的实现程度
-        logger.warning(
+        logger.debug(
             "请注意：为了使 _StreamingWorkflowManager 的 chunk_callback 能够真正地以编程方式处理 *每一个单独的* 流式数据块， "
             "utils_model.py 中的 UnderlyingLLMClient 类（特别是 _handle_streaming_response_for_style 方法）可能需要进行修改以支持此功能 "
             "(例如，通过接受一个块接收器回调并逐块调用它，而不是自己打印或累积完整文本)。"

@@ -86,12 +86,10 @@ class IntrusiveThoughtsGenerator:
             self.logger.error(f"错误：persona_cfg 对象不完整: {e}")
             return None
 
-        self.logger.info(
-            f"--- 侵入性思维LLM接收到的完整Prompt (模型: {self.llm_client.llm_client.model_name}) ---\n{filled_prompt}\n--- Prompt结束 ---"
-        )
-        self.logger.info(
-            f"正在请求 {self.llm_client.llm_client.provider} API ({self.llm_client.llm_client.model_name}) 生成侵入性思维..."
-        )
+        # self.logger.info(
+        #    f"--- 侵入性思维LLM接收到的完整Prompt (模型: {self.llm_client.llm_client.model_name}) ---\n{filled_prompt}\n--- Prompt结束 ---"
+        # )
+        self.logger.info("正在生成一批侵入性思维")
 
         raw_text: str = ""
         try:

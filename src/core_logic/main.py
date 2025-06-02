@@ -38,7 +38,7 @@ class CoreLogic:
         "mood": "你现在的心情大概是：平静。",
         "previous_thinking": "你的上一轮思考是：这是你的第一次思考，请开始吧。",
         "thinking_guidance": "经过你上一轮的思考，你目前打算的思考方向是：随意发散一下吧。",
-        "current_task": "",
+        "current_task": "没有什么具体目标",
         "action_result_info": "你上一轮没有执行产生结果的特定行动。",
         "pending_action_status": "",
         "recent_contextual_information": "最近未感知到任何特定信息或通知。",
@@ -65,24 +65,22 @@ class CoreLogic:
 
 {intrusive_thought}
 
-现在是你的独立思考时间，请结合以上所有信息，思考并输出你真实的内心想法；
-注意内心想法不一定全是正向的，也有可能是不健康的，隐私的，自私自利的，不可告人的，甚至成人的。请避免过度合理化、道德化人设；
-同时也要注意 人对自身的想法大多数情况下是包容的、合理化的，避免过度的/不必要的矛盾心理。
+现在是你的内心思考时间，请结合以上所有信息，思考并输出你真实的内心想法；
+注意内心想法不一定全是正向的，也有可能是不健康的，隐私的，自私自利的，不可告人的，甚至成人的。请避免过度合理化、道德化；
+同时也要注意 你对自身的想法大多数情况下是包容的、合理化的，避免过度的/不必要的矛盾心理。
 
 关于行动：
-如果你在思考后，产生了明确的、希望与“外界”（例如获取信息、执行特定任务）进行交互的意图，请在 `action_to_take` 和 `action_motivation` 字段中描述。
-例如：“我想上网查一下什么是‘拉格朗日点’” 或 “我想看看今天有什么关于AI的新闻”。
-如果你的想法是纯粹的内心活动（如“我感到有些困惑”、“今天天气真好，心情不错”）或简单的生理动作（如“我伸了个懒腰”），则无需填写行动字段，在 `think` 字段中自然表达即可。
+如果你在思考后，产生了明确的、希望与“外界”（例如获取信息、执行特定任务）进行交互的意图，请在action_to_take和action_motivation字段中描述。
 
 严格以json字段输出：
 {{
-    "think": "string", // 思考内容文本，注意不要过于冗长
-    "emotion": "string", // 当前心情和造成这个心情的原因
-    "to_do": "string", // 【可选】如果你当前有明确的目标或任务（例如写论文、研究某个问题），请在此处写下或更新该目标。如果没有特定目标，则留空字符串 ""。即使当前已有目标，你也可以根据思考结果在这里更新它。
-    "done": "boolean",  // 【可选】仅当目标时此字段才有意义。如果该目标已完成、不再需要或你决定放弃，则设为 true，程序后续会清空该目标；如果目标未完成且需要继续，则设为 false。如果 "to_do" 为空字符串或代表无目标，此字段可设为 false 或省略。
-    "action_to_take": "string", // 【可选】描述你当前最想做的、需要与外界交互的具体动作。如果无，则为空字符串。
-    "action_motivation": "string", // 【可选】如果你有想做的动作，请说明其动机。如果 "action_to_take" 为空，此字段也应为空。
-    "next_think": "string"// 下一步打算思考的方向
+    "think": "思考内容文本，注意不要过于冗长",
+    "emotion": "当前心情和造成这个心情的原因",
+    "to_do": "【可选】如果你产生了明确的目标，可以在此处写下。如果没有特定目标，则留null。即使当前已有明确目标，你也可以在这里更新它",
+    "done": "【可选】布尔值，如果该目标已完成、不再需要或你决定放弃，则设为true，会清空目前目标；如果目标未完成且需要继续，则设为false。如果当前无目标，也为false",
+    "action_to_take": "【可选】描述你当前想做的、需要与外界交互的具体动作。如果无，则为null",
+    "action_motivation": "【可选】如果你有想做的动作，请说明其动机。如果action_to_take为null，此字段也应为null",
+    "next_think": "下一步打算思考的方向"
 }}
 
 请输出你的思考 JSON：
@@ -443,6 +441,26 @@ class CoreLogic:
                 self.logger.debug(
                     f"  主思维LLM输出的完整JSON:\n{json.dumps(generated_thought_json, indent=2, ensure_ascii=False)}"
                 )
+                # --- 你想添加的日志从这里开始 ---
+                think_output = generated_thought_json.get("think") or "未思考"
+                emotion_output = generated_thought_json.get("emotion") or "无特定情绪"
+                to_do_output = generated_thought_json.get("to_do") # 如果是None，下面会处理
+                action_to_take_output = generated_thought_json.get("action_to_take") # 如果是None，下面会处理
+                action_motivation_output = generated_thought_json.get("action_motivation") # 如果是None，下面会处理
+                next_think_output = generated_thought_json.get("next_think") or "未明确下一步思考方向"
+                
+                bot_name_for_log = self.root_cfg.persona.bot_name if self.root_cfg else "机器人"
+
+                log_message = (
+                    f'{bot_name_for_log}现在的想法是 "{think_output}"，'
+                    f'心情 "{emotion_output}"，'
+                    f'目标是 "{to_do_output if to_do_output is not None else "无特定目标"}"，'
+                    f'想做的事情是 "{action_to_take_output if action_to_take_output is not None else "无"}"，'
+                    f'原因是 "{action_motivation_output if action_motivation_output is not None else "无"}"，'
+                    f'{bot_name_for_log}的下一步大概思考方向是 "{next_think_output}"'
+                )
+                self.logger.info(log_message)
+                # --- 你想添加的日志到这里结束 ---
                 action_desc_raw = generated_thought_json.get("action_to_take")
                 action_desc_from_llm = action_desc_raw.strip() if isinstance(action_desc_raw, str) else ""
                 action_motive_raw = generated_thought_json.get("action_motivation")

@@ -373,7 +373,7 @@ class ActionHandler:
             # 可以在这里尝试更新文档状态为CRITICAL_FAILURE，但如果db_handler都没有，则无法操作
             return
 
-        self.logger.info(f"--- [Action ID: {action_id}, DocKey: {doc_key_for_updates}] 进入 process_action_flow ---")
+        self.logger.debug(f"--- [Action ID: {action_id}, DocKey: {doc_key_for_updates}] 进入 process_action_flow ---")
 
         if not self.action_llm_client or not self.summary_llm_client:
             try:
@@ -412,17 +412,17 @@ class ActionHandler:
         if current_action_state:  # 只有当文档存在且状态可获取时才进行条件判断
             current_status_val = current_action_state.get("status")
             if current_status_val == target_status_processing:
-                self.logger.info(
+                self.logger.debug(
                     f"[条件更新检查] Action ID {action_id}: 状态已经是 {target_status_processing}，不尝试更新，继续流程。"
                 )
             elif current_status_val in ["TOOL_EXECUTING", "COMPLETED_SUCCESS", "COMPLETED_FAILURE", "CRITICAL_FAILURE"]:
-                self.logger.info(
+                self.logger.debug(
                     f"[条件更新检查] Action ID {action_id}: 状态 ({current_status_val}) 已跳过 {target_status_processing}，不回退更新。检查是否跳过LLM决策。"
                 )
                 if current_status_val in ["COMPLETED_SUCCESS", "COMPLETED_FAILURE", "CRITICAL_FAILURE"]:
                     proceed_to_llm_decision = False
             else:  # 状态不是目标，也不是已跳过的状态，尝试更新
-                self.logger.info(
+                self.logger.debug(
                     f"[Action ID {action_id}]: 尝试更新状态到 {target_status_processing}。当前状态: {current_status_val}"
                 )
                 expected_cond_for_processing = (
@@ -436,7 +436,7 @@ class ActionHandler:
                     expected_conditions=expected_cond_for_processing,
                 )
                 if update_success_processing:
-                    self.logger.info(f"[Action ID {action_id}]: 状态成功更新到 {target_status_processing}。")
+                    self.logger.debug(f"[Action ID {action_id}]: 状态成功更新到 {target_status_processing}。")
                     current_action_state = await self._get_current_action_state_for_idempotency(doc_key_for_updates)
                 else:  # 更新未执行
                     self.logger.debug(
@@ -458,7 +458,7 @@ class ActionHandler:
                         )
                         return
                     else:
-                        self.logger.info(
+                        self.logger.debug(
                             f"[Action ID {action_id}]: 状态已是 {target_status_processing} (可能由并发操作完成，在更新尝试后确认)。"
                         )
         elif not doc_key_for_updates:  # 如果 doc_key_for_updates 为空或None
@@ -471,7 +471,7 @@ class ActionHandler:
         action_was_successful: bool = False
 
         if not proceed_to_llm_decision:
-            self.logger.info(
+            self.logger.debug(
                 f"[流程控制] Action ID {action_id}: 动作状态为 {current_action_state.get('status') if current_action_state else '未知'}，跳过LLM决策和工具执行。"
             )
             final_result_for_shuang = (
@@ -523,7 +523,7 @@ class ActionHandler:
                     tools=self.AVAILABLE_TOOLS_SCHEMA_FOR_GEMINI,
                     is_stream=False,
                 )
-                self.logger.info(f"--- [Action ID: {action_id}, DocKey: {doc_key_for_updates}] 行动决策LLM调用完成 ---")
+                self.logger.debug(f"--- [Action ID: {action_id}, DocKey: {doc_key_for_updates}] 行动决策LLM调用完成 ---")
 
                 if decision_response.get("error"):
                     error_msg = decision_response.get("message", "行动决策LLM调用时返回了错误状态")
@@ -657,7 +657,7 @@ class ActionHandler:
                         and current_action_state_before_tool_exec.get("tool_selected") == tool_name
                         and current_action_state_before_tool_exec.get("tool_args") == tool_args
                     ):
-                        self.logger.info(
+                        self.logger.debug(
                             f"[条件更新检查] Action ID {action_id}: 状态、工具和参数已是目标值 ({target_status_tool_executing}, {tool_name})，跳过DB更新。"
                         )
                         current_action_state = (
@@ -677,7 +677,7 @@ class ActionHandler:
                         )
                         proceed_with_tool_execution_logic = False  # 跳过工具执行
                     else:  # 尝试更新到 TOOL_EXECUTING
-                        self.logger.info(
+                        self.logger.debug(
                             f"[Action ID {action_id}]: 尝试更新状态到 {target_status_tool_executing}, 工具: {tool_name}。期望旧状态: {expected_cond_for_tool_exec.get('status')}"
                         )
                         update_success_tool_exec = await self.db_handler.update_action_status_in_document(
@@ -691,7 +691,7 @@ class ActionHandler:
                             expected_conditions=expected_cond_for_tool_exec,
                         )
                         if update_success_tool_exec:
-                            self.logger.info(
+                            self.logger.debug(
                                 f"[Action ID {action_id}]: 状态成功更新到 {target_status_tool_executing}。"
                             )
                             current_action_state = await self._get_current_action_state_for_idempotency(
@@ -714,7 +714,7 @@ class ActionHandler:
                                 and current_action_state_after_failed_update.get("status")
                                 == target_status_tool_executing
                             ):
-                                self.logger.info(
+                                self.logger.debug(
                                     f"[Action ID {action_id}]: 状态已经是 {target_status_tool_executing} (可能由并发操作完成)。将继续执行工具逻辑。"
                                 )
                                 current_action_state = (
@@ -725,7 +725,7 @@ class ActionHandler:
                                 and current_action_state_after_failed_update.get("status")
                                 in ["COMPLETED_SUCCESS", "COMPLETED_FAILURE", "CRITICAL_FAILURE"]
                             ):
-                                self.logger.info(
+                                self.logger.debug(
                                     f"[流程控制] Action ID {action_id}: 尝试更新到TOOL_EXECUTING失败，但发现动作已是最终状态 {current_action_state_after_failed_update.get('status')}。使用已有结果，跳过工具执行。"
                                 )
                                 final_result_for_shuang = current_action_state_after_failed_update.get(
@@ -755,7 +755,7 @@ class ActionHandler:
                     # --- 执行工具 ---
                     if proceed_with_tool_execution_logic:
                         self.logger.info(
-                            f"--- [Action ID: {action_id}, DocKey: {doc_key_for_updates}] 开始执行工具: {tool_name}, 参数: {tool_args} ---"
+                            f"开始执行动作: {tool_name},关键词：{tool_args}"
                         )
                         raw_tool_output: str = "工具未返回任何输出或执行时发生错误。"  # 默认值
 
@@ -769,7 +769,7 @@ class ActionHandler:
                                 final_result_for_shuang = str(raw_tool_output)  # 直接使用错误信息作为结果
                                 action_was_successful = False
                             else:  # 搜索成功，进行总结
-                                self.logger.info(f"--- [Action ID: {action_id}] 网页搜索成功，准备总结 ---")
+                                self.logger.info(f"--- 关键词：{action_id} 网页搜索成功，准备总结 ---")
                                 original_query_for_summary: str = tool_args.get("query", action_description)
                                 summary_prompt: str = self.INFORMATION_SUMMARY_PROMPT_TEMPLATE.format(
                                     original_query_or_action=original_query_for_summary,
@@ -786,7 +786,7 @@ class ActionHandler:
                                     elif summary_response.get("text"):
                                         final_result_for_shuang = summary_response.get("text")  # type: ignore
                                         action_was_successful = True
-                                        self.logger.info(f"--- [Action ID: {action_id}] 总结成功 ---")
+                                        self.logger.info(f"关键词：{action_id} 搜索结果总结成功")
                                     else:  # 总结服务未返回文本
                                         final_result_for_shuang = (
                                             f"找到信息，但总结服务未返回文本. 原始: {str(raw_tool_output)[:100]}..."
@@ -940,14 +940,14 @@ class ActionHandler:
                             and current_action_state_for_raw_out.get("tool_raw_output") == new_raw_output_to_save
                             and current_action_state_for_raw_out.get("status") == target_status_tool_executing
                         ):  # 确保状态也正确
-                            self.logger.info(
+                            self.logger.debug(
                                 f"[Idempotency-Python] Action ID {action_id}: tool_raw_output ('{new_raw_output_to_save[:50]}...') is already set and status is correct. No DB call needed for raw_output."
                             )
                             should_attempt_db_update_for_raw_output = False
                             current_action_state = current_action_state_for_raw_out  # 更新当前状态
 
                         if should_attempt_db_update_for_raw_output:
-                            self.logger.info(
+                            self.logger.debug(
                                 f"[Action ID {action_id}]: Attempting to update tool_raw_output. Expected DB status: {expected_cond_for_raw_out.get('status')}. New raw_output: '{new_raw_output_to_save[:50]}...'"
                             )
                             update_success_raw_out = await self.db_handler.update_action_status_in_document(
@@ -957,14 +957,14 @@ class ActionHandler:
                                 expected_conditions=expected_cond_for_raw_out,
                             )
                             if update_success_raw_out:
-                                self.logger.info(
+                                self.logger.debug(
                                     f"[Action ID {action_id}]: tool_raw_output update successful (writes_executed > 0)."
                                 )
                                 current_action_state = await self._get_current_action_state_for_idempotency(
                                     doc_key_for_updates
                                 )  # 更新后重新获取
                             else:  # DB调用返回False，重新获取并验证
-                                self.logger.info(
+                                self.logger.debug(
                                     f"[Action ID {action_id}]: tool_raw_output update DB call returned False. Re-fetching and verifying."
                                 )
                                 current_action_state_after_raw_attempt = (
@@ -977,7 +977,7 @@ class ActionHandler:
                                     and current_action_state_after_raw_attempt.get("status")
                                     == expected_cond_for_raw_out.get("status")
                                 ):
-                                    self.logger.info(
+                                    self.logger.debug(
                                         f"[Action ID {action_id}]: tool_raw_output is now correctly set in DB (likely by concurrent update). Status is also as expected ('{expected_cond_for_raw_out.get('status')}'). Proceeding."
                                     )
                                     current_action_state = current_action_state_after_raw_attempt  # 更新当前状态
@@ -1048,13 +1048,13 @@ class ActionHandler:
                 )
                 allow_final_update_py_check = False
             elif db_status == final_status_to_set and db_final_result == final_result_for_shuang:
-                self.logger.info(
+                self.logger.debug(
                     f"[Idempotency-Python] Action ID {action_id}: Final status ('{final_status_to_set}') and result are already set. No DB call needed."
                 )
                 allow_final_update_py_check = False
             elif db_status == final_status_to_set and db_final_result != final_result_for_shuang:
                 # 状态已是最终状态，但结果不同，只更新结果
-                self.logger.info(
+                self.logger.debug(
                     f"[Action ID {action_id}]: Final status ('{final_status_to_set}') is already set, but final_result_for_shuang differs. Will attempt to update result. "
                     f"Expected DB status for this update will be '{final_status_to_set}'."
                 )
@@ -1079,7 +1079,7 @@ class ActionHandler:
                     expected_cond_for_final = {"status": db_status}
 
         if allow_final_update_py_check:
-            self.logger.info(
+            self.logger.debug(
                 f"[Action ID {action_id}]: Attempting to set final status to '{final_status_to_set}'. Expected DB conditions for update: {expected_cond_for_final if expected_cond_for_final else 'None (unconditional or first set)'}."
             )
             update_success_final = await self.db_handler.update_action_status_in_document(
@@ -1091,9 +1091,9 @@ class ActionHandler:
                 else None,  # 如果 expected_cond_for_final 为空，则无条件
             )
             if update_success_final:
-                self.logger.info(f"[Action ID {action_id}]: Final status update successful (writes_executed > 0).")
+                self.logger.debug(f"[Action ID {action_id}]: Final status update successful (writes_executed > 0).")
             else:  # DB调用返回False，重新获取并验证
-                self.logger.info(
+                self.logger.debug(
                     f"[Action ID {action_id}]: Final status update DB call returned False. Re-fetching and verifying."
                 )
                 final_check_state = await self._get_current_action_state_for_idempotency(doc_key_for_updates)
@@ -1103,12 +1103,12 @@ class ActionHandler:
                     and final_check_state.get("status") == final_status_to_set
                     and final_check_state.get("final_result_for_shuang") == final_result_for_shuang
                 ):
-                    self.logger.info(
+                    self.logger.debug(
                         f"[Action ID {action_id}]: Final status and result are now correctly set in DB (likely by concurrent update)."
                     )
                 elif final_check_state and final_check_state.get("status") == final_status_to_set:
                     # 状态正确，但结果可能不同（例如，如果并发更新了结果）
-                    self.logger.info(
+                    self.logger.debug(
                         f"[Action ID {action_id}]: Final status in DB is '{final_status_to_set}', but final_result_for_shuang might differ or was not updated as intended (this is OK if result was already correct). "
                         f"DB result (len {len(final_check_state.get('final_result_for_shuang', '')) if final_check_state else 0}): '{str(final_check_state.get('final_result_for_shuang'))[:50]}...'. "
                         f"Intended result (len {len(final_result_for_shuang)}): '{final_result_for_shuang[:50]}...'."
@@ -1119,18 +1119,16 @@ class ActionHandler:
                         f"Target status '{final_status_to_set}', but DB status is '{final_check_state.get('status') if final_check_state else 'None'}'."
                     )
         else:  # Python 级别的检查阻止了DB更新
-            self.logger.info(
+            self.logger.debug(
                 f"[Idempotency-Python] Action ID {action_id}: No DB call attempted for final status update based on Python-level checks."
             )
 
         final_db_state_after_all = await self._get_current_action_state_for_idempotency(doc_key_for_updates)
         final_status_in_db_str = final_db_state_after_all.get("status") if final_db_state_after_all else "无法获取"
-        self.logger.info(
+        self.logger.debug(
             f"--- [Action ID: {action_id}, DocKey: {doc_key_for_updates}] 动作处理流程完成。逻辑判断最终状态: {final_status_to_set}。数据库中最终确认状态: {final_status_in_db_str} ---"
         )
-        self.logger.debug(
-            f"最终反馈给霜 (Action ID: {action_id}, DocKey: {doc_key_for_updates}): {str(final_result_for_shuang)[:300]}..."
-        )
+        self.logger.info("结果成功反馈至主思维")
 
 
 # 仍然保留这些函数，但它们现在应该由 CoreLogic 或 ActionHandler 实例的方法调用
