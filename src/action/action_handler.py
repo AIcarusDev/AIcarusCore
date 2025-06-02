@@ -979,7 +979,7 @@ class ActionHandler:
                                     raw_tool_output=str(raw_tool_output),
                                 )
                                 if self.summary_llm_client:
-                                    summary_response: dict = await self.summary_llm_client.llm_client.make_request(
+                                    summary_response: dict = await self.summary_llm_client.make_llm_request(
                                         prompt=summary_prompt, is_stream=False
                                     )
                                     if summary_response.get("error"):
