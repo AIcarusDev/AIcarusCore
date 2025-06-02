@@ -6,7 +6,7 @@ import time  # 保留 time 模块
 import uuid
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
-
+import datetime
 from aicarus_protocols import BaseMessageInfo, GroupInfo, MessageBase, Seg, UserInfo  # 保留协议导入
 
 # StandardDatabase 仅用于类型提示，实际操作通过 ArangoDBHandler
@@ -102,9 +102,29 @@ class ActionHandler:
                         "required": ["request_type", "request_flag", "approve_action"],
                     },
                 },
+                {
+                    "name": "get_active_chat_instances",
+                    "description": "获取机器人当前所有活跃的聊天会话列表，包括群聊和私聊。可以指定活跃天数阈值和最大返回数量。",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "active_threshold_days": {
+                                "type": "integer",
+                                "description": "可选。定义多少天内有消息记录的会话被认为是活跃的。默认为7天。"
+                            },
+                            "max_instances_to_return": {
+                                "type": "integer",
+                                "description": "可选。最多返回多少个活跃的会话实例。默认为20个。"
+                            }
+                        },
+                    },
+                }
             ]
         }
     ]
+
+
+ 
 
     ACTION_DECISION_PROMPT_TEMPLATE = """你是一个智能行动辅助系统。你的主要任务是分析用户当前的思考、他们明确提出的行动意图以及背后的动机，以及最近收到的外部消息和请求。根据这些信息，你需要从下方提供的可用工具列表中，选择一个最合适的工具来帮助用户完成这个行动，或者判断行动是否无法完成。
 
@@ -128,12 +148,10 @@ class ActionHandler:
 你的决策应遵循以下步骤：
 1.  仔细理解用户想要完成的动作、他们为什么想做这个动作，以及他们此刻正在思考什么，同时考虑是否有外部消息或请求需要响应。
 2.  然后，查看提供的工具列表，判断是否有某个工具的功能与用户的行动意图或响应外部请求的需求相匹配。
-    - 如果用户的意图是回复收到的消息，请使用 "send_reply_message_to_adapter" 工具。你需要从思考上下文中提取出原始消息的发送者ID (target_user_id)、群ID (target_group_id, 如果是群消息)、以及可能的原始消息ID (reply_to_message_id)。
-    - 如果用户的意图是处理平台请求 (例如，思考中提到“同意XX的好友请求”)，请使用 "handle_platform_request_internally" 工具。你需要从思考上下文或最近的外部请求信息中找到对应的 request_type 和 request_flag。
 3.  如果找到了能够满足用户意图的工具（例如 "web_search", "send_reply_message_to_adapter", "handle_platform_request_internally"），请选择它，并为其准备好准确的调用参数。你的输出需要是一个包含 "tool_calls" 列表的JSON对象字符串。这个列表中的每个对象都描述了一个工具调用，应包含 "id"（可以是一个唯一的调用标识，例如 "call_工具名_随机串"），"type" 固定为 "function"，以及 "function" 对象（包含 "name": "工具的实际名称" 和 "arguments": "一个包含所有必需参数的JSON字符串"）。
-4.  如果经过分析，你认为用户提出的动作意图非常模糊，或者现有的任何工具都无法实现它，或者这个意图本质上不需要外部工具（例如，用户只是想表达一个无法具体行动化的愿望），那么，请选择调用名为 "report_action_failure" 的工具。
+4.  如果经过分析，你认为用户提出的动作意图非常模糊，或者现有的任何工具都无法实现它，或者这个意图本质上不需要外部工具，那么，请选择调用名为 "report_action_failure" 的工具。
     -   在调用 "report_action_failure" 时，你只需要为其 "function" 的 "arguments" 准备一个可选的参数：
-        * "reason_for_failure_short": 简要说明为什么这个动作无法通过其他工具执行，例如 "系统中没有找到能够执行此操作的工具" 或 "用户的意图似乎不需要借助外部工具来实现"。
+        * "reason_for_failure_short": 简要说明为什么这个动作无法通过其他工具执行
 5.  请确保你的最终输出**都必须**是一个包含 "tool_calls" 字段的JSON对象字符串。即使没有合适的工具（此时应选择 "report_action_failure"），也需要按此格式输出。
 
 现在，请根据以上信息，直接输出你决定调用的工具及其参数的JSON对象字符串：
@@ -323,6 +341,165 @@ class ActionHandler:
             raise RuntimeError("信息总结LLM客户端初始化失败。请检查日志和配置文件。")
 
         self.logger.info("行动处理模块的LLM客户端初始化完成。")
+
+    # --- 我们新加的工具执行方法 ---
+    async def _execute_get_active_chat_instances(
+        self, active_threshold_days: int = 7, max_instances_to_return: int = 20
+    ) -> str:
+        self.logger.info(
+            f"工具执行：开始获取活跃聊天实例 (阈值: {active_threshold_days} 天, 最多返回: {max_instances_to_return} 个)"
+        )
+        if not self.db_handler:
+            self.logger.error("数据库处理器未初始化，无法获取聊天实例。")
+            return json.dumps({"error": "数据库处理器未初始化"})
+
+        # 计算N天前的时间戳 (毫秒)
+        # ArangoDB的DATE_NOW()返回毫秒，DATE_SUBTRACT需要一个ISO字符串或毫秒数作为起点
+        # 我们直接在AQL中使用DATE_NOW()和DATE_SUBTRACT更方便
+        # threshold_timestamp_ms = (
+        #     datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=active_threshold_days)
+        # ).timestamp() * 1000
+        # self.logger.debug(f"计算出的活跃阈值时间戳 (ms): {threshold_timestamp_ms}")
+
+
+        # 第一步：查询数据库，找出所有活跃的 conversation_id 及其最新的消息时间戳
+        # 注意：这里的 @bot_id 可能需要从配置或者其他地方获取，暂时写成一个占位符
+        # 实际上，我们可能不需要 bot_id 来判断私聊对方，因为 conversation_id 已经可以区分
+        # conversation_id 的格式对于私聊可能是 "platform_dm_userid1_userid2"
+        # 对于群聊是 "platform_groupid"
+
+        # AQL 查询：
+        # 1. 收集所有唯一的 conversation_id。
+        # 2. 对每个 conversation_id，找到最新的那条消息的时间戳 (timestamp 字段，我们约定它是数值型毫秒)。
+        # 3. 过滤掉那些最新时间戳早于 active_threshold_days 天之前的会话。
+        # 4. 按最新时间戳降序排序，然后取前 max_instances_to_return 个。
+        query_active_conv_ids = f"""
+            LET threshold_date_iso = DATE_ISO8601(DATE_SUBTRACT(DATE_NOW(), @active_threshold_days, "day"))
+            LET threshold_timestamp_ms = DATE_TIMESTAMP(threshold_date_iso)
+
+            FOR doc IN {ArangoDBHandler.RAW_CHAT_MESSAGES_COLLECTION_NAME}
+                COLLECT conversationId = doc.conversation_id INTO group
+                LET latestTimestampMs = MAX(group[*].doc.timestamp) // 假设 timestamp 是毫秒数值
+                FILTER latestTimestampMs >= threshold_timestamp_ms
+                SORT latestTimestampMs DESC
+                LIMIT @max_instances
+                RETURN {{
+                    conversation_id: conversationId,
+                    last_active_timestamp_ms: latestTimestampMs
+                }}
+        """
+        bind_vars_active_conv = {
+            "active_threshold_days": active_threshold_days,
+            "max_instances": max_instances_to_return,
+        }
+        self.logger.debug(f"执行AQL获取活跃会话ID: {query_active_conv_ids} \n绑定变量: {bind_vars_active_conv}")
+
+        active_conversations_summary = []
+        try:
+            # 使用 ArangoDBHandler 已有的 execute_query 方法
+            active_conv_results = await self.db_handler.execute_query(
+                query_active_conv_ids, bind_vars=bind_vars_active_conv
+            )
+            self.logger.info(f"AQL查询返回了 {len(active_conv_results)} 个可能的活跃会话摘要。")
+
+            if not active_conv_results:
+                self.logger.info("没有找到符合条件的活跃聊天实例。")
+                return json.dumps({"message": "没有找到符合条件的活跃聊天实例。", "instances": []})
+
+            # 第二步：对于每个活跃的 conversation_id，获取其详细信息（名称、类型、平台）
+            # 我们需要找到每个 conversation_id 的最新一条消息来提取元数据
+            detailed_instances = []
+            for conv_summary in active_conv_results:
+                conv_id = conv_summary.get("conversation_id")
+                last_active_ts_ms = conv_summary.get("last_active_timestamp_ms")
+                if not conv_id or last_active_ts_ms is None:
+                    continue
+
+                # 查询该 conversation_id 的最新一条消息
+                query_latest_message_for_conv = f"""
+                    FOR msg IN {ArangoDBHandler.RAW_CHAT_MESSAGES_COLLECTION_NAME}
+                        FILTER msg.conversation_id == @conv_id
+                        SORT msg.timestamp DESC
+                        LIMIT 1
+                        RETURN msg.raw_message_info_dump // 直接返回元信息部分
+                """
+                bind_vars_latest_msg = {"conv_id": conv_id}
+                
+                latest_message_info_list = await self.db_handler.execute_query(
+                    query_latest_message_for_conv, bind_vars=bind_vars_latest_msg
+                )
+
+                if not latest_message_info_list:
+                    self.logger.warning(f"未能为活跃会话 {conv_id} 获取到最新消息的元信息。")
+                    continue
+                
+                raw_info = latest_message_info_list[0] # execute_query 返回的是列表
+                
+                instance_platform = raw_info.get("platform", "未知平台")
+                instance_type = "unknown"
+                instance_name = "未知名称"
+
+                group_info = raw_info.get("group_info")
+                user_info = raw_info.get("user_info") # 这是消息发送者的信息
+
+                if group_info and group_info.get("group_id"):
+                    instance_type = "group"
+                    instance_name = group_info.get("group_name", f"群组_{group_info.get('group_id')}")
+                elif user_info and user_info.get("user_id"): # 假设没有group_id就是私聊
+                    instance_type = "private"
+                    # 对于私聊，conversation_id 通常是 platform_dm_userid1_userid2
+                    # 我们需要知道 bot_id 来确定对方是谁
+                    # 简单处理：如果消息的发送者不是机器人自己，就用发送者的昵称
+                    # 复杂处理：解析 conversation_id 找出两个参与者，排除机器人自己
+                    # 这里先用简单方式，如果消息发送者是对方，那么 user_info 就是对方的
+                    # 但如果最新消息是机器人发的，user_info 就是机器人的，这时需要从 conversation_id 推断或找更早的对方消息
+                    # 为了简化，我们假设能从 user_info 中获取一个有意义的名称，或者从conv_id中获取
+                    bot_id_placeholder = self.root_cfg.persona.bot_name if self.root_cfg else "bot" # 理论上 bot_id 应该从配置或 message_info.bot_id 获取
+                    
+                    # 尝试从 conversation_id 解析私聊对象 (这是一个简化版本)
+                    if "_dm_" in conv_id:
+                        parts = conv_id.split("_dm_")
+                        if len(parts) == 2:
+                            user_ids_in_dm = parts[1].split("_")
+                            # 假设 user_info.user_id 是这条最新消息的发送者
+                            # 如果发送者不是机器人，那这个昵称就是对方的
+                            if user_info.get("user_id") and user_info.get("user_id") not in conv_id: # 一个简单的判断，可能不完全准确
+                                 instance_name = user_info.get("user_nickname") or user_info.get("user_cardname") or f"用户_{user_info.get('user_id')}"
+                            else: # 如果最新消息是机器人发的，或者无法判断，尝试从conv_id里的id找
+                                other_user_id = next((uid for uid in user_ids_in_dm if uid != bot_id_placeholder), None) # 假设你知道 bot_id
+                                if other_user_id:
+                                     instance_name = f"与用户_{other_user_id}的私聊"
+                                else: # 如果无法确定对方，使用消息发送者昵称作为备选
+                                     instance_name = user_info.get("user_nickname") or user_info.get("user_cardname") or f"用户_{user_info.get('user_id')}"
+                        else:
+                             instance_name = user_info.get("user_nickname") or user_info.get("user_cardname") or f"用户_{user_info.get('user_id','未知')}"
+                    else: # 如果 conv_id 不是预期的私聊格式，也用发送者昵称
+                        instance_name = user_info.get("user_nickname") or user_info.get("user_cardname") or f"用户_{user_info.get('user_id','未知')}"
+
+                detailed_instances.append({
+                    "conversation_id": conv_id,
+                    "type": instance_type,
+                    "name": instance_name,
+                    "platform": instance_platform,
+                    "last_active_time_ms": last_active_ts_ms, # 保留毫秒用于可能的精确排序
+                    "last_active_time_iso": datetime.datetime.fromtimestamp(last_active_ts_ms / 1000.0, tz=datetime.timezone.utc).isoformat()
+                })
+
+            # 可以根据 last_active_time_ms 再次排序，因为上面的LIMIT可能不完全按时间
+            detailed_instances.sort(key=lambda x: x["last_active_time_ms"], reverse=True)
+            
+            # 准备返回给LLM的，通常不需要毫秒时间戳
+            for inst in detailed_instances:
+                del inst["last_active_time_ms"]
+
+            self.logger.info(f"成功获取并处理了 {len(detailed_instances)} 个活跃聊天实例的详细信息。")
+            return json.dumps({"instances": detailed_instances}, ensure_ascii=False)
+
+        except Exception as e:
+            self.logger.error(f"获取活跃聊天实例时发生错误: {e}", exc_info=True)
+            return json.dumps({"error": f"获取活跃聊天实例时发生错误: {str(e)}", "instances": []})
+
+    # --- 新加的工具执行方法结束 ---
 
     async def _get_current_action_state_for_idempotency(self, doc_key: str) -> dict | None:
         """[幂等性辅助函数] 获取指定文档键的当前 action_attempted 状态。"""
@@ -755,7 +932,7 @@ class ActionHandler:
                     # --- 执行工具 ---
                     if proceed_with_tool_execution_logic:
                         self.logger.info(
-                            f"开始执行动作: {tool_name},关键词：{tool_args}"
+                            f"开始执行动作: {tool_name},参数：{tool_args}" # 修改：打印参数
                         )
                         raw_tool_output: str = "工具未返回任何输出或执行时发生错误。"  # 默认值
 
@@ -795,6 +972,29 @@ class ActionHandler:
                                 else:  # 总结LLM客户端未初始化
                                     final_result_for_shuang = f"总结服务不可用. 原始: {str(raw_tool_output)[:100]}..."
                                     action_was_successful = False
+
+                        # --- 我们新加的工具的调用逻辑 ---
+                        elif tool_name == "get_active_chat_instances":
+                            # 从 tool_args 中获取参数，如果LLM提供了的话
+                            threshold_days = tool_args.get("active_threshold_days", 7) # 默认7天
+                            max_to_return = tool_args.get("max_instances_to_return", 20) # 默认20个
+                            try: # 做个类型转换和保护
+                                threshold_days = int(threshold_days) if threshold_days is not None else 7
+                                max_to_return = int(max_to_return) if max_to_return is not None else 20
+                            except (ValueError, TypeError):
+                                self.logger.warning(f"工具 get_active_chat_instances 的参数类型不正确，将使用默认值。收到参数: {tool_args}")
+                                threshold_days = 7
+                                max_to_return = 20
+                            
+                            raw_tool_output = await self._execute_get_active_chat_instances(
+                                active_threshold_days=threshold_days,
+                                max_instances_to_return=max_to_return
+                            )
+                            # 这个工具的结果通常直接就是给用户（或LLM进一步处理）看的，所以 action_was_successful 可以认为是True
+                            # 除非你想根据列表是否为空来判断成功与否
+                            action_was_successful = True # 假设获取列表本身就是成功的动作
+                            final_result_for_shuang = str(raw_tool_output) # 直接把JSON字符串给双
+
 
                         elif tool_name == "send_reply_message_to_adapter":
                             if self.core_communication_layer:

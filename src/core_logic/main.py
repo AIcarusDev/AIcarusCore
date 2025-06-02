@@ -70,7 +70,7 @@ class CoreLogic:
 同时也要注意 你对自身的想法大多数情况下是包容的、合理化的，避免过度的/不必要的矛盾心理。
 
 关于行动：
-如果你在思考后，产生了明确的、希望与“外界”（例如获取信息、执行特定任务）进行交互的意图，请在action_to_take和action_motivation字段中描述。
+如果你在思考后，产生了明确的、希望与“外界”（例如上网获取信息、获取qq群聊/好友列表）进行交互的意图，请在action_to_take和action_motivation字段中描述。
 
 严格以json字段输出：
 {{
@@ -396,6 +396,12 @@ class CoreLogic:
                 raw_context_messages = await self.db_handler.get_recent_chat_messages_for_context(
                     duration_minutes=chat_history_duration_minutes, conversation_id=self.current_focused_conversation_id
                 )
+                # 在它后面加上:
+                self.logger.info(f"从数据库获取到的原始上下文消息数量: {len(raw_context_messages)}")
+                if raw_context_messages:
+                    self.logger.debug(f"获取到的原始上下文消息样本 (前2条): {raw_context_messages[:2]}")
+                else:
+                    self.logger.warning("注意：从数据库未能获取到任何用于上下文的原始消息。")
                 if raw_context_messages:
                     formatted_recent_contextual_info = format_chat_history_for_prompt(raw_context_messages)
                 else:

@@ -290,11 +290,17 @@ class ArangoDBHandler:
     ) -> list[dict[str, Any]]:
         now_utc = datetime.datetime.now(datetime.UTC)
         cutoff_datetime_obj = now_utc - datetime.timedelta(minutes=duration_minutes)
-        # Python侧仍然计算ISO格式的字符串，传递给AQL进行转换
-        cutoff_time_iso_for_aql_conversion = cutoff_datetime_obj.isoformat()
+         # --- 修改开始 ---
+        # 我们不再需要ISO字符串给AQL了
+        # cutoff_time_iso_for_aql_conversion = cutoff_datetime_obj.isoformat() 
+        
+        # 直接在Python里计算出截止时间的UTC毫秒数
+        calculated_cutoff_ms_in_python = int(cutoff_datetime_obj.timestamp() * 1000)
+        # --- 修改结束 ---
 
         self.logger.debug(
-            f"获取最近 {duration_minutes} 分钟的聊天记录上下文。截止时间 (ISO for AQL conversion to ms): {cutoff_time_iso_for_aql_conversion}。"
+            # --- 修改日志打印 ---
+            f"获取最近 {duration_minutes} 分钟的聊天记录上下文。截止时间 (Python计算的UTC毫秒): {calculated_cutoff_ms_in_python} (对应ISO: {cutoff_datetime_obj.isoformat()})."
             f"{' 特定会话: ' + conversation_id if conversation_id else ' 所有相关会话。'}"
         )
 
@@ -328,19 +334,18 @@ class ArangoDBHandler:
         aql_query: str
         bind_vars: dict[str, Any] = {
             "@messages_collection": self.RAW_CHAT_MESSAGES_COLLECTION_NAME,
-            "cutoff_time_iso_str": cutoff_time_iso_for_aql_conversion,  # 将ISO字符串传给AQL
+            "cutoff_timestamp_ms_param": calculated_cutoff_ms_in_python,
         }
 
         # AQL LET 语句，用于将 @cutoff_time_iso_str (ISO string) 转换为毫秒级 Unix 时间戳
-        let_cutoff_conversion_aql = "LET cutoff_timestamp_ms = DATE_TIMESTAMP(@cutoff_time_iso_str) * 1000"
+        # let_cutoff_conversion_aql = "LET cutoff_timestamp_ms = DATE_TIMESTAMP(@cutoff_time_iso_str) * 1000"
         # 过滤条件现在基于数值型的 doc.timestamp
-        filter_condition_time_aql = "doc.timestamp >= cutoff_timestamp_ms"
+        filter_condition_time_aql = "doc.timestamp >= @cutoff_timestamp_ms_param" 
         # 排序字段现在是数值型的 doc.timestamp
         sort_timestamp_field_aql = "doc.timestamp"
 
         if conversation_id:
             aql_query = f"""
-                {let_cutoff_conversion_aql}
                 FOR doc IN @@messages_collection
                     FILTER {filter_condition_time_aql} AND doc.conversation_id == @conversation_id
                     SORT {sort_timestamp_field_aql} DESC
@@ -352,21 +357,26 @@ class ArangoDBHandler:
             bind_vars["conversation_id"] = conversation_id
             bind_vars["limit_per_conv"] = limit_per_conversation
         else:
-            self.logger.info("正在获取所有会话的聊天记录上下文（使用数值型顶层时间戳进行过滤）。")
+            self.logger.info("正在获取所有会话的聊天记录上下文（使用Python计算的数值型截止时间戳进行过滤）。")
             aql_query = f"""
-                {let_cutoff_conversion_aql}
                 FOR doc IN @@messages_collection
-                    FILTER {filter_condition_time_aql}
+                    FILTER {filter_condition_time_aql} 
                     {let_statements}
                     SORT {sort_timestamp_field_aql} ASC
                     {return_statement}
             """
+        self.logger.info(f"即将执行的AQL查询语句: {aql_query}")
+        self.logger.info(f"AQL查询的绑定变量 (bind_vars): {bind_vars}")
+
         try:
             self.logger.debug(
                 f"Executing AQL for chat context (numeric top-level timestamp filter): {aql_query} with bind_vars: {bind_vars}"
             )
             cursor = await asyncio.to_thread(self.db.aql.execute, aql_query, bind_vars=bind_vars, ttl=60)
             messages_from_db = list(cursor)  # type: ignore
+            messages_from_db_direct = list(cursor) # type: ignore 
+            self.logger.info(f"AQL查询直接从cursor转换后的原始结果数量: {len(messages_from_db_direct)}")
+            # --- ↑↑↑ 加在这里 ↑↑↑ ---
 
             processed_messages = []
             for msg_data in messages_from_db:
