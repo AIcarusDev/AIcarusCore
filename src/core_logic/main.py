@@ -83,7 +83,7 @@ class CoreLogic:
 """
     # ███ 小懒猫改动结束 ███
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.logger = get_logger(f"AIcarusCore.{self.__class__.__name__}")
         self.root_cfg: AlcarusRootConfig | None = None
         self.db_handler: ArangoDBHandler | None = None
@@ -292,11 +292,11 @@ class CoreLogic:
         current_state_for_prompt: dict[str, Any],
         current_time_str: str,
         intrusive_thought_str: str = "",
-    ) -> tuple[dict[str, Any] | None, str | None, str | None]: # 返回值增加了 system_prompt
+    ) -> tuple[dict[str, Any] | None, str | None, str | None]:  # 返回值增加了 system_prompt
         if not self.root_cfg:
             self.logger.error("Root config not available for LLM thought generation.")
             return None, None, None
-        
+
         persona_cfg = self.root_cfg.persona
         task_desc = current_state_for_prompt.get("current_task", "")
         task_info_prompt = f"你当前的目标/任务是：【{task_desc}】" if task_desc else "你当前没有什么特定的目标或任务。"
@@ -307,9 +307,9 @@ class CoreLogic:
             f"当前时间：{current_time_str}",
             f"你是{persona_cfg.bot_name}；",
             persona_cfg.description,
-            persona_cfg.profile
+            persona_cfg.profile,
         ]
-        system_prompt_str = "\n".join(filter(None, system_prompt_parts)) # 过滤掉空字符串并用换行符连接
+        system_prompt_str = "\n".join(filter(None, system_prompt_parts))  # 过滤掉空字符串并用换行符连接
         # ███ 小懒猫改动结束 ███
 
         prompt_text = self.PROMPT_TEMPLATE.format(
@@ -349,9 +349,9 @@ class CoreLogic:
             # ███ 小懒猫改动开始 ███
             # 调用 make_llm_request 时传入 system_prompt_str
             response_data = await llm_client.make_llm_request(
-                prompt=prompt_text, 
-                system_prompt=system_prompt_str, # 把 system_prompt 传进去！
-                is_stream=False
+                prompt=prompt_text,
+                system_prompt=system_prompt_str,  # 把 system_prompt 传进去！
+                is_stream=False,
             )
             # ███ 小懒猫改动结束 ███
 
@@ -361,14 +361,14 @@ class CoreLogic:
                 self.logger.error(f"主思维LLM调用失败 ({error_type}): {error_msg}")
                 if response_data.get("details"):
                     self.logger.error(f"  错误详情: {str(response_data.get('details'))[:300]}...")
-                return None, prompt_text, system_prompt_str # 返回 system_prompt
+                return None, prompt_text, system_prompt_str  # 返回 system_prompt
             raw_response_text = response_data.get("text")  # type: ignore
             if not raw_response_text:
                 error_msg = "错误：主思维LLM响应中缺少文本内容。"
                 if response_data:
                     error_msg += f"\n  完整响应: {str(response_data)[:500]}..."
                 self.logger.error(error_msg)
-                return None, prompt_text, system_prompt_str # 返回 system_prompt
+                return None, prompt_text, system_prompt_str  # 返回 system_prompt
             json_to_parse = raw_response_text.strip()
             if json_to_parse.startswith("```json"):
                 json_to_parse = json_to_parse[7:-3].strip()
@@ -379,14 +379,14 @@ class CoreLogic:
             self.logger.info("主思维LLM API 响应已成功解析为JSON。")
             if response_data.get("usage"):
                 thought_json["_llm_usage_info"] = response_data["usage"]
-            return thought_json, prompt_text, system_prompt_str # 返回 system_prompt
+            return thought_json, prompt_text, system_prompt_str  # 返回 system_prompt
         except json.JSONDecodeError as e:
             self.logger.error(f"错误：解析主思维LLM的JSON响应失败: {e}")
             self.logger.error(f"未能解析的文本内容: {raw_response_text}")
-            return None, prompt_text, system_prompt_str # 返回 system_prompt
+            return None, prompt_text, system_prompt_str  # 返回 system_prompt
         except Exception as e:
             self.logger.error(f"错误：调用主思维LLM或处理其响应时发生意外错误: {e}", exc_info=True)
-            return None, prompt_text, system_prompt_str # 返回 system_prompt
+            return None, prompt_text, system_prompt_str  # 返回 system_prompt
 
     async def _core_thinking_loop(self) -> None:
         if not self.root_cfg or not self.db_handler or not self.main_consciousness_llm_client:
@@ -451,7 +451,7 @@ class CoreLogic:
             )
             if intrusive_thought_to_inject_this_cycle:
                 self.logger.debug(f"  注入侵入性思维: {intrusive_thought_to_inject_this_cycle[:60]}...")
-            
+
             # ███ 小懒猫改动开始 ███
             # _generate_thought_from_llm 现在返回三个值
             generated_thought_json, full_prompt_text_sent, system_prompt_sent = await self._generate_thought_from_llm(
@@ -471,9 +471,9 @@ class CoreLogic:
                 )
                 think_output = generated_thought_json.get("think") or "未思考"
                 emotion_output = generated_thought_json.get("emotion") or "无特定情绪"
-                to_do_output = generated_thought_json.get("to_do") 
-                action_to_take_output = generated_thought_json.get("action_to_take") 
-                action_motivation_output = generated_thought_json.get("action_motivation") 
+                to_do_output = generated_thought_json.get("to_do")
+                action_to_take_output = generated_thought_json.get("action_to_take")
+                action_motivation_output = generated_thought_json.get("action_motivation")
                 next_think_output = generated_thought_json.get("next_think") or "未明确下一步思考方向"
                 bot_name_for_log = self.root_cfg.persona.bot_name if self.root_cfg else "机器人"
                 log_message = (
@@ -506,13 +506,15 @@ class CoreLogic:
                         "current_thought_context": generated_thought_json.get("think", "无特定思考上下文。"),
                     }
                     self.logger.debug(f"  >>> 行动意图产生: '{action_desc_from_llm}' (ID: {action_id_this_cycle[:8]})")
-                
+
                 # ███ 小懒猫改动开始 ███
                 # 保存思考文档时，也记录下发送的 system_prompt
                 document_to_save_in_main: dict[str, Any] = {
                     "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
-                    "time_injected_to_prompt": current_time_formatted_str, # 这个是当时 system_prompt 里的时间
-                    "system_prompt_sent": system_prompt_sent if system_prompt_sent else "System Prompt 未能构建", # 保存 system_prompt
+                    "time_injected_to_prompt": current_time_formatted_str,  # 这个是当时 system_prompt 里的时间
+                    "system_prompt_sent": system_prompt_sent
+                    if system_prompt_sent
+                    else "System Prompt 未能构建",  # 保存 system_prompt
                     "intrusive_thought_injected": intrusive_thought_to_inject_this_cycle,
                     "mood_input": current_state_for_prompt["mood"],
                     "previous_thinking_input": current_state_for_prompt["previous_thinking"],
@@ -521,7 +523,9 @@ class CoreLogic:
                     "action_result_input": current_state_for_prompt.get("action_result_info", ""),
                     "pending_action_status_input": current_state_for_prompt.get("pending_action_status", ""),
                     "recent_contextual_information_input": formatted_recent_contextual_info,
-                    "full_user_prompt_sent": full_prompt_text_sent if full_prompt_text_sent else "User Prompt 未能构建", # 修改键名以区分
+                    "full_user_prompt_sent": full_prompt_text_sent
+                    if full_prompt_text_sent
+                    else "User Prompt 未能构建",  # 修改键名以区分
                     "think_output": generated_thought_json.get("think"),
                     "emotion_output": generated_thought_json.get("emotion"),
                     "next_think_output": generated_thought_json.get("next_think"),
@@ -718,15 +722,6 @@ class CoreLogic:
             )
 
 
-async def start_consciousness_flow():
+async def start_consciousness_flow() -> None:
     core_logic_instance = CoreLogic()
     await core_logic_instance.start()
-
-
-if __name__ == "__main__":
-    required_env_vars = ["ARANGODB_HOST", "ARANGODB_USER", "ARANGODB_PASSWORD", "ARANGODB_DATABASE"]
-    if not all(os.getenv(var) for var in required_env_vars):
-        print(f"错误：请先设置 ArangoDB 连接所需的环境变量: {', '.join(required_env_vars)}。")
-    else:
-        print("检测到必要的环境变量，尝试运行主程序...")
-        asyncio.run(start_consciousness_flow())

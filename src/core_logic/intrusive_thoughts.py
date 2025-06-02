@@ -49,7 +49,7 @@ class IntrusiveThoughtsGenerator:
         persona_cfg: PersonaSettings,
         module_settings: IntrusiveThoughtsSettings,
         stop_event: threading.Event,
-    ):
+    ) -> None:
         """
         初始化侵入性思维生成器。
 

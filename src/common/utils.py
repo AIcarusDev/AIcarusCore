@@ -30,7 +30,10 @@ def force_double_quote_str_representer(dumper: MyDumper, data: ForceDoubleQuoteS
 MyDumper.add_representer(ForceDoubleQuoteStr, force_double_quote_str_representer)
 
 
-def wrap_string_values_for_yaml(data: Any) -> Any:
+JsonValue = dict[str, "JsonValue"] | list["JsonValue"] | str | int | float | bool | None
+
+
+def wrap_string_values_for_yaml(data: JsonValue) -> JsonValue:
     """
     递归地遍历数据结构，将所有作为“值”的字符串包装在 ForceDoubleQuoteStr 中。
     字典的键、None、数字、布尔值等保持原样。
@@ -63,13 +66,13 @@ def format_chat_history_for_prompt(raw_messages_from_db: list[dict[str, Any]]) -
 
     grouped_messages = defaultdict(lambda: {"group_info": {}, "user_info": {}, "chat_history": []})
 
-    DESIRED_HISTORY_SPAN_MINUTES = 10
-    MAX_MESSAGES_PER_GROUP = 20
+    desired_history_span_minutes = 10
+    max_messages_per_group = 20
 
     # 获取当前的UTC时间，作为筛选基准
     current_utc_time = datetime.datetime.now(datetime.UTC)
     # 计算10分钟前的时间点 (UTC)
-    span_cutoff_timestamp_utc = current_utc_time - datetime.timedelta(minutes=DESIRED_HISTORY_SPAN_MINUTES)
+    span_cutoff_timestamp_utc = current_utc_time - datetime.timedelta(minutes=desired_history_span_minutes)
 
     # 当数据库中的时间戳是naive字符串（无时区信息）时，我们假定它所属的时区。
     # 主要用于兼容可能存在的旧数据或意外的字符串输入。
@@ -84,7 +87,7 @@ def format_chat_history_for_prompt(raw_messages_from_db: list[dict[str, Any]]) -
 
         parsed_msg_time_utc: datetime.datetime
         try:
-            if isinstance(msg_time_input, (int, float)):
+            if isinstance(msg_time_input, int | float):
                 # 是数值型时间戳 (int or float), 假设是UTC毫秒
                 msg_time_seconds_utc = msg_time_input / 1000.0
                 parsed_msg_time_utc = datetime.datetime.fromtimestamp(msg_time_seconds_utc, datetime.UTC)
@@ -206,16 +209,16 @@ def format_chat_history_for_prompt(raw_messages_from_db: list[dict[str, Any]]) -
         grouped_messages[group_key]["chat_history"].append(chat_message)
 
     output_list_for_yaml = []
-    for (platform, group_id_key), data in grouped_messages.items():
+    for (_, _), data in grouped_messages.items():
         current_chat_history = data["chat_history"]
 
         if current_chat_history:
             # 按UTC时间戳排序 (最旧的在前)
             current_chat_history.sort(key=lambda x: x["_parsed_timestamp_utc"])
 
-            # 应用消息数量限制，取最新的 MAX_MESSAGES_PER_GROUP 条消息
-            if len(current_chat_history) > MAX_MESSAGES_PER_GROUP:
-                final_filtered_history = current_chat_history[-MAX_MESSAGES_PER_GROUP:]
+            # 应用消息数量限制，取最新的 max_messages_per_group 条消息
+            if len(current_chat_history) > max_messages_per_group:
+                final_filtered_history = current_chat_history[-max_messages_per_group:]
             else:
                 final_filtered_history = current_chat_history
 

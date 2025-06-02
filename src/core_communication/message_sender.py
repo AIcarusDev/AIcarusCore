@@ -1,16 +1,20 @@
 # AIcarusCore/src/core_communication/message_sender.py
 import json
+
+from aicarus_protocols import MessageBase  # 确保 aicarus_protocols 在 PYTHONPATH 或相对路径正确
 from websockets.server import WebSocketServerProtocol
-from aicarus_protocols import MessageBase # 确保 aicarus_protocols 在 PYTHONPATH 或相对路径正确
-from src.common.custom_logging.logger_manager import get_logger # 假设 logger_manager 的路径
+
+from src.common.custom_logging.logger_manager import get_logger  # 假设 logger_manager 的路径
 
 logger = get_logger("AIcarusCore.MessageSender")
+
 
 class MessageSender:
     """
     处理通过 WebSocket 发送消息的类。
     """
-    def __init__(self):
+
+    def __init__(self) -> None:
         """
         初始化 MessageSender。
         """
@@ -37,4 +41,3 @@ class MessageSender:
             logger.error(f"通过 WebSocket 发送消息失败: {e}", exc_info=True)
             logger.error(f"试图发送的消息内容: {message_to_send.to_dict() if message_to_send else 'None'}")
             return False
-

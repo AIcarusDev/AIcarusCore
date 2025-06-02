@@ -27,7 +27,7 @@ class ArangoDBHandler:
     THOUGHTS_COLLECTION_NAME = "thoughts_collection"
     INTRUSIVE_THOUGHTS_POOL_COLLECTION_NAME = "intrusive_thoughts_pool"
 
-    def __init__(self, client: ArangoClient, db: StandardDatabase):
+    def __init__(self, client: ArangoClient, db: StandardDatabase) -> None:
         self.client: ArangoClient = client
         self.db: StandardDatabase = db
         self.logger = get_logger(f"AIcarusCore.database.{self.__class__.__name__}")
@@ -360,7 +360,7 @@ class ArangoDBHandler:
             self.logger.info("正在获取所有会话的聊天记录上下文（使用Python计算的数值型截止时间戳进行过滤）。")
             aql_query = f"""
                 FOR doc IN @@messages_collection
-                    FILTER {filter_condition_time_aql} 
+                    FILTER {filter_condition_time_aql}
                     {let_statements}
                     SORT {sort_timestamp_field_aql} ASC
                     {return_statement}
@@ -480,7 +480,7 @@ class ArangoDBHandler:
                 UPDATE doc WITH {
                     action_attempted: MERGE(doc.action_attempted, {
                         result_seen_by_shuang: true,
-                        updated_at: @timestamp 
+                        updated_at: @timestamp
                     })
                 } IN @@collection_name
                 RETURN OLD

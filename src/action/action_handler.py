@@ -178,7 +178,7 @@ class ActionHandler:
 请输出你生成的摘要文本：
 """
 
-    def __init__(self, root_cfg: AlcarusRootConfig | None = None):
+    def __init__(self, root_cfg: AlcarusRootConfig | None = None) -> None:
         self.logger = get_logger(f"AIcarusCore.{self.__class__.__name__}")
         self.root_cfg = root_cfg if root_cfg else get_typed_settings()  # 允许外部传入或自行加载
 
@@ -190,7 +190,7 @@ class ActionHandler:
         self.logger.info(f"{self.__class__.__name__} instance created.")
         # LLM客户端的初始化推迟到 initialize_llm_clients 方法
 
-    def set_dependencies(self, db_handler: ArangoDBHandler, comm_layer: CoreWebsocketServer | None = None):
+    def set_dependencies(self, db_handler: ArangoDBHandler, comm_layer: CoreWebsocketServer | None = None) -> None:
         """设置行动处理器运行所需的依赖。"""
         self.db_handler = db_handler
         self.core_communication_layer = comm_layer
@@ -391,7 +391,7 @@ class ActionHandler:
         }
         self.logger.debug(f"执行AQL获取活跃会话ID: {query_active_conv_ids} \n绑定变量: {bind_vars_active_conv}")
 
-        active_conversations_summary = []
+        _active_conversations_summary = []
         try:
             # 使用 ArangoDBHandler 已有的 execute_query 方法
             active_conv_results = await self.db_handler.execute_query(
