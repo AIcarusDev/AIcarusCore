@@ -4,21 +4,31 @@ import json
 import random
 import re
 import threading
-import sys # 确保导入 sys
+import sys
 from typing import Any, Dict, List, Optional, Tuple, Coroutine, TYPE_CHECKING
 
 # 更改导入路径
-from action.action_handler import ActionHandler
-from common.custom_logging.logger_manager import get_logger
-from common.protected_runner import execute_protected_task_with_polling, TaskTimeoutError, TaskCancelledByExternalEventError
-from common.utils import format_chat_history_for_prompt
-from config.alcarus_configs import AlcarusRootConfig, CoreLogicSettings, PersonaSettings
-from core_communication.core_ws_server import CoreWebsocketServer
-from database.arangodb_handler import ArangoDBHandler
-from llmrequest.llm_processor import Client as ProcessorClient
-from sub_consciousness.chat_session_handler import ChatSessionManager
+# 修改：from action.action_handler import ActionHandler 改为 from src.action.action_handler import ActionHandler
+from src.action.action_handler import ActionHandler
+# 修改：from common.custom_logging.logger_manager import get_logger 改为 from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logger_manager import get_logger
+# 修改：from common.protected_runner import ... 改为 from src.common.protected_runner import ...
+from src.common.protected_runner import execute_protected_task_with_polling, TaskTimeoutError, TaskCancelledByExternalEventError
+# 修改：from common.utils import format_chat_history_for_prompt 改为 from src.common.utils import format_chat_history_for_prompt
+from src.common.utils import format_chat_history_for_prompt
+# 修改：from config.alcarus_configs import ... 改为 from src.config.alcarus_configs import ...
+from src.config.alcarus_configs import AlcarusRootConfig, CoreLogicSettings, PersonaSettings
+# 修改：from core_communication.core_ws_server import CoreWebsocketServer 改为 from src.core_communication.core_ws_server import CoreWebsocketServer
+from src.core_communication.core_ws_server import CoreWebsocketServer
+# 修改：from database.arangodb_handler import ArangoDBHandler 改为 from src.database.arangodb_handler import ArangoDBHandler
+from src.database.arangodb_handler import ArangoDBHandler
+# 修改：from llmrequest.llm_processor import Client as ProcessorClient 改为 from src.llmrequest.llm_processor import Client as ProcessorClient
+from src.llmrequest.llm_processor import Client as ProcessorClient
+# 修改：from sub_consciousness.chat_session_handler import ChatSessionManager 改为 from src.sub_consciousness.chat_session_handler import ChatSessionManager
+from src.sub_consciousness.chat_session_handler import ChatSessionManager
 
 # 从 core_logic 内部导入（它们还在这个包里）
+# 保持不变，这些是相对导入
 from .thought_builder import CorePromptBuilder
 from .thought_processor import CoreThoughtProcessor
 
@@ -28,7 +38,7 @@ from .thought_processor import CoreThoughtProcessor
 # 导入 IntrusiveThoughtsGenerator，因为它现在作为参数传入
 # 但是它是一个可选参数，所以这里不直接导入具体的类，而是在 TYPE_CHECKING 里做
 if TYPE_CHECKING:
-    from plugins.intrusive_thoughts_plugin import IntrusiveThoughtsGenerator #
+    from src.plugins.intrusive_thoughts_plugin import IntrusiveThoughtsGenerator
 
 logger = get_logger("AIcarusCore.CoreLogic")
 
@@ -207,7 +217,7 @@ class CoreLogic:
         current_state["recent_contextual_information"] = formatted_recent_contextual_info
 
         if self.chat_session_manager:
-            active_sessions_summary = self.chat_session_manager.get_all_active_sessions_summary() #
+            active_sessions_summary = self.chat_session_manager.get_all_active_sessions_summary()
             
             if active_sessions_summary:
                 summaries_str_parts = []

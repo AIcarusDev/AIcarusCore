@@ -94,6 +94,12 @@ class LoggingSettings(ConfigBase):
 class InnerConfig(ConfigBase):
     version: str
 
+@dataclass
+class CoreConnectionSettings(ConfigBase):
+    host: str = "127.0.0.1"
+    port: int = 8077
+    # 你也可以根据需要添加其他 WebSocket 相关配置，比如 SSL/TLS 等
+
 
 @dataclass
 class AlcarusRootConfig(ConfigBase):
@@ -107,3 +113,5 @@ class AlcarusRootConfig(ConfigBase):
     providers: Optional[ProvidersConfig] = None
     database: DatabaseSettings = field(default_factory=DatabaseSettings)
     logging: LoggingSettings = field(default_factory=LoggingSettings)
+    core_connection_server_settings: CoreConnectionSettings = field(default_factory=CoreConnectionSettings) # <<< 就是这行新加的！
+

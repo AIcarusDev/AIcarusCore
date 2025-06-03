@@ -4,11 +4,11 @@ import json
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
-from action.action_handler import ActionHandler
-from common.custom_logging.logger_manager import get_logger
-from core_communication.core_ws_server import CoreWebsocketServer
-from database.arangodb_handler import ArangoDBHandler
-from sub_consciousness.chat_session_handler import ChatSessionManager
+from src.action.action_handler import ActionHandler
+from src.common.custom_logging.logger_manager import get_logger
+from src.core_communication.core_ws_server import CoreWebsocketServer
+from src.database.arangodb_handler import ArangoDBHandler
+from src.sub_consciousness.chat_session_handler import ChatSessionManager
 class CoreThoughtProcessor:
     """
     负责处理主思维LLM返回的思考结果。

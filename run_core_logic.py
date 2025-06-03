@@ -1,4 +1,4 @@
-# 修改：AIcarusCore/run_core_logic.py
+# AIcarusCore/run_core_logic.py (恢复到最干净的版本)
 
 import asyncio
 
@@ -6,9 +6,6 @@ import asyncio
 from src import main as core_main_module 
 
 if __name__ == "__main__":
-    # main_run_logger = get_logger("AIcarusCore.Run") # 如果有需要，可以保留这个logger，但现在main.py已经有自己的logger了
-    # main_run_logger.info("AIcarus Core 正在通过 run_core_logic.py 启动...")
-
     try:
         asyncio.run(core_main_module.start_consciousness_flow())
     except KeyboardInterrupt:

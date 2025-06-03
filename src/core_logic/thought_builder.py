@@ -3,8 +3,8 @@ import json
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-from common.custom_logging.logger_manager import get_logger
-from config.alcarus_configs import PersonaSettings
+from src.common.custom_logging.logger_manager import get_logger
+from src.config.alcarus_configs import PersonaSettings
 
 class CorePromptBuilder:
     """

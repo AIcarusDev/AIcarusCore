@@ -5,10 +5,10 @@ import threading
 from typing import TYPE_CHECKING, List, Optional
 
 # 更改导入路径
-from common.custom_logging.logger_manager import get_logger
-from config.alcarus_configs import IntrusiveThoughtsSettings, PersonaSettings
-from database.arangodb_handler import ArangoDBHandler
-from llmrequest.llm_processor import Client as ProcessorClient
+from src.common.custom_logging.logger_manager import get_logger
+from src.config.alcarus_configs import IntrusiveThoughtsSettings, PersonaSettings
+from src.database.arangodb_handler import ArangoDBHandler
+from src.llmrequest.llm_processor import Client as ProcessorClient
 
 if TYPE_CHECKING:
     pass

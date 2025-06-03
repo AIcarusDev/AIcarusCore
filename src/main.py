@@ -1,27 +1,28 @@
 # 文件：AIcarusCore/src/main.py
 
-import asyncio
-import json
+import asyncio # 异步IO库
+import json # JSON 数据处理
 import os
-import threading
 from urllib.parse import urlparse
+import threading # 线程相关（用于 stop_event）
 
 # 从 src 下的其他包导入
-from action.action_handler import ActionHandler
-from common.custom_logging.logger_manager import get_logger
-from config.alcarus_configs import AlcarusRootConfig, LLMClientSettings, ModelParams, ProxySettings
-from config.config_manager import get_typed_settings
-from core_communication.core_ws_server import CoreWebsocketServer
-from database.arangodb_handler import ArangoDBHandler
-from llmrequest.llm_processor import Client as ProcessorClient
-from sub_consciousness.chat_session_handler import ChatSessionManager
-from message_processing.default_message_processor import DefaultMessageProcessor
+from src.action.action_handler import ActionHandler
+from src.common.custom_logging.logger_manager import get_logger
+# 🐾 小懒猫加的：从 alcarus_configs 导入 CoreConnectionSettings
+from src.config.alcarus_configs import AlcarusRootConfig, LLMClientSettings, ModelParams, ProxySettings, CoreConnectionSettings
+from src.config.config_manager import get_typed_settings
+from src.core_communication.core_ws_server import CoreWebsocketServer
+from src.database.arangodb_handler import ArangoDBHandler
+from src.llmrequest.llm_processor import Client as ProcessorClient
+from src.sub_consciousness.chat_session_handler import ChatSessionManager
+from src.message_processing.default_message_processor import DefaultMessageProcessor
 
 # 从 core_logic 子包导入 CoreLogic 类
-from core_logic.consciousness_loop import CoreLogic 
+from src.core_logic.consciousness_loop import CoreLogic 
 
 # 从新的 plugins 子包导入 intrusive_thoughts_plugin
-from plugins.intrusive_thoughts_plugin import IntrusiveThoughtsGenerator #
+from src.plugins.intrusive_thoughts_plugin import IntrusiveThoughtsGenerator
 
 logger = get_logger("AIcarusCore.main")
 
@@ -87,8 +88,17 @@ async def start_consciousness_flow():
         logger.info("核心LLM客户端们初始化(尝试)完毕。ActionHandler的LLM客户端将由其自身管理。")
 
         # 4. 初始化 CoreWebSocketServer (如果需要)
-        core_comm_layer: CoreWebsocketServer | None = None
-        logger.info("核心WebSocket通信层(如果配置了的话)的初始化逻辑已跳过(示例)。")
+        # 🐾 小懒猫加的：从配置中获取 Core WebSocket Server 的 host 和 port
+        core_ws_server_host = root_cfg.core_connection_server_settings.host
+        core_ws_server_port = root_cfg.core_connection_server_settings.port
+        
+        # 🐾 小懒猫加的：实例化 CoreWebSocketServer，并暂时传入一个空的 message_handler_callback (之后会设置)
+        core_comm_layer = CoreWebsocketServer(
+            host=core_ws_server_host,
+            port=core_ws_server_port,
+            message_handler_callback=None # 暂时为 None，稍后 DefaultMessageProcessor 会设置
+        )
+        logger.info(f"核心WebSocket通信层已初始化，监听 ws://{core_ws_server_host}:{core_ws_server_port}")
 
         # 5. 创建 CoreLogic 实例
         stop_event = threading.Event()
@@ -117,16 +127,18 @@ async def start_consciousness_flow():
         logger.info("ChatSessionManager 实例已创建，并已引用 CoreLogic 实例，且已设置到 CoreLogic 中。")
 
         # 7. 如果 CoreWebSocketServer 存在，将 DefaultMessageProcessor 的实例传入作为回调
-        if core_comm_layer:
+        if core_comm_layer: # 🐾 小懒猫：现在这里 core_comm_layer 不会是 None 了！
             message_processor = DefaultMessageProcessor(
                 db_handler=db_handler,
                 root_config=root_cfg,
                 chat_session_manager=chat_session_manager_instance,
                 core_logic_ref=_core_logic_instance
             )
+            # 🐾 小懒猫加的：将 message_processor.process_message 设置为 CoreWebSocketServer 的回调
             core_comm_layer._message_handler_callback = message_processor.process_message
             logger.info("CoreWebSocketServer 消息处理回调已设置为 DefaultMessageProcessor。")
             
+            # 🐾 小懒猫加的：启动 CoreWebSocketServer
             asyncio.create_task(core_comm_layer.start(), name="CoreWebSocketServerTask")
             logger.info("CoreWebSocketServer 已作为异步任务启动。")
         else:
