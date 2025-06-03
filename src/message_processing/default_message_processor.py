@@ -1,7 +1,8 @@
-# src/message_processing/default_message_processor.py
+# AIcarusCore/src/message_processing/default_message_processor.py
 import datetime
 import time
 import uuid
+import asyncio
 from typing import Any, Optional, TYPE_CHECKING, List, Dict
 
 from aicarus_protocols import BaseMessageInfo, GroupInfo, MessageBase, Seg, UserInfo
@@ -14,7 +15,7 @@ from src.database.arangodb_handler import ArangoDBHandler
 from src.sub_consciousness.chat_session_handler import ChatSessionManager
 
 if TYPE_CHECKING:
-    from src.core_logic.consciousness_loop import CoreLogic as CurrentCoreLogic # 修正导入路径
+    from src.core_logic.consciousness_loop import CoreLogic as CurrentCoreLogic
 
 logger = get_logger("AIcarusCore.message_processor")
 
@@ -32,6 +33,8 @@ class DefaultMessageProcessor:
         self.message_sender: MessageSender = MessageSender()
         self.chat_session_manager: ChatSessionManager = chat_session_manager
         self.core_logic_ref: 'CurrentCoreLogic' = core_logic_ref
+        # 🐾 小懒猫加的：这里获取主思维的事件队列，用于向主思维投递事件
+        self.core_incoming_event_queue: asyncio.Queue = core_logic_ref.core_incoming_event_queue
         logger.info("DefaultMessageProcessor 初始化完成 (包含 MessageSender 和 ChatSessionManager)。")
 
     def _generate_conversation_id(self, platform: str, group_id: Optional[str], user_id: Optional[str]) -> str:
@@ -53,6 +56,8 @@ class DefaultMessageProcessor:
 
         if message.message_info.interaction_purpose in ["platform_meta", "platform_heartbeat"]:
             logger.debug(f"跳过平台元消息/心跳包 ({message.message_info.interaction_purpose})，不进行处理。")
+            # 喵呜~ 心跳包和元事件直接扔给 ChatSessionManager 处理，不放入主思维队列，不触发主思维
+            await self.chat_session_manager.handle_incoming_platform_event(message) #
             return
 
         text_content = ""
@@ -212,15 +217,36 @@ class DefaultMessageProcessor:
         except Exception as e_save:
             logger.error(f"消息处理器在调用 save_raw_chat_message 时发生错误: {e_save}", exc_info=True)
             return 
+        
+        # 🐾 小懒猫加的：将事件投递到主思维的事件队列
+        # 这里我们只投递关键的事件类型到主思维队列，例如用户消息和平台请求
+        if message.message_info.interaction_purpose in ["user_message", "platform_request"]:
+            # 喵呜~ 投递一个简化的事件信息，包含类型和会话ID，主思维可以通过会话ID从DB获取完整上下文
+            event_for_main_mind = {
+                "type": message.message_info.interaction_purpose,
+                "conversation_id": conversation_id,
+                "platform_message_id": message.message_info.message_id,
+                "timestamp": message.message_info.time,
+                # 可以添加更多必要的信息，但尽量保持轻量
+            }
+            try:
+                await self.core_incoming_event_queue.put(event_for_main_mind)
+                logger.info(f"事件 (会话: {conversation_id}, 类型: {event_for_main_mind['type']}) 已投递到主思维队列。")
+                # 喵呜~ 投递后，设置主思维的更新事件，让主思维立刻“醒来”
+                self.core_logic_ref.sub_mind_update_event.set()
+                logger.debug(f"已设置主思维更新事件 ({self.core_logic_ref.sub_mind_update_event})。")
+            except Exception as e_put:
+                logger.error(f"投递事件到主思维队列失败: {e_put}", exc_info=True)
+        else:
+            logger.debug(f"消息类型 {message.message_info.interaction_purpose} (会话: {conversation_id}) 未投递到主思维队列。")
 
+        # 喵呜~ 所有的消息（包括用户消息、平台请求和通知）都应该先通过 ChatSessionManager 更新其内部上下文
+        # 即使是主思维不直接处理的通知，ChatSessionManager 也需要知道以便维护会话状态。
         if message.message_info.interaction_purpose == "user_message":
             logger.info(f"用户消息 (会话: {conversation_id}) 将传递给 ChatSessionManager 处理上下文。")
             await self.chat_session_manager.handle_incoming_user_message(message)
-        elif message.message_info.interaction_purpose == "platform_notification":
-            logger.info(f"平台通知 (会话: {conversation_id}) 将传递给 ChatSessionManager 处理上下文。")
-            await self.chat_session_manager.handle_incoming_platform_event(message)
-        elif message.message_info.interaction_purpose == "platform_request":
-            logger.info(f"平台请求 (会话: {conversation_id}) 将传递给 ChatSessionManager 处理上下文 (作为一种平台事件)。")
+        elif message.message_info.interaction_purpose in ["platform_notification", "platform_request"]:
+            logger.info(f"平台事件/请求 (会话: {conversation_id}) 将传递给 ChatSessionManager 处理上下文。")
             await self.chat_session_manager.handle_incoming_platform_event(message)
         else:
-            logger.debug(f"消息类型 {message.message_info.interaction_purpose} (会话: {conversation_id}) 当前不由 ChatSessionManager 直接处理上下文。")
+            logger.debug(f"消息类型 {message.message_info.interaction_purpose} (会话: {conversation_id}) 未投递到主思维队列。")

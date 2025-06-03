@@ -132,7 +132,19 @@ class ArangoDBHandler:
                     sparse=False,
                     in_background=True,
                 )
-
+            # 🐾 小懒猫加的：为侵入性思维池创建索引
+            elif collection_name == self.INTRUSIVE_THOUGHTS_POOL_COLLECTION_NAME: #
+                self.logger.info( #
+                    f"为集合 '{self.INTRUSIVE_THOUGHTS_POOL_COLLECTION_NAME}' 创建索引 ['used', 'timestamp_generated']..." #
+                ) #
+                await asyncio.to_thread( #
+                    collection.add_persistent_index, # type: ignore
+                    fields=["used", "timestamp_generated"], #
+                    unique=False, #
+                    sparse=False, #
+                    in_background=True, #
+                ) #
+            
             self.logger.info(f"集合 '{collection_name}' 创建成功。")
             return collection # type: ignore
         self.logger.debug(f"集合 '{collection_name}' 已在数据库 '{self.db.name}' 中存在。")
@@ -478,6 +490,57 @@ class ArangoDBHandler:
                 f"错误: 在 ArangoDB 集合 '{collection_name}' 中标记动作 (ID: {action_id[:8]}) 结果为已阅时发生未知错误: {e}",
                 exc_info=True,
             )
+
+    async def update_intrusive_thought_status(self, thought_key: str, used: bool) -> bool: #
+        """
+        更新侵入性思维的 'used' 状态。
+        Args:
+            thought_key (str): 要更新的侵入性思维文档的 _key。
+            used (bool): 设置为 True 表示已使用，False 表示未使用。
+        Returns:
+            bool: 更新是否成功。
+        """
+        if not thought_key: #
+            self.logger.warning("更新侵入性思维状态失败：thought_key 为空。") #
+            return False #
+        collection_name = self.INTRUSIVE_THOUGHTS_POOL_COLLECTION_NAME #
+        try:
+            intrusive_thoughts_collection = await self.ensure_collection_exists(collection_name) #
+            
+            # 使用 AQL 进行更新以确保原子性
+            aql_query = """
+                FOR doc IN @@collection_name
+                    FILTER doc._key == @thought_key
+                    UPDATE doc WITH { used: @used_status, timestamp_used: @timestamp } IN @@collection_name
+                    RETURN NEW._key
+            """ #
+            bind_vars = {
+                "@collection_name": collection_name,
+                "thought_key": thought_key,
+                "used_status": used,
+                "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat() if used else None
+            } #
+
+            update_cursor = await asyncio.to_thread(self.db.aql.execute, aql_query, bind_vars=bind_vars) #
+            stats = update_cursor.statistics() #
+            if stats and stats.get("writes_executed", 0) > 0: #
+                self.logger.debug(f"侵入性思维 (Key: {thought_key}) 'used' 状态已成功更新为 {used}。") #
+                return True #
+            else:
+                self.logger.warning(f"更新侵入性思维 (Key: {thought_key}) 'used' 状态失败，或文档未找到/无变化。") #
+                return False #
+        except (AQLQueryExecuteError, ArangoServerError, ArangoClientError) as e_db: #
+            self.logger.error(
+                f"更新侵入性思维 (Key: {thought_key}) 'used' 状态时发生数据库错误: {e_db}",
+                exc_info=True,
+            ) #
+            return False #
+        except Exception as e: #
+            self.logger.error(
+                f"更新侵入性思维 (Key: {thought_key}) 'used' 状态时发生未知错误: {e}",
+                exc_info=True,
+            ) #
+            return False #
 
     async def update_action_status_in_document(
         self,

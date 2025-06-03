@@ -1,4 +1,4 @@
-# 文件：AIcarusCore/src/main.py
+# 文件：AIcarusCore/src/main.py (再次修改)
 
 import asyncio # 异步IO库
 import json # JSON 数据处理
@@ -9,7 +9,6 @@ import threading # 线程相关（用于 stop_event）
 # 从 src 下的其他包导入
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logger_manager import get_logger
-# 🐾 小懒猫加的：从 alcarus_configs 导入 CoreConnectionSettings
 from src.config.alcarus_configs import AlcarusRootConfig, LLMClientSettings, ModelParams, ProxySettings, CoreConnectionSettings
 from src.config.config_manager import get_typed_settings
 from src.core_communication.core_ws_server import CoreWebsocketServer
@@ -19,7 +18,7 @@ from src.sub_consciousness.chat_session_handler import ChatSessionManager
 from src.message_processing.default_message_processor import DefaultMessageProcessor
 
 # 从 core_logic 子包导入 CoreLogic 类
-from src.core_logic.consciousness_loop import CoreLogic 
+from src.core_logic.consciousness_loop import CoreLogic
 
 # 从新的 plugins 子包导入 intrusive_thoughts_plugin
 from src.plugins.intrusive_thoughts_plugin import IntrusiveThoughtsGenerator
@@ -52,7 +51,7 @@ async def start_consciousness_flow():
                 raise ValueError(
                     f"配置错误：在提供商 '{default_provider}' 的 models 配置下未找到用途键 '{purpose_key}'。无法创建LLM客户端。"
                 )
-            
+
             client_args = {
                 "model": {"provider": model_params_cfg.provider, "name": model_params_cfg.model_name},
                 "abandoned_keys_config": json.loads(os.getenv("LLM_ABANDONED_KEYS", "null")) if os.getenv("LLM_ABANDONED_KEYS") else None,
@@ -71,7 +70,7 @@ async def start_consciousness_flow():
                     client_args["proxy_port"] = parsed_url.port
                 except Exception as e_proxy_parse:
                     logger.warning(f"解析代理URL '{root_cfg.proxy.http_proxy_url}' 失败: {e_proxy_parse}。LLM客户端将不使用此配置的代理。")
-            
+
             if model_params_cfg.temperature is not None: client_args["temperature"] = model_params_cfg.temperature
             if model_params_cfg.max_output_tokens is not None: client_args["maxOutputTokens"] = model_params_cfg.max_output_tokens
             if model_params_cfg.top_p is not None: client_args["top_p"] = model_params_cfg.top_p
@@ -88,11 +87,9 @@ async def start_consciousness_flow():
         logger.info("核心LLM客户端们初始化(尝试)完毕。ActionHandler的LLM客户端将由其自身管理。")
 
         # 4. 初始化 CoreWebSocketServer (如果需要)
-        # 🐾 小懒猫加的：从配置中获取 Core WebSocket Server 的 host 和 port
         core_ws_server_host = root_cfg.core_connection_server_settings.host
         core_ws_server_port = root_cfg.core_connection_server_settings.port
-        
-        # 🐾 小懒猫加的：实例化 CoreWebSocketServer，并暂时传入一个空的 message_handler_callback (之后会设置)
+
         core_comm_layer = CoreWebsocketServer(
             host=core_ws_server_host,
             port=core_ws_server_port,
@@ -100,67 +97,24 @@ async def start_consciousness_flow():
         )
         logger.info(f"核心WebSocket通信层已初始化，监听 ws://{core_ws_server_host}:{core_ws_server_port}")
 
-        # 5. 创建 CoreLogic 实例
-        stop_event = threading.Event()
-        async_stop_event = asyncio.Event()
-        sub_mind_update_event = asyncio.Event()
-
-        _core_logic_instance = CoreLogic(
-            root_cfg=root_cfg,
-            db_handler=db_handler,
-            main_consciousness_llm_client=main_consciousness_llm_client,
-            intrusive_thoughts_llm_client=intrusive_thoughts_llm_client,
-            sub_mind_llm_client=sub_mind_llm_client,
-            action_decision_llm_client=action_decision_llm_client_for_core_logic,
-            information_summary_llm_client=information_summary_llm_client_for_core_logic,
-            stop_event=stop_event,
-            async_stop_event=async_stop_event,
-            sub_mind_update_event=sub_mind_update_event,
-            chat_session_manager=None, # 先传入 None
-            core_comm_layer=core_comm_layer
-        )
-        logger.info("CoreLogic 实例已创建 (ChatSessionManager 暂未设置)。")
-
-        # 6. 初始化 ChatSessionManager 并将其设置回 CoreLogic
-        chat_session_manager_instance = ChatSessionManager(core_logic_ref=_core_logic_instance)
-        _core_logic_instance.chat_session_manager = chat_session_manager_instance
-        logger.info("ChatSessionManager 实例已创建，并已引用 CoreLogic 实例，且已设置到 CoreLogic 中。")
-
-        # 7. 如果 CoreWebSocketServer 存在，将 DefaultMessageProcessor 的实例传入作为回调
-        if core_comm_layer: # 🐾 小懒猫：现在这里 core_comm_layer 不会是 None 了！
-            message_processor = DefaultMessageProcessor(
-                db_handler=db_handler,
-                root_config=root_cfg,
-                chat_session_manager=chat_session_manager_instance,
-                core_logic_ref=_core_logic_instance
-            )
-            # 🐾 小懒猫加的：将 message_processor.process_message 设置为 CoreWebSocketServer 的回调
-            core_comm_layer._message_handler_callback = message_processor.process_message
-            logger.info("CoreWebSocketServer 消息处理回调已设置为 DefaultMessageProcessor。")
-            
-            # 🐾 小懒猫加的：启动 CoreWebSocketServer
-            asyncio.create_task(core_comm_layer.start(), name="CoreWebSocketServerTask")
-            logger.info("CoreWebSocketServer 已作为异步任务启动。")
-        else:
-            logger.warning("CoreWebSocketServer 未初始化，将无法接收来自适配器的消息。")
-
-        # 8. 初始化 IntrusiveThoughtsGenerator (插件化后的 IntrusiveThoughtsGenerator)
-        intrusive_generator_instance: IntrusiveThoughtsGenerator | None = None # 声明变量
+        # 8. 初始化 IntrusiveThoughtsGenerator (插件化后的 IntrusiveThoughtsGenerator) - 提前初始化，因为 CoreLogic 需要传入
+        intrusive_generator_instance: IntrusiveThoughtsGenerator | None = None
         if hasattr(root_cfg, 'intrusive_thoughts_module_settings') and \
            root_cfg.intrusive_thoughts_module_settings and \
            root_cfg.intrusive_thoughts_module_settings.enabled:
-            
+
             intrusive_generator_instance = IntrusiveThoughtsGenerator(
-                llm_client=intrusive_thoughts_llm_client, 
-                db_handler=db_handler, 
-                persona_cfg=root_cfg.persona, 
-                module_settings=root_cfg.intrusive_thoughts_module_settings, 
-                stop_event=stop_event
+                llm_client=intrusive_thoughts_llm_client, # 使用这个LLM客户端
+                db_handler=db_handler,
+                persona_cfg=root_cfg.persona,
+                module_settings=root_cfg.intrusive_thoughts_module_settings,
+                # 🐾 小懒猫加的：这里的 stop_event 将在 CoreLogic 实例化后，通过其内部的 stop_event 传入
+                stop_event=threading.Event() # 先给一个临时的 event，实际在 CoreLogic 内部创建的 stop_event 会替代它
             )
-            logger.info("IntrusiveThoughtsGenerator (插件) 已成功初始化。") 
-            # 启动后台线程 (放在这里启动，因为它是一个独立的插件功能)
-            intrusive_generator_instance.start_background_generation()
-            logger.info("侵入性思维后台生成线程已通过 IntrusiveThoughtsGenerator (插件) 启动。")
+            logger.info("IntrusiveThoughtsGenerator (插件) 已成功初始化。")
+            # 暂时不启动后台生成，等待 CoreLogic 实例化后再启动，确保事件是 CoreLogic 内部的
+            # intrusive_generator_instance.start_background_generation()
+            # logger.info("侵入性思维后台生成线程已通过 IntrusiveThoughtsGenerator (插件) 启动。")
 
         elif hasattr(root_cfg, 'intrusive_thoughts_module_settings') and \
              root_cfg.intrusive_thoughts_module_settings and \
@@ -168,15 +122,56 @@ async def start_consciousness_flow():
             logger.info("IntrusiveThoughtsGenerator (插件) 在配置中被禁用，将不会被初始化。")
         else:
             logger.warning("警告：在 root_cfg 中未找到 intrusive_thoughts_module_settings 配置或其 enabled 状态。IntrusiveThoughtsGenerator (插件) 将不会被初始化。")
-        
-        # 将 intrusive_generator_instance 传递给 _core_logic_instance
-        _core_logic_instance.intrusive_generator_instance = intrusive_generator_instance
 
+
+        # 5. 创建 CoreLogic 实例 (此时 intrusive_generator_instance 可能已经初始化)
+        _core_logic_instance = CoreLogic(
+            root_cfg=root_cfg,
+            db_handler=db_handler,
+            main_consciousness_llm_client=main_consciousness_llm_client,
+            intrusive_thoughts_llm_client=intrusive_thoughts_llm_client, # 传入LLM客户端
+            sub_mind_llm_client=sub_mind_llm_client,
+            action_decision_llm_client=action_decision_llm_client_for_core_logic,
+            information_summary_llm_client=information_summary_llm_client_for_core_logic,
+            chat_session_manager=None, # 先传入 None
+            core_comm_layer=core_comm_layer,
+            intrusive_generator_instance=intrusive_generator_instance, # 传入已初始化的插件实例
+        )
+        logger.info("CoreLogic 实例已创建 (ChatSessionManager 暂未设置)。")
+
+        # 🐾 小懒猫加的：如果 intrusive_generator_instance 存在，更新它的 stop_event 为 CoreLogic 内部的 stop_event
+        if intrusive_generator_instance:
+            intrusive_generator_instance.stop_event = _core_logic_instance.stop_event
+            # 确保启动后台生成是在 CoreLogic 的 stop_event 传入之后
+            intrusive_generator_instance.start_background_generation()
+            logger.info("侵入性思维后台生成线程已通过 IntrusiveThoughtsGenerator (插件) 启动 (使用了 CoreLogic 的停止事件)。")
+
+
+        # 6. 初始化 ChatSessionManager 并将其设置回 CoreLogic
+        chat_session_manager_instance = ChatSessionManager(core_logic_ref=_core_logic_instance)
+        _core_logic_instance.chat_session_manager = chat_session_manager_instance
+        logger.info("ChatSessionManager 实例已创建，并已引用 CoreLogic 实例，且已设置到 CoreLogic 中。")
+
+        # 7. 如果 CoreWebSocketServer 存在，将 DefaultMessageProcessor 的实例传入作为回调
+        if core_comm_layer:
+            message_processor = DefaultMessageProcessor(
+                db_handler=db_handler,
+                root_config=root_cfg,
+                chat_session_manager=chat_session_manager_instance,
+                core_logic_ref=_core_logic_instance
+            )
+            core_comm_layer._message_handler_callback = message_processor.process_message
+            logger.info("CoreWebSocketServer 消息处理回调已设置为 DefaultMessageProcessor。")
+
+            asyncio.create_task(core_comm_layer.start(), name="CoreWebSocketServerTask")
+            logger.info("CoreWebSocketServer 已作为异步任务启动。")
+        else:
+            logger.warning("CoreWebSocketServer 未初始化，将无法接收来自适配器的消息。")
 
         logger.info("准备启动 CoreLogic 并等待其核心循环...")
         thinking_task = await _core_logic_instance.start()
         logger.info("CoreLogic 的 start 方法已执行，核心思考循环任务已创建。")
-        
+
         if thinking_task:
             logger.info("正在等待核心思考循环任务完成 (这通常意味着程序将持续运行直到被中断)...")
             try:
