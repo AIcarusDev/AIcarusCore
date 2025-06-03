@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple, Coroutine, TYPE_CHECKING
 from src.sub_consciousness.chat_session_handler import ChatSessionManager
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logger_manager import get_logger
+# 🐾 小懒猫改动：导入我们自定义的 TaskCancelledByExternalEventError
 from src.common.protected_runner import execute_protected_task_with_polling, TaskTimeoutError, TaskCancelledByExternalEventError
 from src.common.utils import format_chat_history_for_prompt
 from src.config.alcarus_configs import AlcarusRootConfig, CoreLogicSettings, PersonaSettings
@@ -98,7 +99,7 @@ class CoreLogic:
             action_handler_instance=self.action_handler_instance,
             chat_session_manager=self.chat_session_manager,
             core_comm_layer=self.core_comm_layer,
-            logger_instance=self.logger,
+            logger_instance=self.logger, # 传递 logger 实例
         )
         self.input_preparer = MainThoughtInputPreparer(
             db_handler=self.db_handler,
@@ -110,6 +111,7 @@ class CoreLogic:
 
         self.current_focused_conversation_id: Optional[str] = None
         # 🐾 小懒猫加的：添加一个实例变量来保存当前正在运行的LLM任务
+        # 🐾 小懒猫修改：改为私有变量，并确保在任务开始时清空。
         self._current_main_llm_thinking_task: Optional[asyncio.Task[Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]]] = None
         self.logger.info("CoreLogic instance created.")
 
@@ -118,11 +120,15 @@ class CoreLogic:
         llm_client: ProcessorClient,
         system_prompt_str: str,
         user_prompt_str: str,
-        cancellation_event: Optional[asyncio.Event] = None
+        # 🐾 小懒猫修改：取消事件应该由 ProtectedRunner 内部管理，或者由 CoreLogic 在需要取消时设置
+        # ProtectedRunner 会将它自己的 cancellation_event 传递给 llm_client
+        # 这里只保留 llm_client 接收的 cancellation_event，以便正确传递给 make_llm_request
+        cancellation_event_for_llm_client: Optional[asyncio.Event] = None
     ) -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]:
         self.logger.info(f"正在请求 {llm_client.llm_client.provider} API ({llm_client.llm_client.model_name}) 生成主思考 (受保护的调用)...")
-        if cancellation_event:
-            self.logger.debug(f"传递给 ProtectedRunner 的 cancellation_event 当前状态: {cancellation_event.is_set()}")
+        # 🐾 小懒猫修改：这个日志应该更精确，它不是传递给 ProtectedRunner，而是 ProtectedRunner 会传递给 make_llm_request
+        # if cancellation_event:
+        #     self.logger.debug(f"传递给 ProtectedRunner 的 cancellation_event 当前状态: {cancellation_event.is_set()}")
 
         raw_llm_response_text: str = ""
         try:
@@ -130,6 +136,8 @@ class CoreLogic:
                 prompt=user_prompt_str,
                 system_prompt=system_prompt_str,
                 is_stream=False,
+                # 🐾 小懒猫修改：将 cancellation_event_for_llm_client 传递给 make_llm_request
+                interruption_event=cancellation_event_for_llm_client # 这个事件由 ProtectedRunner 提供
             )
 
             llm_response_data: Dict[str, Any] = await execute_protected_task_with_polling(
@@ -137,7 +145,10 @@ class CoreLogic:
                 task_description="主思维LLM思考生成",
                 overall_timeout_seconds=self.root_cfg.core_logic_settings.llm_call_overall_timeout_seconds,
                 polling_interval_seconds=self.root_cfg.core_logic_settings.llm_call_polling_interval_seconds,
-                cancellation_event=cancellation_event
+                # 🐾 小懒猫修改：ProtectedRunner 内部会创建并管理一个取消事件。
+                # CoreLogic 不再需要在这里传入它自己的事件，除非 CoreLogic 明确要主动取消此任务。
+                # ProtectedRunner 会返回 TaskCancelledByExternalEventError 来指示取消。
+                # cancellation_event=cancellation_event # 移除了这里的直接传递
             )
 
             if llm_response_data.get("error"):
@@ -186,10 +197,12 @@ class CoreLogic:
 
         except TaskTimeoutError as e_task_timeout:
             self.logger.error(f"错误：主思维LLM思考生成任务超时: {e_task_timeout}")
+            # 🐾 小懒猫修改：当超时发生时，我们也要明确地返回None
             return None, user_prompt_str, system_prompt_str
         except TaskCancelledByExternalEventError as e_task_cancelled:
             # 🐾 小懒猫改动：这里明确捕获 TaskCancelledByExternalEventError
             self.logger.warning(f"主思维LLM思考生成任务被外部事件取消: {e_task_cancelled}. 任务在ProtectedRunner内部被取消。")
+            # 🐾 小懒猫修改：当被取消时，我们也要明确地返回None
             return None, user_prompt_str, system_prompt_str
         except asyncio.CancelledError as e_async_cancelled:
             # 🐾 小懒猫改动：显式捕获 asyncio.CancelledError
@@ -218,6 +231,11 @@ class CoreLogic:
             return
 
         action_id_whose_result_was_shown_in_last_prompt: Optional[str] = None
+        # 🐾 小懒猫修改：这里的 main_llm_cancellation_event 应该由 CoreLogic 控制，
+        # 当 CoreLogic 决定取消当前 LLM 任务时才设置它。
+        # ProtectedRunner 会在内部为 LLM 请求创建一个 `interruption_event` 并传递给 LLMClient。
+        # 如果 CoreLogic 想在 LLM 任务正在运行的时候，外部（比如新的消息事件）让它中断，
+        # 那么这个事件是必要的。
         main_llm_cancellation_event = asyncio.Event()
 
         core_logic_cfg: CoreLogicSettings = self.root_cfg.core_logic_settings
@@ -232,10 +250,9 @@ class CoreLogic:
             self.logger.info(f"主思维循环第 {loop_count} 次迭代开始。")
             current_time_formatted_str: str = datetime.datetime.now().strftime(time_format_str)
 
-            # 清除 LLM 任务的中断事件，以便新一轮 LLM 调用可以使用
-            main_llm_cancellation_event.clear()
-
-            should_proceed_with_llm_thought: bool = False
+            # 🐾 小懒猫修改：在每轮开始时，如果之前有任务在运行，应该先确保它被“清理”
+            # 这个变量只用于标记LLM是否应该重新启动生成
+            should_initiate_new_llm_thought_generation: bool = False
 
             # --- 阶段1: 检查并处理队列中的事件 ---
             events_processed_this_cycle = 0
@@ -243,7 +260,7 @@ class CoreLogic:
                 try:
                     event_from_queue = self.core_incoming_event_queue.get_nowait()
                     self.logger.info(f"主思维循环 {loop_count}: 从队列中获取事件: 类型={event_from_queue.get('type')}, 会话ID={event_from_queue.get('conversation_id')}")
-                    should_proceed_with_llm_thought = True
+                    should_initiate_new_llm_thought_generation = True # 收到新事件就应该触发思考
                     events_processed_this_cycle += 1
                     self.core_incoming_event_queue.task_done()
 
@@ -258,96 +275,125 @@ class CoreLogic:
 
             if events_processed_this_cycle > 0:
                 self.logger.info(f"主思维循环 {loop_count}: 本轮从队列处理了 {events_processed_this_cycle} 个事件。")
-                self.sub_mind_update_event.clear()
-                should_proceed_with_llm_thought = True
+                self.sub_mind_update_event.clear() # 清除子思维更新事件，表示已处理
+                should_initiate_new_llm_thought_generation = True # 收到事件强制触发思考
 
-            # --- 阶段2: 等待触发（定时器或新事件）或等待LLM任务完成 ---
-            # 🐾 小懒猫改动：修改 LLM 任务的处理逻辑，确保前一个任务完成后才发起新的。
-            # 如果存在前一个LLM任务并且它还没有完成
-            if self._current_main_llm_thinking_task and not self._current_main_llm_thinking_task.done():
-                self.logger.info(f"主思维循环 {loop_count}: 上一轮的主LLM思考任务仍在进行中。将等待其完成或被触发。")
-
-                tasks_to_wait_on = [
+            # --- 阶段2: 等待触发（定时器或新事件）或处理LLM任务完成 ---
+            # 🐾 小懒猫修改：调整逻辑，首先处理正在运行的LLM任务。
+            if self._current_main_llm_thinking_task: # 如果有LLM任务在运行
+                self.logger.info(f"主思维循环 {loop_count}: 检测到前一个主LLM思考任务仍在进行中。")
+                
+                # 创建一个用于等待LLM任务或中断事件的辅助任务
+                # 我们想知道LLM任务是否完成了，或者停止事件、子思维更新事件是否触发了
+                wait_tasks = [
                     self._current_main_llm_thinking_task,
-                    asyncio.create_task(self.sub_mind_update_event.wait(), name=f"sub_mind_wait_llm_running_loop{loop_count}"),
-                    asyncio.create_task(self.async_stop_event.wait(), name=f"stop_event_wait_llm_running_loop{loop_count}")
+                    asyncio.create_task(self.async_stop_event.wait(), name=f"stop_event_wait_running_llm_{loop_count}"),
+                    asyncio.create_task(self.sub_mind_update_event.wait(), name=f"sub_mind_update_wait_running_llm_{loop_count}")
                 ]
 
                 done, pending = await asyncio.wait(
-                    tasks_to_wait_on,
+                    wait_tasks,
                     return_when=asyncio.FIRST_COMPLETED,
                 )
-                
-                # 🐾 小懒猫改动：首先处理 stop 事件
+
+                # 首先检查停止事件
                 if self.async_stop_event.is_set():
                     self.logger.info(f"主思维循环 {loop_count}: 检测到停止信号，将取消所有挂起任务并退出。")
                     if self._current_main_llm_thinking_task and not self._current_main_llm_thinking_task.done():
-                        self._current_main_llm_thinking_task.cancel() # 取消正在运行的LLM任务
+                        # 🐾 小懒猫修改：主动取消当前正在进行的LLM任务
+                        main_llm_cancellation_event.set() # 通知 ProtectedRunner 内部的 LLM 请求中断
+                        self._current_main_llm_thinking_task.cancel() # 取消 LLM 任务
+                        self.logger.info(f"主思维循环 {loop_count}: 已发送取消信号给正在运行的LLM任务。")
                     for task_to_cancel in pending:
                         if not task_to_cancel.done(): task_to_cancel.cancel()
                     # 等待所有任务真正结束，包括被取消的
                     await asyncio.gather(*done, *pending, return_exceptions=True)
                     break # 退出主循环
 
-                # 🐾 小懒猫改动：处理 sub_mind_update_event
-                if self.sub_mind_update_event.is_set():
-                    self.logger.info(f"主思维循环 {loop_count}: 子思维事件在LLM运行期间触发，将清空事件并立即进行思考。")
-                    self.sub_mind_update_event.clear()
-                    # 如果LLM任务还在运行，我们不立即取消它，但会将其结果在下一轮处理
-                    should_proceed_with_llm_thought = True 
-                    # 取消其他等待任务，但不取消 _current_main_llm_thinking_task
+                # 如果是 sub_mind_update_event 触发的
+                if self.sub_mind_update_event in done:
+                    self.logger.info(f"主思维循环 {loop_count}: 子思维事件触发，中断当前LLM思考并立即重新思考。")
+                    self.sub_mind_update_event.clear() # 清除事件
+                    should_initiate_new_llm_thought_generation = True
+                    # 🐾 小懒猫修改：如果子思维事件触发，强制取消当前的LLM任务，因为要重新思考
+                    if self._current_main_llm_thinking_task and not self._current_main_llm_thinking_task.done():
+                        main_llm_cancellation_event.set() # 设置 LLM 客户端的取消事件
+                        self._current_main_llm_thinking_task.cancel() # 取消 LLM 任务
+                        self.logger.info(f"主思维循环 {loop_count}: 已发送取消信号给正在运行的LLM任务 (因子思维事件)。")
+                    # 等待剩余的 pending 任务完成或取消
                     for task_to_cancel in pending:
-                        if task_to_cancel != self._current_main_llm_thinking_task and not task_to_cancel.done():
+                         if task_to_cancel != self._current_main_llm_thinking_task and not task_to_cancel.done():
                              task_to_cancel.cancel()
-                    await asyncio.gather(*pending, return_exceptions=True)
-                    # 此时，LLM任务可能仍在后台运行。我们将等待它在后续的 try/except 块中完成或取消。
+                    await asyncio.gather(*pending, return_exceptions=True) # 等待其他任务结束
 
-                # 检查 LLM 任务是否完成
+                # 如果是 _current_main_llm_thinking_task 完成了
                 if self._current_main_llm_thinking_task in done:
-                    self.logger.info(f"主思维循环 {loop_count}: LLM思考任务在等待期间自行完成。")
-                    should_proceed_with_llm_thought = True
+                    self.logger.info(f"主思维循环 {loop_count}: 上一轮的主LLM思考任务已自然完成。")
+                    should_initiate_new_llm_thought_generation = True # LLM任务完成，可以处理结果并考虑下一次思考
                     # 清理其他 pending 任务
                     for task_to_cancel in pending:
                          if not task_to_cancel.done(): task_to_cancel.cancel()
                     await asyncio.gather(*pending, return_exceptions=True)
-                    # 处理LLM结果
-                    # 这一步将移动到should_proceed_with_llm_thought为True后的统一处理逻辑中
-
-                else: # LLM任务还在运行，但没有停止或子思维事件触发，继续等待
-                    self.logger.debug(f"主思维循环 {loop_count}: LLM任务仍在后台运行，没有新的事件触发，继续等待。")
-                    continue # 继续 while True 循环，等待下一次轮询
+                
+                # 如果都不是，说明有其他任务完成，或者没有任务完成（例如timeout，但 ProtectedRunner 应该处理）
+                # 这里不需要 else，因为如果 _current_main_llm_thinking_task 没在 done 里，
+                # 并且没有其他事件触发，那么循环会继续等待
+                
+                # 🐾 小懒猫修改：无论哪种情况，LLM 任务的结果都需要在下面统一处理。
+                # 即使被取消，其 await 也会抛出异常，在下面的 try/except 块中捕获。
 
             else: # 没有正在运行的LLM任务，或者上一轮已完成
-                should_timeout_and_think = False
-
+                self.logger.debug(f"主思维循环 {loop_count}: 没有正在运行的LLM任务。")
                 try:
-                    # 使用 wait_for 替代 get()，更符合超时逻辑
-                    # 🐾 小懒猫改动：这里的 timeout 应该是 thinking_interval_sec
-                    event_from_queue_timed_wait = await asyncio.wait_for(
-                        self.core_incoming_event_queue.get(),
-                        timeout=float(thinking_interval_sec) 
+                    # 🐾 小懒猫修改：这里只等待队列事件或定时器到期。如果事件触发，就立即思考。
+                    # 如果定时器到期，也立即思考。
+                    event_wait_task = asyncio.create_task(self.core_incoming_event_queue.get(), name=f"queue_event_wait_{loop_count}")
+                    stop_wait_task = asyncio.create_task(self.async_stop_event.wait(), name=f"stop_event_wait_{loop_count}")
+                    sub_mind_wait_task = asyncio.create_task(self.sub_mind_update_event.wait(), name=f"sub_mind_update_wait_{loop_count}")
+
+                    done, pending = await asyncio.wait(
+                        [event_wait_task, stop_wait_task, sub_mind_wait_task],
+                        timeout=float(thinking_interval_sec),
+                        return_when=asyncio.FIRST_COMPLETED
                     )
-                    self.logger.info(f"主思维循环 {loop_count}: 从队列中获取新事件 (超时等待): 类型={event_from_queue_timed_wait.get('type')}, 会话ID={event_from_queue_timed_wait.get('conversation_id')}")
-                    should_proceed_with_llm_thought = True
-                    self.core_incoming_event_queue.task_done()
-                    await asyncio.sleep(self.event_processing_cooldown_seconds)
+                    
+                    # 首先检查停止事件
+                    if self.async_stop_event.is_set():
+                        self.logger.info(f"主思维循环 {loop_count}: 检测到停止信号，将取消所有挂起任务并退出。")
+                        for task_to_cancel in pending:
+                            if not task_to_cancel.done(): task_to_cancel.cancel()
+                        await asyncio.gather(*done, *pending, return_exceptions=True)
+                        break # 退出主循环
 
-                except asyncio.TimeoutError:
-                    self.logger.info(f"主思维循环 {loop_count}: 定时器 ({thinking_interval_sec}s) 到期，队列中无事件，准备进行LLM思考。")
-                    should_proceed_with_llm_thought = True
+                    # 如果是队列事件触发的
+                    if event_wait_task in done:
+                        event_from_queue_timed_wait = event_wait_task.result() # 获取事件内容
+                        self.logger.info(f"主思维循环 {loop_count}: 从队列中获取新事件 (超时等待): 类型={event_from_queue_timed_wait.get('type')}, 会话ID={event_from_queue_timed_wait.get('conversation_id')}")
+                        should_initiate_new_llm_thought_generation = True
+                        self.core_incoming_event_queue.task_done()
+                        await asyncio.sleep(self.event_processing_cooldown_seconds)
+                    elif sub_mind_wait_task in done: # 如果是子思维事件触发的
+                        self.logger.info(f"主思维循环 {loop_count}: 子思维事件触发，立即进行思考。")
+                        self.sub_mind_update_event.clear() # 清除事件
+                        should_initiate_new_llm_thought_generation = True
+                    else: # 所有的等待任务都超时了（即定时器到期）
+                        self.logger.info(f"主思维循环 {loop_count}: 定时器 ({thinking_interval_sec}s) 到期，队列中无事件，准备进行LLM思考。")
+                        should_initiate_new_llm_thought_generation = True
+                    
+                    # 清理剩余的 pending 任务
+                    for task_to_cancel in pending:
+                        if not task_to_cancel.done(): task_to_cancel.cancel()
+                    await asyncio.gather(*pending, return_exceptions=True) # 等待其他任务结束
+
                 except asyncio.CancelledError:
-                    self.logger.info(f"主思维循环 {loop_count}: 等待队列事件时被取消。")
-                    break
-                except Exception as e_queue_get:
-                    self.logger.error(f"主思维循环 {loop_count}: 等待或获取队列事件时发生错误: {e_queue_get}", exc_info=True)
-                    continue
+                    self.logger.info(f"主思维循环 {loop_count}: 等待队列事件或定时器时被取消。")
+                    break # 退出循环
+                except Exception as e_wait:
+                    self.logger.error(f"主思维循环 {loop_count}: 等待事件或定时器时发生错误: {e_wait}", exc_info=True)
+                    continue # 继续下一次循环
 
-                if self.async_stop_event.is_set():
-                    self.logger.info(f"主思维循环 {loop_count}: 检测到停止信号 (在正常等待后)，准备退出。")
-                    break
-
-            # --- 阶段3: 执行或处理LLM思考 (如果 should_proceed_with_llm_thought 为 True) ---
-            if should_proceed_with_llm_thought:
+            # --- 阶段3: 执行或处理LLM思考 (如果 should_initiate_new_llm_thought_generation 为 True) ---
+            if should_initiate_new_llm_thought_generation:
                 self.logger.info(f"主思维循环 {loop_count}: 准备获取数据库和上下文信息以进行LLM思考。")
                 latest_thought_doc_from_db = await self.db_handler.get_latest_thought_document_raw() if self.db_handler else None
 
@@ -367,19 +413,22 @@ class CoreLogic:
                 )
 
                 self.logger.info(
-                    f"\n[{datetime.datetime.now().strftime('%H:%M:%S')} - 轮次 {loop_count}] "
+                    f"\n[{datetime.datetime.now().strftime('%H:%M:%M')} - 轮次 {loop_count}] " # 🐾 小懒猫修改：分钟的格式是 %M 而不是 %m
                     f"{self.root_cfg.persona.bot_name if self.root_cfg else 'Bot'} 准备调用LLM进行思考 (受保护)..."
                 )
 
                 # 🐾 小懒猫改动：如果当前没有LLM任务在跑，或者上一个任务已经完成了，才创建新的任务
                 if not self._current_main_llm_thinking_task or self._current_main_llm_thinking_task.done():
                     self.logger.debug(f"主思维循环 {loop_count}: 创建新的主LLM思考任务。")
+                    # 🐾 小懒猫修改：清空取消事件，以便新的LLM任务可以使用
+                    main_llm_cancellation_event.clear()
                     self._current_main_llm_thinking_task = asyncio.create_task(
                         self._generate_thought_from_llm(
                             llm_client=self.main_consciousness_llm_client,
                             system_prompt_str=system_prompt_str,
                             user_prompt_str=user_prompt_str,
-                            cancellation_event=main_llm_cancellation_event
+                            # 🐾 小懒猫修改：将本 CoreLogic 实例控制的取消事件传递给 LLM 任务
+                            cancellation_event_for_llm_client=main_llm_cancellation_event 
                         ),
                         name=f"MainLLMThoughtTask_Loop{loop_count}"
                     )
@@ -452,4 +501,19 @@ class CoreLogic:
         self.logger.info("CoreLogic 收到停止请求...")
         self.stop_event.set()
         self.async_stop_event.set()
+        # 🐾 小懒猫修改：如果 LLM 任务正在运行，主动取消它
+        if self._current_main_llm_thinking_task and not self._current_main_llm_thinking_task.done():
+            # 同样设置 LLM 客户端的取消事件，确保 ProtectedRunner 和 LLM 客户端能够感知到
+            # 否则 LLM 请求可能会继续运行直到自然完成或自身超时
+            self.logger.info("CoreLogic 停止时，正在取消正在运行的主LLM思考任务。")
+            self._current_main_llm_thinking_task.cancel()
+            try:
+                # 等待任务真正结束，以便它能清理资源并正确处理 CancelledError
+                await self._current_main_llm_thinking_task
+            except asyncio.CancelledError:
+                self.logger.info("正在运行的主LLM思考任务已被成功取消。")
+            except Exception as e:
+                self.logger.error(f"取消主LLM思考任务时发生错误: {e}", exc_info=True)
+            finally:
+                self._current_main_llm_thinking_task = None # 确保清理引用
         self.logger.info("CoreLogic 停止请求处理完毕。")

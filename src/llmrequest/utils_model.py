@@ -958,6 +958,9 @@ class LLMClient:  #
         except (aiohttp.ClientConnectorError, aiohttp.ServerDisconnectedError, aiohttp.ClientOSError) as e:  #
             logger.error(f"网络连接错误: {e}")  #
             raise NetworkError(f"网络连接错误: {e}", original_exception=e) from e  #
+        except asyncio.CancelledError: # 🐾 小懒猫修改：显式捕获 CancelledError
+            logger.warning("API 调用被取消。") #
+            raise NetworkError("API 调用被取消。", original_exception=asyncio.CancelledError()) from asyncio.CancelledError() # 🐾 小懒猫修改：包装为 NetworkError
         except TimeoutError as e:  #
             logger.error("请求超时")  #
             raise NetworkError("请求超时", original_exception=e) from e  #

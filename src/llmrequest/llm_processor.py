@@ -141,6 +141,8 @@ class _StreamingWorkflowManager:  #
         tool_choice: str | dict[str, Any] | None = None,  #
         max_retries: int = 3,  #
         image_mime_type_override: str | None = None,  #
+        # 🐾 小懒猫修改：新增 interruption_event 参数，这个事件是由外部传入控制流中断的
+        interruption_event: asyncio.Event | None = None, #
         **additional_generation_params: Unpack[GenerationParams],  # 其他特定于模型的生成参数 #
     ) -> dict[str, Any]:
         """
@@ -148,8 +150,17 @@ class _StreamingWorkflowManager:  #
         它会调用底层的 LLMClient 进行实际的 API 请求，并管理中断和回调。
         """
         self.current_processing_task_id = task_id  # 标记当前正在处理的任务ID #
-        interruption_event: asyncio.Event = self._get_interruption_event(task_id)  #
-        interruption_event.clear()  # 确保在任务开始时，中断事件是未设置状态 #
+        # 🐾 小懒猫修改：这里不再创建自己的事件，而是直接使用传入的 interruption_event
+        # 如果没有传入，就创建一个临时的
+        if interruption_event is None:
+            # logger.debug(f"Task ID {task_id}: No external interruption_event provided, creating a new internal one.")
+            interruption_event = asyncio.Event() # 为当前任务创建一个临时事件
+        # else:
+            # logger.debug(f"Task ID {task_id}: Using provided external interruption_event.")
+
+        # 将这个 interruption_event 存起来，供 interrupt_task 方法使用
+        self._task_interruption_events[task_id] = interruption_event
+        interruption_event.clear()
 
         logger.info(f"开始处理流式任务 ID: {task_id} (通过 _StreamingWorkflowManager)")  #
         if system_prompt:
@@ -340,6 +351,8 @@ class Client:  # 这是 llm_processor.Client，是暴露给外部使用者的高
         # ███ 小懒猫改动结束 ███
         is_stream: bool,  # 指示是否进行流式请求 #
         task_id: str | None = None,  # 流式请求需要 task_id 以支持中断 #
+        # 🐾 小懒猫修改：新增 interruption_event 参数，以便外部可以控制 LLM 请求的取消
+        interruption_event: asyncio.Event | None = None, 
         # 以下是与 UnderlyingLLMClient.make_request 和 get_embedding 对应的参数
         is_multimodal: bool = False,  #
         image_inputs: list[str] | None = None,  #
@@ -420,6 +433,7 @@ class Client:  # 这是 llm_processor.Client，是暴露给外部使用者的高
                 tool_choice=tool_choice,  #
                 max_retries=max_retries,  #
                 image_mime_type_override=image_mime_type_override,  #
+                interruption_event=interruption_event,
                 **additional_generation_params,  # 透传其他生成参数 #
             )
         else:  # 非流式、非嵌入请求 #
