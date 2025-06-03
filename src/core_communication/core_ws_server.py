@@ -4,7 +4,7 @@ import json
 from collections.abc import Awaitable, Callable
 
 import websockets  # type: ignore
-from aicarus_protocols import MessageBase  # 假设这是您的 Pydantic 或 dataclass 消息模型
+from aicarus_protocols import Event  # 替换 MessageBase 为 Event
 from arango.database import StandardDatabase  # 保留用于类型提示，如果 db_instance 被使用
 from websockets.exceptions import ConnectionClosed, ConnectionClosedError, ConnectionClosedOK  # 更具体的异常类型
 from websockets.server import WebSocketServerProtocol  # type: ignore
@@ -13,25 +13,23 @@ from src.common.custom_logging.logger_manager import get_logger
 
 logger = get_logger("AIcarusCore.ws_server")  # 获取日志记录器
 
-# 定义回调函数类型，用于处理从适配器收到的消息
-# 参数：解析后的 MessageBase 对象，发送此消息的 WebSocket 连接对象
-AdapterMessageCallback = Callable[[MessageBase, WebSocketServerProtocol], Awaitable[None]]
-# 注意：回调函数 (例如 DefaultMessageProcessor.process_message) 将从其自身持有的 db_instance 访问数据库
-
+# 定义回调函数类型，用于处理从适配器收到的事件
+# 参数：解析后的 Event 对象，发送此事件的 WebSocket 连接对象
+AdapterEventCallback = Callable[[Event, WebSocketServerProtocol], Awaitable[None]]
 
 class CoreWebsocketServer:
     def __init__(
         self,
         host: str,
         port: int,
-        message_handler_callback: AdapterMessageCallback,
-        db_instance: StandardDatabase | None = None,  # 这个 db_instance 可以传递给回调，但目前回调自己管理DB实例
+        event_handler_callback: AdapterEventCallback,  # 重命名参数
+        db_instance: StandardDatabase | None = None,
     ) -> None:
         self.host: str = host  # 服务器监听的主机地址
         self.port: int = port  # 服务器监听的端口
         self.server: websockets.WebSocketServer | None = None  # WebSocket 服务器实例
         self.connected_adapters: set[WebSocketServerProtocol] = set()  # 存储所有已连接的适配器客户端
-        self._message_handler_callback: AdapterMessageCallback = message_handler_callback  # 处理接收到消息的回调函数
+        self._event_handler_callback: AdapterEventCallback = event_handler_callback  # 重命名属性
         self._stop_event: asyncio.Event = asyncio.Event()  # 用于优雅停止服务器的事件
         self.db_instance: StandardDatabase | None = db_instance  # 存储数据库实例，如果回调需要通过这里获取
 
@@ -61,28 +59,23 @@ class CoreWebsocketServer:
                 logger.debug(f"核心 WebSocket 服务器收到原始消息: {message_str[:200]}...")
                 try:
                     message_dict = json.loads(message_str)
-                    # 简单验证消息结构是否符合 MessageBase 的基本形态
-                    if "message_info" in message_dict and "message_segment" in message_dict:
+                    # 验证消息结构是否符合 Event 的基本形态
+                    if "event_id" in message_dict and "event_type" in message_dict and "content" in message_dict:
                         try:
-                            # 使用协议库的 from_dict 方法将字典转换为 MessageBase 对象
-                            aicarus_msg = MessageBase.from_dict(message_dict)
-                            # 调用注册的回调函数处理解析后的消息
-                            # 回调函数 (例如 DefaultMessageProcessor.process_message) 现在全权负责
-                            # 与该消息相关的任何数据库操作（如保存到 RawChatMessages）。
-                            await self._message_handler_callback(aicarus_msg, websocket)
-                        except Exception as e_parse:  # 捕获 MessageBase.from_dict 可能的错误
+                            # 使用协议库的 from_dict 方法将字典转换为 Event 对象
+                            aicarus_event = Event.from_dict(message_dict)
+                            # 调用注册的回调函数处理解析后的事件
+                            await self._event_handler_callback(aicarus_event, websocket)
+                        except Exception as e_parse:
                             logger.error(
-                                f"从字典解析 MessageBase 时出错: {e_parse}. 数据: {message_dict}", exc_info=True
+                                f"从字典解析 Event 时出错: {e_parse}. 数据: {message_dict}", exc_info=True
                             )
                     else:
-                        logger.warning(f"收到的消息结构不像 MessageBase: {message_dict}")
+                        logger.warning(f"收到的消息结构不像 Event: {message_dict}")
                 except json.JSONDecodeError:
                     logger.error(f"从适配器解码 JSON 失败: {message_str}")
                 except Exception as e:  # 捕获回调函数或其他处理中未预料的错误
-                    logger.error(f"处理来自适配器的消息时发生错误: {e}", exc_info=True)
-
-                # --- 此处已移除直接的数据库保存逻辑 ---
-                # 消息的保存现在由 self._message_handler_callback (即 DefaultMessageProcessor.process_message) 负责。
+                    logger.error(f"处理来自适配器的事件时发生错误: {e}", exc_info=True)
 
         except ConnectionClosedOK:
             logger.info(f"适配器连接正常关闭: {websocket.remote_address}")
@@ -135,103 +128,73 @@ class CoreWebsocketServer:
 
     async def stop(self) -> None:
         """停止 WebSocket 服务器并关闭所有连接。"""
-        logger.info("正在尝试停止 AIcarus 核心 WebSocket 服务器...")
-        self._stop_event.set()  # 设置事件，通知 _connection_handler 和 start 方法中的 wait 退出
+        if self._stop_event.is_set():
+            logger.info("服务器已经在停止过程中。")
+            return
 
-        # 关闭服务器主套接字，这将阻止新的连接
-        if self.server:
-            self.server.close()
-            try:
-                # 等待服务器完全关闭，设置超时
-                await asyncio.wait_for(self.server.wait_closed(), timeout=5.0)
-                logger.info("WebSocket 服务器套接字已优雅关闭。")
-            except TimeoutError:
-                logger.warning("等待 WebSocket 服务器套接字关闭超时。可能已关闭或卡住。")
-            except Exception as e:  # 处理其他可能的关闭异常
-                logger.error(f"关闭服务器套接字时发生错误: {e}", exc_info=True)
-            self.server = None  # 清理服务器实例
+        logger.info("正在停止 AIcarus 核心 WebSocket 服务器...")
+        self._stop_event.set()  # 设置停止事件
 
-        # 关闭所有当前活动的适配器连接
+        # 关闭所有连接
         if self.connected_adapters:
-            logger.info(f"正在关闭 {len(self.connected_adapters)} 个活动的适配器连接...")
-            # 创建要关闭的连接的副本，以防在迭代时集合被修改
-            adapters_to_close = list(self.connected_adapters)
-            close_tasks = [
-                adapter.close(code=1001, reason="服务器正在关闭")  # 1001 表示正常关闭
-                for adapter in adapters_to_close
-            ]
-            # 并发执行关闭任务，并收集结果（忽略异常，因为我们只是想确保尝试关闭）
-            results = await asyncio.gather(*close_tasks, return_exceptions=True)
-            for idx, result in enumerate(results):
-                adapter = adapters_to_close[idx]  # 获取对应的 adapter
-                if isinstance(result, Exception):
-                    logger.warning(f"关闭适配器 {adapter.remote_address} 连接时发生错误: {result}")
+            logger.info(f"正在关闭 {len(self.connected_adapters)} 个连接...")
+            for websocket in self.connected_adapters.copy():
+                try:
+                    await websocket.close()
+                except Exception as e:
+                    logger.warning(f"关闭连接时出错: {e}")
 
-            # 清空连接集合 (尽管 _unregister_adapter 会在连接处理器中被调用，这里也清一下以防万一)
-            self.connected_adapters.clear()
+        # 等待服务器完全停止
+        if self.server and self.server.is_serving():
+            self.server.close()
+            await self.server.wait_closed()
 
-        logger.info("AIcarus 核心 WebSocket 服务器停止流程完成。")
+        logger.info("AIcarus 核心 WebSocket 服务器已停止。")
 
-    async def broadcast_action_to_adapters(self, action_message: MessageBase) -> bool:
-        """向所有已连接的适配器广播一个动作消息。"""
+    async def broadcast_action_to_adapters(self, action_event: Event) -> bool:
+        """向所有连接的适配器广播动作事件"""
         if not self.connected_adapters:
-            logger.warning("没有适配器连接，无法广播动作。")
+            logger.warning("没有连接的适配器，无法广播动作")
             return False
 
         try:
-            # 将 MessageBase 对象转换为 JSON 字符串
-            message_json = json.dumps(action_message.to_dict(), ensure_ascii=False)
-        except Exception as e_json:
-            logger.error(f"序列化动作消息为 JSON 时出错: {e_json}", exc_info=True)
-            return False
-
-        logger.debug(f"核心 WebSocket 服务器广播动作: {message_json[:200]}...")
-
-        disconnected_during_send: set[WebSocketServerProtocol] = set()
-        successful_sends = 0
-
-        # 遍历连接的适配器副本，因为在发送过程中可能有连接断开导致集合变化
-        adapters_to_send_to = list(self.connected_adapters)
-
-        for websocket in adapters_to_send_to:
-            # 再次检查连接是否仍然存在于主集合中，以防在迭代开始后被其他协程移除
-            if websocket not in self.connected_adapters:
-                continue
-            try:
-                await websocket.send(message_json)
-                successful_sends += 1
-            except ConnectionClosed:
-                logger.warning(f"向适配器 {websocket.remote_address} 发送动作失败: 连接已关闭。")
-                disconnected_during_send.add(websocket)  # 记录下来以便稍后统一处理
-            except Exception as e:  # 其他发送错误
-                logger.error(f"向适配器 {websocket.remote_address} 发送动作时发生错误: {e}")
-                # 根据错误类型，也可以考虑将其加入 disconnected_during_send
-
-        # 清理在发送过程中明确断开的适配器
-        for ws_disconnected in disconnected_during_send:
-            await self._unregister_adapter(ws_disconnected)  # _unregister_adapter 会检查是否存在
-
-        if successful_sends > 0:
-            # total_attempted_now 基于迭代开始时的连接数
-            total_attempted_now = len(adapters_to_send_to)
-            logger.info(f"动作已广播给 {successful_sends}/{total_attempted_now} 个尝试连接的适配器。")
-            return True
-        else:
-            logger.warning("动作广播失败，未能成功发送给任何适配器或当前没有有效连接。")
+            # 将事件序列化为JSON
+            action_data = action_event.to_dict()
+            action_json = json.dumps(action_data, ensure_ascii=False)
+            
+            success_count = 0
+            total_adapters = len(self.connected_adapters)
+            
+            # 向所有适配器发送动作
+            for websocket in self.connected_adapters.copy():
+                try:
+                    await websocket.send(action_json)
+                    success_count += 1
+                    logger.debug(f"成功向适配器 {websocket.remote_address} 发送动作")
+                except Exception as e:
+                    logger.error(f"向适配器 {websocket.remote_address} 发送动作失败: {e}")
+                    # 如果连接已断开，从列表中移除
+                    await self._unregister_adapter(websocket)
+            
+            logger.info(f"动作广播完成: {success_count}/{total_adapters} 个适配器成功接收")
+            return success_count > 0
+            
+        except Exception as e:
+            logger.error(f"广播动作时发生错误: {e}", exc_info=True)
             return False
 
     async def send_action_to_specific_adapter(
-        self, websocket: WebSocketServerProtocol, action_message: MessageBase
+        self, websocket: WebSocketServerProtocol, action_event: Event
     ) -> bool:
-        """向指定的适配器连接发送一个动作消息。"""
-        if websocket not in self.connected_adapters:  # 首先检查连接是否仍然有效
+        """向指定的适配器连接发送一个动作事件。"""
+        if websocket not in self.connected_adapters:
             logger.warning(f"尝试向一个未注册或已断开的适配器发送动作: {websocket.remote_address}")
             return False
 
         try:
-            message_json = json.dumps(action_message.to_dict(), ensure_ascii=False)
+            message_json = json.dumps(action_event.to_dict(), ensure_ascii=False)
         except Exception as e_json:
-            logger.error(f"序列化单个动作消息为 JSON 时出错: {e_json}", exc_info=True)
+            logger.error(f"序列化单个动作事件为 JSON 时出错: {e_json}", exc_info=True)
             return False
 
         logger.debug(f"核心 WebSocket 服务器向 {websocket.remote_address} 发送动作: {message_json[:200]}...")

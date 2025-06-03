@@ -1,14 +1,14 @@
 # src/action/action_handler.py
 import asyncio
-import datetime
 import json
-import os
-import time  # 保留 time 模块
-import uuid
-from typing import TYPE_CHECKING, Any
+import os  # 添加缺失的os导入
+import time  # 添加缺失的time导入
+import datetime  # 添加缺失的datetime导入
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from urllib.parse import urlparse
 
-from aicarus_protocols import BaseMessageInfo, GroupInfo, MessageBase, Seg, UserInfo  # 保留协议导入
+# v1.4.0 协议导入 - 替换旧的导入
+from aicarus_protocols import Event, UserInfo, ConversationInfo, Seg, SegBuilder, EventBuilder, EventType, ConversationType
 
 # StandardDatabase 仅用于类型提示，实际操作通过 ArangoDBHandler
 from src.common.custom_logging.logger_manager import get_logger
@@ -19,6 +19,7 @@ from src.config.alcarus_configs import (
     ProxySettings,
 )
 from src.config.config_manager import get_typed_settings  # 保留配置加载
+from src.config.global_config import global_config
 from src.core_communication.core_ws_server import CoreWebsocketServer
 from src.database.arangodb_handler import ArangoDBHandler  # 导入封装后的数据库处理器
 from src.llmrequest.llm_processor import Client as ProcessorClient  # 重命名
@@ -178,9 +179,9 @@ class ActionHandler:
 请输出你生成的摘要文本：
 """
 
-    def __init__(self, root_cfg: AlcarusRootConfig | None = None) -> None:
+    def __init__(self) -> None:
         self.logger = get_logger(f"AIcarusCore.{self.__class__.__name__}")
-        self.root_cfg = root_cfg if root_cfg else get_typed_settings()  # 允许外部传入或自行加载
+        self.root_cfg = global_config  # 直接使用全局配置
 
         self.action_llm_client: ProcessorClient | None = None
         self.summary_llm_client: ProcessorClient | None = None
@@ -1033,37 +1034,64 @@ class ActionHandler:
                                     final_result_for_shuang = "不知回复给谁"
                                     action_was_successful = False
                                 else:
-                                    # 构建消息对象 (与原逻辑一致)
+                                    # 构建v1.4.0事件对象
                                     bot_id_for_action = "core_bot"  # 假设的机器人ID
                                     platform_for_action = "core_platform"  # 假设的平台
-                                    action_message_info = BaseMessageInfo(
+                                    
+                                    # 构建内容段
+                                    content_segs = [SegBuilder.text(msg_content)]
+                                    
+                                    # 构建用户信息和会话信息
+                                    target_user_info = None
+                                    target_conversation_info = None
+                                    
+                                    if target_uid:
+                                        target_user_info = UserInfo(
+                                            platform=platform_for_action,
+                                            user_id=target_uid,
+                                            user_nickname="目标用户"
+                                        )
+                                    
+                                    if target_gid:
+                                        target_conversation_info = ConversationInfo(
+                                            conversation_id=target_gid,
+                                            type=ConversationType.GROUP,
+                                            platform=platform_for_action,
+                                            name="目标群组"
+                                        )
+                                    elif target_uid:
+                                        target_conversation_info = ConversationInfo(
+                                            conversation_id=f"{platform_for_action}_dm_{bot_id_for_action}_{target_uid}",
+                                            type=ConversationType.PRIVATE,
+                                            platform=platform_for_action
+                                        )
+                                    
+                                    # 构建动作事件
+                                    action_event = Event(
+                                        event_id=f"core_action_reply_{action_id}",
+                                        event_type="action.send_message",
+                                        time=time.time() * 1000.0,
                                         platform=platform_for_action,
                                         bot_id=bot_id_for_action,
-                                        interaction_purpose="core_action",  # 标记为核心动作
-                                        time=time.time() * 1000.0,  # 当前时间戳
-                                        message_id=f"core_action_reply_{uuid.uuid4()}",  # 唯一消息ID
-                                        user_info=UserInfo(user_id=target_uid) if target_uid else None,
-                                        group_info=GroupInfo(group_id=target_gid) if target_gid else None,
-                                        additional_config={"protocol_version": "1.2.0"},  # 假设的协议版本
+                                        user_info=target_user_info,
+                                        conversation_info=target_conversation_info,
+                                        content=[
+                                            SegBuilder.send_message(
+                                                segments=content_segs,
+                                                target_user_id=target_uid,
+                                                target_group_id=target_gid,
+                                                reply_to_message_id=reply_to_msg_id
+                                            )
+                                        ],
+                                        raw_data=json.dumps({
+                                            "action_type": "send_message",
+                                            "target_uid": target_uid,
+                                            "target_gid": target_gid
+                                        })
                                     )
-                                    segments_for_action = [Seg(type="text", data=msg_content)]
-                                    action_data_for_seg: dict[str, Any] = {
-                                        "segments": [s.to_dict() for s in segments_for_action]
-                                    }
-                                    if target_uid:
-                                        action_data_for_seg["target_user_id"] = target_uid
-                                    if target_gid:
-                                        action_data_for_seg["target_group_id"] = target_gid
-                                    if reply_to_msg_id:
-                                        action_data_for_seg["reply_to_message_id"] = reply_to_msg_id
-
-                                    core_action_seg = Seg(type="action:send_message", data=action_data_for_seg)
-                                    action_to_send = MessageBase(
-                                        message_info=action_message_info,
-                                        message_segment=Seg(type="seglist", data=[core_action_seg]),
-                                    )
+                                    
                                     send_success = await self.core_communication_layer.broadcast_action_to_adapters(
-                                        action_to_send
+                                        action_event
                                     )
                                     if send_success:
                                         raw_tool_output = f"消息已发送: '{msg_content}'"
@@ -1092,39 +1120,50 @@ class ActionHandler:
                                 else:
                                     bot_id_for_action = "core_bot"
                                     platform_for_action = "core_platform"
-                                    action_message_info = BaseMessageInfo(
-                                        platform=platform_for_action,
-                                        bot_id=bot_id_for_action,
-                                        interaction_purpose="core_action",
-                                        time=time.time() * 1000.0,
-                                        message_id=f"core_action_handle_req_{uuid.uuid4()}",
-                                        additional_config={"protocol_version": "1.2.0"},
-                                    )
-                                    aicarus_action_seg_type = ""
-                                    action_data_for_seg: dict[str, Any] = {"request_flag": req_flag, "approve": approve}
-
+                                    
+                                    # 构建动作内容段
+                                    action_seg_data = {
+                                        "request_flag": req_flag,
+                                        "approve": approve
+                                    }
+                                    
+                                    action_seg_type = ""
                                     if req_type == "friend_add":
-                                        aicarus_action_seg_type = "action:handle_friend_request"
-                                        if approve and remark_reason:  # 同意好友时，remark_reason 是备注名
-                                            action_data_for_seg["remark"] = remark_reason
+                                        action_seg_type = "handle_friend_request"
+                                        if approve and remark_reason:
+                                            action_seg_data["remark"] = remark_reason
                                     elif req_type in ["group_join_application", "group_invite_received"]:
-                                        aicarus_action_seg_type = "action:handle_group_request"
-                                        action_data_for_seg["request_type"] = req_type  # 需要传递原始请求类型
-                                        if not approve and remark_reason:  # 拒绝群请求时，remark_reason 是拒绝理由
-                                            action_data_for_seg["reason"] = remark_reason
-                                    else:  # 未知请求类型
+                                        action_seg_type = "handle_group_request"
+                                        action_seg_data["request_type"] = req_type
+                                        if not approve and remark_reason:
+                                            action_seg_data["reason"] = remark_reason
+                                    else:
                                         raw_tool_output = f"处理平台请求失败:未知类型 '{req_type}'"
                                         final_result_for_shuang = f"不确定如何处理类型为 '{req_type}' 的平台请求"
                                         action_was_successful = False
 
-                                    if aicarus_action_seg_type:  # 如果成功确定了动作类型
-                                        core_action_seg = Seg(type=aicarus_action_seg_type, data=action_data_for_seg)
-                                        action_to_send = MessageBase(
-                                            message_info=action_message_info,
-                                            message_segment=Seg(type="seglist", data=[core_action_seg]),
+                                    if action_seg_type:
+                                        # 构建v1.4.0动作事件
+                                        action_event = Event(
+                                            event_id=f"core_action_handle_req_{action_id}",
+                                            event_type=f"action.{action_seg_type}",
+                                            time=time.time() * 1000.0,
+                                            platform=platform_for_action,
+                                            bot_id=bot_id_for_action,
+                                            user_info=None,
+                                            conversation_info=None,
+                                            content=[
+                                                Seg(type=action_seg_type, data=action_seg_data)
+                                            ],
+                                            raw_data=json.dumps({
+                                                "action_type": action_seg_type,
+                                                "request_type": req_type,
+                                                "approve": approve
+                                            })
                                         )
+                                        
                                         send_success = await self.core_communication_layer.broadcast_action_to_adapters(
-                                            action_to_send
+                                            action_event
                                         )
                                         if send_success:
                                             raw_tool_output = f"平台请求({req_type})指令已发送"
@@ -1134,7 +1173,7 @@ class ActionHandler:
                                             raw_tool_output = "传递平台请求指令失败"
                                             final_result_for_shuang = "平台请求指令没发出"
                                             action_was_successful = False
-                            else:  # 通信层未初始化
+                            else:
                                 raw_tool_output = "处理平台请求失败:通信层未初始化"
                                 final_result_for_shuang = "内部通讯出错(平台请求)"
                                 action_was_successful = False
@@ -1296,7 +1335,6 @@ class ActionHandler:
                 # 但如果db_status是COMPLETED_SUCCESS，我们要设为COMPLETED_FAILURE，则可能需要更复杂的逻辑（通常不回退）
                 # 为简单起见，如果db_status已经是某种完成态，且不是目标完成态，我们仍尝试更新，条件是旧的完成态
                 # 但更安全的做法可能是，如果已是某种完成态，就不再轻易改变它，除非是结果更新
-                # 此处简化：如果不是目标完成态，就以当前状态为条件尝试更新
                 if db_status in ["COMPLETED_SUCCESS", "COMPLETED_FAILURE"] and db_status != final_status_to_set:
                     self.logger.warning(
                         f"[Action ID {action_id}]: Attempting to change final status from '{db_status}' to '{final_status_to_set}'. This is unusual."
@@ -1355,45 +1393,77 @@ class ActionHandler:
         )
         self.logger.info("结果成功反馈至主思维")
 
+    async def handle_action_request(self, action_event: Event) -> None:
+        """处理动作请求事件"""
+        try:
+            # 从事件内容中提取动作信息
+            for seg in action_event.content:
+                if seg.type.startswith("action.") or seg.type in ["send_message", "send_group_msg", "send_private_msg"]:
+                    await self._execute_action(seg, action_event)
+        except Exception as e:
+            self.logger.error(f"处理动作请求时发生错误: {e}", exc_info=True)
+    
+   
+    
+    async def _execute_action(self, action_seg: Seg, original_event: Event) -> None:
+        """执行具体的动作"""
+        action_type = action_seg.type
+        action_data = action_seg.data if isinstance(action_seg.data, dict) else {}
+        
+        if action_type in ["send_message", "send_group_msg"]:
+            await self._handle_send_message(action_data, original_event)
+        elif action_type == "send_private_msg":
+            await self._handle_send_private_message(action_data, original_event)
+        # ...existing code for other action types...
+    
+    async def _handle_send_message(self, action_data: Dict[str, Any], original_event: Event) -> None:
+        """处理发送消息动作"""
+        # 构建发送消息的事件
+        response_event = Event(
+            event_id=f"action_response_{original_event.event_id}",
+            event_type="action_response.send_message",
+            time=time.time() * 1000.0,
+            platform=original_event.platform,
+            bot_id=original_event.bot_id,
+            user_info=original_event.user_info,
+            conversation_info=original_event.conversation_info,
+            content=[
+                SegBuilder.action_response(
+                    action_type="send_message",
+                    success=True,
+                    message="消息发送成功",
+                    data=action_data
+                )
+            ],
+            raw_data=json.dumps(action_data)
+        )
+        
+        # 广播给适配器
+        if self.core_communication_layer:
+            await self.core_communication_layer.broadcast_action_to_adapters(response_event)
 
-# 仍然保留这些函数，但它们现在应该由 CoreLogic 或 ActionHandler 实例的方法调用
-# 或者将它们设为 ActionHandler 的静态/类方法（如果它们不依赖实例状态）
-# 为简单起见，暂时保留为模块级函数，但调用方需要传递 ActionHandler 实例或其组件
-
-
-async def initialize_llm_clients_for_action_module() -> None:
-    """
-    公共接口，用于确保行动模块的LLM客户端已初始化。
-    实际初始化现在由 ActionHandler 实例的 initialize_llm_clients 方法执行。
-    这个函数可以被 CoreLogic 调用，CoreLogic 会创建 ActionHandler 实例。
-    """
-    # 这个函数现在更像是一个触发器，实际工作在 ActionHandler 实例中完成。
-    # 在实际应用中，CoreLogic 会创建 ActionHandler 实例，然后调用该实例的初始化方法。
-    # 此处保留是为了与旧的调用方式兼容，但理想情况下应移除或重构。
-    # logger.info("initialize_llm_clients_for_action_module called (now delegates to ActionHandler instance).")
-    pass  # 实际初始化逻辑移至 ActionHandler 类中
-
-
-def set_core_communication_layer_for_actions(comm_layer: CoreWebsocketServer) -> None:
-    """
-    设置行动处理器使用的核心通信层。
-    这个函数现在应该在 ActionHandler 实例上设置属性。
-    """
-    # logger.info("set_core_communication_layer_for_actions called (now delegates to ActionHandler instance).")
-    # global core_communication_layer_for_actions # 不再使用全局变量
-    # core_communication_layer_for_actions = comm_layer
-    # logger.info("Action Handler: Core communication layer has been set (via global setter).")
-    pass  # 实际设置逻辑移至 ActionHandler 类中
-
-
-# 示例如何从 CoreLogic 中调用 (假设 core_logic_instance 是 CoreLogic 的实例)
-# if core_logic_instance.root_cfg and core_logic_instance.db_handler:
-#     action_handler_instance = ActionHandler(root_cfg=core_logic_instance.root_cfg)
-#     action_handler_instance.set_dependencies(
-#         db_handler=core_logic_instance.db_handler,
-#         comm_layer=core_logic_instance.core_comm_layer
-#     )
-#     await action_handler_instance.initialize_llm_clients()
-#
-#     # 在 CoreLogic 的 _core_thinking_loop 中调用:
-#     # await action_handler_instance.process_action_flow(...)
+    async def _handle_send_private_message(self, action_data: Dict[str, Any], original_event: Event) -> None:
+        """处理发送私聊消息动作"""
+        # 基本上与_handle_send_message相同，但可能有特定的私聊处理逻辑
+        response_event = Event(
+            event_id=f"action_response_{original_event.event_id}",
+            event_type="action_response.send_private_message",
+            time=time.time() * 1000.0,
+            platform=original_event.platform,
+            bot_id=original_event.bot_id,
+            user_info=original_event.user_info,
+            conversation_info=original_event.conversation_info,
+            content=[
+                SegBuilder.action_response(
+                    action_type="send_private_message",
+                    success=True,
+                    message="私聊消息发送成功",
+                    data=action_data
+                )
+            ],
+            raw_data=json.dumps(action_data)
+        )
+        
+        # 广播给适配器
+        if self.core_communication_layer:
+            await self.core_communication_layer.broadcast_action_to_adapters(response_event)

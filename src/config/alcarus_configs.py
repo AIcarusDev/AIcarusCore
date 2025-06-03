@@ -79,6 +79,13 @@ class DatabaseSettings(ConfigBase):
     pass  # 表示这是一个空类，但它仍然是一个有效的 dataclass
 
 
+# --- Server Settings ---
+@dataclass
+class ServerSettings(ConfigBase):
+    host: str = "localhost"
+    port: int = 8077
+
+
 # --- Proxy Settings ---
 @dataclass
 class ProxySettings(ConfigBase):
@@ -128,3 +135,4 @@ class AlcarusRootConfig(ConfigBase):
     providers: ProvidersConfig | None = None
     database: DatabaseSettings = field(default_factory=DatabaseSettings)
     logging: LoggingSettings = field(default_factory=LoggingSettings)
+    server: ServerSettings = field(default_factory=ServerSettings)  # 添加server配置

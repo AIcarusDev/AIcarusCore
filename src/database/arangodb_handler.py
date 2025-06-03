@@ -3,6 +3,7 @@ import asyncio
 import datetime
 import os
 import re
+import time
 import uuid
 from typing import Any
 
@@ -34,7 +35,62 @@ class ArangoDBHandler:
         self.logger.info(f"ArangoDBHandler 实例已使用数据库 '{db.name}' 初始化。")
 
     @classmethod
+    async def create_from_config(cls, database_config) -> "ArangoDBHandler":
+        """从配置对象创建ArangoDBHandler实例"""
+        # 尝试从配置对象获取属性，支持不同的属性名
+        host = getattr(database_config, 'host', None) or getattr(database_config, 'url', None) or getattr(database_config, 'arangodb_host', None)
+        username = getattr(database_config, 'username', None) or getattr(database_config, 'user', None) or getattr(database_config, 'arangodb_user', None)
+        password = getattr(database_config, 'password', None) or getattr(database_config, 'arangodb_password', None)
+        database_name = getattr(database_config, 'name', None) or getattr(database_config, 'database_name', None) or getattr(database_config, 'arangodb_database', None)
+        
+        # 如果配置对象没有这些属性，尝试从环境变量获取
+        if not host:
+            host = os.getenv("ARANGODB_HOST")
+        if not username:
+            username = os.getenv("ARANGODB_USER")
+        if not password:
+            password = os.getenv("ARANGODB_PASSWORD")
+        if not database_name:
+            database_name = os.getenv("ARANGODB_DATABASE")
+        
+        if not all([host, username, password, database_name]):
+            missing_vars = []
+            if not host: missing_vars.append("host/url")
+            if not username: missing_vars.append("username/user")
+            if not password: missing_vars.append("password")
+            if not database_name: missing_vars.append("database_name/name")
+            
+            message = f"错误：ArangoDB 连接所需的配置参数未完全设置。缺失: {', '.join(missing_vars)}"
+            module_logger.critical(message)
+            raise ValueError(message)
+        
+        try:
+            client_instance: ArangoClient = await asyncio.to_thread(ArangoClient, hosts=host)
+            sys_db: StandardDatabase = await asyncio.to_thread(
+                client_instance.db, "_system", username=username, password=password
+            )
+            if not await asyncio.to_thread(sys_db.has_database, database_name):
+                module_logger.info(f"数据库 '{database_name}' 不存在，正在尝试创建...")
+                await asyncio.to_thread(sys_db.create_database, database_name)
+                module_logger.info(f"数据库 '{database_name}' 创建成功。")
+            db_instance: StandardDatabase = await asyncio.to_thread(
+                client_instance.db, database_name, username=username, password=password
+            )
+            await asyncio.to_thread(db_instance.properties)  # 验证连接
+            module_logger.info(f"成功连接到 ArangoDB！主机: {host}, 数据库: {database_name}")
+            return cls(client_instance, db_instance)
+        except (ArangoServerError, ArangoClientError) as e:
+            message = f"连接 ArangoDB 时发生错误 (Host: {host}, DB: {database_name}): {e}"
+            module_logger.critical(message, exc_info=True)
+            raise RuntimeError(message) from e
+        except Exception as e:
+            message = f"连接 ArangoDB 时发生未知或权限错误 (Host: {host}, DB: {database_name}, User: {username}): {e}"
+            module_logger.critical(message, exc_info=True)
+            raise RuntimeError(message) from e
+
+    @classmethod
     async def create(cls) -> "ArangoDBHandler":
+        """从环境变量创建ArangoDBHandler实例（保持向后兼容）"""
         host_env_var_name = "ARANGODB_HOST"
         user_env_var_name = "ARANGODB_USER"
         password_env_var_name = "ARANGODB_PASSWORD"
@@ -114,318 +170,148 @@ class ArangoDBHandler:
         self.logger.debug(f"集合 '{collection_name}' 已在数据库 '{self.db.name}' 中存在。")
         return await asyncio.to_thread(self.db.collection, collection_name)
 
-    async def save_raw_chat_message(self, message_data: dict[str, Any]) -> str | None:
-        # 确保 conversation_id 存在
-        if not message_data.get("conversation_id"):
-            self.logger.error("保存聊天消息失败：缺少 conversation_id。")
-            return None
-
-        # --- 时间戳处理开始 ---
-        ts_value = message_data.get("timestamp")
-        final_numeric_timestamp: int | None = None
-
-        if isinstance(ts_value, int | float):  # 如果已经是数字
-            final_numeric_timestamp = int(ts_value)
-        elif isinstance(ts_value, str):  # 如果是字符串，尝试转换
-            self.logger.warning(
-                f"消息 {message_data.get('platform_message_id', 'N/A')} 的顶层 timestamp 是字符串 '{ts_value}'，将尝试转换为数值型UTC毫秒。"
-            )
-            try:
-                # 假设字符串是 ISO 8601 UTC 格式 (如 '...Z' 或 '...+00:00')
-                # 替换 'Z' 以便 fromisoformat 正确处理
-                dt_obj = datetime.datetime.fromisoformat(ts_value.replace("Z", "+00:00"))
-
-                # 确保是 UTC 时间
-                if dt_obj.tzinfo is None or dt_obj.tzinfo.utcoffset(dt_obj) is None:  # 如果是 naive ISO string
-                    # 假设 naive ISO string 本身就是 UTC 时间
-                    aware_dt = dt_obj.replace(tzinfo=datetime.UTC)
-                    self.logger.debug(f"Naive ISO string '{ts_value}' 被假定为 UTC。")
-                else:  # 如果有时区信息，则转换为 UTC
-                    aware_dt = dt_obj.astimezone(datetime.UTC)
-
-                final_numeric_timestamp = int(aware_dt.timestamp() * 1000)
-                self.logger.info(f"成功将字符串时间戳 '{ts_value}' 转换为数值毫秒: {final_numeric_timestamp}")
-            except ValueError as e:
-                self.logger.error(
-                    f"无法将字符串时间戳 '{ts_value}' 转换为datetime对象: {e}。将尝试使用 raw_message_info_dump.time。"
-                )
-
-        # 如果 ts_value 不是数字或可转换的字符串，或者转换失败，尝试从 raw_message_info_dump 获取
-        if (
-            final_numeric_timestamp is None
-            and "raw_message_info_dump" in message_data
-            and isinstance(message_data["raw_message_info_dump"], dict)
-            and "time" in message_data["raw_message_info_dump"]
-        ):
-            raw_time = message_data["raw_message_info_dump"]["time"]
-            if isinstance(raw_time, int | float):
-                final_numeric_timestamp = int(raw_time)
-                self.logger.info(
-                    f"使用了 raw_message_info_dump.time ({final_numeric_timestamp}) 作为消息的顶层时间戳。"
-                )
-            else:
-                self.logger.warning(f"raw_message_info_dump.time 的类型不是数字 ({type(raw_time)})，无法用作时间戳。")
-
-        # 如果最终还是没有有效的时间戳，则使用当前时间作为回退
-        if final_numeric_timestamp is None:
-            current_time_ms = int(datetime.datetime.now(datetime.UTC).timestamp() * 1000)
-            self.logger.warning(
-                f"消息 {message_data.get('platform_message_id', 'N/A')} 无法确定有效时间戳，"
-                f"将使用当前UTC时间 ({current_time_ms} ms) 作为回退。"
-            )
-            final_numeric_timestamp = current_time_ms
-
-        message_data["timestamp"] = final_numeric_timestamp  # 更新/设置顶层 timestamp 为数值型
-        # --- 时间戳处理结束 ---
-
-        # 再次检查 conversation_id 和 timestamp （现在是数值）都存在
-        if not message_data.get("conversation_id") or message_data.get("timestamp") is None:
-            self.logger.error("保存聊天消息失败：关键字段 conversation_id 或转换后的 timestamp 丢失。")
-            return None
-
+    async def test_connection(self) -> bool:
+        """测试数据库连接"""
         try:
-            chat_messages_collection = await self.ensure_collection_exists(self.RAW_CHAT_MESSAGES_COLLECTION_NAME)
-
-            # _key 生成逻辑
-            key_to_use: str
-            if "_key" in message_data and message_data["_key"]:
-                key_to_use = str(message_data["_key"])
-            elif "platform_message_id" in message_data and message_data["platform_message_id"]:
-                candidate_key = str(message_data["platform_message_id"])
-                # 清理 platform_message_id 使其符合 _key 规范
-                candidate_key = re.sub(r"[^a-zA-Z0-9_:.@()+,$\!*\'=-]", "_", candidate_key)
-                if not candidate_key or candidate_key.startswith(("_", "-")) or len(candidate_key) > 254:
-                    self.logger.debug(
-                        f"平台消息ID '{message_data['platform_message_id']}' 处理后 ('{candidate_key}') 不适合作为 _key，将生成UUID。"
-                    )
-                    key_to_use = str(uuid.uuid4())
-                else:
-                    key_to_use = candidate_key
-            else:
-                key_to_use = str(uuid.uuid4())
-            message_data["_key"] = key_to_use
-
-            insert_result = await asyncio.to_thread(chat_messages_collection.insert, message_data, overwrite=False)
-            doc_key = insert_result.get("_key")
-            if doc_key:
-                self.logger.info(
-                    f"聊天消息 (文档 Key: {doc_key}, 会话: {message_data.get('conversation_id')}, "
-                    f"数值时间戳: {message_data.get('timestamp')}) 已成功保存到集合 '{self.RAW_CHAT_MESSAGES_COLLECTION_NAME}'。"
-                )
-                return str(doc_key)
-            else:
-                self.logger.error(f"错误：保存聊天消息到 ArangoDB 后未能获取文档 _key。Insert result: {insert_result}")
-                return None
-        except DocumentInsertError as e_insert:
-            if e_insert.http_code == 409:  # HTTP 409 Conflict - 文档已存在
-                self.logger.warning(
-                    f"聊天消息 (Key: {message_data.get('_key')}) 已存在于 '{self.RAW_CHAT_MESSAGES_COLLECTION_NAME}'。"
-                    f"错误: {e_insert.http_code} - {e_insert.error_message}"
-                )
-                return message_data.get("_key")  # 返回已存在的 key
-            self.logger.error(
-                f"错误：保存聊天消息到 ArangoDB 集合 '{self.RAW_CHAT_MESSAGES_COLLECTION_NAME}' 失败 (DocumentInsertError): {e_insert}",
-                exc_info=True,
-            )
-            return None
-        except (ArangoServerError, ArangoClientError) as e_db:
-            self.logger.error(
-                f"错误：保存聊天消息到 ArangoDB 集合 '{self.RAW_CHAT_MESSAGES_COLLECTION_NAME}' 时发生数据库错误: {e_db}",
-                exc_info=True,
-            )
-            return None
+            # 尝试获取数据库信息
+            info = await asyncio.to_thread(self.db.properties)
+            self.logger.info(f"数据库连接成功: {info.get('name', 'unknown')}")
+            return True
         except Exception as e:
-            self.logger.error(
-                f"错误：保存聊天消息到 ArangoDB 集合 '{self.RAW_CHAT_MESSAGES_COLLECTION_NAME}' 时发生未知错误: {e}",
-                exc_info=True,
-            )
-            return None
+            self.logger.error(f"数据库连接失败: {e}")
+            raise
 
-    async def get_recent_chat_messages(self, conversation_id: str, limit: int = 30) -> list[dict[str, Any]]:
-        # 此方法假设 'timestamp' 已经是数值型 (ms)
-        if not conversation_id:
-            self.logger.warning("获取最近聊天记录失败：未提供 conversation_id。")
-            return []
-        self.logger.debug(
-            f"正在从集合 '{self.RAW_CHAT_MESSAGES_COLLECTION_NAME}' 获取会话 '{conversation_id}' 的最近 {limit} 条消息 (基于数值时间戳)..."
-        )
+    async def save_raw_chat_message(self, message_data: dict) -> bool:
+        """保存原始聊天消息到数据库"""
         try:
-            # AQL 查询现在基于数值型 timestamp 排序
-            aql_query = """
-                LET latest_messages_subquery = (
-                    FOR doc IN @@collection_name
-                        FILTER doc.conversation_id == @conversation_id
-                        SORT doc.timestamp DESC
-                        LIMIT @limit
-                        RETURN doc
-                )
-                FOR message IN latest_messages_subquery
-                    SORT message.timestamp ASC
-                    RETURN message
+            # 添加时间戳
+            message_data["_timestamp"] = time.time() * 1000.0
+
+            # 插入到原始消息集合
+            collection = self.db.collection(self.RAW_CHAT_MESSAGES_COLLECTION_NAME)
+            result = await asyncio.to_thread(collection.insert, message_data)
+
+            if result.get("_id"):
+                self.logger.debug(f"成功保存消息: {result['_id']}")
+                return True
+            else:
+                self.logger.warning(f"保存消息时未返回ID: {result}")
+                return False
+
+        except Exception as e:
+            self.logger.error(f"保存聊天消息时发生错误: {e}", exc_info=True)
+            return False
+
+    async def get_recent_chat_messages_for_context(self, duration_minutes: int = 10) -> list[dict]:
+        """获取最近指定时间内的聊天消息用于上下文"""
+        try:
+            # 确保集合存在
+            await self.ensure_collection_exists(self.RAW_CHAT_MESSAGES_COLLECTION_NAME)
+            
+            # 计算时间阈值（毫秒）
+            current_time_ms = time.time() * 1000.0
+            threshold_time_ms = current_time_ms - (duration_minutes * 60 * 1000)
+            
+            # AQL查询获取最近消息
+            query = f"""
+                FOR msg IN {self.RAW_CHAT_MESSAGES_COLLECTION_NAME}
+                    FILTER msg.timestamp >= @threshold_time
+                    SORT msg.timestamp ASC
+                    LIMIT 100
+                    RETURN msg
             """
+            
             bind_vars = {
-                "@collection_name": self.RAW_CHAT_MESSAGES_COLLECTION_NAME,
-                "conversation_id": conversation_id,
-                "limit": limit,
+                "threshold_time": threshold_time_ms
             }
-            cursor = await asyncio.to_thread(self.db.aql.execute, aql_query, bind_vars=bind_vars, ttl=30)
-            messages = list(cursor)  # type: ignore
-            self.logger.debug(f"为会话 '{conversation_id}' 获取到 {len(messages)} 条最近消息 (数值时间戳)。")
-            return messages
-        except (AQLQueryExecuteError, ArangoServerError, ArangoClientError) as e_db:
-            self.logger.error(
-                f"获取会话 '{conversation_id}' 的最近聊天记录时发生数据库错误: {e_db}",
-                exc_info=True,
-            )
-            return []
+            
+            results = await self.execute_query(query, bind_vars)
+            self.logger.debug(f"获取到 {len(results)} 条最近的聊天消息")
+            return results
+            
         except Exception as e:
-            self.logger.error(
-                f"获取会话 '{conversation_id}' 的最近聊天记录时发生未知错误: {e}",
-                exc_info=True,
-            )
+            self.logger.error(f"获取最近聊天消息时发生错误: {e}", exc_info=True)
             return []
 
-    async def get_recent_chat_messages_for_context(
-        self, duration_minutes: int, conversation_id: str | None = None, limit_per_conversation: int = 20
-    ) -> list[dict[str, Any]]:
-        now_utc = datetime.datetime.now(datetime.UTC)
-        cutoff_datetime_obj = now_utc - datetime.timedelta(minutes=duration_minutes)
-        # --- 修改开始 ---
-        # 我们不再需要ISO字符串给AQL了
-        # cutoff_time_iso_for_aql_conversion = cutoff_datetime_obj.isoformat()
-
-        # 直接在Python里计算出截止时间的UTC毫秒数
-        calculated_cutoff_ms_in_python = int(cutoff_datetime_obj.timestamp() * 1000)
-        # --- 修改结束 ---
-
-        self.logger.debug(
-            # --- 修改日志打印 ---
-            f"获取最近 {duration_minutes} 分钟的聊天记录上下文。截止时间 (Python计算的UTC毫秒): {calculated_cutoff_ms_in_python} (对应ISO: {cutoff_datetime_obj.isoformat()})."
-            f"{' 特定会话: ' + conversation_id if conversation_id else ' 所有相关会话。'}"
-        )
-
-        let_statements = """
-            LET rawDump = doc.raw_message_info_dump
-            LET userInfo = IS_OBJECT(rawDump.user_info) ? rawDump.user_info : {}
-            LET groupInfo = IS_OBJECT(rawDump.group_info) ? rawDump.group_info : {}
-        """
-
-        # 返回的 doc.timestamp 现在将是数值型 (ms)
-        return_statement = """
-            RETURN {
-                _key: doc._key,
-                platform: rawDump.platform,
-                group_id: groupInfo.group_id,
-                group_name: groupInfo.group_name,
-                message_id: doc.platform_message_id,
-                timestamp: doc.timestamp, // <<< 这将是数值型 (ms) 时间戳
-                sender_id: userInfo.user_id,
-                sender_nickname: userInfo.user_nickname,
-                sender_group_card: userInfo.user_cardname,
-                sender_group_titlename: userInfo.user_titlename,
-                sender_group_permission: (userInfo.permission_level != null ? userInfo.permission_level : userInfo.role),
-                post_type: doc.message_type,
-                sub_type: rawDump.sub_type,
-                message_content: doc.content_segments,
-                conversation_id: doc.conversation_id
-            }
-        """
-
-        aql_query: str
-        bind_vars: dict[str, Any] = {
-            "@messages_collection": self.RAW_CHAT_MESSAGES_COLLECTION_NAME,
-            "cutoff_timestamp_ms_param": calculated_cutoff_ms_in_python,
-        }
-
-        # AQL LET 语句，用于将 @cutoff_time_iso_str (ISO string) 转换为毫秒级 Unix 时间戳
-        # let_cutoff_conversion_aql = "LET cutoff_timestamp_ms = DATE_TIMESTAMP(@cutoff_time_iso_str) * 1000"
-        # 过滤条件现在基于数值型的 doc.timestamp
-        filter_condition_time_aql = "doc.timestamp >= @cutoff_timestamp_ms_param"
-        # 排序字段现在是数值型的 doc.timestamp
-        sort_timestamp_field_aql = "doc.timestamp"
-
-        if conversation_id:
-            aql_query = f"""
-                FOR doc IN @@messages_collection
-                    FILTER {filter_condition_time_aql} AND doc.conversation_id == @conversation_id
-                    SORT {sort_timestamp_field_aql} DESC
-                    LIMIT @limit_per_conv
-                    {let_statements}
-                    SORT {sort_timestamp_field_aql} ASC
-                    {return_statement}
-            """
-            bind_vars["conversation_id"] = conversation_id
-            bind_vars["limit_per_conv"] = limit_per_conversation
-        else:
-            self.logger.info("正在获取所有会话的聊天记录上下文（使用Python计算的数值型截止时间戳进行过滤）。")
-            aql_query = f"""
-                FOR doc IN @@messages_collection
-                    FILTER {filter_condition_time_aql}
-                    {let_statements}
-                    SORT {sort_timestamp_field_aql} ASC
-                    {return_statement}
-            """
-        self.logger.info(f"即将执行的AQL查询语句: {aql_query}")
-        self.logger.info(f"AQL查询的绑定变量 (bind_vars): {bind_vars}")
-
+    async def execute_query(self, query: str, bind_vars: dict = None) -> list:
+        """执行AQL查询"""
         try:
-            self.logger.debug(
-                f"Executing AQL for chat context (numeric top-level timestamp filter): {aql_query} with bind_vars: {bind_vars}"
+            if bind_vars is None:
+                bind_vars = {}
+            
+            cursor = await asyncio.to_thread(
+                self.db.aql.execute, query, bind_vars=bind_vars
             )
-            cursor = await asyncio.to_thread(self.db.aql.execute, aql_query, bind_vars=bind_vars, ttl=60)
-            messages_from_db = list(cursor)  # type: ignore
-            messages_from_db_direct = list(cursor)  # type: ignore
-            self.logger.info(f"AQL查询直接从cursor转换后的原始结果数量: {len(messages_from_db_direct)}")
-            # --- ↑↑↑ 加在这里 ↑↑↑ ---
-
-            processed_messages = []
-            for msg_data in messages_from_db:
-                content = msg_data.get("message_content")
-                if not isinstance(content, list):  # 确保 message_content 是列表格式
-                    msg_data["message_content"] = [{"type": "text", "data": {"text": str(content or "")}}]
-                processed_messages.append(msg_data)
-
-            self.logger.debug(f"获取到 {len(processed_messages)} 条用于上下文的聊天记录 (经数值型顶层时间戳过滤)。")
-            return processed_messages
-        except (AQLQueryExecuteError, ArangoServerError, ArangoClientError) as e_db:
-            self.logger.error(f"获取聊天记录上下文时发生数据库错误 (数值型顶层时间戳过滤): {e_db}", exc_info=True)
-            return []
+            results = await asyncio.to_thread(list, cursor)
+            return results
+            
         except Exception as e:
-            self.logger.error(f"获取聊天记录上下文时发生未知错误 (数值型顶层时间戳过滤): {e}", exc_info=True)
+            self.logger.error(f"执行AQL查询时发生错误: {e}", exc_info=True)
             return []
 
-    async def get_latest_thought_document_raw(self) -> dict[str, Any] | None:
-        # ... (此方法保持不变, 假设 thoughts_collection 中的 timestamp 格式不受影响或单独处理)
-        collection_name = self.THOUGHTS_COLLECTION_NAME
-        self.logger.debug(
-            f"在 get_latest_thought_document_raw 中：准备从 ArangoDB 集合 '{collection_name}' (数据库: '{self.db.name}') 获取最新思考文档..."
-        )
+    async def get_latest_thought_document_raw(self) -> dict | None:
+        """获取最新的思维文档"""
         try:
-            aql_query = """
-                FOR doc IN @@collection_name
+            # 确保集合存在
+            await self.ensure_collection_exists(self.THOUGHTS_COLLECTION_NAME)
+            
+            query = f"""
+                FOR doc IN {self.THOUGHTS_COLLECTION_NAME}
                     SORT doc.timestamp DESC
                     LIMIT 1
                     RETURN doc
-            """  # 假设 thoughts_collection 的 timestamp 也是可比较的 (例如 ISO string or number)
-            bind_vars = {"@collection_name": collection_name}
-            cursor = await asyncio.to_thread(self.db.aql.execute, aql_query, bind_vars=bind_vars, ttl=30)
-            latest_document = next(cursor, None)  # type: ignore
-            self.logger.debug(
-                f"在 get_latest_thought_document_raw 中：AQL 查询完成。是否找到思考文档: {latest_document is not None}"
-            )
-            return latest_document
-        except (AQLQueryExecuteError, ArangoServerError, ArangoClientError) as e_db:
-            self.logger.error(
-                f"在 get_latest_thought_document_raw 中执行 ArangoDB 操作时发生错误 (集合: {collection_name}): {e_db}",
-                exc_info=True,
-            )
-            return None
+            """
+            
+            results = await self.execute_query(query)
+            return results[0] if results else None
+            
         except Exception as e:
-            self.logger.error(
-                f"在 get_latest_thought_document_raw 中获取最新思考文档时发生未知错误 (集合: {collection_name}): {e}",
-                exc_info=True,
-            )
+            self.logger.error(f"获取最新思维文档时发生错误: {e}", exc_info=True)
             return None
+
+    async def update_action_status_in_document(
+        self, 
+        doc_key: str, 
+        action_id: str, 
+        updates: dict, 
+        expected_conditions: dict = None
+    ) -> bool:
+        """更新文档中的动作状态"""
+        try:
+            # 确保集合存在
+            await self.ensure_collection_exists(self.THOUGHTS_COLLECTION_NAME)
+            
+            collection = self.db.collection(self.THOUGHTS_COLLECTION_NAME)
+            
+            # 构建更新语句
+            update_data = {}
+            for key, value in updates.items():
+                update_data[f"action_attempted.{key}"] = value
+            
+            # 如果有条件检查
+            if expected_conditions:
+                # 先检查当前状态
+                current_doc = await asyncio.to_thread(collection.get, doc_key)
+                if not current_doc:
+                    self.logger.warning(f"文档 {doc_key} 不存在")
+                    return False
+                
+                action_state = current_doc.get("action_attempted", {})
+                for cond_key, cond_value in expected_conditions.items():
+                    if action_state.get(cond_key) != cond_value:
+                        self.logger.debug(f"条件检查失败: {cond_key} 期望 {cond_value}, 实际 {action_state.get(cond_key)}")
+                        return False
+            
+            # 执行更新
+            result = await asyncio.to_thread(
+                collection.update, doc_key, update_data
+            )
+            
+            return result.get("_rev") is not None
+            
+        except Exception as e:
+            self.logger.error(f"更新动作状态时发生错误: {e}", exc_info=True)
+            return False
 
     async def save_thought_document(self, document_to_save: dict[str, Any]) -> str | None:
         # ... (此方法保持不变, 假设 thoughts_collection 中的 timestamp 格式不受影响或单独处理)

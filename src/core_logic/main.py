@@ -10,8 +10,13 @@ import uuid
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
-from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logger_manager import get_logger
+from src.action.action_handler import ActionHandler
+from src.core_communication.core_ws_server import CoreWebsocketServer
+from src.message_processing.default_message_processor import DefaultMessageProcessor
+from src.core_logic.intrusive_thoughts import IntrusiveThoughtsGenerator
+from src.database.arangodb_handler import ArangoDBHandler
+from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.common.utils import format_chat_history_for_prompt
 from src.config.alcarus_configs import (
     AlcarusRootConfig,
@@ -22,15 +27,13 @@ from src.config.alcarus_configs import (
     PersonaSettings,
     ProxySettings,
 )
-from src.config.config_manager import get_typed_settings
-from src.core_communication.core_ws_server import CoreWebsocketServer
-from src.core_logic.intrusive_thoughts import IntrusiveThoughtsGenerator
-from src.database.arangodb_handler import ArangoDBHandler
-from src.llmrequest.llm_processor import Client as ProcessorClient
-from src.message_processing.default_message_processor import DefaultMessageProcessor
+from src.config.global_config import global_config
 
 if TYPE_CHECKING:
     pass
+
+# 在模块级别定义logger
+logger = get_logger("AIcarusCore.CoreLogic")
 
 
 class CoreLogic:
@@ -83,9 +86,9 @@ class CoreLogic:
 """
     # ███ 小懒猫改动结束 ███
 
-    def __init__(self) -> None:
+    def __init__(self) -> None:  # 移除 root_cfg 参数
         self.logger = get_logger(f"AIcarusCore.{self.__class__.__name__}")
-        self.root_cfg: AlcarusRootConfig | None = None
+        self.root_cfg = global_config  # 直接使用全局配置
         self.db_handler: ArangoDBHandler | None = None
         self.main_consciousness_llm_client: ProcessorClient | None = None
         self.intrusive_thoughts_llm_client: ProcessorClient | None = None
@@ -412,10 +415,8 @@ class CoreLogic:
 
             formatted_recent_contextual_info = self.INITIAL_STATE["recent_contextual_information"]
             try:
-                raw_context_messages = await self.db_handler.get_recent_chat_messages_for_context(
-                    duration_minutes=chat_history_duration_minutes, conversation_id=self.current_focused_conversation_id
-                )
-                self.logger.info(f"从数据库获取到的原始上下文消息数量: {len(raw_context_messages)}")
+                # 使用正确的方法名获取最近消息
+                raw_context_messages = await self.db_handler.get_recent_chat_messages_for_context(chat_history_duration_minutes)
                 if raw_context_messages:
                     self.logger.debug(f"获取到的原始上下文消息样本 (前2条): {raw_context_messages[:2]}")
                 else:
@@ -584,66 +585,92 @@ class CoreLogic:
                 break
 
     async def start(self) -> None:
+        """启动完整的 Core 系统，包括思考循环、侵入性思维和 WebSocket 服务器"""
         try:
-            self.root_cfg = get_typed_settings()
-            self.logger.info("应用配置已成功加载并转换为类型化对象。")
+            # 1. 配置已经通过全局配置加载
+            self.logger.info("使用全局配置启动 Core 系统")
         except Exception as e_cfg:
-            self.logger.critical(f"严重：无法加载或解析程序配置: {e_cfg}", exc_info=True)
+            self.logger.critical(f"严重：无法使用全局配置: {e_cfg}", exc_info=True)
             return
+
         try:
+            # 2. 初始化核心 LLM 客 klient
             self._initialize_core_llm_clients()
         except RuntimeError as e_llm_init:
             self.logger.critical(f"严重：核心LLM客户端初始化失败: {e_llm_init}", exc_info=True)
             return
+
         try:
+            # 3. 初始化数据库处理器
             self.db_handler = await ArangoDBHandler.create()
             self.logger.info("ArangoDBHandler 实例创建成功。")
             if not self.db_handler or not self.db_handler.db:
                 raise RuntimeError("ArangoDBHandler 或其内部 db 对象未能初始化。")
-            if not self.root_cfg:
-                raise RuntimeError("Root config 未能初始化。")
-            self.message_processor = DefaultMessageProcessor(db_handler=self.db_handler, root_config=self.root_cfg)
+
+            # 4. 初始化消息处理器 - 简化参数
+            from src.message_processing.default_message_processor import DefaultMessageProcessor
+            self.message_processor = DefaultMessageProcessor(db_handler=self.db_handler)  # 移除 root_config 参数
             self.logger.info("DefaultMessageProcessor 已成功初始化。")
+            
+            # 检查消息处理器的可用方法
+            available_methods = [method for method in dir(self.message_processor) 
+                               if not method.startswith('_') and callable(getattr(self.message_processor, method))]
+            self.logger.info(f"DefaultMessageProcessor 可用方法: {available_methods}")
+
+            # 5. 确保数据库集合存在
             await self.db_handler.ensure_collection_exists(ArangoDBHandler.THOUGHTS_COLLECTION_NAME)
             await self.db_handler.ensure_collection_exists(ArangoDBHandler.RAW_CHAT_MESSAGES_COLLECTION_NAME)
             await self.db_handler.ensure_collection_exists(ArangoDBHandler.INTRUSIVE_THOUGHTS_POOL_COLLECTION_NAME)
+            
         except (ValueError, RuntimeError) as e_db_connect:
             self.logger.critical(f"严重：无法连接到 ArangoDB 或确保集合存在: {e_db_connect}", exc_info=True)
             return
         except Exception as e_init_other:
             self.logger.critical(f"初始化过程中发生意外错误: {e_init_other}", exc_info=True)
             return
-        if self.root_cfg and self.db_handler:
-            self.action_handler_instance = ActionHandler(root_cfg=self.root_cfg)
-            try:
-                await self.action_handler_instance.initialize_llm_clients()
-            except RuntimeError as e_ah_llm_init:
-                self.logger.critical(f"严重：ActionHandler LLM客户端初始化失败: {e_ah_llm_init}", exc_info=True)
-                return
-        else:
-            self.logger.critical("无法初始化 ActionHandler：缺少 root_cfg 或 db_handler。")
-            return
-        ws_host = os.getenv("CORE_WS_HOST", "127.0.0.1")
-        ws_port_str = os.getenv("CORE_WS_PORT", "8077")
+
+        # 6. 初始化 ActionHandler - 简化参数
+        self.action_handler_instance = ActionHandler()  # 移除 root_cfg 参数
         try:
-            ws_port = int(ws_port_str)
-        except ValueError:
-            self.logger.critical(f"无效的 CORE_WS_PORT: '{ws_port_str}'。")
+            await self.action_handler_instance.initialize_llm_clients()
+        except RuntimeError as e_ah_llm_init:
+            self.logger.critical(f"严重：ActionHandler LLM客户端初始化失败: {e_ah_llm_init}", exc_info=True)
             return
-        if not self.message_processor or not self.db_handler or not self.db_handler.db:
-            self.logger.critical("严重：消息处理器或数据库处理器未能初始化，无法启动 WebSocket。")
+
+        # 7. 初始化 WebSocket 服务器 - 使用全局配置
+        ws_host = global_config.server.host
+        ws_port = global_config.server.port
+        
+        # 动态确定消息处理方法
+        message_handler_method = None
+        for method_name in ['process_event', 'process_message', 'handle_event', 'handle_message']:
+            if hasattr(self.message_processor, method_name):
+                message_handler_method = getattr(self.message_processor, method_name)
+                self.logger.info(f"使用消息处理方法: {method_name}")
+                break
+        
+        if not message_handler_method:
+            self.logger.error("未找到合适的消息处理方法")
             return
+        
         self.core_comm_layer = CoreWebsocketServer(
-            ws_host, ws_port, self.message_processor.process_message, self.db_handler.db
+            ws_host, ws_port, message_handler_method, self.db_handler.db
         )
+
+        # 8. 设置 ActionHandler 依赖
         if self.action_handler_instance:
             self.action_handler_instance.set_dependencies(db_handler=self.db_handler, comm_layer=self.core_comm_layer)
         else:
             self.logger.warning("ActionHandler 实例未初始化，无法设置其通信层依赖。")
+
+        # 9. 启动 WebSocket 服务器任务
         self.server_task = asyncio.create_task(self.core_comm_layer.start())
-        if self.root_cfg and self.intrusive_thoughts_llm_client and self.db_handler:
-            intrusive_settings: IntrusiveThoughtsSettings = self.root_cfg.intrusive_thoughts_module_settings
-            persona_settings: PersonaSettings = self.root_cfg.persona
+        self.logger.info(f"WebSocket 服务器已启动在 {ws_host}:{ws_port}")
+
+        # 10. 初始化并启动侵入性思维生成器 - 使用全局配置
+        if self.intrusive_thoughts_llm_client and self.db_handler:
+            intrusive_settings = global_config.intrusive_thoughts_module_settings
+            persona_settings = global_config.persona
             if intrusive_settings.enabled:
                 self.intrusive_generator_instance = IntrusiveThoughtsGenerator(
                     llm_client=self.intrusive_thoughts_llm_client,
@@ -661,6 +688,8 @@ class CoreLogic:
                 self.logger.info("侵入性思维模块在配置文件中未启用。")
         else:
             self.logger.warning("无法初始化 IntrusiveThoughtsGenerator：缺少必要依赖。")
+
+        # 11. 检查数据库处理器
         if not self.db_handler:
             self.logger.critical("严重错误：ArangoDB 处理器未能初始化，无法开始意识流。")
             if self.core_comm_layer:
@@ -668,45 +697,67 @@ class CoreLogic:
             if self.server_task and not self.server_task.done():
                 self.server_task.cancel()
             return
+
+        # 12. 启动主思考循环
+        self.logger.info(f"\n=== {global_config.persona.bot_name} 的意识开始流动 ===")
         self.thinking_loop_task = asyncio.create_task(self._core_thinking_loop())
+
+        # 13. 运行主事件循环
         try:
             if not self.server_task or not self.thinking_loop_task:
                 raise RuntimeError("服务器或思考循环任务未能成功创建。")
+
+            # 等待任一关键任务完成
             done, pending = await asyncio.wait(
                 [self.server_task, self.thinking_loop_task], return_when=asyncio.FIRST_COMPLETED
             )
+
+            # 取消挂起的任务
             for task in pending:
                 self.logger.info(f"一个关键任务已结束，正在取消挂起的任务: {task.get_name()}")
-                task.cancel()  # type: ignore
+                task.cancel()
+
+            # 检查已完成任务的异常
             for task in done:
                 if task.exception():
                     self.logger.critical(
-                        f"一个关键任务 ({task.get_name()}) 因异常而结束: {task.exception()}", exc_info=task.exception()
-                    )  # type: ignore
+                        f"一个关键任务 ({task.get_name()}) 因异常而结束: {task.exception()}", 
+                        exc_info=task.exception()
+                    )
+
         except KeyboardInterrupt:
             self.logger.info(
-                f"\n--- {(self.root_cfg.persona.bot_name if self.root_cfg else 'Bot')} 的意识流动被用户手动中断 ---"
+                f"\n--- {global_config.persona.bot_name} 的意识流动被用户手动中断 ---"
             )
         except asyncio.CancelledError:
             self.logger.info(
-                f"\n--- {(self.root_cfg.persona.bot_name if self.root_cfg else 'Bot')} 的意识流动主任务被取消 ---"
+                f"\n--- {global_config.persona.bot_name} 的意识流动主任务被取消 ---"
             )
         except Exception as e_main_flow:
             self.logger.critical(f"\n--- 意识流动主流程发生意外错误: {e_main_flow} ---", exc_info=True)
         finally:
+            # 14. 程序清理
             self.logger.info("--- 开始程序清理 ---")
             self.stop_event.set()
+
+            # 停止核心通信层
             if self.core_comm_layer:
                 self.logger.info("正在停止核心 WebSocket 通信层...")
                 await self.core_comm_layer.stop()
+
+            # 取消服务器任务
             if self.server_task and not self.server_task.done():
                 self.logger.info("正在取消 WebSocket 服务器任务...")
                 self.server_task.cancel()
                 await asyncio.gather(self.server_task, return_exceptions=True)
+
+            # 取消思考循环任务
             if self.thinking_loop_task and not self.thinking_loop_task.done():
                 self.logger.info("正在取消核心思考循环任务...")
                 self.thinking_loop_task.cancel()
                 await asyncio.gather(self.thinking_loop_task, return_exceptions=True)
+
+            # 停止侵入性思维线程
             if self.intrusive_thread is not None and self.intrusive_thread.is_alive():
                 self.logger.info("等待侵入性思维线程结束...")
                 self.intrusive_thread.join(timeout=5)
@@ -714,14 +765,33 @@ class CoreLogic:
                     self.logger.warning("警告：侵入性思维线程超时后仍未结束。")
                 else:
                     self.logger.info("侵入性思维线程已成功结束。")
+
+            # 关闭数据库连接
             if self.db_handler and hasattr(self.db_handler, "close") and callable(self.db_handler.close):
                 self.logger.info("正在关闭 ArangoDBHandler...")
                 await self.db_handler.close()
+
             self.logger.info(
-                f"程序清理完成。{(self.root_cfg.persona.bot_name if self.root_cfg else 'Bot')} 的意识已停止流动。"
+                f"程序清理完成。{global_config.persona.bot_name} 的意识已停止流动。"
             )
 
 
-async def start_consciousness_flow() -> None:
-    core_logic_instance = CoreLogic()
-    await core_logic_instance.start()
+async def start_consciousness_flow():
+    """启动意识流程的主函数"""
+    try:
+        logger.info("=== 开始启动 AIcarus Core 意识流程 ===")
+        
+        # 直接创建 CoreLogic 实例，无需传递配置
+        core_logic = CoreLogic()
+        await core_logic.start()
+        
+    except KeyboardInterrupt:
+        logger.info("收到用户中断信号，正在优雅关闭...")
+    except Exception as e:
+        logger.error(f"启动意识流程时发生错误: {e}", exc_info=True)
+        raise
+
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(start_consciousness_flow())
