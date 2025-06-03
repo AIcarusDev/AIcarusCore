@@ -70,6 +70,12 @@ class ProxySettings(ConfigBase):
 class CoreLogicSettings(ConfigBase):
     thinking_interval_seconds: int = 30
     chat_history_context_duration_minutes: int = 10 # 🐾 小猫爪：之前讨论中提到，这里明确一下
+    llm_call_overall_timeout_seconds: float = 120.0  # 新增，给个默认值
+    llm_call_polling_interval_seconds: float = 2.0    # 新增，给个默认值
+
+@dataclass
+class ActionHandlerSettings(ConfigBase):
+    enabled: bool = True # 默认让它工作，如果你想默认关闭就改成 False
 
 
 @dataclass
@@ -97,6 +103,7 @@ class AlcarusRootConfig(ConfigBase):
     proxy: ProxySettings
     core_logic_settings: CoreLogicSettings
     intrusive_thoughts_module_settings: IntrusiveThoughtsSettings
-    providers: Optional[ProvidersConfig] = None # 🐾 小猫爪：保持 Optional
+    action_handler_settings: ActionHandlerSettings = field(default_factory=ActionHandlerSettings) # <<< 就是这行新加的！
+    providers: Optional[ProvidersConfig] = None
     database: DatabaseSettings = field(default_factory=DatabaseSettings)
     logging: LoggingSettings = field(default_factory=LoggingSettings)

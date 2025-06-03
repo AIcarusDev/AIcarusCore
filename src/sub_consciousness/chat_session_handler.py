@@ -112,6 +112,9 @@ class ChatSession:
     async def generate_reply(self, main_thought_context: Optional[str] = None) -> Optional[MessageBase]:
         """
         根据当前上下文和主思维引导，异步生成聊天回复。
+        [MODIFIED_V2]:
+        - Added more detailed logging.
+        - Added logic to add the bot's own reply to its chat_context.
         """
         if not self.is_active:
             logger.info(f"ChatSession (会话ID: {self.conversation_id}) 未激活，不生成回复。")
@@ -228,43 +231,49 @@ class ChatSession:
                     user_prompt_yaml_parts.append(f"    user_id: {event_details.get('user_id')}")
                 # ...等等
 
-            if interaction.get('sender_id'):
+            # 新增：处理机器人自身消息的上下文展示
+            elif interaction.get('type') == 'bot_message' and interaction.get('content_segments'):
+                user_prompt_yaml_parts.append("    message:") # 与用户消息结构类似
+                for seg_dict in interaction.get('content_segments', []):
+                    user_prompt_yaml_parts.append(f"      - type: {seg_dict.get('type')}")
+                    seg_data = seg_dict.get('data', {})
+                    if isinstance(seg_data, str) and seg_dict.get('type') == 'text':
+                        seg_data = {"text": seg_data}
+                    elif not isinstance(seg_data, dict):
+                        seg_data = {"raw": str(seg_data)}
+                    user_prompt_yaml_parts.append("        data:")
+                    for k, v_data in seg_data.items():
+                        user_prompt_yaml_parts.append(f"          {k}: \"{v_data}\"")
+
+
+            if interaction.get('sender_id'): # 对所有类型的交互都尝试记录 sender_id
                 user_prompt_yaml_parts.append(f"    sender_id: {interaction.get('sender_id')}")
-            if interaction.get('extra_info'): # 如果有额外信息，比如机器人自己的发言动机
+            
+            if interaction.get('extra_info'):
                 user_prompt_yaml_parts.append("    extra_info:")
-                for info_item in interaction.get('extra_info', []):
-                    if isinstance(info_item, dict):
-                        for k_extra, v_extra in info_item.items():
-                             user_prompt_yaml_parts.append(f"      - {k_extra}: \"{v_extra}\"")
+                # extra_info 现在应该是一个字典
+                if isinstance(interaction.get('extra_info'), dict):
+                    for k_extra, v_extra in interaction.get('extra_info', {}).items():
+                         user_prompt_yaml_parts.append(f"      {k_extra}: \"{v_extra}\"")
 
 
-        user_prompt_yaml_parts.append("```") # YAML块结束
-
-        # 添加当前时间
+        user_prompt_yaml_parts.append("```")
         current_time_for_prompt = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
         user_prompt_yaml_parts.append(f"\n当前时间：{current_time_for_prompt}")
 
-        # 🐾 小猫爪：获取机器人上次的发言和想法 (方案B)
         last_bot_reply, last_bot_reasoning = await self._get_last_bot_activity_for_prompt()
         if last_bot_reply:
-            # 假设时间戳也从DB获取，并格式化
-            # last_activity_timestamp_str = last_bot_activity.get("timestamp", "未知时间")
-            # time_since_last_reply_str = "未知时间前" # 可以计算时间差
-            # user_prompt_yaml_parts.append(f"\n你最近的发言是 {time_since_last_reply_str}，内容是：\n\"{last_bot_reply}\"")
-            user_prompt_yaml_parts.append(f"\n你最近的发言内容是：\n\"{last_bot_reply}\"") # 简化版
+            user_prompt_yaml_parts.append(f"\n你最近的发言内容是：\n\"{last_bot_reply}\"")
         else:
             user_prompt_yaml_parts.append("\n你最近没有在这个会话中发言。")
-
         if last_bot_reasoning:
             user_prompt_yaml_parts.append(f"\n你当时发言时的想法是：\n\"{last_bot_reasoning}\"")
         else:
             user_prompt_yaml_parts.append("\n你上次发言时未记录具体想法。")
 
-        # 🐾 小猫爪：注入主思维的当前想法 (如果提供了)
         if main_thought_context:
             user_prompt_yaml_parts.append(f"\n[💭 主导意识的当前想法/关注点：\"{main_thought_context}\"]")
         
-        # 🐾 小猫爪：(可选) 注入聊天风格或短期目标指令
         if self.current_chat_style_directives:
             style_prompt = self.current_chat_style_directives.get("style_prompt_additions", [])
             goal_prompt = self.current_chat_style_directives.get("short_term_goal_for_reply")
@@ -275,8 +284,6 @@ class ChatSession:
             if goal_prompt:
                 user_prompt_yaml_parts.append(f"\n你本次回复的短期目标是：{goal_prompt}")
 
-
-        # 添加最终的输出指令和JSON格式要求 (从枫_chat_test.md复制)
         user_prompt_yaml_parts.append(
             "\n现在请你请输出你现在的内心想法，心情，是否要发言，发言的动机，和要发言的内容等等。"
             "\n请**严格**使用以下json格式输出内容，**不需要**输出markdown语句等多余内容，**仅输出**纯json内容："
@@ -296,17 +303,18 @@ class ChatSession:
             "```"
         )
         user_prompt_str = "\n".join(user_prompt_yaml_parts)
-        logger.debug(f"ChatSession (会话ID: {self.conversation_id}): 构建的User Prompt:\n{user_prompt_str}")
+        logger.debug(f"ChatSession (会话ID: {self.conversation_id}): 构建的User Prompt (截断):\n{user_prompt_str[:1000]}...") # 截断日志输出
 
         # 3. 调用LLM
         llm_response_data: Optional[Dict[str, Any]] = None
         try:
+            logger.info(f"ChatSession (会话ID: {self.conversation_id}): 准备调用LLM...")
             llm_response_data = await self.llm_client.make_llm_request(
                 prompt=user_prompt_str,
                 system_prompt=system_prompt_str,
-                is_stream=False # 聊天回复通常不需要流式
-                # 可以在这里为子思维的LLM调用传递特定的temperature, max_tokens等参数
+                is_stream=False
             )
+            logger.info(f"ChatSession (会话ID: {self.conversation_id}): LLM调用完成。")
         except Exception as e_llm_call:
             logger.error(f"ChatSession (会话ID: {self.conversation_id}): 调用LLM时发生错误: {e_llm_call}", exc_info=True)
             return None
@@ -324,7 +332,6 @@ class ChatSession:
         # 4. 解析LLM的JSON输出
         parsed_llm_json: Optional[Dict[str, Any]] = None
         try:
-            # 尝试去除Markdown代码块标记
             if raw_llm_output_text.startswith("```json"):
                 json_str_to_parse = raw_llm_output_text[7:-3].strip()
             elif raw_llm_output_text.startswith("```"):
@@ -333,16 +340,15 @@ class ChatSession:
                 json_str_to_parse = raw_llm_output_text
             
             parsed_llm_json = json.loads(json_str_to_parse)
-            logger.info(f"ChatSession (会话ID: {self.conversation_id}): 成功解析LLM的JSON输出。")
+            logger.info(f"ChatSession (会话ID: {self.conversation_id}): 成功解析LLM的JSON输出。Reply_willing: {parsed_llm_json.get('reply_willing')}, Reply_text: '{str(parsed_llm_json.get('reply_text'))[:30]}...'")
         except json.JSONDecodeError as e_json_decode:
             logger.error(f"ChatSession (会话ID: {self.conversation_id}): 解析LLM输出的JSON失败: {e_json_decode}. 原始文本: {raw_llm_output_text}")
-            # 🐾 小猫爪：即使解析失败，也尝试触发主思维，让主思维知道子思维出错了
             self.main_mind_trigger_event.set()
-            return None # 或者可以尝试从原始文本中提取一些信息作为“尽力而为”的回复
+            return None
 
-        # 5. 记录子思维的活动 (方案B)
+        # 5. 记录子思维的活动 (逻辑不变)
         self.last_reply_generated = parsed_llm_json.get("reply_text")
-        self.last_reply_main_thought_context = main_thought_context # 记录主思维当时的引导
+        self.last_reply_main_thought_context = main_thought_context
         self.last_reply_reasoning = parsed_llm_json.get("reasoning")
         self.last_reply_mood = parsed_llm_json.get("mood")
 
@@ -350,10 +356,10 @@ class ChatSession:
             "conversation_id": self.conversation_id,
             "platform_id": self.platform_id,
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z",
-            "llm_input_system_prompt": system_prompt_str, # 记录完整的输入Prompt
-            "llm_input_user_prompt": user_prompt_str,
+            "llm_input_system_prompt": system_prompt_str,
+            "llm_input_user_prompt": user_prompt_str, # 记录完整的User Prompt
             "main_thought_context_injected": main_thought_context,
-            "llm_output_json_str": raw_llm_output_text, # 记录原始JSON字符串
+            "llm_output_json_str": raw_llm_output_text,
             "parsed_mood": self.last_reply_mood,
             "parsed_reasoning": self.last_reply_reasoning,
             "parsed_reply_willing": parsed_llm_json.get("reply_willing", False),
@@ -365,80 +371,94 @@ class ChatSession:
             "parsed_action_motivation": parsed_llm_json.get("action_motivation"),
         }
         if self.db_handler:
+            logger.debug(f"ChatSession (会话ID: {self.conversation_id}): 准备保存子思维活动日志...")
             await self.db_handler.save_sub_mind_activity(activity_log_data)
+            logger.info(f"ChatSession (会话ID: {self.conversation_id}): 子思维活动日志已保存。")
+
         else:
             logger.warning(f"ChatSession (会话ID: {self.conversation_id}): DB Handler未设置，无法保存子思维活动日志。")
 
+        # --- 新增：将机器人自己的回复添加到内部上下文 ---
+        if parsed_llm_json.get("reply_willing") and self.last_reply_generated:
+            logger.info(f"ChatSession (会话ID: {self.conversation_id}): LLM决定回复，内容: '{self.last_reply_generated[:50]}...'")
+            bot_reply_interaction_record: Dict[str, Any] = {
+                "type": "bot_message", 
+                "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z",
+                "message_id": f"bot_reply_{self.conversation_id}_{uuid.uuid4()}",
+                "sender_id": self.bot_id, 
+                "sender_nickname": self.core_persona_settings.bot_name,
+                "content_segments": [{"type": "text", "data": {"text": self.last_reply_generated}}],
+                "extra_info": { # 将心情和思考过程作为额外信息记录
+                    "mood_at_reply": self.last_reply_mood,
+                    "reasoning_for_reply": self.last_reply_reasoning,
+                    "motivation_for_reply": parsed_llm_json.get("motivation") # 也记录动机
+                }
+            }
+            self.add_interaction_to_context(bot_reply_interaction_record)
+            logger.info(f"ChatSession (会话ID: {self.conversation_id}): 已将机器人自身的回复添加到内部上下文中。当前上下文数量: {len(self.chat_context)}")
+        elif parsed_llm_json.get("reply_willing"):
+            logger.warning(f"ChatSession (会话ID: {self.conversation_id}): LLM决定回复 (reply_willing=true)，但 reply_text 为空。")
+        else:
+            logger.info(f"ChatSession (会话ID: {self.conversation_id}): LLM决定不回复 (reply_willing={parsed_llm_json.get('reply_willing')})。")
 
-        # 6. 如果LLM决定要回复，则构建core_action
+
+        # 6. 如果LLM决定要回复，则构建core_action (逻辑不变)
         core_action_to_send: Optional[MessageBase] = None
         if parsed_llm_json.get("reply_willing") and self.last_reply_generated:
             segments_for_reply: List[Seg] = []
-            
-            # 处理 @某人
             at_target_str = parsed_llm_json.get("at_someone")
             if at_target_str:
                 target_ids = [uid.strip() for uid in at_target_str.split(',') if uid.strip()]
                 for target_id in target_ids:
                     segments_for_reply.append(Seg(type="at", data={"user_id": target_id}))
-                    segments_for_reply.append(Seg(type="text", data=" ")) # @后加空格
-
-            # 处理引用回复 (注意：Napcat的实现通常是将reply段放在消息最前面)
-            quote_reply_msg_id = parsed_llm_json.get("quote_reply")
-            if quote_reply_msg_id:
-                # 实际发送时，send_handler_aicarus.py 中会将reply段插入到最前面
-                # 这里我们先不处理，或者在构建action:send_message的data时特殊处理
-                pass
-
-
+                    segments_for_reply.append(Seg(type="text", data=" "))
+            
             segments_for_reply.append(Seg(type="text", data=self.last_reply_generated))
 
             action_data_send_msg: Dict[str, Any] = {"segments": [s.to_dict() for s in segments_for_reply]}
             if self.group_info and self.group_info.group_id:
                 action_data_send_msg["target_group_id"] = self.group_info.group_id
-            elif self.user_info and self.user_info.user_id: # 私聊对象
+            elif self.user_info and self.user_info.user_id:
                 action_data_send_msg["target_user_id"] = self.user_info.user_id
             
-            if quote_reply_msg_id: # 如果有引用回复，加入到action_data中
+            quote_reply_msg_id = parsed_llm_json.get("quote_reply")
+            if quote_reply_msg_id:
                 action_data_send_msg["reply_to_message_id"] = str(quote_reply_msg_id)
-
 
             core_action_seg = Seg(type="action:send_message", data=action_data_send_msg)
             
-            # 构建MessageBase的message_info
-            # 这里的user_info和group_info应该是动作的目标上下文
             action_message_info = BaseMessageInfo(
                 platform=self.platform_id,
                 bot_id=self.bot_id,
                 interaction_purpose="core_action",
                 time=int(datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000),
                 message_id=f"sub_mind_reply_{self.conversation_id}_{uuid.uuid4()}",
-                group_info=self.group_info, # 如果是群聊，带上群信息
-                user_info=self.user_info if not self.group_info else None, # 如果是私聊，带上对方用户信息
-                additional_config={"protocol_version": "1.2.0"} # 使用你的协议版本
+                group_info=self.group_info,
+                user_info=self.user_info if not self.group_info else None,
+                additional_config={"protocol_version": "1.2.0"}
             )
             core_action_to_send = MessageBase(
                 message_info=action_message_info,
-                message_segment=Seg(type="seglist", data=[core_action_seg.to_dict()]) # data是List[Dict]
+                message_segment=Seg(type="seglist", data=[core_action_seg.to_dict()])
             )
             logger.info(f"ChatSession (会话ID: {self.conversation_id}): 已构建发送消息的core_action。")
 
-        # 🐾 小猫爪：处理戳一戳动作 (如果LLM决定要戳)
+        # 处理戳一戳动作 (逻辑不变)
         poke_target_id = parsed_llm_json.get("poke")
         if poke_target_id:
+            logger.info(f"ChatSession (会话ID: {self.conversation_id}): LLM决定戳一戳目标 '{poke_target_id}'。")
             poke_action_data: Dict[str, Any] = {"target_user_id": str(poke_target_id)}
-            if self.group_info and self.group_info.group_id: # 如果在群里，需要群ID
+            if self.group_info and self.group_info.group_id:
                 poke_action_data["target_group_id"] = self.group_info.group_id
             
             poke_action_seg = Seg(type="action:send_poke", data=poke_action_data)
             
-            # 如果之前已经有core_action_to_send (因为要回复消息)，则将戳一戳动作追加进去
             if core_action_to_send:
                 if isinstance(core_action_to_send.message_segment.data, list):
                     core_action_to_send.message_segment.data.append(poke_action_seg.to_dict())
-                else: # 不太可能发生，但做个保护
+                else:
                     core_action_to_send.message_segment.data = [poke_action_seg.to_dict()]
-            else: # 如果只是戳一戳，没有回复消息
+            else:
                 action_message_info_poke = BaseMessageInfo(
                      platform=self.platform_id,
                      bot_id=self.bot_id,
@@ -455,8 +475,7 @@ class ChatSession:
                 )
             logger.info(f"ChatSession (会话ID: {self.conversation_id}): 已构建/追加戳一戳的core_action。")
 
-
-        # 7. 触发主思维更新事件 (无论是否决定回复，只要LLM调用成功了就触发)
+        # 7. 触发主思维更新事件 (逻辑不变)
         self.main_mind_trigger_event.set()
         logger.debug(f"ChatSession (会话ID: {self.conversation_id}): 已设置main_mind_trigger_event。")
 
@@ -651,22 +670,27 @@ class ChatSessionManager:
     ) -> Optional[MessageBase]:
         """
         由 CoreLogic 调用，触发指定会话的子思维生成回复。
+        [MODIFIED]: 如果会话未激活，则先激活它，然后再尝试生成回复。
         """
         session = self.active_sessions.get(conversation_id)
         if session:
+            if not session.is_active: # 新增：检查会话是否激活
+                logger.info(f"ChatSessionManager: 会话 '{conversation_id}' 当前未激活，将在触发回复前先激活它。")
+                session.activate(main_thought_context) # 激活会话，并传递主思维上下文
+
+            # 激活后，再次确认（虽然activate方法内部已经设置了is_active，但作为逻辑流程明确）
             if session.is_active:
-                logger.info(f"ChatSessionManager: 正在为会话 '{conversation_id}' 触发子思维回复生成。主思维引导: '{str(main_thought_context)[:50]}...'")
-                # 🐾 小猫爪：调用 ChatSession 的 generate_reply
+                logger.info(f"ChatSessionManager: 正在为已激活的会话 '{conversation_id}' 触发子思维回复生成。主思维引导: '{str(main_thought_context)[:50]}...'")
                 core_action_message = await session.generate_reply(main_thought_context)
                 if core_action_message:
                     logger.info(f"ChatSessionManager: 会话 '{conversation_id}' 的子思维已成功生成回复动作。")
                     return core_action_message
                 else:
                     logger.warning(f"ChatSessionManager: 会话 '{conversation_id}' 的子思维未能生成回复动作。")
-                    # 即使没生成回复，也可能需要通知主思维（generate_reply内部会set event）
                     return None
             else:
-                logger.info(f"ChatSessionManager: 尝试为非活跃会话 '{conversation_id}' 触发回复，已忽略。")
+                # 理论上在调用 session.activate() 后，这里不应该执行到
+                logger.error(f"ChatSessionManager: 尝试激活会话 '{conversation_id}' 后，它仍然处于非激活状态。无法触发回复。")
                 return None
         else:
             logger.warning(f"ChatSessionManager: 尝试为不存在的会话 '{conversation_id}' 触发回复。")
