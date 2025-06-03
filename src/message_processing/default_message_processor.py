@@ -1,8 +1,8 @@
 # src/message_processing/default_message_processor.py
 import datetime
-import time # 🐾 小猫爪：虽然没直接用，但原文件有，保留
+import time
 import uuid
-from typing import Any, Optional, TYPE_CHECKING, List, Dict # 🐾 小猫爪：导入 List, Dict
+from typing import Any, Optional, TYPE_CHECKING, List, Dict
 
 from aicarus_protocols import BaseMessageInfo, GroupInfo, MessageBase, Seg, UserInfo
 from websockets.server import WebSocketServerProtocol
@@ -11,37 +11,30 @@ from src.common.custom_logging.logger_manager import get_logger
 from src.config.alcarus_configs import AlcarusRootConfig
 from src.core_communication.message_sender import MessageSender
 from src.database.arangodb_handler import ArangoDBHandler
-
-# 🐾 小猫爪：导入我们新建的 ChatSessionManager
 from src.sub_consciousness.chat_session_handler import ChatSessionManager
 
 if TYPE_CHECKING:
-    from src.core_logic.main import CoreLogic # 🐾 小猫爪：用于类型提示 CoreLogic
-
+    from src.core_logic.consciousness_loop import CoreLogic as CurrentCoreLogic # 修正导入路径
 
 logger = get_logger("AIcarusCore.message_processor")
-
 
 class DefaultMessageProcessor:
     def __init__(
         self,
         db_handler: ArangoDBHandler,
         root_config: AlcarusRootConfig,
-        # 🐾 小猫爪：新增 chat_session_manager 参数
         chat_session_manager: ChatSessionManager,
-        core_logic_ref: 'CoreLogic' # 🐾 小猫爪：新增对 CoreLogic 的引用
+        core_logic_ref: 'CurrentCoreLogic' # 使用修正后的类型提示
     ):
         self.db_handler: ArangoDBHandler = db_handler
         self.config: AlcarusRootConfig = root_config
         self.bot_name: str = root_config.persona.bot_name
         self.message_sender: MessageSender = MessageSender()
-        # 🐾 小猫爪：存储 ChatSessionManager 实例
         self.chat_session_manager: ChatSessionManager = chat_session_manager
-        self.core_logic_ref: 'CoreLogic' = core_logic_ref # 存储 CoreLogic 引用
+        self.core_logic_ref: 'CurrentCoreLogic' = core_logic_ref
         logger.info("DefaultMessageProcessor 初始化完成 (包含 MessageSender 和 ChatSessionManager)。")
 
     def _generate_conversation_id(self, platform: str, group_id: Optional[str], user_id: Optional[str]) -> str:
-        # 🐾 小猫爪：这里的 bot_name 应该是机器人自身的唯一标识，用于生成稳定的私聊ID
         robot_identifier = self.bot_name
 
         if group_id:
@@ -220,7 +213,6 @@ class DefaultMessageProcessor:
             logger.error(f"消息处理器在调用 save_raw_chat_message 时发生错误: {e_save}", exc_info=True)
             return 
 
-        # 🐾 小猫爪：将消息/事件传递给 ChatSessionManager 进行上下文更新
         if message.message_info.interaction_purpose == "user_message":
             logger.info(f"用户消息 (会话: {conversation_id}) 将传递给 ChatSessionManager 处理上下文。")
             await self.chat_session_manager.handle_incoming_user_message(message)
@@ -229,7 +221,6 @@ class DefaultMessageProcessor:
             await self.chat_session_manager.handle_incoming_platform_event(message)
         elif message.message_info.interaction_purpose == "platform_request":
             logger.info(f"平台请求 (会话: {conversation_id}) 将传递给 ChatSessionManager 处理上下文 (作为一种平台事件)。")
-            await self.chat_session_manager.handle_incoming_platform_event(message) # 平台请求也作为一种事件传递
+            await self.chat_session_manager.handle_incoming_platform_event(message)
         else:
             logger.debug(f"消息类型 {message.message_info.interaction_purpose} (会话: {conversation_id}) 当前不由 ChatSessionManager 直接处理上下文。")
-

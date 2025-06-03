@@ -1,24 +1,20 @@
 # AIcarusCore/src/sub_consciousness/chat_session_handler.py
 import asyncio
 import datetime
-import collections # 🐾 小猫爪：导入 collections 用于 deque
+import collections
 import json
 import uuid
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
-# 🐾 小猫爪：从项目内部导入必要的模块
-from aicarus_protocols import MessageBase, Seg, UserInfo, GroupInfo, BaseMessageInfo # AIcarus 消息协议
-from src.config.alcarus_configs import PersonaSettings # 机器人人设配置
-from src.llmrequest.llm_processor import Client as LLMProcessorClient # LLM 请求处理器
-from src.common.custom_logging.logger_manager import get_logger # 日志记录器
-from src.database.arangodb_handler import ArangoDBHandler # 数据库处理器
+from aicarus_protocols import MessageBase, Seg, UserInfo, GroupInfo, BaseMessageInfo
+from src.config.alcarus_configs import PersonaSettings
+from src.llmrequest.llm_processor import Client as LLMProcessorClient
+from src.common.custom_logging.logger_manager import get_logger
+from src.database.arangodb_handler import ArangoDBHandler
 
-# 🐾 小猫爪：类型检查时，从core_logic.main导入CoreLogic，避免循环导入
 if TYPE_CHECKING:
-    from src.core_logic.main import CoreLogic
+    from src.core_logic.consciousness_loop import CoreLogic as CurrentCoreLogic # 修正导入路径
 
-
-# 🐾 小猫爪：获取当前模块的日志记录器
 logger = get_logger("AIcarusCore.sub_consciousness.ChatSessionHandler")
 
 class ChatSession:
@@ -29,38 +25,35 @@ class ChatSession:
     def __init__(
         self,
         conversation_id: str,
-        platform_id: str, # 🐾 小猫爪：新增平台ID，用于区分不同平台的同名会话
-        bot_id: str, # 🐾 小猫爪：机器人自身的ID
+        platform_id: str,
+        bot_id: str,
         core_persona_settings: PersonaSettings,
         llm_client: LLMProcessorClient,
-        db_handler: ArangoDBHandler, # 🐾 小猫爪：传入数据库处理器
-        main_mind_trigger_event: asyncio.Event, # 🐾 小猫爪：用于通知主思维的事件
-        initial_group_info: Optional[GroupInfo] = None, # 🐾 小猫爪：初始群组信息
-        initial_user_info: Optional[UserInfo] = None, # 🐾 小猫爪：初始用户信息（通常是与机器人私聊的用户）
+        db_handler: ArangoDBHandler,
+        main_mind_trigger_event: asyncio.Event,
+        initial_group_info: Optional[GroupInfo] = None,
+        initial_user_info: Optional[UserInfo] = None,
     ):
         self.conversation_id: str = conversation_id
         self.platform_id: str = platform_id
         self.bot_id: str = bot_id
         self.core_persona_settings: PersonaSettings = core_persona_settings
         self.llm_client: LLMProcessorClient = llm_client
-        self.db_handler: ArangoDBHandler = db_handler # 🐾 小猫爪：存储数据库处理器实例
+        self.db_handler: ArangoDBHandler = db_handler
         self.main_mind_trigger_event: asyncio.Event = main_mind_trigger_event
 
-        self.is_active: bool = False # 🐾 小猫爪：默认不激活，等待主思维指令
+        self.is_active: bool = False
         self.last_interaction_time: datetime.datetime = datetime.datetime.now(datetime.timezone.utc)
-        # 🐾 小猫爪：使用deque存储最近20条交互记录 (消息或事件)
         self.chat_context: collections.deque[Dict[str, Any]] = collections.deque(maxlen=20)
 
-        self.last_reply_generated: Optional[str] = None # 子思维最近生成的回复
-        self.last_reply_main_thought_context: Optional[str] = None # 生成该回复时主思维注入的想法
-        self.last_reply_reasoning: Optional[str] = None # 子思维为生成该回复的思考过程
-        self.last_reply_mood: Optional[str] = None # 子思维生成该回复时的心情
+        self.last_reply_generated: Optional[str] = None
+        self.last_reply_main_thought_context: Optional[str] = None
+        self.last_reply_reasoning: Optional[str] = None
+        self.last_reply_mood: Optional[str] = None
 
-        # 🐾 小猫爪：存储初始的群组和用户信息，用于构建Prompt
         self.group_info: Optional[GroupInfo] = initial_group_info
-        self.user_info: Optional[UserInfo] = initial_user_info # 对于私聊，这是对方用户信息
+        self.user_info: Optional[UserInfo] = initial_user_info
 
-        # (可选) 用于未来控制聊天风格或短期目标
         self.current_chat_style_directives: Optional[Dict[str, Any]] = None
 
         logger.info(f"ChatSession 实例已创建 (会话ID: {self.conversation_id}, 平台: {self.platform_id})")
@@ -70,7 +63,6 @@ class ChatSession:
         self.is_active = True
         self.last_interaction_time = datetime.datetime.now(datetime.timezone.utc)
         if main_thought_context:
-            # 🐾 小猫爪：暂时不直接存储，而是在 generate_reply 时作为参数传入并使用
             logger.info(f"ChatSession (会话ID: {self.conversation_id}) 已被激活。主思维引导: '{main_thought_context[:50]}...'")
         else:
             logger.info(f"ChatSession (会话ID: {self.conversation_id}) 已被激活。")
@@ -95,7 +87,7 @@ class ChatSession:
 
     async def _get_last_bot_activity_for_prompt(self) -> Tuple[Optional[str], Optional[str]]:
         """
-        🐾 小猫爪：从数据库获取机器人在此会话中最近的发言及其当时的想法。
+        从数据库获取机器人在此会话中最近的发言及其当时的想法。
         这是方案B的核心部分。
         """
         if not self.db_handler:
@@ -103,8 +95,8 @@ class ChatSession:
         
         last_activity_doc = await self.db_handler.get_sub_mind_last_activity(self.conversation_id)
         if last_activity_doc:
-            last_reply = last_activity_doc.get("last_reply_text")
-            last_reasoning = last_activity_doc.get("last_reasoning")
+            last_reply = last_activity_doc.get("parsed_reply_text") # 应该从这里取
+            last_reasoning = last_activity_doc.get("parsed_reasoning") # 应该从这里取
             logger.debug(f"ChatSession (会话ID: {self.conversation_id}): 从DB获取到上次活动: 回复='{str(last_reply)[:30]}...', 想法='{str(last_reasoning)[:30]}...'")
             return last_reply, last_reasoning
         return None, None
@@ -124,28 +116,24 @@ class ChatSession:
             logger.error(f"ChatSession (会话ID: {self.conversation_id}): LLM客户端未设置，无法生成回复。")
             return None
 
-        # 1. 🐾 小猫爪：构建 System Prompt (基于核心人设)
+        # 1. 构建 System Prompt (基于核心人设)
         system_prompt_parts = [
             f"你现在是{self.core_persona_settings.bot_name}，{self.core_persona_settings.description}",
             self.core_persona_settings.profile,
         ]
         if self.group_info:
             system_prompt_parts.append(f"你正在群聊 '{self.group_info.group_name}' 中。")
-            # 尝试获取机器人在该群的昵称/名片
-            # 注意：UserInfo 对象通常代表消息发送者，机器人自身信息可能需要从其他地方获取或在适配器上报时特殊处理
-            # 这里简化处理，假设 core_persona_settings.bot_name 就是机器人在所有地方的通用名称
-            # 更准确的做法是，ChatSession 初始化时，如果知道是群聊，应尝试获取机器人在该群的群名片
-            my_card_in_group = self.core_persona_settings.bot_name # 简化
-            if self.user_info and self.user_info.user_id == self.bot_id and self.user_info.user_cardname: # 理论上这里的user_info是对方的
-                 pass # 实际上需要一个方式获取机器人自身在群里的名片
+            my_card_in_group = self.core_persona_settings.bot_name
+            if self.user_info and self.user_info.user_id == self.bot_id and self.user_info.user_cardname:
+                 pass
             system_prompt_parts.append(f"你在这个群的昵称是 '{my_card_in_group}'。")
 
-        elif self.user_info: # 私聊场景
+        elif self.user_info:
             system_prompt_parts.append(f"你正在与用户 '{self.user_info.user_nickname or self.user_info.user_id}' 私聊。")
         system_prompt_str = "\n".join(filter(None, system_prompt_parts))
         logger.debug(f"ChatSession (会话ID: {self.conversation_id}): 构建的System Prompt: {system_prompt_str}")
 
-        # 2. 🐾 小猫爪：构建 User Prompt (参考 枫_chat_test.md)
+        # 2. 构建 User Prompt (参考 枫_chat_test.md)
         user_prompt_yaml_parts = ["你现在正在群聊中，以下是群聊天记录及相关内容：", "```yaml"]
 
         # 添加 group_info (如果存在)
@@ -154,17 +142,14 @@ class ChatSession:
             user_prompt_yaml_parts.append(f"  group_name: \"{self.group_info.group_name or '未知群名'}\"")
 
         # 添加 user_info (包含机器人自己和对话中的其他用户)
-        # 注意：枫_chat_test.md 中的 user_info 是一个字典，键是用户ID，值是用户信息
-        # 我们需要从 chat_context 中收集所有出现过的用户，并格式化
         all_users_in_context: Dict[str, Dict[str, Optional[str]]] = {}
-        # 添加机器人自己的信息 (简化版，更完善的需要知道机器人在当前会话的具体名片/头衔)
         all_users_in_context[f"{self.bot_id}（你）"] = {
             "sender_nickname": self.core_persona_settings.bot_name,
-            "sender_group_card": self.core_persona_settings.bot_name, # 简化
-            "sender_group_titlename": None, # 简化
-            "sender_group_permission": "成员" # 简化
+            "sender_group_card": self.core_persona_settings.bot_name,
+            "sender_group_titlename": None,
+            "sender_group_permission": "成员"
         }
-        if self.user_info: # 如果是私聊，添加对方信息
+        if self.user_info:
              all_users_in_context[self.user_info.user_id or "unknown_user"] = {
                 "sender_nickname": self.user_info.user_nickname,
                 "sender_group_card": self.user_info.user_cardname,
@@ -174,8 +159,6 @@ class ChatSession:
         for interaction in self.chat_context:
             sender_id = interaction.get("sender_id")
             if sender_id and sender_id != self.bot_id and sender_id not in all_users_in_context:
-                # 尝试从交互记录中提取更完整的 UserInfo (如果DefaultMessageProcessor保存了)
-                # 这里简化为只用昵称，实际应从DB或更丰富的交互数据中获取
                 all_users_in_context[sender_id] = {
                     "sender_nickname": interaction.get("sender_nickname", f"用户_{sender_id}"),
                     "sender_group_card": interaction.get("sender_group_card"),
@@ -187,18 +170,15 @@ class ChatSession:
             for uid, u_info in all_users_in_context.items():
                 user_prompt_yaml_parts.append(f"  \"{uid}\":")
                 for key, val in u_info.items():
-                    if val is not None: # 只添加有值的字段
+                    if val is not None:
                         user_prompt_yaml_parts.append(f"    {key}: \"{val}\"")
 
 
         # 添加 chat_history
         user_prompt_yaml_parts.append("\nchat_history:")
         for interaction in self.chat_context:
-            # 🐾 小猫爪：这里需要将 self.chat_context 中的结构化交互记录转换为YAML格式
-            # 例如，如果 interaction_data 是 {'type': 'user_message', 'timestamp': '...', ...}
-            # 需要转换成枫_chat_test.md中的格式
             user_prompt_yaml_parts.append(f"  - time: \"{interaction.get('timestamp', '')}\"")
-            user_prompt_yaml_parts.append(f"    post_type: {interaction.get('type', 'message')}") # 粗略映射
+            user_prompt_yaml_parts.append(f"    post_type: {interaction.get('type', 'message')}")
             if interaction.get('sub_type'):
                 user_prompt_yaml_parts.append(f"    sub_type: {interaction.get('sub_type')}")
             if interaction.get('message_id'):
@@ -208,32 +188,26 @@ class ChatSession:
                 user_prompt_yaml_parts.append("    message:")
                 for seg_dict in interaction.get('content_segments', []):
                     user_prompt_yaml_parts.append(f"      - type: {seg_dict.get('type')}")
-                    # 确保 data 是字典形式
                     seg_data = seg_dict.get('data', {})
-                    if isinstance(seg_data, str) and seg_dict.get('type') == 'text': # 兼容旧的文本段data是字符串的情况
+                    if isinstance(seg_data, str) and seg_dict.get('type') == 'text':
                         seg_data = {"text": seg_data}
-                    elif not isinstance(seg_data, dict): # 如果不是字典，尝试转为字符串表示
+                    elif not isinstance(seg_data, dict):
                         seg_data = {"raw": str(seg_data)}
 
                     user_prompt_yaml_parts.append("        data:")
                     for k, v_data in seg_data.items():
-                        user_prompt_yaml_parts.append(f"          {k}: \"{v_data}\"") # 简化处理，所有data值都用引号
+                        user_prompt_yaml_parts.append(f"          {k}: \"{v_data}\"")
 
             elif interaction.get('type') == 'platform_event' and interaction.get('event_details'):
-                 # 🐾 小猫爪：这里需要根据事件类型，更精细地格式化 event_details
-                 # 例如：poke事件，member_join事件等，参考枫_chat_test.md中的 notice 类型
                 event_details = interaction.get('event_details', {})
-                user_prompt_yaml_parts.append(f"    notice_type: {event_details.get('notice_type', 'unknown_event')}") # 假设有这个字段
-                # ... 根据事件类型添加更多字段 ...
+                user_prompt_yaml_parts.append(f"    notice_type: {event_details.get('notice_type', 'unknown_event')}")
                 if event_details.get('operator_id'):
                     user_prompt_yaml_parts.append(f"    operator_id: {event_details.get('operator_id')}")
-                if event_details.get('user_id'): # 事件相关的用户
+                if event_details.get('user_id'):
                     user_prompt_yaml_parts.append(f"    user_id: {event_details.get('user_id')}")
-                # ...等等
 
-            # 新增：处理机器人自身消息的上下文展示
             elif interaction.get('type') == 'bot_message' and interaction.get('content_segments'):
-                user_prompt_yaml_parts.append("    message:") # 与用户消息结构类似
+                user_prompt_yaml_parts.append("    message:")
                 for seg_dict in interaction.get('content_segments', []):
                     user_prompt_yaml_parts.append(f"      - type: {seg_dict.get('type')}")
                     seg_data = seg_dict.get('data', {})
@@ -246,12 +220,11 @@ class ChatSession:
                         user_prompt_yaml_parts.append(f"          {k}: \"{v_data}\"")
 
 
-            if interaction.get('sender_id'): # 对所有类型的交互都尝试记录 sender_id
+            if interaction.get('sender_id'):
                 user_prompt_yaml_parts.append(f"    sender_id: {interaction.get('sender_id')}")
             
             if interaction.get('extra_info'):
                 user_prompt_yaml_parts.append("    extra_info:")
-                # extra_info 现在应该是一个字典
                 if isinstance(interaction.get('extra_info'), dict):
                     for k_extra, v_extra in interaction.get('extra_info', {}).items():
                          user_prompt_yaml_parts.append(f"      {k_extra}: \"{v_extra}\"")
@@ -303,9 +276,8 @@ class ChatSession:
             "```"
         )
         user_prompt_str = "\n".join(user_prompt_yaml_parts)
-        logger.debug(f"ChatSession (会话ID: {self.conversation_id}): 构建的User Prompt (截断):\n{user_prompt_str[:1000]}...") # 截断日志输出
+        logger.debug(f"ChatSession (会话ID: {self.conversation_id}): 构建的User Prompt (截断):\n{user_prompt_str[:1000]}...")
 
-        # 3. 调用LLM
         llm_response_data: Optional[Dict[str, Any]] = None
         try:
             logger.info(f"ChatSession (会话ID: {self.conversation_id}): 准备调用LLM...")
@@ -329,7 +301,6 @@ class ChatSession:
             logger.warning(f"ChatSession (会话ID: {self.conversation_id}): LLM返回的文本内容为空。")
             return None
         
-        # 4. 解析LLM的JSON输出
         parsed_llm_json: Optional[Dict[str, Any]] = None
         try:
             if raw_llm_output_text.startswith("```json"):
@@ -346,7 +317,6 @@ class ChatSession:
             self.main_mind_trigger_event.set()
             return None
 
-        # 5. 记录子思维的活动 (逻辑不变)
         self.last_reply_generated = parsed_llm_json.get("reply_text")
         self.last_reply_main_thought_context = main_thought_context
         self.last_reply_reasoning = parsed_llm_json.get("reasoning")
@@ -357,7 +327,7 @@ class ChatSession:
             "platform_id": self.platform_id,
             "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z",
             "llm_input_system_prompt": system_prompt_str,
-            "llm_input_user_prompt": user_prompt_str, # 记录完整的User Prompt
+            "llm_input_user_prompt": user_prompt_str,
             "main_thought_context_injected": main_thought_context,
             "llm_output_json_str": raw_llm_output_text,
             "parsed_mood": self.last_reply_mood,
@@ -378,7 +348,6 @@ class ChatSession:
         else:
             logger.warning(f"ChatSession (会话ID: {self.conversation_id}): DB Handler未设置，无法保存子思维活动日志。")
 
-        # --- 新增：将机器人自己的回复添加到内部上下文 ---
         if parsed_llm_json.get("reply_willing") and self.last_reply_generated:
             logger.info(f"ChatSession (会话ID: {self.conversation_id}): LLM决定回复，内容: '{self.last_reply_generated[:50]}...'")
             bot_reply_interaction_record: Dict[str, Any] = {
@@ -388,10 +357,10 @@ class ChatSession:
                 "sender_id": self.bot_id, 
                 "sender_nickname": self.core_persona_settings.bot_name,
                 "content_segments": [{"type": "text", "data": {"text": self.last_reply_generated}}],
-                "extra_info": { # 将心情和思考过程作为额外信息记录
+                "extra_info": {
                     "mood_at_reply": self.last_reply_mood,
                     "reasoning_for_reply": self.last_reply_reasoning,
-                    "motivation_for_reply": parsed_llm_json.get("motivation") # 也记录动机
+                    "motivation_for_reply": parsed_llm_json.get("motivation")
                 }
             }
             self.add_interaction_to_context(bot_reply_interaction_record)
@@ -401,8 +370,6 @@ class ChatSession:
         else:
             logger.info(f"ChatSession (会话ID: {self.conversation_id}): LLM决定不回复 (reply_willing={parsed_llm_json.get('reply_willing')})。")
 
-
-        # 6. 如果LLM决定要回复，则构建core_action (逻辑不变)
         core_action_to_send: Optional[MessageBase] = None
         if parsed_llm_json.get("reply_willing") and self.last_reply_generated:
             segments_for_reply: List[Seg] = []
@@ -443,7 +410,6 @@ class ChatSession:
             )
             logger.info(f"ChatSession (会话ID: {self.conversation_id}): 已构建发送消息的core_action。")
 
-        # 处理戳一戳动作 (逻辑不变)
         poke_target_id = parsed_llm_json.get("poke")
         if poke_target_id:
             logger.info(f"ChatSession (会话ID: {self.conversation_id}): LLM决定戳一戳目标 '{poke_target_id}'。")
@@ -475,7 +441,6 @@ class ChatSession:
                 )
             logger.info(f"ChatSession (会话ID: {self.conversation_id}): 已构建/追加戳一戳的core_action。")
 
-        # 7. 触发主思维更新事件 (逻辑不变)
         self.main_mind_trigger_event.set()
         logger.debug(f"ChatSession (会话ID: {self.conversation_id}): 已设置main_mind_trigger_event。")
 
@@ -494,7 +459,6 @@ class ChatSession:
             "last_reply_main_thought_context": self.last_reply_main_thought_context,
             "last_reply_reasoning": self.last_reply_reasoning,
             "last_reply_mood": self.last_reply_mood,
-            # (可选) 可以添加更多关于当前聊天风格或短期目标的信息
             "current_chat_style_directives": self.current_chat_style_directives
         }
 
@@ -503,12 +467,12 @@ class ChatSessionManager:
     """
     管理所有 ChatSession 实例。
     """
-    def __init__(self, core_logic_ref: 'CoreLogic'): # 🐾 小猫爪：接收 CoreLogic 的引用
+    def __init__(self, core_logic_ref: 'CurrentCoreLogic'): # 使用修正后的类型提示
         self.active_sessions: Dict[str, ChatSession] = {}
-        self.core_logic_ref: 'CoreLogic' = core_logic_ref # 存储引用
+        self.core_logic_ref: 'CurrentCoreLogic' = core_logic_ref
         self.core_persona_settings: PersonaSettings = core_logic_ref.root_cfg.persona
-        self.sub_mind_llm_client: LLMProcessorClient = core_logic_ref.sub_mind_llm_client # 假设CoreLogic有这个属性
-        self.db_handler: ArangoDBHandler = core_logic_ref.db_handler # 从CoreLogic获取DB Handler
+        self.sub_mind_llm_client: LLMProcessorClient = core_logic_ref.sub_mind_llm_client
+        self.db_handler: ArangoDBHandler = core_logic_ref.db_handler
 
         logger.info("ChatSessionManager 初始化完成。")
 
@@ -520,74 +484,61 @@ class ChatSessionManager:
         if group_id:
             return f"{platform_id}_group_{group_id}"
         elif user_id:
-            # 对于私聊，确保用户ID和机器人ID的顺序固定，以得到唯一会话ID
-            # 假设 user_id 是对方的ID，bot_id 是机器人自己的ID
             participants = sorted([user_id, bot_id])
             return f"{platform_id}_dm_{participants[0]}_{participants[1]}"
         else:
-            # 理论上不应发生，因为消息总有来源
             logger.error("无法生成内部会话ID：同时缺少 group_id 和 user_id。")
             return f"{platform_id}_unknown_{uuid.uuid4()}"
 
 
     async def get_or_create_session(
         self,
-        message: MessageBase # 🐾 小猫爪：直接传入 MessageBase 对象，方便获取所有信息
+        message: MessageBase
     ) -> ChatSession:
         """
         根据传入的 MessageBase 对象获取或创建一个新的 ChatSession 实例。
         """
         msg_info = message.message_info
         platform_id = msg_info.platform
-        bot_id_from_msg = msg_info.bot_id # 这是适配器上报的机器人自身ID
+        bot_id_from_msg = msg_info.bot_id
 
-        # 🐾 小猫爪：从 MessageBase 中提取 group_id 和 user_id (消息发送者)
         group_id: Optional[str] = None
         if msg_info.group_info and msg_info.group_info.group_id:
             group_id = msg_info.group_info.group_id
         
-        # user_id 应该是消息的发送者，或者是私聊对象
-        # 如果是群消息，user_id 是发送者；如果是私聊，user_id 是对方
         user_id_of_sender: Optional[str] = None
         if msg_info.user_info and msg_info.user_info.user_id:
             user_id_of_sender = msg_info.user_info.user_id
 
-        # 生成内部会话ID
-        # 注意：这里的 bot_id_from_msg 应该是机器人自身的ID，用于生成稳定的私聊会话ID
         internal_conv_id = self._generate_internal_conversation_id(platform_id, group_id, user_id_of_sender, bot_id_from_msg)
 
 
         if internal_conv_id not in self.active_sessions:
             logger.info(f"未找到会话ID '{internal_conv_id}' 的ChatSession实例，将创建新的实例。")
             
-            # 🐾 小猫爪：准备初始的群组和用户信息给ChatSession
             initial_group_info_for_session: Optional[GroupInfo] = None
-            if group_id and msg_info.group_info: # 如果是群聊
+            if group_id and msg_info.group_info:
                 initial_group_info_for_session = msg_info.group_info
             
             initial_user_info_for_session: Optional[UserInfo] = None
-            if not group_id and user_id_of_sender and msg_info.user_info: # 如果是私聊，user_info是对方
+            if not group_id and user_id_of_sender and msg_info.user_info:
                 initial_user_info_for_session = msg_info.user_info
 
 
             self.active_sessions[internal_conv_id] = ChatSession(
-                conversation_id=internal_conv_id, # 使用内部生成的ID
+                conversation_id=internal_conv_id,
                 platform_id=platform_id,
-                bot_id=bot_id_from_msg, # 机器人自身ID
+                bot_id=bot_id_from_msg,
                 core_persona_settings=self.core_persona_settings,
                 llm_client=self.sub_mind_llm_client,
                 db_handler=self.db_handler,
-                main_mind_trigger_event=self.core_logic_ref.sub_mind_update_event, # 从CoreLogic引用获取事件
+                main_mind_trigger_event=self.core_logic_ref.sub_mind_update_event,
                 initial_group_info=initial_group_info_for_session,
                 initial_user_info=initial_user_info_for_session
             )
             logger.info(f"已为会话ID '{internal_conv_id}' 创建并注册了新的ChatSession实例。")
         else:
             logger.debug(f"已找到会话ID '{internal_conv_id}' 的现有ChatSession实例。")
-            # 🐾 小猫爪：(可选) 可以在这里更新session的 platform_id 和 bot_id (如果它们可能变化)
-            # self.active_sessions[internal_conv_id].platform_id = platform_id
-            # self.active_sessions[internal_conv_id].bot_id = bot_id_from_msg
-            # 同时，也可以考虑更新群名等信息，如果它们在MessageBase中比ChatSession中存储的更新
             if group_id and msg_info.group_info and self.active_sessions[internal_conv_id].group_info != msg_info.group_info:
                 self.active_sessions[internal_conv_id].group_info = msg_info.group_info
                 logger.debug(f"会话 {internal_conv_id} 的群组信息已更新。")
@@ -602,11 +553,8 @@ class ChatSessionManager:
         """
         session = await self.get_or_create_session(message)
         
-        # 🐾 小猫爪：构建要存入 chat_context 的交互记录字典
-        # 这个结构需要与 ChatSession._get_last_bot_activity_for_prompt 和 generate_reply 中
-        # 解析 chat_context 以构建Prompt的逻辑相匹配。
         interaction_record: Dict[str, Any] = {
-            "type": "user_message", # 或从 message.message_info.interaction_purpose 获取
+            "type": "user_message",
             "timestamp": datetime.datetime.fromtimestamp(message.message_info.time / 1000.0, tz=datetime.timezone.utc).isoformat() + "Z",
             "message_id": message.message_info.message_id,
             "sender_id": message.message_info.user_info.user_id if message.message_info.user_info else "unknown_sender",
@@ -616,14 +564,10 @@ class ChatSessionManager:
             "sender_group_permission": message.message_info.user_info.permission_level or \
                                      (message.message_info.user_info.role if message.message_info.user_info else None),
             "content_segments": [seg.to_dict() for seg in message.message_segment.data] if message.message_segment and isinstance(message.message_segment.data, list) else [],
-            # 🐾 小猫爪：可以考虑加入原始的 platform_event_type (如果适用) 或 message_info.sub_type
             "sub_type": message.message_info.sub_type,
         }
         session.add_interaction_to_context(interaction_record)
         logger.info(f"ChatSessionManager: 用户消息已添加到会话 '{session.conversation_id}' 的上下文中。")
-
-        # 🐾 小猫爪：根据主人的新需求，这里不直接触发回复。
-        # 回复的触发将由 CoreLogic 在其思考循环中，根据情况调用 trigger_session_reply 来完成。
 
     async def handle_incoming_platform_event(self, event_message: MessageBase) -> None:
         """
@@ -632,53 +576,42 @@ class ChatSessionManager:
         """
         session = await self.get_or_create_session(event_message)
         
-        # 🐾 小猫爪：构建平台事件的交互记录
-        # 我们需要从 event_message.message_segment (通常是 type="notification:[event_name]" 的 Seg)
-        # 中提取事件的详细信息。
         event_details_dict: Dict[str, Any] = {}
         event_type_from_seg = "unknown_platform_event"
 
         if event_message.message_segment and isinstance(event_message.message_segment.data, list) and event_message.message_segment.data:
-            # 假设平台事件的主要信息在第一个 seg 的 data 字典里
             first_seg = event_message.message_segment.data[0]
             if isinstance(first_seg, Seg) and isinstance(first_seg.data, dict):
-                event_details_dict = first_seg.data.copy() # 复制字典内容
-                event_type_from_seg = first_seg.type # 例如 "notification:poke_received"
-            elif isinstance(first_seg, dict): # 如果直接是字典
+                event_details_dict = first_seg.data.copy()
+                event_type_from_seg = first_seg.type
+            elif isinstance(first_seg, dict):
                  event_details_dict = first_seg.get("data", {}).copy()
                  event_type_from_seg = first_seg.get("type", "unknown_platform_event")
 
 
         interaction_record: Dict[str, Any] = {
             "type": "platform_event",
-            "event_type_detail": event_type_from_seg, # 更具体的事件类型
+            "event_type_detail": event_type_from_seg,
             "timestamp": datetime.datetime.fromtimestamp(event_message.message_info.time / 1000.0, tz=datetime.timezone.utc).isoformat() + "Z",
-            "message_id": event_message.message_info.message_id, # 事件通常也有ID
-            # 平台事件的 "sender" 可能是操作者，也可能是事件主体
+            "message_id": event_message.message_info.message_id,
             "actor_id": event_message.message_info.user_info.user_id if event_message.message_info.user_info else None,
             "actor_nickname": event_message.message_info.user_info.user_nickname if event_message.message_info.user_info else None,
-            "event_details": event_details_dict, # 包含事件的具体参数
+            "event_details": event_details_dict,
         }
         session.add_interaction_to_context(interaction_record)
         logger.info(f"ChatSessionManager: 平台事件 ({event_type_from_seg}) 已添加到会话 '{session.conversation_id}' 的上下文中。")
-
 
     async def trigger_session_reply(
         self,
         conversation_id: str,
         main_thought_context: Optional[str] = None
     ) -> Optional[MessageBase]:
-        """
-        由 CoreLogic 调用，触发指定会话的子思维生成回复。
-        [MODIFIED]: 如果会话未激活，则先激活它，然后再尝试生成回复。
-        """
         session = self.active_sessions.get(conversation_id)
         if session:
-            if not session.is_active: # 新增：检查会话是否激活
+            if not session.is_active:
                 logger.info(f"ChatSessionManager: 会话 '{conversation_id}' 当前未激活，将在触发回复前先激活它。")
-                session.activate(main_thought_context) # 激活会话，并传递主思维上下文
+                session.activate(main_thought_context)
 
-            # 激活后，再次确认（虽然activate方法内部已经设置了is_active，但作为逻辑流程明确）
             if session.is_active:
                 logger.info(f"ChatSessionManager: 正在为已激活的会话 '{conversation_id}' 触发子思维回复生成。主思维引导: '{str(main_thought_context)[:50]}...'")
                 core_action_message = await session.generate_reply(main_thought_context)
@@ -689,7 +622,6 @@ class ChatSessionManager:
                     logger.warning(f"ChatSessionManager: 会话 '{conversation_id}' 的子思维未能生成回复动作。")
                     return None
             else:
-                # 理论上在调用 session.activate() 后，这里不应该执行到
                 logger.error(f"ChatSessionManager: 尝试激活会话 '{conversation_id}' 后，它仍然处于非激活状态。无法触发回复。")
                 return None
         else:
@@ -735,12 +667,9 @@ class ChatSessionManager:
         """获取所有当前活跃的子思维会话的状态摘要列表。"""
         summaries = []
         for session_id, session_instance in self.active_sessions.items():
-            # 🐾 小猫爪：可以只返回标记为 is_active 的会话，或者所有在 active_sessions 中的会话
-            # if session_instance.is_active:
             summaries.append(session_instance.get_status_summary())
         return summaries
 
-    # 🐾 小猫爪：(可选) 未来可以添加自动休眠和清理非活跃会话的逻辑
     async def _periodic_cleanup_task(self, cleanup_interval_seconds: int = 3600, inactive_threshold_hours: int = 24):
         """后台任务，定期检查并休眠/清理长时间不活跃的会话。"""
         while True:
@@ -750,21 +679,12 @@ class ChatSessionManager:
             inactive_threshold = datetime.timedelta(hours=inactive_threshold_hours)
             
             sessions_to_deactivate = []
-            # sessions_to_remove = [] # 如果要彻底移除
 
-            for conv_id, session_instance in list(self.active_sessions.items()): # 使用list迭代副本
+            for conv_id, session_instance in list(self.active_sessions.items()):
                 if session_instance.is_active and (now - session_instance.last_interaction_time > inactive_threshold):
                     sessions_to_deactivate.append(conv_id)
-                # 进一步的逻辑：如果一个会话已经休眠了更长时间（比如一周），则可以考虑从 active_sessions 中移除
-                # elif not session_instance.is_active and (now - session_instance.last_interaction_time > some_longer_threshold):
-                #     sessions_to_remove.append(conv_id)
 
             for conv_id in sessions_to_deactivate:
                 self.deactivate_session(conv_id)
                 logger.info(f"ChatSessionManager: 会话 '{conv_id}' 因长时间未活动已被自动休眠。")
-            
-            # for conv_id in sessions_to_remove:
-            #     if conv_id in self.active_sessions:
-            #         del self.active_sessions[conv_id]
-            #         logger.info(f"ChatSessionManager: 长时间休眠的会话 '{conv_id}' 已从内存中移除。")
             logger.info("ChatSessionManager: 非活跃会话定期清理完成。")
