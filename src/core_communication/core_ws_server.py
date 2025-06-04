@@ -102,7 +102,7 @@ class CoreWebsocketServer:
                             # 调用注册的回调函数处理解析后的事件，并传递持久化标志
                             try:
                                 await self._event_handler_callback(aicarus_event, websocket, needs_persistence)
-                                logger.info(
+                                logger.debug(
                                     f"事件处理回调已调用: {aicarus_event.event_type} (ID: {aicarus_event.event_id})"
                                 )
                             except Exception as e_callback:
