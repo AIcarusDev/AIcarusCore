@@ -71,27 +71,6 @@ class ProvidersConfig(ConfigBase):  # 用于 [providers] 表
     # 同样，为简单起见，暂时显式列出。
 
 
-# --- Database Settings ---
-@dataclass
-class DatabaseSettings:
-    """数据库设置 - 简化配置"""
-
-    host: str = "http://localhost:8529"
-    database_name: str = "aicarus_core"
-    username: str = "root"
-    password: str = ""
-    auto_cleanup_days: int = 30  # 自动清理多少天前的数据
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "host": self.host,
-            "database_name": self.database_name,
-            "username": self.username,
-            "password": self.password,
-            "auto_cleanup_days": self.auto_cleanup_days,
-        }
-
-
 # --- Server Settings ---
 @dataclass
 class ServerSettings(ConfigBase):
@@ -146,6 +125,5 @@ class AlcarusRootConfig(ConfigBase):
     core_logic_settings: CoreLogicSettings  # 没有默认值，必须提供
     intrusive_thoughts_module_settings: IntrusiveThoughtsSettings  # 没有默认值，必须提供
     providers: ProvidersConfig | None = None
-    database: DatabaseSettings = field(default_factory=DatabaseSettings)
     logging: LoggingSettings = field(default_factory=LoggingSettings)
     server: ServerSettings = field(default_factory=ServerSettings)  # 添加server配置

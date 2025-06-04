@@ -142,7 +142,7 @@ def format_chat_history_for_prompt(raw_messages_from_db: list[dict[str, Any]]) -
         # 支持新的时间戳字段结构
         msg_time_input = msg.get("timestamp") or msg.get("time")
         if msg_time_input is None:
-            print(f"警告: 消息 {msg.get('event_id', msg.get('message_id', '未知ID'))} 缺少时间戳，已跳过。")
+            logger.warning(f"警告: 消息 {msg.get('event_id', msg.get('message_id', '未知ID'))} 缺少时间戳，已跳过。")
             continue
 
         # 时间戳处理逻辑（保持原有逻辑）
@@ -151,7 +151,7 @@ def format_chat_history_for_prompt(raw_messages_from_db: list[dict[str, Any]]) -
                 msg_time_seconds_utc = msg_time_input / 1000.0
                 parsed_msg_time_utc = datetime.datetime.fromtimestamp(msg_time_seconds_utc, datetime.UTC)
             elif isinstance(msg_time_input, str):
-                print(f"警告: 消息时间戳是字符串，尝试解析: {msg_time_input}")
+                logger.warning(f"警告: 消息时间戳是字符串，尝试解析: {msg_time_input}")
                 temp_time_str = msg_time_input.replace("Z", "+00:00")
                 parsed_msg_time_aware_or_naive = datetime.datetime.fromisoformat(temp_time_str)
 
@@ -167,7 +167,7 @@ def format_chat_history_for_prompt(raw_messages_from_db: list[dict[str, Any]]) -
                 raise ValueError(f"时间戳类型不支持: {type(msg_time_input)}")
 
         except ValueError as e_time:
-            print(f"警告: 时间戳处理失败: {e_time}")
+            logger.warning(f"警告: 时间戳处理失败: {e_time}")
             continue
 
         # 时间筛选
@@ -269,8 +269,16 @@ def format_chat_history_for_prompt(raw_messages_from_db: list[dict[str, Any]]) -
             message_content_raw = msg.get("message_content")
 
         final_message_content = []
+        metadata_message_id = None  # 用于存储从metadata中提取的message_id
 
         if isinstance(message_content_raw, list):
+            # 首先提取metadata中的message_id
+            for segment in message_content_raw:
+                if isinstance(segment, dict) and segment.get("type") == "message.metadata":
+                    if isinstance(segment.get("data"), dict):
+                        metadata_message_id = segment["data"].get("message_id")
+                        break
+                    
             # 处理内容列表，排除metadata元素
             for segment in message_content_raw:
                 if isinstance(segment, dict):
@@ -281,27 +289,29 @@ def format_chat_history_for_prompt(raw_messages_from_db: list[dict[str, Any]]) -
 
             # 如果所有元素都被排除，添加一个空文本
             if not final_message_content and message_content_raw:
-                print("注意: 所有消息内容段都被过滤，使用空文本替代")
+                logger.debug("注意: 所有消息内容段都被过滤，使用空文本替代")
                 final_message_content = [{"type": "text", "data": {"text": ""}}]
         elif isinstance(message_content_raw, dict) and "type" in message_content_raw:
             if message_content_raw.get("type") != "message.metadata":
                 final_message_content = [message_content_raw.copy()]
+            elif message_content_raw.get("type") == "message.metadata":
+                metadata_message_id = message_content_raw.get("data", {}).get("message_id")
+                final_message_content = [{"type": "text", "data": {"text": ""}}]
         elif isinstance(message_content_raw, str):
             final_message_content = [{"type": "text", "data": {"text": message_content_raw}}]
         elif message_content_raw is None:
             # 处理空内容情况
-            print("警告: 消息内容为None")
+            logger.warning("警告: 消息内容为None")
             final_message_content = [{"type": "text", "data": {"text": "[空消息]"}}]
         else:
-            print(f"警告: 消息内容格式未知: {type(message_content_raw)}")
+            logger.warning(f"警告: 消息内容格式未知: {type(message_content_raw)}")
             final_message_content = [{"type": "text", "data": {"text": "[未识别的消息格式]"}}]
 
-        # 构建新的chat_message结构
+        # 构建新的chat_message结构 - 优化格式
         chat_message = {
             "time": formatted_time,
-            "post_type": msg.get("post_type", "message"),
-            "sub_type": msg.get("sub_type"),
-            "message_id": str(msg.get("event_id") or msg.get("message_id", uuid.uuid4())),
+            "event_type": msg.get("event_type", "unknown"),  # 使用event_type替代post_type
+            # "message_id": metadata_message_id or str(msg.get("event_id") or msg.get("message_id", uuid.uuid4())),
             "message": final_message_content,
             "sender_id": str(sender_id) if sender_id else "SYSTEM_OR_UNKNOWN",
             "_parsed_timestamp_utc": parsed_msg_time_utc,
