@@ -47,6 +47,8 @@ class DefaultMessageProcessor:
                 await self._handle_request_event(event, websocket)
             elif event.event_type.startswith("action."):
                 await self._handle_action_event(event, websocket)
+            elif event.event_type.startswith("meta."):
+                await self._handle_meta_event(event, websocket)
             else:
                 self.logger.warning(f"未知的事件类型: {event.event_type}")
                 
@@ -91,12 +93,43 @@ class DefaultMessageProcessor:
         except Exception as e:
             self.logger.error(f"处理动作事件时发生错误: {e}", exc_info=True)
     
+    async def _handle_meta_event(self, event: Event, websocket: WebSocketServerProtocol) -> None:
+        """处理元信息事件（如心跳包等）"""
+        try:
+            if event.event_type == "meta.heartbeat":
+                self.logger.debug(f"收到心跳包: {event.event_id}")
+                # 心跳包通常不需要特殊处理，只需要确认收到
+            elif event.event_type == "meta.lifecycle":
+                self.logger.info(f"收到生命周期事件: {event.event_id}")
+            else:
+                self.logger.debug(f"收到其他元信息事件: {event.event_type}")
+                
+        except Exception as e:
+            self.logger.error(f"处理元信息事件时发生错误: {e}", exc_info=True)
+    
     async def _save_message_to_database(self, event: Event) -> None:
         """将消息事件保存到数据库"""
         try:
             if not self.db_handler:
                 self.logger.warning("数据库处理器未设置，无法保存消息")
                 return
+            
+            # 安全获取会话类型
+            conversation_type = None
+            group_id = None
+            group_name = None
+            
+            if event.conversation_info:
+                # 处理可能是字符串或枚举的 type 字段
+                if hasattr(event.conversation_info.type, 'value'):
+                    conversation_type = event.conversation_info.type.value
+                else:
+                    conversation_type = str(event.conversation_info.type)
+                
+                # 如果是群聊，设置群组信息
+                if conversation_type == "group":
+                    group_id = event.conversation_info.conversation_id
+                    group_name = getattr(event.conversation_info, 'name', None)
             
             # 构建消息数据
             message_data = {
@@ -108,14 +141,31 @@ class DefaultMessageProcessor:
                 "conversation_id": event.conversation_info.conversation_id if event.conversation_info else None,
                 "sender_id": event.user_info.user_id if event.user_info else None,
                 "sender_nickname": event.user_info.user_nickname if event.user_info else None,
-                "group_id": event.conversation_info.conversation_id if event.conversation_info and event.conversation_info.type.value == "group" else None,
-                "group_name": event.conversation_info.name if event.conversation_info and event.conversation_info.type.value == "group" else None,
+                "group_id": group_id,
+                "group_name": group_name,
                 "message_content": [seg.to_dict() for seg in event.content],
                 "raw_data": event.raw_data,
                 # 兼容旧字段名
                 "message_id": event.event_id,
                 "post_type": "message",
-                "sub_type": event.event_type.split(".")[-1] if "." in event.event_type else "normal"
+                "sub_type": event.event_type.split(".")[-1] if "." in event.event_type else "normal",
+                # 添加更多用户信息字段
+                "sender_group_permission": getattr(event.user_info, 'permission_level', None) if event.user_info else None,  # 修复：使用permission_level
+                "sender_group_card": getattr(event.user_info, 'user_cardname', None) if event.user_info else None,
+                "sender_group_titlename": getattr(event.user_info, 'user_titlename', None) if event.user_info else None,
+                # 添加原始消息信息转储
+                "raw_message_info_dump": {
+                    "platform": event.platform,
+                    "group_info": {
+                        "group_id": group_id,
+                        "group_name": group_name
+                    } if group_id else None,
+                    "user_info": {
+                        "user_id": event.user_info.user_id if event.user_info else None,
+                        "user_nickname": event.user_info.user_nickname if event.user_info else None,
+                        "user_cardname": getattr(event.user_info, 'user_cardname', None) if event.user_info else None,
+                    } if event.user_info else None
+                }
             }
             
             # 保存到数据库
