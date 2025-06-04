@@ -471,7 +471,6 @@ class CoreLogic:
                     self.logger.debug(f"在过去 {chat_history_duration_minutes} 分钟内未找到用于上下文的信息。")
             except Exception as e_hist:
                 self.logger.error(f"获取或格式化最近上下文信息时出错: {e_hist}", exc_info=True)
-                import traceback
 
                 self.logger.error(f"详细错误堆栈: {traceback.format_exc()}")
 
