@@ -6,6 +6,10 @@ from typing import Any
 
 import yaml
 
+from src.common.custom_logging.logger_manager import get_logger
+
+logger = get_logger("AIcarusCore.utils")
+
 
 # --- 自定义YAML处理类 ---
 class ForceDoubleQuoteStr(str):
@@ -132,7 +136,7 @@ def format_chat_history_for_prompt(raw_messages_from_db: list[dict[str, Any]]) -
 
     for msg in raw_messages_from_db:
         if not isinstance(msg, dict):
-            print(f"警告: 消息应该是字典类型，但收到了 {type(msg)}: {msg}")
+            logger.warning(f"警告: 消息应该是字典类型，但收到了 {type(msg)}: {msg}")
             continue
 
         # 支持新的时间戳字段结构

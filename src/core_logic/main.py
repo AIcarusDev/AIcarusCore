@@ -6,6 +6,7 @@ import os
 import random
 import re
 import threading
+import traceback
 import uuid
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
