@@ -369,6 +369,26 @@ class ChatSession:
             logger.warning(f"ChatSession (会话ID: {self.conversation_id}): LLM决定回复 (reply_willing=true)，但 reply_text 为空。")
         else:
             logger.info(f"ChatSession (会话ID: {self.conversation_id}): LLM决定不回复 (reply_willing={parsed_llm_json.get('reply_willing')})。")
+            no_reply_motivation = parsed_llm_json.get("motivation", "未明确说明不回复的原因。")
+            internal_event_record: Dict[str, Any] = {
+                "type": "internal_event",  # 对应你示例中的 post_type
+                "sub_type": "no_reply_decision",
+                "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat() + "Z", # 使用当前时间
+                "message_id": f"internal_no_reply_{self.conversation_id}_{uuid.uuid4()}", # 生成一个唯一ID
+                "sender_id": self.bot_id,  # 表明这是机器人（你）的内部决策
+                "extra_info": [ # extra_info 是一个列表，包含一个字典
+                    {"motivation": no_reply_motivation}
+                ]
+                # 你也可以考虑在这里加入当时的 "mood" 和 "reasoning" 到 extra_info，如果需要LLM在历史中看到
+                # 例如:
+                # "extra_info": [
+                #     {"motivation": no_reply_motivation},
+                #     {"mood_at_decision": self.last_reply_mood}, # 使用上面刚记录的mood
+                #     {"reasoning_at_decision": self.last_reply_reasoning} # 使用上面刚记录的reasoning
+                # ]
+            }
+            self.add_interaction_to_context(internal_event_record)
+            logger.info(f"ChatSession (会话ID: {self.conversation_id}): 已将'不回复决策'作为内部事件添加到上下文中。动机: '{no_reply_motivation[:50]}...'")
 
         core_action_to_send: Optional[MessageBase] = None
         if parsed_llm_json.get("reply_willing") and self.last_reply_generated:
