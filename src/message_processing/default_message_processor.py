@@ -2,7 +2,7 @@
 from typing import TYPE_CHECKING
 
 # v1.4.0 协议导入 - 替换旧的导入
-from aicarus_protocols import Event
+from aicarus_protocols import Event, Seg
 from websockets.server import WebSocketServerProtocol
 
 from src.common.custom_logging.logger_manager import get_logger
@@ -34,7 +34,7 @@ class DefaultMessageProcessor:
             needs_persistence: 是否需要将此事件持久化到数据库，默认为True
         """
         try:
-            self.logger.info(f"处理事件: {event.event_type}, ID: {event.event_id}")
+            self.logger.debug(f"处理事件: {event.event_type}, ID: {event.event_id}")
 
             # 只有当needs_persistence为True时才保存事件到数据库
             if needs_persistence:
@@ -55,6 +55,8 @@ class DefaultMessageProcessor:
                 await self._handle_message_event(event, websocket)
             elif event.event_type.startswith("request."):
                 await self._handle_request_event(event, websocket)
+            elif event.event_type.startswith("action."):
+                await self._handle_action_event(event, websocket)
             else:
                 self.logger.debug(f"未知事件类型: {event.event_type}")
 
@@ -68,10 +70,22 @@ class DefaultMessageProcessor:
             text_content = self._extract_text_from_content(event.content)
 
             if text_content:
-                self.logger.debug(f"消息内容: {text_content[:100]}...")
+                self.logger.info(f"消息内容: {text_content[:100]}...")
 
         except Exception as e:
             self.logger.error(f"处理消息事件时发生错误: {e}", exc_info=True)
+
+    async def _handle_action_event(self, event: Event, websocket: WebSocketServerProtocol) -> None:
+        """处理动作事件"""
+        try:
+            # 提取消息文本内容
+            text_content = self._extract_text_from_content(event.content)
+
+            if text_content:
+                self.logger.info(f"动作内容: {text_content[:100]}...")
+
+        except Exception as e:
+            self.logger.error(f"处理动作事件时发生错误: {e}", exc_info=True)
 
     async def _handle_request_event(self, event: Event, websocket: WebSocketServerProtocol) -> None:
         """处理请求事件"""
@@ -87,14 +101,14 @@ class DefaultMessageProcessor:
         try:
             text_parts = []
             for segment in content:
-                if isinstance(segment, dict):
-                    if segment.get("type") == "text":
-                        text_parts.append(segment.get("data", {}).get("text", ""))
-                    elif segment.get("type") == "at":
-                        text_parts.append(f"@{segment.get('data', {}).get('display_name', '用户')}")
-                    elif segment.get("type") == "image":
+                if isinstance(segment, Seg):
+                    if segment.type == "text":
+                        text_parts.append(segment.data.get("text", ""))
+                    elif segment.type == "at":
+                        text_parts.append(f"@{segment.data.get('display_name', segment.data.get('user_id', 'Unknown'))}")
+                    elif segment.type == "image":
                         text_parts.append("[图片]")
-                    elif segment.get("type") == "voice":
+                    elif segment.type == "voice":
                         text_parts.append("[语音]")
 
             return " ".join(text_parts).strip()
