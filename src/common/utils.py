@@ -69,7 +69,7 @@ class MessageContentProcessor:
             seg_type = segment.get("type", "")
             seg_data = segment.get("data", {})
 
-            if seg_type == "message.metadata":
+            if seg_type == "message_metadata":
                 continue
 
             if seg_type == "image":
