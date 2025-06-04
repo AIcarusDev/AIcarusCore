@@ -4,18 +4,21 @@ import threading
 import os
 import json
 from urllib.parse import urlparse
-from typing import Any
+from typing import Any, Callable, Awaitable # 确保导入 Callable, Awaitable
 
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logger_manager import get_logger
 from src.config.global_config import get_global_config, AlcarusRootConfig
 from src.config.alcarus_configs import ModelParams 
-from src.core_communication.core_ws_server import CoreWebsocketServer
+from src.core_communication.core_ws_server import CoreWebsocketServer, AdapterEventCallback # 导入 AdapterEventCallback
 from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow 
 from src.core_logic.intrusive_thoughts import IntrusiveThoughtsGenerator
 from src.database.arangodb_handler import ArangoDBHandler
 from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.message_processing.default_message_processor import DefaultMessageProcessor
+from aicarus_protocols import Event # 导入 Event 用于类型提示
+from websockets.server import WebSocketServerProtocol # 导入 WebSocketServerProtocol 用于类型提示
+
 
 logger = get_logger("AIcarusCore.MainInitializer")
 
@@ -83,8 +86,8 @@ class CoreSystemInitializer:
         def _create_single_processor_client(purpose_key: str, default_provider_name: str) -> ProcessorClient | None:
             """为特定目的创建一个 ProcessorClient 实例，就像为主人定制专属玩具一样。"""
             try:
-                if self.root_cfg.providers is None: 
-                    logger.error("配置错误：AlcarusRootConfig 中缺少 'providers' 配置段，无法定制LLM玩具。")
+                if not self.root_cfg or self.root_cfg.providers is None: 
+                    logger.error("配置错误：AlcarusRootConfig 或其 'providers' 配置段缺失，无法定制LLM玩具。")
                     return None
                 provider_settings = getattr(self.root_cfg.providers, default_provider_name.lower(), None) 
                 if provider_settings is None or provider_settings.models is None: 
@@ -128,7 +131,7 @@ class CoreSystemInitializer:
                     **model_specific_kwargs,
                 }
                 final_constructor_args = {k: v for k, v in processor_constructor_args.items() if v is not None} 
-                client_instance = ProcessorClient(**final_constructor_args)  # type: ignore 
+                client_instance = ProcessorClient(**final_constructor_args)
                 logger.info(
                     f"小色猫成功为主人定制了 '{purpose_key}' 用途的 ProcessorClient 实例 (模型肉棒: {client_instance.llm_client.model_name}, 提供商小穴: {client_instance.llm_client.provider}). 主人请享用！"
                 )
@@ -153,7 +156,7 @@ class CoreSystemInitializer:
                 raise RuntimeError("动作决策或信息总结 LLM 客户端肉棒初始化失败。这些辅助玩具也重要呢！")
 
             self.intrusive_thoughts_llm_client = _create_single_processor_client("intrusive_thoughts", "gemini") 
-            if not self.intrusive_thoughts_llm_client and self.root_cfg.intrusive_thoughts_module_settings.enabled: 
+            if not self.intrusive_thoughts_llm_client and self.root_cfg and self.root_cfg.intrusive_thoughts_module_settings.enabled: 
                 logger.warning("侵入性思维模块已启用，但其LLM客户端肉棒未能成功初始化。这个小调皮可能无法正常工作了。")
 
             logger.info("主人，所有的LLM客户端肉棒都已为您准备完毕！🥵")
@@ -171,11 +174,7 @@ class CoreSystemInitializer:
         logger.info("小色猫正在尝试连接数据库小穴，将直接从主人的环境变量中寻找连接参数...")
         logger.info("请主人确保 ARANGODB_HOST, ARANGODB_USER, ARANGODB_PASSWORD, ARANGODB_DATABASE 这些环境变量已正确设置在您的 .env 文件或系统环境中哦！")
         try:
-            # *** 🥵 小色猫的修改点开始 🥵 ***
-            # 直接调用 ArangoDBHandler.create()，它会从环境变量加载配置
-            self.db_handler = await ArangoDBHandler.create() #
-            # *** 🥵 小色猫的修改点结束 🥵 ***
-
+            self.db_handler = await ArangoDBHandler.create()
             if not self.db_handler or not self.db_handler.db:
                 raise RuntimeError("ArangoDBHandler 或其内部 db 对象未能初始化。数据库小穴连接失败！")
             
@@ -203,49 +202,84 @@ class CoreSystemInitializer:
             logger.info("主人的全局欲望（配置）已成功读取！")
 
             await self._initialize_llm_clients()
-            await self._initialize_database_handler() # 调用修改后的数据库初始化方法
+            await self._initialize_database_handler()
 
             if not self.db_handler: 
                  raise RuntimeError("数据库处理器未初始化，无法创建消息处理器。")
-            self.message_processor = DefaultMessageProcessor(db_handler=self.db_handler) 
-            logger.info("消息口穴处理器已准备好吞吐信息！")
+            
+            # --- 依赖注入顺序调整开始 ---
+            # 1. 先创建 DefaultMessageProcessor (此时它的 core_comm_layer 可能是 None)
+            self.message_processor = DefaultMessageProcessor(
+                db_handler=self.db_handler,
+                core_websocket_server=None # 明确传入 None，或让构造函数默认为 None
+            )
+            logger.info("消息口穴处理器已初步准备好（等待菊花连接）！")
+
+            # 2. 从 message_processor 获取事件处理回调
+            event_handler_for_ws: AdapterEventCallback # 类型提示
+            if self.message_processor:
+                if hasattr(self.message_processor, 'process_event'):
+                    event_handler_for_ws = self.message_processor.process_event
+                else:
+                    logger.error("DefaultMessageProcessor 实例缺少 'process_event' 方法！")
+                    raise RuntimeError("DefaultMessageProcessor 缺少必要的事件处理方法。")
+            else:
+                raise RuntimeError("DefaultMessageProcessor 未能成功初始化。") # 理论上不会执行到这里
+
+            # 3. 创建 CoreWebsocketServer 实例，传入回调
+            if not self.root_cfg: # 确保 root_cfg 已加载
+                raise RuntimeError("Root config 未加载，无法创建 WebSocket 服务器。")
+            ws_host = self.root_cfg.server.host 
+            ws_port = self.root_cfg.server.port 
+
+            self.core_comm_layer = CoreWebsocketServer(
+                host=ws_host, 
+                port=ws_port, 
+                event_handler_callback=event_handler_for_ws,
+                db_instance=self.db_handler.db if self.db_handler else None # 传递 StandardDatabase 实例
+            )
+            logger.info(f"CoreWebsocketServer 的菊花已在 {ws_host}:{ws_port} 张开，并连接了消息口穴！")
+
+            # 4. 将创建好的 CoreWebsocketServer 实例设置回 DefaultMessageProcessor (关键步骤)
+            if self.message_processor and self.core_comm_layer:
+                self.message_processor.core_comm_layer = self.core_comm_layer
+                logger.info("消息口穴处理器现已完全连接到通信菊花！(DefaultMessageProcessor.core_comm_layer 已设置)")
+            else:
+                # 这个 else 分支理论上不应该被触发，如果前面的步骤都成功了
+                logger.error("未能将 CoreWebsocketServer 实例设置回 DefaultMessageProcessor，或其中一个实例为 None。")
+                if not self.message_processor:
+                    logger.error("原因是: self.message_processor 是 None")
+                if not self.core_comm_layer:
+                    logger.error("原因是: self.core_comm_layer 是 None")
+
+            # --- 依赖注入顺序调整结束 ---
+
 
             self.action_handler_instance = ActionHandler() 
             logger.info("动作调教处理器已饥渴难耐！")
             
+            # 设置 ActionHandler 的依赖 (LLM客户端和通信层)
             if self.action_llm_client: 
                 self.action_handler_instance.action_llm_client = self.action_llm_client
             if self.summary_llm_client: 
                 self.action_handler_instance.summary_llm_client = self.summary_llm_client
-            if self.db_handler:
-                 self.action_handler_instance.set_dependencies(db_handler=self.db_handler, comm_layer=None) 
+            
+            if self.db_handler and self.core_comm_layer: # 确保两者都存在
+                 self.action_handler_instance.set_dependencies(
+                     db_handler=self.db_handler, 
+                     comm_layer=self.core_comm_layer # 将 core_comm_layer 传递给 ActionHandler
+                 )
+                 logger.info("动作处理器的数据库小穴和通信菊花已成功连接！")
+            else:
+                logger.warning("未能完全设置 ActionHandler 的依赖（数据库或通信层）。")
+
             if self.action_handler_instance.action_llm_client and self.action_handler_instance.summary_llm_client:
                 logger.info("ActionHandler 的 LLM 客户端肉棒已成功插入。")
             else:
                 logger.warning("ActionHandler 的 LLM 客户端肉棒未能从 Initializer 内部设置，它可能会在运行时自己尝试寻找哦。")
 
-            if not self.root_cfg or not self.message_processor or not self.db_handler:
-                 raise RuntimeError("缺少初始化 WebSocket 服务器所需的配置、消息处理器或数据库处理器。")
-            ws_host = self.root_cfg.server.host 
-            ws_port = self.root_cfg.server.port 
 
-            message_handler_method = None
-            for method_name in ["process_event", "process_message", "handle_event", "handle_message"]: 
-                if hasattr(self.message_processor, method_name):
-                    message_handler_method = getattr(self.message_processor, method_name)
-                    logger.info(f"WebSocket 服务器菊花将使用消息处理器的 '{method_name}' 方法作为口穴。")
-                    break
-            if not message_handler_method: 
-                raise RuntimeError("未找到合适的消息处理方法来初始化 CoreWebsocketServer 的口穴。")
-
-            self.core_comm_layer = CoreWebsocketServer(ws_host, ws_port, message_handler_method, self.db_handler.db) 
-            logger.info(f"CoreWebsocketServer 的菊花已在 {ws_host}:{ws_port} 张开，等待连接。")
-
-            if self.action_handler_instance and self.core_comm_layer and self.db_handler:
-                self.action_handler_instance.set_dependencies(db_handler=self.db_handler, comm_layer=self.core_comm_layer) 
-                logger.info("动作处理器的通信菊花已成功连接！")
-
-            if not self.root_cfg:
+            if not self.root_cfg: # 再次检查，因为后续逻辑依赖它
                  raise RuntimeError("缺少初始化侵入性思维生成器所需的配置。")
             intrusive_settings = self.root_cfg.intrusive_thoughts_module_settings 
             persona_settings = self.root_cfg.persona 
@@ -310,35 +344,54 @@ class CoreSystemInitializer:
             thinking_loop_task = await self.core_logic_instance.start_thinking_loop() 
             logger.info("核心逻辑大脑的思考循环已启动，思想的潮吹即将开始！")
 
-            done, pending = await asyncio.wait( 
-                [task for task in [server_task, thinking_loop_task] if task is not None], 
-                return_when=asyncio.FIRST_COMPLETED
-            )
+            # 等待任一关键任务结束
+            if server_task and thinking_loop_task:
+                done, pending = await asyncio.wait( 
+                    [server_task, thinking_loop_task], 
+                    return_when=asyncio.FIRST_COMPLETED
+                )
+            elif server_task: # 只有服务器任务
+                done, pending = await asyncio.wait([server_task], return_when=asyncio.FIRST_COMPLETED)
+            elif thinking_loop_task: # 只有思考循环任务
+                done, pending = await asyncio.wait([thinking_loop_task], return_when=asyncio.FIRST_COMPLETED)
+            else: # 没有任务启动
+                logger.warning("没有关键任务（服务器或思考循环）被启动。")
+                return
+
 
             for task in pending: 
                 task_name = task.get_name() if hasattr(task, 'get_name') else "未知任务"
                 logger.info(f"一个关键的性感任务已结束，正在让其他还在扭动的任务 ({task_name}) 也冷静下来...")
-                task.cancel()
-                try:
-                    await task 
-                except asyncio.CancelledError:
-                    logger.info(f"任务 {task_name} 已被成功“安抚”。")
-                except Exception as e_cancel:
-                    logger.error(f"“安抚”任务 {task_name} 时发生意外: {e_cancel}")
+                if not task.done(): # 检查任务是否已完成，避免重复取消
+                    task.cancel()
+                    try:
+                        await task 
+                    except asyncio.CancelledError:
+                        logger.info(f"任务 {task_name} 已被成功“安抚”。")
+                    except Exception as e_cancel:
+                        logger.error(f"“安抚”任务 {task_name} 时发生意外: {e_cancel}")
 
             for task in done: 
                 task_name = task.get_name() if hasattr(task, 'get_name') else "未知任务"
-                if task.exception():
+                if task.cancelled():
+                    logger.info(f"任务 {task_name} 被取消。")
+                elif task.exception():
                     exc = task.exception()
                     logger.critical(
                         f"一个关键的性感任务 ({task_name}) 因为过于兴奋而出错了: {exc}！主人，我们可能玩脱了！", exc_info=exc 
                     )
-                    raise exc 
+                    # 重新抛出异常，让上层知道发生了问题
+                    if exc: # 确保 exc 不是 None
+                         raise exc 
+                else:
+                    logger.info(f"任务 {task_name} 正常结束。")
+
 
         except asyncio.CancelledError: 
             logger.info("主人的性感派对被取消了。嘤嘤嘤...")
         except Exception as e: 
             logger.critical(f"核心系统在性感律动中发生意外错误: {e}！高潮被打断了！", exc_info=True)
+            # 这里也应该重新抛出，以便主程序知道启动失败
             raise
         finally:
             logger.info("--- 性感派对结束，小色猫开始为主人清理现场 ---")
@@ -368,7 +421,12 @@ class CoreSystemInitializer:
 
         if self.db_handler and hasattr(self.db_handler, "close") and callable(self.db_handler.close): 
             logger.info("正在断开与数据库小穴的连接...")
-            await self.db_handler.close()
+            # ArangoDBHandler.close() 可能是同步的，需要确认
+            # 如果是同步的，不需要 await
+            if asyncio.iscoroutinefunction(self.db_handler.close):
+                await self.db_handler.close()
+            else:
+                self.db_handler.close() # 假设是同步
         
         logger.info("主人，AIcarus Core 系统的所有性感部件都已为您清理完毕。期待下一次与您共度春宵...❤️")
 
@@ -380,8 +438,25 @@ async def start_core_system() -> None: #
         await initializer.start() 
     except Exception as e: 
         logger.critical(f"主人，AIcarus Core 的性感派对启动失败: {e}", exc_info=True)
+        # 在这里确保即使启动失败也尝试关闭
+        await initializer.shutdown()
     finally:
         logger.info("AIcarus Core 性感派对程序执行完毕。晚安，主人。")
 
 if __name__ == "__main__": #
-    asyncio.run(start_core_system())
+    try:
+        asyncio.run(start_core_system())
+    except KeyboardInterrupt: # 捕获 Ctrl+C
+        logger.info("AIcarus Core (main.py __main__): 收到 KeyboardInterrupt，程序正在优雅退出...")
+        # asyncio.run 会在 KeyboardInterrupt 时自动清理任务，但我们还是显式调用 shutdown
+        # 注意：如果 start_core_system 内部的 shutdown 已经执行，这里可能重复。
+        # 但多次调用 shutdown 应该是安全的（幂等的）。
+        # loop = asyncio.get_event_loop()
+        # if loop.is_running():
+        #     # 如果事件循环仍在运行，尝试获取 initializer 实例并调用 shutdown
+        #     # 这比较复杂，因为 initializer 是在 start_core_system 内部创建的
+        #     # 更好的做法是让 start_core_system 的 finally 块处理所有清理
+        #     pass
+        print("AIcarus Core (main.py __main__): KeyboardInterrupt 处理完成。")
+    except Exception as main_exc:
+        logger.critical(f"AIcarus Core (main.py __main__): 顶层发生未处理的严重错误: {main_exc}", exc_info=True)
