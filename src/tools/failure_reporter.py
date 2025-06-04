@@ -1,38 +1,50 @@
 # Core_thinking/tools/failure_reporter.py
+"""
+行动失败报告工具
+"""
+
 import asyncio
 
 from src.common.custom_logging.logger_manager import get_logger
 
-logger = get_logger("AIcarusCore.failure_reporter")
+logger = get_logger("AIcarusCore.tools.failure_reporter")
 
 
 async def report_action_failure(
     intended_action_description: str, intended_action_motivation: str, reason_for_failure_short: str | None = None
 ) -> str:
     """
-    Generates a standardized message indicating an action failed.
+    报告行动失败
+
     Args:
-        intended_action_description (str): The original action Shuang intended to take.
-        intended_action_motivation (str): Shuang's motivation for the action.
-        reason_for_failure_short (str | None): A brief, optional reason for the failure.
+        intended_action_description: 原始行动描述
+        intended_action_motivation: 行动动机
+        reason_for_failure_short: 失败原因简述
+
     Returns:
-        str: A formatted failure message.
+        格式化的失败报告
     """
-    logger.info(
-        f"[FailureReporter] 报告动作失败: '{intended_action_description}', "
-        f"原因: '{reason_for_failure_short or '未指定'}'"
-    )
+    try:
+        logger.info(f"报告行动失败: {intended_action_description} - {reason_for_failure_short}")
 
-    if reason_for_failure_short:
-        failure_message = (
-            f"你尝试进行 '{intended_action_description}' 这个动作，但它没有成功，"
-            f"看起来是因为：{reason_for_failure_short}。"
-        )
-    else:
-        failure_message = f"你尝试进行 '{intended_action_description}' 这个动作，但它失败了，具体原因不太清楚。"
+        if reason_for_failure_short:
+            failure_report = (
+                f"我原本想要'{intended_action_description}'，"
+                f"动机是'{intended_action_motivation}'，"
+                f"但是遇到了问题：{reason_for_failure_short}"
+            )
+        else:
+            failure_report = (
+                f"我原本想要'{intended_action_description}'，"
+                f"动机是'{intended_action_motivation}'，"
+                "但是遇到了问题，具体原因不明。"
+            )
 
-    await asyncio.sleep(0.01)
-    return failure_message
+        return failure_report
+
+    except Exception as e:
+        logger.error(f"生成失败报告时发生错误: {e}")
+        return f"我尝试执行'{intended_action_description}'时遇到了问题，但连失败报告都生成失败了。"
 
 
 if __name__ == "__main__":

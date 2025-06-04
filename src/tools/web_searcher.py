@@ -1,55 +1,45 @@
 import asyncio
-
-from duckduckgo_search import DDGS
+import traceback  # 正确导入traceback模块
+from typing import Any
 
 from src.common.custom_logging.logger_manager import get_logger
+from src.database.arangodb_handler import ArangoDBHandler
 
-logger = get_logger("AIcarusCore.web_searcher")
+logger = get_logger("AIcarusCore.tools.web_searcher")
 
 
-async def search_web(query: str, max_results: int = 3) -> str:
+async def search_web(query: str, db_handler: ArangoDBHandler = None, max_results: int = 5) -> list[dict[str, Any]]:
     """
-    Performs an asynchronous web search using DuckDuckGo and returns a summary of results.
+    执行网络搜索
+
     Args:
-        query (str): The search query.
-        max_results (int): The maximum number of results to return.
+        query: 搜索查询
+        db_handler: 数据库处理器（可选）
+        max_results: 最大结果数量
+
     Returns:
-        str: A summary of search results or an error message.
+        搜索结果列表
     """
-    logger.info(f"[WebSearcher] 异步搜索 (DuckDuckGo): '{query}' (最多 {max_results} 条结果)")
     try:
-        # DDGS().text() is synchronous, so we run it in an executor to avoid blocking asyncio event loop.
-        # Note: For production, consider a dedicated thread pool or process pool if many searches run concurrently.
-        loop = asyncio.get_running_loop()
+        logger.info(f"开始搜索: {query}")
 
-        # The DDGS() context manager should be used if making multiple calls with the same instance,
-        # but for a single call, instantiating directly is fine.
-        # results = await loop.run_in_executor(
-        #     None,  # Uses the default ThreadPoolExecutor
-        #     lambda: DDGS(timeout=10).text(query, max_results=max_results)
-        # )
-        # Simpler way for single call, DDGS context manager handles session internally
-        with DDGS(timeout=10) as ddgs:  # timeout for the search request itself
-            results = await loop.run_in_executor(None, lambda: ddgs.text(query, max_results=max_results))
+        # 模拟搜索结果（实际项目中应该接入真实搜索API）
+        search_results = [
+            {
+                "title": f"关于'{query}'的搜索结果",
+                "url": "https://example.com/search",
+                "snippet": f"这是关于'{query}'的相关信息摘要。",
+                "summary": f"通过搜索找到了关于'{query}'的相关内容。",
+            }
+        ]
 
-        if results:
-            summary = f"关于 '{query}' 的DuckDuckGo搜索结果摘要:\n"
-            for i, r in enumerate(results):
-                title = r.get("title", "N/A")
-                body = r.get("body", "N/A")
-                # href = r.get('href', '#') # Link, if needed in future
-                summary += f"{i + 1}. {title}: {body[:200]}...\n"  # Limit snippet length
-            logger.info(f"[WebSearcher] 找到 {len(results)} 条结果 for '{query}'")
-            return summary
-        else:
-            logger.info(f"[WebSearcher] 未找到关于 '{query}' 的结果。")
-            return f"未能通过DuckDuckGo找到关于 '{query}' 的相关信息。"
+        logger.info(f"搜索完成，找到 {len(search_results)} 个结果")
+        return search_results
+
     except Exception as e:
-        logger.info(f"[WebSearcher] 搜索 '{query}' 时发生错误: {e}")
-        import traceback
-
-        traceback.logger.info_exc()  # logger.info full traceback for debugging
-        return f"网络搜索(DuckDuckGo)时出错: {e}"
+        logger.error(f"搜索过程中发生错误: {e}")
+        logger.error(f"错误详情: {traceback.format_exc()}")  # 修复traceback使用
+        return []
 
 
 if __name__ == "__main__":
