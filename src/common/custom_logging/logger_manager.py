@@ -46,7 +46,7 @@ def get_logger(original_english_module_name: str) -> LoguruLoggerType:
     """获取模块日志器"""
     # 获取样式配置
     style_config_data = MODULE_LOGGER_CONFIGS.get(original_english_module_name)
-    
+
     # 获取翻译后的显示名称
     display_name_for_log = MODULE_NAME_TRANSLATIONS.get(original_english_module_name, original_english_module_name)
 

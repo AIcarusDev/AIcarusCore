@@ -10,24 +10,21 @@ import uuid
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
-from src.common.custom_logging.logger_manager import get_logger
 from src.action.action_handler import ActionHandler
-from src.core_communication.core_ws_server import CoreWebsocketServer
-from src.message_processing.default_message_processor import DefaultMessageProcessor
-from src.core_logic.intrusive_thoughts import IntrusiveThoughtsGenerator
-from src.database.arangodb_handler import ArangoDBHandler
-from src.llmrequest.llm_processor import Client as ProcessorClient
+from src.common.custom_logging.logger_manager import get_logger
 from src.common.utils import format_chat_history_for_prompt
 from src.config.alcarus_configs import (
-    AlcarusRootConfig,
     CoreLogicSettings,
-    IntrusiveThoughtsSettings,
     LLMClientSettings,
     ModelParams,
-    PersonaSettings,
     ProxySettings,
 )
 from src.config.global_config import global_config
+from src.core_communication.core_ws_server import CoreWebsocketServer
+from src.core_logic.intrusive_thoughts import IntrusiveThoughtsGenerator
+from src.database.arangodb_handler import ArangoDBHandler
+from src.llmrequest.llm_processor import Client as ProcessorClient
+from src.message_processing.default_message_processor import DefaultMessageProcessor
 
 if TYPE_CHECKING:
     pass
@@ -219,11 +216,11 @@ class CoreLogic:
     ) -> tuple[dict[str, Any], str | None]:
         action_id_whose_result_is_being_shown: str | None = None
         state_from_initial = self.INITIAL_STATE.copy()
-        
+
         # 简化：直接处理数据库返回的文档
         if isinstance(latest_thought_document, list):
             latest_thought_document = latest_thought_document[0] if latest_thought_document else None
-        
+
         if not latest_thought_document or not isinstance(latest_thought_document, dict):
             self.logger.info("最新的思考文档为空或格式不正确，使用初始思考状态。")
             mood_for_prompt = state_from_initial["mood"]
@@ -234,14 +231,14 @@ class CoreLogic:
             # 简化：直接使用 .get() 方法，无需额外的安全包装
             mood_db = latest_thought_document.get("emotion_output", state_from_initial["mood"].split("：", 1)[-1])
             mood_for_prompt = f"你现在的心情大概是：{mood_db}"
-            
+
             prev_think_db = latest_thought_document.get("think_output")
             previous_thinking_for_prompt = (
                 f"你的上一轮思考是：{prev_think_db}"
                 if prev_think_db and prev_think_db.strip()
                 else state_from_initial["previous_thinking"]
             )
-            
+
             guidance_db = latest_thought_document.get(
                 "next_think_output",
                 state_from_initial["thinking_guidance"].split("：", 1)[-1]
@@ -249,15 +246,17 @@ class CoreLogic:
                 else "随意发散一下吧。",
             )
             thinking_guidance_for_prompt = f"经过你上一轮的思考，你目前打算的思考方向是：{guidance_db}"
-            
+
             current_task_for_prompt = latest_thought_document.get("to_do_output", state_from_initial["current_task"])
-            if latest_thought_document.get("done_output", False) and current_task_for_prompt == latest_thought_document.get("to_do_output"):
+            if latest_thought_document.get(
+                "done_output", False
+            ) and current_task_for_prompt == latest_thought_document.get("to_do_output"):
                 current_task_for_prompt = state_from_initial["current_task"]
-        
+
         action_result_info_prompt = state_from_initial["action_result_info"]
         pending_action_status_prompt = state_from_initial["pending_action_status"]
         last_action_attempt = latest_thought_document.get("action_attempted") if latest_thought_document else None
-        
+
         if last_action_attempt and isinstance(last_action_attempt, dict):
             action_status = last_action_attempt.get("status")
             action_description = last_action_attempt.get("action_description", "某个之前的动作")
@@ -269,7 +268,9 @@ class CoreLogic:
                     action_result_info_prompt = result_for_shuang
                     action_id_whose_result_is_being_shown = action_id
             elif action_status and action_status not in ["COMPLETED_SUCCESS", "COMPLETED_FAILURE", "CRITICAL_FAILURE"]:
-                pending_action_status_prompt = f"你目前有一个正在进行的动作：{action_description} (状态：{action_status})"
+                pending_action_status_prompt = (
+                    f"你目前有一个正在进行的动作：{action_description} (状态：{action_status})"
+                )
 
         # 构建状态字典
         current_state_for_prompt = {
@@ -411,21 +412,23 @@ class CoreLogic:
             formatted_recent_contextual_info = self.INITIAL_STATE["recent_contextual_information"]
             try:
                 # 使用正确的方法名获取最近消息
-                raw_context_messages = await self.db_handler.get_recent_chat_messages_for_context(chat_history_duration_minutes)
+                raw_context_messages = await self.db_handler.get_recent_chat_messages_for_context(
+                    chat_history_duration_minutes
+                )
                 # 详细分析消息结构
                 if raw_context_messages:
                     msg_count = len(raw_context_messages)
                     self.logger.debug(f"获取到 {msg_count} 条原始上下文消息")
-                    
+
                     # 详细分析第一条消息结构
                     if msg_count > 0:
                         first_msg = raw_context_messages[0]
                         self.logger.debug(f"第一条消息类型: {type(first_msg)}")
                         if isinstance(first_msg, dict):
                             self.logger.debug(f"第一条消息字段: {list(first_msg.keys())}")
-                            
+
                             # 特别检查消息内容字段
-                            for field in ['message_content', 'content', 'message']:
+                            for field in ["message_content", "content", "message"]:
                                 if field in first_msg:
                                     content = first_msg[field]
                                     self.logger.debug(f"消息内容字段 '{field}' 类型: {type(content)}")
@@ -433,15 +436,15 @@ class CoreLogic:
                                         self.logger.debug(f"内容第一项类型: {type(content[0])}")
                                         if isinstance(content[0], dict):
                                             self.logger.debug(f"内容第一项字段: {list(content[0].keys())}")
-                            
+
                             # 检查事件类型和元数据
-                            event_type = first_msg.get('event_type', 'unknown')
+                            event_type = first_msg.get("event_type", "unknown")
                             self.logger.debug(f"事件类型: {event_type}")
-                            
+
                             # 检查平台和ID字段
-                            platform = first_msg.get('platform', 'unknown')
-                            sender_id = first_msg.get('sender_id', 'unknown')
-                            timestamp = first_msg.get('timestamp', 0)
+                            platform = first_msg.get("platform", "unknown")
+                            sender_id = first_msg.get("sender_id", "unknown")
+                            timestamp = first_msg.get("timestamp", 0)
                             self.logger.debug(f"平台: {platform}, 发送者ID: {sender_id}, 时间戳: {timestamp}")
                 if raw_context_messages:
                     self.logger.debug(f"获取到的原始上下文消息样本 (前2条): {raw_context_messages[:2]}")
@@ -469,6 +472,7 @@ class CoreLogic:
             except Exception as e_hist:
                 self.logger.error(f"获取或格式化最近上下文信息时出错: {e_hist}", exc_info=True)
                 import traceback
+
                 self.logger.error(f"详细错误堆栈: {traceback.format_exc()}")
 
             current_state_for_prompt, action_id_whose_result_was_shown_in_last_prompt = (
@@ -584,11 +588,11 @@ class CoreLogic:
                 if "_llm_usage_info" in generated_thought_json:
                     document_to_save_in_main["_llm_usage_info"] = generated_thought_json["_llm_usage_info"]
                 saved_thought_doc_key = await self.db_handler.save_thought_document(document_to_save_in_main)
-            
+
             # 修复：确保正确处理返回值
             if saved_thought_doc_key and isinstance(saved_thought_doc_key, str):
                 self.logger.debug(f"思考文档已保存，文档键: {saved_thought_doc_key}")
-                
+
                 if action_info_for_task and self.action_handler_instance:
                     action_task = asyncio.create_task(
                         self.action_handler_instance.process_action_flow(
@@ -607,7 +611,9 @@ class CoreLogic:
             elif saved_thought_doc_key is None:
                 self.logger.error("保存思考文档失败，返回None")
             else:
-                self.logger.error(f"保存思考文档返回了无效的类型: {type(saved_thought_doc_key)}, 值: {saved_thought_doc_key}")
+                self.logger.error(
+                    f"保存思考文档返回了无效的类型: {type(saved_thought_doc_key)}, 值: {saved_thought_doc_key}"
+                )
             self.logger.debug(f"  等待 {thinking_interval_sec} 秒...")
             try:
                 await asyncio.wait_for(asyncio.to_thread(self.stop_event.wait), timeout=float(thinking_interval_sec))
@@ -650,10 +656,13 @@ class CoreLogic:
             # 4. 初始化消息处理器 - 简化参数
             self.message_processor = DefaultMessageProcessor(db_handler=self.db_handler)  # 移除 root_config 参数
             self.logger.info("DefaultMessageProcessor 已成功初始化。")
-            
+
             # 检查消息处理器的可用方法
-            available_methods = [method for method in dir(self.message_processor) 
-                               if not method.startswith('_') and callable(getattr(self.message_processor, method))]
+            available_methods = [
+                method
+                for method in dir(self.message_processor)
+                if not method.startswith("_") and callable(getattr(self.message_processor, method))
+            ]
             self.logger.info(f"DefaultMessageProcessor 可用方法: {available_methods}")
 
             # 5. 确保数据库集合存在 - 只保留必要的
@@ -680,22 +689,20 @@ class CoreLogic:
         # 7. 初始化 WebSocket 服务器 - 使用全局配置
         ws_host = global_config.server.host
         ws_port = global_config.server.port
-        
+
         # 动态确定消息处理方法
         message_handler_method = None
-        for method_name in ['process_event', 'process_message', 'handle_event', 'handle_message']:
+        for method_name in ["process_event", "process_message", "handle_event", "handle_message"]:
             if hasattr(self.message_processor, method_name):
                 message_handler_method = getattr(self.message_processor, method_name)
                 self.logger.info(f"使用消息处理方法: {method_name}")
                 break
-        
+
         if not message_handler_method:
             self.logger.error("未找到合适的消息处理方法")
             return
-        
-        self.core_comm_layer = CoreWebsocketServer(
-            ws_host, ws_port, message_handler_method, self.db_handler.db
-        )
+
+        self.core_comm_layer = CoreWebsocketServer(ws_host, ws_port, message_handler_method, self.db_handler.db)
 
         # 8. 设置 ActionHandler 依赖
         if self.action_handler_instance:
@@ -761,18 +768,13 @@ class CoreLogic:
             for task in done:
                 if task.exception():
                     self.logger.critical(
-                        f"一个关键任务 ({task.get_name()}) 因异常而结束: {task.exception()}", 
-                        exc_info=task.exception()
+                        f"一个关键任务 ({task.get_name()}) 因异常而结束: {task.exception()}", exc_info=task.exception()
                     )
 
         except KeyboardInterrupt:
-            self.logger.info(
-                f"\n--- {global_config.persona.bot_name} 的意识流动被用户手动中断 ---"
-            )
+            self.logger.info(f"\n--- {global_config.persona.bot_name} 的意识流动被用户手动中断 ---")
         except asyncio.CancelledError:
-            self.logger.info(
-                f"\n--- {global_config.persona.bot_name} 的意识流动主任务被取消 ---"
-            )
+            self.logger.info(f"\n--- {global_config.persona.bot_name} 的意识流动主任务被取消 ---")
         except Exception as e_main_flow:
             self.logger.critical(f"\n--- 意识流动主流程发生意外错误: {e_main_flow} ---", exc_info=True)
         finally:
@@ -811,20 +813,18 @@ class CoreLogic:
                 self.logger.info("正在关闭 ArangoDBHandler...")
                 await self.db_handler.close()
 
-            self.logger.info(
-                f"程序清理完成。{global_config.persona.bot_name} 的意识已停止流动。"
-            )
+            self.logger.info(f"程序清理完成。{global_config.persona.bot_name} 的意识已停止流动。")
 
 
-async def start_consciousness_flow():
+async def start_consciousness_flow() -> None:
     """启动意识流程的主函数"""
     try:
         logger.info("=== 开始启动 AIcarus Core 意识流程 ===")
-        
+
         # 直接创建 CoreLogic 实例，无需传递配置
         core_logic = CoreLogic()
         await core_logic.start()
-        
+
     except KeyboardInterrupt:
         logger.info("收到用户中断信号，正在优雅关闭...")
     except Exception as e:
@@ -834,4 +834,5 @@ async def start_consciousness_flow():
 
 if __name__ == "__main__":
     import asyncio
+
     asyncio.run(start_consciousness_flow())

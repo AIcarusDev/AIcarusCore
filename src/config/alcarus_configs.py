@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional  # 添加 Any 的导入
+from typing import Any  # 添加 Any 的导入
 
 # 导入 ConfigBase
 from .config_base import ConfigBase
@@ -75,19 +75,20 @@ class ProvidersConfig(ConfigBase):  # 用于 [providers] 表
 @dataclass
 class DatabaseSettings:
     """数据库设置 - 简化配置"""
+
     host: str = "http://localhost:8529"
     database_name: str = "aicarus_core"
-    username: str = "root" 
+    username: str = "root"
     password: str = ""
     auto_cleanup_days: int = 30  # 自动清理多少天前的数据
-    
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "host": self.host,
             "database_name": self.database_name,
             "username": self.username,
             "password": self.password,
-            "auto_cleanup_days": self.auto_cleanup_days
+            "auto_cleanup_days": self.auto_cleanup_days,
         }
 
 

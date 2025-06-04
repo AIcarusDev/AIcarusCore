@@ -17,6 +17,7 @@ logger = get_logger("AIcarusCore.ws_server")  # 获取日志记录器
 # 参数：解析后的 Event 对象，发送此事件的 WebSocket 连接对象，是否需要持久化标志
 AdapterEventCallback = Callable[[Event, WebSocketServerProtocol, bool], Awaitable[None]]
 
+
 class CoreWebsocketServer:
     def __init__(
         self,
@@ -32,24 +33,24 @@ class CoreWebsocketServer:
         self._event_handler_callback: AdapterEventCallback = event_handler_callback  # 重命名属性
         self._stop_event: asyncio.Event = asyncio.Event()  # 用于优雅停止服务器的事件
         self.db_instance: StandardDatabase | None = db_instance  # 存储数据库实例，如果回调需要通过这里获取
-    
+
     def _needs_persistence(self, event: Event) -> bool:
         """
         判断事件是否需要持久化存储到数据库
-        
+
         参数:
             event: 需要判断的事件对象
-            
+
         返回:
             bool: 如果需要持久化返回True，否则返回False
         """
         # 以下事件类型不需要持久化存储
         non_persistent_types = [
-            "meta.heartbeat",          # 心跳包
-            "meta.lifecycle.connect",      # 连接建立
+            "meta.heartbeat",  # 心跳包
+            "meta.lifecycle.connect",  # 连接建立
             # 可以根据需要添加更多类型
         ]
-        
+
         return event.event_type not in non_persistent_types
 
     async def _register_adapter(self, websocket: WebSocketServerProtocol) -> None:
@@ -83,28 +84,30 @@ class CoreWebsocketServer:
                         try:
                             # 输出详细的消息字典，帮助调试
                             logger.debug(f"准备解析的消息字典: {message_dict}")
-                            
+
                             # 使用协议库的 from_dict 方法将字典转换为 Event 对象
                             aicarus_event = Event.from_dict(message_dict)
-                            
+
                             # 验证事件对象的完整性
-                            if not hasattr(aicarus_event, 'event_id') or not hasattr(aicarus_event, 'event_type'):
+                            if not hasattr(aicarus_event, "event_id") or not hasattr(aicarus_event, "event_type"):
                                 logger.error(f"解析后的事件对象缺少必要属性: {vars(aicarus_event)}")
                                 continue
-                                
+
                             logger.debug(f"解析后的 Event: {aicarus_event.event_type} (ID: {aicarus_event.event_id})")
-                            
+
                             # 判断事件是否需要持久化
                             needs_persistence = self._needs_persistence(aicarus_event)
                             logger.debug(f"事件需要持久化: {needs_persistence}")
-                            
+
                             # 调用注册的回调函数处理解析后的事件，并传递持久化标志
                             try:
                                 await self._event_handler_callback(aicarus_event, websocket, needs_persistence)
-                                logger.info(f"事件处理回调已调用: {aicarus_event.event_type} (ID: {aicarus_event.event_id})")
+                                logger.info(
+                                    f"事件处理回调已调用: {aicarus_event.event_type} (ID: {aicarus_event.event_id})"
+                                )
                             except Exception as e_callback:
                                 logger.error(f"事件处理回调执行错误: {e_callback}", exc_info=True)
-                                
+
                         except KeyError as e_key:
                             logger.error(f"解析或处理事件时发生键错误: {e_key}. 数据: {message_dict}", exc_info=True)
                         except AttributeError as e_attr:
@@ -206,10 +209,10 @@ class CoreWebsocketServer:
             # 将事件序列化为JSON
             action_data = action_event.to_dict()
             action_json = json.dumps(action_data, ensure_ascii=False)
-            
+
             success_count = 0
             total_adapters = len(self.connected_adapters)
-            
+
             # 向所有适配器发送动作
             for websocket in self.connected_adapters.copy():
                 try:
@@ -220,17 +223,15 @@ class CoreWebsocketServer:
                     logger.error(f"向适配器 {websocket.remote_address} 发送动作失败: {e}")
                     # 如果连接已断开，从列表中移除
                     await self._unregister_adapter(websocket)
-            
+
             logger.info(f"动作广播完成: {success_count}/{total_adapters} 个适配器成功接收")
             return success_count > 0
-            
+
         except Exception as e:
             logger.error(f"广播动作时发生错误: {e}", exc_info=True)
             return False
 
-    async def send_action_to_specific_adapter(
-        self, websocket: WebSocketServerProtocol, action_event: Event
-    ) -> bool:
+    async def send_action_to_specific_adapter(self, websocket: WebSocketServerProtocol, action_event: Event) -> bool:
         """向指定的适配器连接发送一个动作事件。"""
         if websocket not in self.connected_adapters:
             logger.warning(f"尝试向一个未注册或已断开的适配器发送动作: {websocket.remote_address}")

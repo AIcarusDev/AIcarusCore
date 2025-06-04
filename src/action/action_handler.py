@@ -3,23 +3,17 @@ import asyncio
 import json
 import os  # 添加缺失的os导入
 import time  # 添加缺失的time导入
-import datetime  # 添加缺失的datetime导入
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 # v1.4.0 协议导入 - 替换旧的导入
-from aicarus_protocols import Event, UserInfo, ConversationInfo, Seg, SegBuilder, EventBuilder, EventType, ConversationType
-
 # StandardDatabase 仅用于类型提示，实际操作通过 ArangoDBHandler
 from src.common.custom_logging.logger_manager import get_logger
-from src.common.utils import safe_get_first_item, safe_dict_get  # 使用统一工具函数
 from src.config.alcarus_configs import (
-    AlcarusRootConfig,
     LLMClientSettings,
     ModelParams,
     ProxySettings,
 )
-from src.config.config_manager import get_typed_settings  # 保留配置加载
 from src.config.global_config import global_config
 from src.core_communication.core_ws_server import CoreWebsocketServer
 from src.database.arangodb_handler import ArangoDBHandler  # 导入封装后的数据库处理器
@@ -370,14 +364,11 @@ class ActionHandler:
                         type: "unknown"
                     }}
             """
-            
-            bind_vars = {
-                "threshold_time": threshold_time_ms,
-                "max_instances": max_instances_to_return
-            }
-            
+
+            bind_vars = {"threshold_time": threshold_time_ms, "max_instances": max_instances_to_return}
+
             results = await self.db_handler.execute_query(query, bind_vars)
-            
+
             return json.dumps({"instances": results or []}, ensure_ascii=False)
 
         except Exception as e:
@@ -389,14 +380,14 @@ class ActionHandler:
     async def _get_current_action_state_for_idempotency(self, doc_key: str) -> dict | None:
         """[幂等性辅助函数] 获取指定文档键的当前 action_attempted 状态。"""
         if not self.db_handler:
-            self.logger.error(f"数据库处理器未设置，无法获取文档状态。")
+            self.logger.error("数据库处理器未设置，无法获取文档状态。")
             return None
-        
+
         # 基本的文档键检查
         if not doc_key or not isinstance(doc_key, str):
             self.logger.error(f"无效的文档键: {type(doc_key)}, 值: {doc_key}")
             return None
-            
+
         try:
             doc = await asyncio.to_thread(
                 self.db_handler.db.collection(ArangoDBHandler.THOUGHTS_COLLECTION_NAME).get,
@@ -425,19 +416,23 @@ class ActionHandler:
         try:
             # 添加类型验证
             if not isinstance(doc_key_for_updates, str):
-                self.logger.error(f"doc_key_for_updates 应该是字符串，但收到了 {type(doc_key_for_updates)}: {doc_key_for_updates}")
+                self.logger.error(
+                    f"doc_key_for_updates 应该是字符串，但收到了 {type(doc_key_for_updates)}: {doc_key_for_updates}"
+                )
                 return
 
             # 基本参数检查
             if not isinstance(action_id, str) or not isinstance(doc_key_for_updates, str):
                 self.logger.error(f"参数类型错误 - action_id: {type(action_id)}, doc_key: {type(doc_key_for_updates)}")
                 return
-            
+
             if not self.db_handler:
                 self.logger.critical(f"严重错误 [Action ID: {action_id}]: 数据库处理器未初始化，无法处理行动。")
                 return
 
-            self.logger.debug(f"--- [Action ID: {action_id}, DocKey: {doc_key_for_updates}] 进入 process_action_flow ---")
+            self.logger.debug(
+                f"--- [Action ID: {action_id}, DocKey: {doc_key_for_updates}] 进入 process_action_flow ---"
+            )
 
             if not self.action_llm_client or not self.summary_llm_client:
                 try:
@@ -484,7 +479,12 @@ class ActionHandler:
                     self.logger.debug(
                         f"[条件更新检查] Action ID {action_id}: 状态已经是 {target_status_processing}，不尝试更新，继续流程。"
                     )
-                elif current_status_val in ["TOOL_EXECUTING", "COMPLETED_SUCCESS", "COMPLETED_FAILURE", "CRITICAL_FAILURE"]:
+                elif current_status_val in [
+                    "TOOL_EXECUTING",
+                    "COMPLETED_SUCCESS",
+                    "COMPLETED_FAILURE",
+                    "CRITICAL_FAILURE",
+                ]:
                     self.logger.debug(
                         f"[条件更新检查] Action ID {action_id}: 状态 ({current_status_val}) 已跳过 {target_status_processing}，不回退更新。检查是否跳过LLM决策。"
                     )
@@ -494,9 +494,7 @@ class ActionHandler:
                     self.logger.debug(
                         f"[Action ID {action_id}]: 尝试更新状态到 {target_status_processing}。当前状态: {current_status_val}"
                     )
-                    expected_cond_for_processing = (
-                        {"status": current_status_val} if current_status_val else None
-                    )
+                    expected_cond_for_processing = {"status": current_status_val} if current_status_val else None
 
                     update_success_processing = await self.db_handler.update_action_status_in_document(
                         doc_key_for_updates,
@@ -512,7 +510,9 @@ class ActionHandler:
                             f"[Action ID {action_id}]: 更新状态到 {target_status_processing} 的DB调用返回False。重新获取状态。"
                         )
                         current_action_state = await self._get_current_action_state_for_idempotency(doc_key_for_updates)
-                        if not (current_action_state and current_action_state.get("status") == target_status_processing):
+                        if not (
+                            current_action_state and current_action_state.get("status") == target_status_processing
+                        ):
                             self.logger.error(
                                 f"错误 [Action ID: {action_id}]: 更新到 {target_status_processing} 后状态仍不正确 ({current_action_state.get('status') if current_action_state else 'None'})，流程终止。"
                             )
@@ -564,35 +564,43 @@ class ActionHandler:
                             doc_data = latest_doc_for_msg_context[0] if latest_doc_for_msg_context else {}
                         else:
                             doc_data = latest_doc_for_msg_context
-                            
+
                         # 记录文档键以便调试
-                        self.logger.debug(f"最新文档键: {list(doc_data.keys()) if isinstance(doc_data, dict) else '非字典类型'}")
-                        
+                        self.logger.debug(
+                            f"最新文档键: {list(doc_data.keys()) if isinstance(doc_data, dict) else '非字典类型'}"
+                        )
+
                         # 首先尝试使用recent_contextual_information_input字段
                         if isinstance(doc_data, dict) and "recent_contextual_information_input" in doc_data:
                             contextual_info = doc_data["recent_contextual_information_input"]
-                            self.logger.debug(f"从recent_contextual_information_input提取消息上下文")
-                            
+                            self.logger.debug("从recent_contextual_information_input提取消息上下文")
+
                             # 提取聊天历史
                             if "chat_history:" in contextual_info:
                                 chat_lines = []
                                 chat_section = contextual_info.split("chat_history:")[1].split("\n")
-                                
+
                                 for line in chat_section:
                                     if "time:" in line and "message:" in contextual_info:
                                         # 提取时间和消息
                                         time_part = line.strip()
-                                        sender_part = next((l for l in chat_section if "sender_id:" in l), "")
-                                        message_part = next((l for l in chat_section if "text:" in l), "")
-                                        
+                                        sender_part = next(
+                                            (line_item for line_item in chat_section if "sender_id:" in line_item), ""
+                                        )
+                                        message_part = next(
+                                            (line_item for line_item in chat_section if "text:" in line_item), ""
+                                        )
+
                                         if time_part and sender_part and message_part:
                                             sender = sender_part.split("sender_id:")[1].strip().strip('"')
                                             content = message_part.split("text:")[1].strip().strip('"')
                                             chat_lines.append(f"- 用户消息来自{sender}: {content}")
-                                
+
                                 if chat_lines:
                                     relevant_adapter_messages_context = "\n".join(chat_lines[-3:])
-                                    self.logger.debug(f"从recent_contextual_information_input提取到 {len(chat_lines)} 条消息")
+                                    self.logger.debug(
+                                        f"从recent_contextual_information_input提取到 {len(chat_lines)} 条消息"
+                                    )
                 except Exception as e_fetch_msg:
                     self.logger.warning(f"获取最近适配器消息以供行动决策时出错: {e_fetch_msg}", exc_info=True)
                     # 确保即使出错，仍有默认值
@@ -623,7 +631,9 @@ class ActionHandler:
                     if decision_response.get("error"):
                         error_msg = decision_response.get("message", "行动决策LLM调用时返回了错误状态")
                         self.logger.error(f"错误 [Action ID: {action_id}]: 行动决策LLM调用失败 - {error_msg}")
-                        final_result_for_shuang = f"我试图决定如何执行动作 '{action_description}' 时遇到了问题: {error_msg}"
+                        final_result_for_shuang = (
+                            f"我试图决定如何执行动作 '{action_description}' 时遇到了问题: {error_msg}"
+                        )
                         action_was_successful = False
                         await self.db_handler.update_action_status_in_document(
                             doc_key_for_updates,
@@ -814,7 +824,9 @@ class ActionHandler:
                                     active_threshold_days=tool_args.get("active_threshold_days", 7),
                                     max_instances_to_return=tool_args.get("max_instances_to_return", 20),
                                 )
-                                self.logger.info(f"获取活跃聊天实例成功，返回 {len(json.loads(active_instances_result).get('instances', []))} 个实例。")
+                                self.logger.info(
+                                    f"获取活跃聊天实例成功，返回 {len(json.loads(active_instances_result).get('instances', []))} 个实例。"
+                                )
                                 final_result_for_shuang = active_instances_result
                                 action_was_successful = True
                             except Exception as e:

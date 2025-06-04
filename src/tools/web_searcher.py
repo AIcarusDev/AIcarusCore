@@ -1,10 +1,6 @@
 import asyncio
-import json
-import time
 import traceback  # 正确导入traceback模块
-from typing import Any, Dict, List
-
-import aiohttp
+from typing import Any
 
 from src.common.custom_logging.logger_manager import get_logger
 from src.database.arangodb_handler import ArangoDBHandler
@@ -12,7 +8,7 @@ from src.database.arangodb_handler import ArangoDBHandler
 logger = get_logger("AIcarusCore.tools.web_searcher")
 
 
-async def search_web(query: str, db_handler: ArangoDBHandler = None, max_results: int = 5) -> List[Dict[str, Any]]:
+async def search_web(query: str, db_handler: ArangoDBHandler = None, max_results: int = 5) -> list[dict[str, Any]]:
     """
     执行网络搜索
 

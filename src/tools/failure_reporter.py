@@ -3,15 +3,15 @@
 行动失败报告工具
 """
 
+import asyncio
+
 from src.common.custom_logging.logger_manager import get_logger
 
 logger = get_logger("AIcarusCore.tools.failure_reporter")
 
 
 async def report_action_failure(
-    intended_action_description: str,
-    intended_action_motivation: str,
-    reason_for_failure_short: str | None = None
+    intended_action_description: str, intended_action_motivation: str, reason_for_failure_short: str | None = None
 ) -> str:
     """
     报告行动失败
@@ -25,9 +25,7 @@ async def report_action_failure(
         格式化的失败报告
     """
     try:
-        logger.info(
-            f"报告行动失败: {intended_action_description} - {reason_for_failure_short}"
-        )
+        logger.info(f"报告行动失败: {intended_action_description} - {reason_for_failure_short}")
 
         if reason_for_failure_short:
             failure_report = (

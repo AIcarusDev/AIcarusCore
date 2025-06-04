@@ -28,8 +28,8 @@ try:
         ProxySettings,
     )
     from src.core_logic.main import CoreLogic
-    from src.llmrequest.llm_processor import Client as ProcessorClient
     from src.database import StorageManager  # 新增：导入存储管理器
+    from src.llmrequest.llm_processor import Client as ProcessorClient
 except ImportError as e:
     st.error(f"哎呀，导入模块又双叒叕失败了！是不是路径没搞对？错误：{e}")
     st.info("提示：请确保你的项目结构能正确导入所有需要的模块。")
@@ -307,22 +307,18 @@ def llm_configuration_sidebar() -> None:
         # 新增：数据库配置部分
         st.markdown("---")
         st.subheader("数据库配置 🗄️")
-        
+
         if not st.session_state.storage_initialized:
             db_host = st.text_input("数据库地址", "http://localhost:8529", key="db_host_cfg")
             db_name = st.text_input("数据库名", "aicarus_core", key="db_name_cfg")
             db_user = st.text_input("用户名", "root", key="db_user_cfg")
             db_pass = st.text_input("密码", "", type="password", key="db_pass_cfg")
-            
+
             if st.button("🔌 连接数据库", key="init_db_cfg_btn"):
-                async def connect_to_database():
-                    db_config = {
-                        "host": db_host,
-                        "database_name": db_name,
-                        "username": db_user,
-                        "password": db_pass
-                    }
-                    
+
+                async def connect_to_database() -> None:
+                    db_config = {"host": db_host, "database_name": db_name, "username": db_user, "password": db_pass}
+
                     storage_manager = StorageManager(db_config)
                     if await storage_manager.initialize():
                         st.session_state.storage_manager = storage_manager
@@ -331,7 +327,7 @@ def llm_configuration_sidebar() -> None:
                         st.experimental_rerun()
                     else:
                         st.error("数据库连接失败！😿")
-                
+
                 asyncio.create_task(connect_to_database())
         else:
             st.success("✅ 数据库已连接")

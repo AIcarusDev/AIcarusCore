@@ -6,22 +6,29 @@ from typing import Any
 
 import yaml
 
+
 # --- 自定义YAML处理类 ---
 class ForceDoubleQuoteStr(str):
     """强制双引号输出的字符串包装类"""
+
     pass
+
 
 class MyDumper(yaml.SafeDumper):
     """自定义YAML转储器"""
+
     pass
+
 
 def force_double_quote_str_representer(dumper: MyDumper, data: ForceDoubleQuoteStr) -> yaml.ScalarNode:
     """强制双引号字符串表示器"""
     return dumper.represent_scalar("tag:yaml.org,2002:str", str(data), style='"')
 
+
 MyDumper.add_representer(ForceDoubleQuoteStr, force_double_quote_str_representer)
 
 JsonValue = dict[str, "JsonValue"] | list["JsonValue"] | str | int | float | bool | None
+
 
 def wrap_string_values_for_yaml(data: JsonValue) -> JsonValue:
     """递归包装字符串值为双引号格式"""
@@ -33,6 +40,7 @@ def wrap_string_values_for_yaml(data: JsonValue) -> JsonValue:
         return ForceDoubleQuoteStr(data)
     return data
 
+
 # --- 消息内容处理器 ---
 class MessageContentProcessor:
     """统一的消息内容处理器"""
@@ -42,12 +50,12 @@ class MessageContentProcessor:
         """从标准格式的内容列表中提取纯文本"""
         if not content or not isinstance(content, list):
             return ""
-            
+
         text_parts = []
         for segment in content:
             if not isinstance(segment, dict):
                 continue
-                
+
             seg_type = segment.get("type", "")
             seg_data = segment.get("data", {})
 
@@ -93,26 +101,17 @@ class MessageContentProcessor:
             "data": {"file_id": file_id, "url": url},
         }
 
+
 # --- 简化的辅助函数 ---
 def extract_text_from_segments(content: list[dict]) -> str:
     """提取文本内容的简化接口"""
     return MessageContentProcessor.extract_text_content(content)
 
+
 def create_simple_text_message(text: str) -> list[dict]:
     """创建简单的文本消息内容"""
     return [MessageContentProcessor.create_text_segment(text)]
 
-def safe_get_first_item(data: Any) -> Any:
-    """安全获取列表第一项或字典本身"""
-    if isinstance(data, list):
-        return data[0] if data else None
-    return data
-
-def safe_dict_get(data: dict | None, key: str, default: Any = None) -> Any:
-    """安全的字典取值"""
-    if not isinstance(data, dict):
-        return default
-    return data.get(key, default)
 
 # --- 聊天记录格式化（更新为适应新结构）---
 def format_chat_history_for_prompt(raw_messages_from_db: list[dict[str, Any]]) -> str:
@@ -144,7 +143,7 @@ def format_chat_history_for_prompt(raw_messages_from_db: list[dict[str, Any]]) -
 
         # 时间戳处理逻辑（保持原有逻辑）
         try:
-            if isinstance(msg_time_input, (int, float)):
+            if isinstance(msg_time_input, int | float):
                 msg_time_seconds_utc = msg_time_input / 1000.0
                 parsed_msg_time_utc = datetime.datetime.fromtimestamp(msg_time_seconds_utc, datetime.UTC)
             elif isinstance(msg_time_input, str):
@@ -152,8 +151,10 @@ def format_chat_history_for_prompt(raw_messages_from_db: list[dict[str, Any]]) -
                 temp_time_str = msg_time_input.replace("Z", "+00:00")
                 parsed_msg_time_aware_or_naive = datetime.datetime.fromisoformat(temp_time_str)
 
-                if (parsed_msg_time_aware_or_naive.tzinfo is None or 
-                    parsed_msg_time_aware_or_naive.tzinfo.utcoffset(parsed_msg_time_aware_or_naive) is None):
+                if (
+                    parsed_msg_time_aware_or_naive.tzinfo is None
+                    or parsed_msg_time_aware_or_naive.tzinfo.utcoffset(parsed_msg_time_aware_or_naive) is None
+                ):
                     parsed_msg_time_local = parsed_msg_time_aware_or_naive.replace(tzinfo=assumed_local_tz_for_fallback)
                     parsed_msg_time_utc = parsed_msg_time_local.astimezone(datetime.UTC)
                 else:
@@ -172,7 +173,9 @@ def format_chat_history_for_prompt(raw_messages_from_db: list[dict[str, Any]]) -
         # 获取消息分组信息 - 适配新结构
         platform = msg.get("platform", "未知平台")
         conversation_info = msg.get("conversation_info", {})
-        group_id_val = conversation_info.get("conversation_id") if isinstance(conversation_info, dict) else msg.get("group_id")
+        group_id_val = (
+            conversation_info.get("conversation_id") if isinstance(conversation_info, dict) else msg.get("group_id")
+        )
         group_key_part = str(group_id_val) if group_id_val is not None else "direct_or_no_group"
         group_key = (platform, group_key_part)
 
@@ -181,28 +184,32 @@ def format_chat_history_for_prompt(raw_messages_from_db: list[dict[str, Any]]) -
             group_name = None
             if isinstance(conversation_info, dict):
                 group_name = conversation_info.get("name")
-                
+
             if group_name is None:
                 group_name = msg.get("group_name")
-                
+
             if group_id_val is None and not group_name:
                 # 尝试从用户信息获取昵称
                 user_info = msg.get("user_info", {})
                 sender_nick_for_group_name = None
                 if isinstance(user_info, dict):
                     sender_nick_for_group_name = user_info.get("user_nickname")
-                
+
                 if not sender_nick_for_group_name:
                     sender_nick_for_group_name = msg.get("sender_nickname", "未知用户")
-                    
-                group_name = (f"与 {sender_nick_for_group_name} 的对话" 
-                            if sender_nick_for_group_name != "未知用户" else "直接消息")
+
+                group_name = (
+                    f"与 {sender_nick_for_group_name} 的对话"
+                    if sender_nick_for_group_name != "未知用户"
+                    else "直接消息"
+                )
 
             grouped_messages[group_key]["group_info"] = {
                 "platform_name": platform,
                 "group_id": str(group_id_val) if group_id_val is not None else None,
-                "group_name": group_name if group_name is not None else 
-                           ("未知群名" if group_id_val is not None else "直接消息会话"),
+                "group_name": group_name
+                if group_name is not None
+                else ("未知群名" if group_id_val is not None else "直接消息会话"),
             }
 
         # 用户信息处理 - 适配新结构
@@ -210,26 +217,26 @@ def format_chat_history_for_prompt(raw_messages_from_db: list[dict[str, Any]]) -
         sender_id = None
         if isinstance(user_info, dict):
             sender_id = user_info.get("user_id")
-        
+
         if not sender_id:
             sender_id = msg.get("sender_id") or msg.get("user_id")
-            
+
         if sender_id:
             sender_id_str = str(sender_id)
             if sender_id_str not in grouped_messages[group_key]["user_info"]:
                 user_details = {}
-                
+
                 # 从新的user_info结构中获取信息
                 if isinstance(user_info, dict):
                     user_details = {
                         "sender_nickname": user_info.get("user_nickname") or f"用户_{sender_id_str}",
                         "sender_group_permission": user_info.get("permission_level") or user_info.get("role"),
                     }
-                    
+
                     # 可选字段
                     for new_field, old_field in [
-                        ("user_cardname", "sender_group_card"), 
-                        ("user_titlename", "sender_group_titlename")
+                        ("user_cardname", "sender_group_card"),
+                        ("user_titlename", "sender_group_titlename"),
                     ]:
                         value = user_info.get(new_field, "")
                         if value:
@@ -240,7 +247,7 @@ def format_chat_history_for_prompt(raw_messages_from_db: list[dict[str, Any]]) -
                         "sender_nickname": msg.get("sender_nickname") or f"用户_{sender_id_str}",
                         "sender_group_permission": msg.get("sender_group_permission"),
                     }
-                    
+
                     # 可选字段
                     for optional_field in ["sender_group_card", "sender_group_titlename"]:
                         value = msg.get(optional_field, "")
@@ -251,12 +258,12 @@ def format_chat_history_for_prompt(raw_messages_from_db: list[dict[str, Any]]) -
 
         # 消息内容处理 - 适配新结构
         formatted_time = parsed_msg_time_utc.strftime("%Y-%m-%d %H:%M:%S")
-        
+
         # 优先从content字段获取消息内容，然后尝试message_content
         message_content_raw = msg.get("content")
         if message_content_raw is None:
             message_content_raw = msg.get("message_content")
-            
+
         final_message_content = []
 
         if isinstance(message_content_raw, list):
@@ -267,10 +274,10 @@ def format_chat_history_for_prompt(raw_messages_from_db: list[dict[str, Any]]) -
                     if segment.get("type") == "message.metadata":
                         continue
                     final_message_content.append(segment.copy())
-            
+
             # 如果所有元素都被排除，添加一个空文本
             if not final_message_content and message_content_raw:
-                print(f"注意: 所有消息内容段都被过滤，使用空文本替代")
+                print("注意: 所有消息内容段都被过滤，使用空文本替代")
                 final_message_content = [{"type": "text", "data": {"text": ""}}]
         elif isinstance(message_content_raw, dict) and "type" in message_content_raw:
             if message_content_raw.get("type") != "message.metadata":
@@ -279,7 +286,7 @@ def format_chat_history_for_prompt(raw_messages_from_db: list[dict[str, Any]]) -
             final_message_content = [{"type": "text", "data": {"text": message_content_raw}}]
         elif message_content_raw is None:
             # 处理空内容情况
-            print(f"警告: 消息内容为None")
+            print("警告: 消息内容为None")
             final_message_content = [{"type": "text", "data": {"text": "[空消息]"}}]
         else:
             print(f"警告: 消息内容格式未知: {type(message_content_raw)}")
@@ -349,8 +356,11 @@ def format_chat_history_for_prompt(raw_messages_from_db: list[dict[str, Any]]) -
             default_flow_style=False,
         )
 
-        prefix = ("以下是最近的聊天记录及相关内容" if len(output_list_for_yaml) == 1 
-                 else "以下是最近多个会话的聊天记录及相关内容")
+        prefix = (
+            "以下是最近的聊天记录及相关内容"
+            if len(output_list_for_yaml) == 1
+            else "以下是最近多个会话的聊天记录及相关内容"
+        )
         return f"{prefix} (时间以UTC显示)：\n```yaml\n{yaml_content}```"
 
     except Exception as e_yaml:

@@ -2,9 +2,10 @@
 数据库模型 - 完全对齐通信协议结构
 简化设计，避免过度复杂化
 """
+
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
-import time
+from typing import Any
+
 from src.common.utils import MessageContentProcessor  # 更新导入路径
 
 
@@ -14,23 +15,24 @@ class Event:
     核心事件存储模型 - 直接对应协议 Event 对象
     这是我们的主要存储单元
     """
+
     event_id: str
     event_type: str  # message.group.normal, action.send, notice.group_increase 等
-    timestamp: int   # 毫秒时间戳
+    timestamp: int  # 毫秒时间戳
     platform: str
     bot_id: str
-    
+
     # 核心数据字段 - 直接存储协议原始结构
-    content: List[Dict[str, Any]]  # Seg 列表
-    user_info: Optional[Dict[str, Any]] = None
-    conversation_info: Optional[Dict[str, Any]] = None
-    raw_data: Optional[Dict[str, Any]] = None
-    
+    content: list[dict[str, Any]]  # Seg 列表
+    user_info: dict[str, Any] | None = None
+    conversation_info: dict[str, Any] | None = None
+    raw_data: dict[str, Any] | None = None
+
     # 提取的便于查询的字段
-    user_id: Optional[str] = None  # 从 user_info 提取
-    conversation_id: Optional[str] = None  # 从 conversation_info 提取
-    
-    def to_dict(self) -> Dict[str, Any]:
+    user_id: str | None = None  # 从 user_info 提取
+    conversation_id: str | None = None  # 从 conversation_info 提取
+
+    def to_dict(self) -> dict[str, Any]:
         """转换为字典格式用于数据库存储"""
         return {
             "_key": self.event_id,
@@ -44,21 +46,21 @@ class Event:
             "conversation_info": self.conversation_info,
             "raw_data": self.raw_data,
             "user_id": self.user_id,
-            "conversation_id": self.conversation_id
+            "conversation_id": self.conversation_id,
         }
-    
+
     @classmethod
-    def from_protocol_event(cls, protocol_event: Dict[str, Any]) -> 'Event':
+    def from_protocol_event(cls, protocol_event: dict[str, Any]) -> "Event":
         """从协议 Event 对象创建存储模型"""
         # 提取用户ID和会话ID用于查询优化
         user_id = None
         if protocol_event.get("user_info"):
             user_id = protocol_event["user_info"].get("user_id")
-        
+
         conversation_id = None
         if protocol_event.get("conversation_info"):
             conversation_id = protocol_event["conversation_info"].get("conversation_id")
-        
+
         return cls(
             event_id=protocol_event["event_id"],
             event_type=protocol_event["event_type"],
@@ -70,9 +72,9 @@ class Event:
             conversation_info=protocol_event.get("conversation_info"),
             raw_data=protocol_event.get("raw_data"),
             user_id=user_id,
-            conversation_id=conversation_id
+            conversation_id=conversation_id,
         )
-    
+
     def get_text_content(self) -> str:
         """提取事件的纯文本内容"""
         if self.content:
@@ -80,24 +82,25 @@ class Event:
         return ""
 
 
-@dataclass 
+@dataclass
 class ActionRecord:
     """
     动作执行记录 - 用于追踪动作执行状态
     保持简单，只记录必要信息
     """
+
     action_id: str
     action_type: str  # action.message.send, action.group.kick 等
     timestamp: int
     platform: str
     bot_id: str
-    target_conversation_id: Optional[str] = None
-    target_user_id: Optional[str] = None
+    target_conversation_id: str | None = None
+    target_user_id: str | None = None
     status: str = "pending"  # pending, success, failed
-    response_data: Optional[Dict[str, Any]] = None
-    error_message: Optional[str] = None
-    
-    def to_dict(self) -> Dict[str, Any]:
+    response_data: dict[str, Any] | None = None
+    error_message: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
         """转换为字典格式用于数据库存储"""
         return {
             "_key": self.action_id,
@@ -110,7 +113,7 @@ class ActionRecord:
             "target_user_id": self.target_user_id,
             "status": self.status,
             "response_data": self.response_data,
-            "error_message": self.error_message
+            "error_message": self.error_message,
         }
 
 
@@ -134,5 +137,5 @@ DATABASE_INDEXES = {
         ["status", "timestamp"],
         ["platform", "bot_id", "timestamp"],
         ["target_conversation_id", "timestamp"],
-    ]
+    ],
 }
