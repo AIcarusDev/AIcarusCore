@@ -70,7 +70,7 @@ class DefaultMessageProcessor:
             text_content = self._extract_text_from_content(event.content)
 
             if text_content:
-                self.logger.info(f"消息内容: {text_content[:100]}...")
+                self.logger.info(f"消息内容: {text_content}...")
 
         except Exception as e:
             self.logger.error(f"处理消息事件时发生错误: {e}", exc_info=True)
@@ -82,7 +82,7 @@ class DefaultMessageProcessor:
             text_content = self._extract_text_from_content(event.content)
 
             if text_content:
-                self.logger.info(f"动作内容: {text_content[:100]}...")
+                self.logger.info(f"动作内容: {text_content}...")
 
         except Exception as e:
             self.logger.error(f"处理动作事件时发生错误: {e}", exc_info=True)
