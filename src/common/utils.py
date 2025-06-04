@@ -4,234 +4,322 @@ import uuid
 from collections import defaultdict
 from typing import Any
 
-import yaml  # 确保 yaml 已安装 (PyYAML)
+import yaml
 
-# import asyncio # 在这个文件中 asyncio 未被直接使用
-
-
-# --- 新增：自定义包装类和辅助函数，用于强制字符串值使用双引号 ---
+# --- 自定义YAML处理类 ---
 class ForceDoubleQuoteStr(str):
-    """一个简单的包装类，用于标记那些需要被强制双引号输出的字符串值。"""
-
+    """强制双引号输出的字符串包装类"""
     pass
-
 
 class MyDumper(yaml.SafeDumper):
-    """自定义Dumper，用于注册特定类型的representer。"""
-
+    """自定义YAML转储器"""
     pass
 
-
 def force_double_quote_str_representer(dumper: MyDumper, data: ForceDoubleQuoteStr) -> yaml.ScalarNode:
-    """ForceDoubleQuoteStr 类型对象的 representer，强制使用双引号风格。"""
+    """强制双引号字符串表示器"""
     return dumper.represent_scalar("tag:yaml.org,2002:str", str(data), style='"')
-
 
 MyDumper.add_representer(ForceDoubleQuoteStr, force_double_quote_str_representer)
 
-
 JsonValue = dict[str, "JsonValue"] | list["JsonValue"] | str | int | float | bool | None
 
-
 def wrap_string_values_for_yaml(data: JsonValue) -> JsonValue:
-    """
-    递归地遍历数据结构，将所有作为“值”的字符串包装在 ForceDoubleQuoteStr 中。
-    字典的键、None、数字、布尔值等保持原样。
-    """
+    """递归包装字符串值为双引号格式"""
     if isinstance(data, dict):
         return {k: wrap_string_values_for_yaml(v) for k, v in data.items()}
     elif isinstance(data, list):
         return [wrap_string_values_for_yaml(item) for item in data]
     elif isinstance(data, str) and not isinstance(data, ForceDoubleQuoteStr):
-        # 只包装普通的 str 对象，避免重复包装
         return ForceDoubleQuoteStr(data)
     return data
 
+# --- 消息内容处理器 ---
+class MessageContentProcessor:
+    """统一的消息内容处理器"""
 
-# --- 自定义部分结束 ---
+    @staticmethod
+    def extract_text_content(content: list[dict]) -> str:
+        """从标准格式的内容列表中提取纯文本"""
+        if not content or not isinstance(content, list):
+            return ""
+            
+        text_parts = []
+        for segment in content:
+            if not isinstance(segment, dict):
+                continue
+                
+            seg_type = segment.get("type", "")
+            seg_data = segment.get("data", {})
 
+            if seg_type == "text":
+                text_parts.append(seg_data.get("text", ""))
+            elif seg_type == "at":
+                text_parts.append(seg_data.get("display_name", "@用户"))
+            elif seg_type == "image":
+                text_parts.append("[图片]")
+            elif seg_type == "voice":
+                text_parts.append("[语音]")
+            elif seg_type == "file":
+                filename = seg_data.get("filename", "文件")
+                text_parts.append(f"[{filename}]")
+            elif seg_type == "reply":
+                text_parts.append("[回复]")
+            elif seg_type == "forward":
+                text_parts.append("[转发消息]")
 
+        return " ".join(text_parts).strip()
+
+    @staticmethod
+    def create_text_segment(text: str) -> dict:
+        """创建标准文本段"""
+        return {"type": "text", "data": {"text": text}}
+
+    @staticmethod
+    def create_at_segment(user_id: str, display_name: str = "") -> dict:
+        """创建@用户段"""
+        return {
+            "type": "at",
+            "data": {
+                "user_id": user_id,
+                "display_name": display_name or f"@{user_id}",
+            },
+        }
+
+    @staticmethod
+    def create_image_segment(file_id: str, url: str = "") -> dict:
+        """创建图片段"""
+        return {
+            "type": "image",
+            "data": {"file_id": file_id, "url": url},
+        }
+
+# --- 简化的辅助函数 ---
+def extract_text_from_segments(content: list[dict]) -> str:
+    """提取文本内容的简化接口"""
+    return MessageContentProcessor.extract_text_content(content)
+
+def create_simple_text_message(text: str) -> list[dict]:
+    """创建简单的文本消息内容"""
+    return [MessageContentProcessor.create_text_segment(text)]
+
+def safe_get_first_item(data: Any) -> Any:
+    """安全获取列表第一项或字典本身"""
+    if isinstance(data, list):
+        return data[0] if data else None
+    return data
+
+def safe_dict_get(data: dict | None, key: str, default: Any = None) -> Any:
+    """安全的字典取值"""
+    if not isinstance(data, dict):
+        return default
+    return data.get(key, default)
+
+# --- 聊天记录格式化（更新为适应新结构）---
 def format_chat_history_for_prompt(raw_messages_from_db: list[dict[str, Any]]) -> str:
     """
-    将从 ArangoDBHandler 获取的原始消息列表格式化为类似 input_test.md 的 YAML 字符串。
-    限制：每个会话窗口最多20条消息，且消息在调用此函数时的最近10分钟内。
-    时间戳处理：
-    - 期望从数据库接收的 msg["timestamp"] 是 UTC 毫秒级数值。
-    - 如果接收到的是字符串 (兼容旧数据)，会尝试按ISO格式解析。
-    - 当前时间以UTC为准进行筛选。
-    - 输出到YAML的时间是 'YYYY-MM-DD HH:MM:SS' 格式的UTC时间字符串。
+    将从数据库获取的原始消息列表格式化为YAML字符串
+    适应新的消息结构 (v1.4.0 协议)
     """
     if not raw_messages_from_db:
         return "在指定的时间范围内没有找到聊天记录。"
 
     grouped_messages = defaultdict(lambda: {"group_info": {}, "user_info": {}, "chat_history": []})
-
     desired_history_span_minutes = 10
     max_messages_per_group = 20
 
-    # 获取当前的UTC时间，作为筛选基准
     current_utc_time = datetime.datetime.now(datetime.UTC)
-    # 计算10分钟前的时间点 (UTC)
     span_cutoff_timestamp_utc = current_utc_time - datetime.timedelta(minutes=desired_history_span_minutes)
-
-    # 当数据库中的时间戳是naive字符串（无时区信息）时，我们假定它所属的时区。
-    # 主要用于兼容可能存在的旧数据或意外的字符串输入。
-    assumed_local_tz_for_fallback = datetime.timezone(datetime.timedelta(hours=8))  # 例如 CST UTC+8
+    assumed_local_tz_for_fallback = datetime.timezone(datetime.timedelta(hours=8))
 
     for msg in raw_messages_from_db:
-        msg_time_input = msg.get("timestamp")  # 期望是数值型UTC毫秒
-
-        if msg_time_input is None:
-            print(f"警告: 消息 {msg.get('message_id', '未知ID')} 缺少时间戳，已跳过。")
+        if not isinstance(msg, dict):
+            print(f"警告: 消息应该是字典类型，但收到了 {type(msg)}: {msg}")
             continue
 
-        parsed_msg_time_utc: datetime.datetime
+        # 支持新的时间戳字段结构
+        msg_time_input = msg.get("timestamp") or msg.get("time")
+        if msg_time_input is None:
+            print(f"警告: 消息 {msg.get('event_id', msg.get('message_id', '未知ID'))} 缺少时间戳，已跳过。")
+            continue
+
+        # 时间戳处理逻辑（保持原有逻辑）
         try:
-            if isinstance(msg_time_input, int | float):
-                # 是数值型时间戳 (int or float), 假设是UTC毫秒
+            if isinstance(msg_time_input, (int, float)):
                 msg_time_seconds_utc = msg_time_input / 1000.0
                 parsed_msg_time_utc = datetime.datetime.fromtimestamp(msg_time_seconds_utc, datetime.UTC)
             elif isinstance(msg_time_input, str):
-                # 为了兼容可能存在的旧数据或意外的字符串输入，尝试按ISO字符串解析
-                print(
-                    f"警告: 消息 {msg.get('message_id', '未知ID')} 的时间戳是字符串 '{msg_time_input}' "
-                    f"而非预期的数字。尝试按ISO字符串解析。"
-                )
-                temp_time_str = msg_time_input.replace("Z", "+00:00")  # 确保 fromisoformat 能处理 'Z'
+                print(f"警告: 消息时间戳是字符串，尝试解析: {msg_time_input}")
+                temp_time_str = msg_time_input.replace("Z", "+00:00")
                 parsed_msg_time_aware_or_naive = datetime.datetime.fromisoformat(temp_time_str)
 
-                if (
-                    parsed_msg_time_aware_or_naive.tzinfo is None
-                    or parsed_msg_time_aware_or_naive.tzinfo.utcoffset(parsed_msg_time_aware_or_naive) is None
-                ):
-                    # 时间戳是 naive (无时区信息)
-                    # 假定它是上述定义的 assumed_local_tz_for_fallback
-                    print(
-                        f"  消息 {msg.get('message_id', '未知ID')} 的 naive 时间戳 '{temp_time_str}' 被假定为时区 {assumed_local_tz_for_fallback}。"
-                    )
+                if (parsed_msg_time_aware_or_naive.tzinfo is None or 
+                    parsed_msg_time_aware_or_naive.tzinfo.utcoffset(parsed_msg_time_aware_or_naive) is None):
                     parsed_msg_time_local = parsed_msg_time_aware_or_naive.replace(tzinfo=assumed_local_tz_for_fallback)
-                    # 转换为 UTC
                     parsed_msg_time_utc = parsed_msg_time_local.astimezone(datetime.UTC)
                 else:
-                    # 时间戳已经是 timezone-aware，直接转换为 UTC
                     parsed_msg_time_utc = parsed_msg_time_aware_or_naive.astimezone(datetime.UTC)
             else:
                 raise ValueError(f"时间戳类型不支持: {type(msg_time_input)}")
 
         except ValueError as e_time:
-            print(
-                f"警告: 处理或解析数据库中的时间戳 '{msg_time_input}' (类型: {type(msg_time_input)}) 失败: {e_time}。"
-                f"消息ID: {msg.get('message_id', '未知ID')}，已跳过。"
-            )
+            print(f"警告: 时间戳处理失败: {e_time}")
             continue
 
-        # 进行时间筛选 (所有时间都已转换为UTC进行比较)
+        # 时间筛选
         if parsed_msg_time_utc < span_cutoff_timestamp_utc:
-            continue  # 跳过早于10分钟窗口的消息 (UTC比较)
+            continue
 
+        # 获取消息分组信息 - 适配新结构
         platform = msg.get("platform", "未知平台")
-        group_id_val = msg.get("group_id")
+        conversation_info = msg.get("conversation_info", {})
+        group_id_val = conversation_info.get("conversation_id") if isinstance(conversation_info, dict) else msg.get("group_id")
         group_key_part = str(group_id_val) if group_id_val is not None else "direct_or_no_group"
         group_key = (platform, group_key_part)
 
+        # 群组信息处理 - 适配新结构
         if not grouped_messages[group_key]["group_info"]:
-            group_name = msg.get("group_name")
-            if group_id_val is None and not group_name:  # 对于没有 group_id 和 group_name 的情况 (可能是私聊)
-                sender_nick_for_group_name = msg.get("sender_nickname", "未知用户")
-                group_name = (
-                    f"与 {sender_nick_for_group_name} 的对话"
-                    if sender_nick_for_group_name != "未知用户"
-                    else "直接消息"
-                )
+            group_name = None
+            if isinstance(conversation_info, dict):
+                group_name = conversation_info.get("name")
+                
+            if group_name is None:
+                group_name = msg.get("group_name")
+                
+            if group_id_val is None and not group_name:
+                # 尝试从用户信息获取昵称
+                user_info = msg.get("user_info", {})
+                sender_nick_for_group_name = None
+                if isinstance(user_info, dict):
+                    sender_nick_for_group_name = user_info.get("user_nickname")
+                
+                if not sender_nick_for_group_name:
+                    sender_nick_for_group_name = msg.get("sender_nickname", "未知用户")
+                    
+                group_name = (f"与 {sender_nick_for_group_name} 的对话" 
+                            if sender_nick_for_group_name != "未知用户" else "直接消息")
 
             grouped_messages[group_key]["group_info"] = {
                 "platform_name": platform,
                 "group_id": str(group_id_val) if group_id_val is not None else None,
-                "group_name": group_name
-                if group_name is not None
-                else ("未知群名" if group_id_val is not None else "直接消息会话"),
+                "group_name": group_name if group_name is not None else 
+                           ("未知群名" if group_id_val is not None else "直接消息会话"),
             }
 
-        sender_id = msg.get("sender_id")
+        # 用户信息处理 - 适配新结构
+        user_info = msg.get("user_info", {})
+        sender_id = None
+        if isinstance(user_info, dict):
+            sender_id = user_info.get("user_id")
+        
+        if not sender_id:
+            sender_id = msg.get("sender_id") or msg.get("user_id")
+            
         if sender_id:
             sender_id_str = str(sender_id)
             if sender_id_str not in grouped_messages[group_key]["user_info"]:
-                user_details = {
-                    "sender_nickname": msg.get("sender_nickname")
-                    if msg.get("sender_nickname") is not None
-                    else f"用户_{sender_id_str}",
-                    "sender_group_permission": msg.get("sender_group_permission"),
-                }
-                sender_group_card = msg.get("sender_group_card", "")
-                if sender_group_card:  # 仅当有值时添加
-                    user_details["sender_group_card"] = sender_group_card
-
-                sender_group_titlename = msg.get("sender_group_titlename", "")
-                if sender_group_titlename:  # 仅当有值时添加
-                    user_details["sender_group_titlename"] = sender_group_titlename
+                user_details = {}
+                
+                # 从新的user_info结构中获取信息
+                if isinstance(user_info, dict):
+                    user_details = {
+                        "sender_nickname": user_info.get("user_nickname") or f"用户_{sender_id_str}",
+                        "sender_group_permission": user_info.get("permission_level") or user_info.get("role"),
+                    }
+                    
+                    # 可选字段
+                    for new_field, old_field in [
+                        ("user_cardname", "sender_group_card"), 
+                        ("user_titlename", "sender_group_titlename")
+                    ]:
+                        value = user_info.get(new_field, "")
+                        if value:
+                            user_details[old_field] = value
+                else:
+                    # 兼容旧结构
+                    user_details = {
+                        "sender_nickname": msg.get("sender_nickname") or f"用户_{sender_id_str}",
+                        "sender_group_permission": msg.get("sender_group_permission"),
+                    }
+                    
+                    # 可选字段
+                    for optional_field in ["sender_group_card", "sender_group_titlename"]:
+                        value = msg.get(optional_field, "")
+                        if value:
+                            user_details[optional_field] = value
 
                 grouped_messages[group_key]["user_info"][sender_id_str] = user_details
 
-        # 输出到YAML的时间字符串格式，这里我们输出UTC时间。
-        formatted_time = parsed_msg_time_utc.strftime("%Y-%m-%d %H:%M:%S")  # 输出UTC时间
-
-        message_content_raw = msg.get("message_content")
+        # 消息内容处理 - 适配新结构
+        formatted_time = parsed_msg_time_utc.strftime("%Y-%m-%d %H:%M:%S")
+        
+        # 优先从content字段获取消息内容，然后尝试message_content
+        message_content_raw = msg.get("content")
+        if message_content_raw is None:
+            message_content_raw = msg.get("message_content")
+            
         final_message_content = []
 
         if isinstance(message_content_raw, list):
-            final_message_content = [
-                segment.copy() if isinstance(segment, dict) else segment  # 确保字典是副本
-                for segment in message_content_raw
-            ]
-        elif isinstance(message_content_raw, dict) and "type" in message_content_raw and "data" in message_content_raw:
-            # 单个消息段也包装在列表中
-            final_message_content = [message_content_raw.copy()]
+            # 处理内容列表，排除metadata元素
+            for segment in message_content_raw:
+                if isinstance(segment, dict):
+                    # 跳过metadata类型
+                    if segment.get("type") == "message.metadata":
+                        continue
+                    final_message_content.append(segment.copy())
+            
+            # 如果所有元素都被排除，添加一个空文本
+            if not final_message_content and message_content_raw:
+                print(f"注意: 所有消息内容段都被过滤，使用空文本替代")
+                final_message_content = [{"type": "text", "data": {"text": ""}}]
+        elif isinstance(message_content_raw, dict) and "type" in message_content_raw:
+            if message_content_raw.get("type") != "message.metadata":
+                final_message_content = [message_content_raw.copy()]
         elif isinstance(message_content_raw, str):
-            # 如果 message_content 是一个原始字符串，包装为text段
-            final_message_content = [{"type": "text", "data": {"text": message_content_raw}}]  # 确保 data 是一个字典
-            # print(f"警告: 消息 {msg.get('message_id')} 的 message_content 是一个原始字符串，已包装为text段。") # 可选打印
+            final_message_content = [{"type": "text", "data": {"text": message_content_raw}}]
+        elif message_content_raw is None:
+            # 处理空内容情况
+            print(f"警告: 消息内容为None")
+            final_message_content = [{"type": "text", "data": {"text": "[空消息]"}}]
         else:
-            print(
-                f"警告: 消息 {msg.get('message_id', '未知ID')} 的 message_content 格式未知 "
-                f"({type(message_content_raw)})，将使用默认空文本内容。"
-            )
-            final_message_content = [{"type": "text", "data": {"text": ""}}]  # 确保 data 是一个字典
+            print(f"警告: 消息内容格式未知: {type(message_content_raw)}")
+            final_message_content = [{"type": "text", "data": {"text": "[未识别的消息格式]"}}]
 
+        # 构建新的chat_message结构
         chat_message = {
-            "time": formatted_time,  # YAML中的时间将是UTC字符串
+            "time": formatted_time,
             "post_type": msg.get("post_type", "message"),
-            "sub_type": msg.get("sub_type"),  # 可能为 None
-            "message_id": str(msg.get("message_id", uuid.uuid4())),  # 确保 message_id 是字符串
+            "sub_type": msg.get("sub_type"),
+            "message_id": str(msg.get("event_id") or msg.get("message_id", uuid.uuid4())),
             "message": final_message_content,
-            "sender_id": str(sender_id) if sender_id else "SYSTEM_OR_UNKNOWN",  # 确保 sender_id 是字符串
-            "_parsed_timestamp_utc": parsed_msg_time_utc,  # 保留UTC时间戳对象用于排序和截断
+            "sender_id": str(sender_id) if sender_id else "SYSTEM_OR_UNKNOWN",
+            "_parsed_timestamp_utc": parsed_msg_time_utc,
         }
         grouped_messages[group_key]["chat_history"].append(chat_message)
 
+    # 输出处理（保持原有逻辑）
     output_list_for_yaml = []
     for (_, _), data in grouped_messages.items():
         current_chat_history = data["chat_history"]
 
         if current_chat_history:
-            # 按UTC时间戳排序 (最旧的在前)
+            # 排序和截断
             current_chat_history.sort(key=lambda x: x["_parsed_timestamp_utc"])
-
-            # 应用消息数量限制，取最新的 max_messages_per_group 条消息
             if len(current_chat_history) > max_messages_per_group:
                 final_filtered_history = current_chat_history[-max_messages_per_group:]
             else:
                 final_filtered_history = current_chat_history
 
-            # 清理临时的UTC时间戳字段
+            # 清理临时字段
             for msg_to_clean in final_filtered_history:
                 del msg_to_clean["_parsed_timestamp_utc"]
 
             data["chat_history"] = final_filtered_history
 
-            if data["chat_history"]:  # 确保在截断后仍有聊天记录
+            if data["chat_history"]:
                 group_data_for_yaml = {
                     "group_info": data["group_info"],
-                    "user_info": data["user_info"] if data["user_info"] else {},  # 确保 user_info 存在
+                    "user_info": data["user_info"] if data["user_info"] else {},
                     "chat_history": data["chat_history"],
                 }
                 output_list_for_yaml.append(group_data_for_yaml)
@@ -239,23 +327,19 @@ def format_chat_history_for_prompt(raw_messages_from_db: list[dict[str, Any]]) -
     if not output_list_for_yaml:
         return "在最近10分钟内，或根据数量筛选后，没有有效的聊天记录可供格式化。"
 
-    # 使用自定义的 wrap_string_values_for_yaml 来处理字符串值的双引号问题
-    data_to_dump_processed: Any
-    if len(output_list_for_yaml) == 1:
-        # 单个会话直接输出其内容
-        if "user_info" not in output_list_for_yaml[0]:  # 再次确保 user_info 存在
-            output_list_for_yaml[0]["user_info"] = {}
-        data_to_dump_processed = wrap_string_values_for_yaml(output_list_for_yaml[0])
-    else:
-        # 多个会话，使用 "chat_sessions" 列表包装
-        for item in output_list_for_yaml:  # 再次确保 user_info 存在
-            if "user_info" not in item:
-                item["user_info"] = {}
-        multi_group_structure = {"chat_sessions": output_list_for_yaml}
-        data_to_dump_processed = wrap_string_values_for_yaml(multi_group_structure)
-
+    # YAML输出
     try:
-        # 使用自定义的 Dumper
+        if len(output_list_for_yaml) == 1:
+            if "user_info" not in output_list_for_yaml[0]:
+                output_list_for_yaml[0]["user_info"] = {}
+            data_to_dump_processed = wrap_string_values_for_yaml(output_list_for_yaml[0])
+        else:
+            for item in output_list_for_yaml:
+                if "user_info" not in item:
+                    item["user_info"] = {}
+            multi_group_structure = {"chat_sessions": output_list_for_yaml}
+            data_to_dump_processed = wrap_string_values_for_yaml(multi_group_structure)
+
         yaml_content = yaml.dump(
             data_to_dump_processed,
             Dumper=MyDumper,
@@ -265,10 +349,9 @@ def format_chat_history_for_prompt(raw_messages_from_db: list[dict[str, Any]]) -
             default_flow_style=False,
         )
 
-        if len(output_list_for_yaml) == 1:
-            return f"以下是最近的聊天记录及相关内容 (时间以UTC显示)：\n```yaml\n{yaml_content}```"
-        else:
-            return f"以下是最近多个会话的聊天记录及相关内容 (时间以UTC显示)：\n```yaml\n{yaml_content}```"
+        prefix = ("以下是最近的聊天记录及相关内容" if len(output_list_for_yaml) == 1 
+                 else "以下是最近多个会话的聊天记录及相关内容")
+        return f"{prefix} (时间以UTC显示)：\n```yaml\n{yaml_content}```"
 
     except Exception as e_yaml:
         print(f"错误: 格式化聊天记录为YAML时出错: {e_yaml}")

@@ -12,6 +12,7 @@ from aicarus_protocols import Event, UserInfo, ConversationInfo, Seg, SegBuilder
 
 # StandardDatabase 仅用于类型提示，实际操作通过 ArangoDBHandler
 from src.common.custom_logging.logger_manager import get_logger
+from src.common.utils import safe_get_first_item, safe_dict_get  # 使用统一工具函数
 from src.config.alcarus_configs import (
     AlcarusRootConfig,
     LLMClientSettings,
@@ -142,7 +143,7 @@ class ActionHandler:
 "{action_motivation}"
 
 最近可能相关的外部消息或请求 (如果适用):
-{relevant_adapter_messages_context}
+    {relevant_adapter_messages_context}
 
 你的决策应遵循以下步骤：
 1.  仔细理解用户想要完成的动作、他们为什么想做这个动作，以及他们此刻正在思考什么，同时考虑是否有外部消息或请求需要响应。
@@ -345,217 +346,72 @@ class ActionHandler:
     async def _execute_get_active_chat_instances(
         self, active_threshold_days: int = 7, max_instances_to_return: int = 20
     ) -> str:
-        self.logger.info(
-            f"工具执行：开始获取活跃聊天实例 (阈值: {active_threshold_days} 天, 最多返回: {max_instances_to_return} 个)"
-        )
-        if not self.db_handler:
-            self.logger.error("数据库处理器未初始化，无法获取聊天实例。")
-            return json.dumps({"error": "数据库处理器未初始化"})
-
-        # 计算N天前的时间戳 (毫秒)
-        # ArangoDB的DATE_NOW()返回毫秒，DATE_SUBTRACT需要一个ISO字符串或毫秒数作为起点
-        # 我们直接在AQL中使用DATE_NOW()和DATE_SUBTRACT更方便
-        # threshold_timestamp_ms = (
-        #     datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=active_threshold_days)
-        # ).timestamp() * 1000
-        # self.logger.debug(f"计算出的活跃阈值时间戳 (ms): {threshold_timestamp_ms}")
-
-        # 第一步：查询数据库，找出所有活跃的 conversation_id 及其最新的消息时间戳
-        # 注意：这里的 @bot_id 可能需要从配置或者其他地方获取，暂时写成一个占位符
-        # 实际上，我们可能不需要 bot_id 来判断私聊对方，因为 conversation_id 已经可以区分
-        # conversation_id 的格式对于私聊可能是 "platform_dm_userid1_userid2"
-        # 对于群聊是 "platform_groupid"
-
-        # AQL 查询：
-        # 1. 收集所有唯一的 conversation_id。
-        # 2. 对每个 conversation_id，找到最新的那条消息的时间戳 (timestamp 字段，我们约定它是数值型毫秒)。
-        # 3. 过滤掉那些最新时间戳早于 active_threshold_days 天之前的会话。
-        # 4. 按最新时间戳降序排序，然后取前 max_instances_to_return 个。
-        query_active_conv_ids = f"""
-            LET threshold_date_iso = DATE_ISO8601(DATE_SUBTRACT(DATE_NOW(), @active_threshold_days, "day"))
-            LET threshold_timestamp_ms = DATE_TIMESTAMP(threshold_date_iso)
-
-            FOR doc IN {ArangoDBHandler.RAW_CHAT_MESSAGES_COLLECTION_NAME}
-                COLLECT conversationId = doc.conversation_id INTO group
-                LET latestTimestampMs = MAX(group[*].doc.timestamp) // 假设 timestamp 是毫秒数值
-                FILTER latestTimestampMs >= threshold_timestamp_ms
-                SORT latestTimestampMs DESC
-                LIMIT @max_instances
-                RETURN {{
-                    conversation_id: conversationId,
-                    last_active_timestamp_ms: latestTimestampMs
-                }}
-        """
-        bind_vars_active_conv = {
-            "active_threshold_days": active_threshold_days,
-            "max_instances": max_instances_to_return,
-        }
-        self.logger.debug(f"执行AQL获取活跃会话ID: {query_active_conv_ids} \n绑定变量: {bind_vars_active_conv}")
-
-        _active_conversations_summary = []
+        """获取活跃聊天实例 - 简化版本"""
         try:
-            # 使用 ArangoDBHandler 已有的 execute_query 方法
-            active_conv_results = await self.db_handler.execute_query(
-                query_active_conv_ids, bind_vars=bind_vars_active_conv
-            )
-            self.logger.info(f"AQL查询返回了 {len(active_conv_results)} 个可能的活跃会话摘要。")
+            if not self.db_handler:
+                return json.dumps({"error": "数据库处理器未初始化"})
 
-            if not active_conv_results:
-                self.logger.info("没有找到符合条件的活跃聊天实例。")
-                return json.dumps({"message": "没有找到符合条件的活跃聊天实例。", "instances": []})
+            # 简单查询最近的会话
+            current_time_ms = time.time() * 1000.0
+            threshold_time_ms = current_time_ms - (active_threshold_days * 24 * 60 * 60 * 1000)
 
-            # 第二步：对于每个活跃的 conversation_id，获取其详细信息（名称、类型、平台）
-            # 我们需要找到每个 conversation_id 的最新一条消息来提取元数据
-            detailed_instances = []
-            for conv_summary in active_conv_results:
-                conv_id = conv_summary.get("conversation_id")
-                last_active_ts_ms = conv_summary.get("last_active_timestamp_ms")
-                if not conv_id or last_active_ts_ms is None:
-                    continue
-
-                # 查询该 conversation_id 的最新一条消息
-                query_latest_message_for_conv = f"""
-                    FOR msg IN {ArangoDBHandler.RAW_CHAT_MESSAGES_COLLECTION_NAME}
-                        FILTER msg.conversation_id == @conv_id
-                        SORT msg.timestamp DESC
-                        LIMIT 1
-                        RETURN msg.raw_message_info_dump // 直接返回元信息部分
-                """
-                bind_vars_latest_msg = {"conv_id": conv_id}
-
-                latest_message_info_list = await self.db_handler.execute_query(
-                    query_latest_message_for_conv, bind_vars=bind_vars_latest_msg
-                )
-
-                if not latest_message_info_list:
-                    self.logger.warning(f"未能为活跃会话 {conv_id} 获取到最新消息的元信息。")
-                    continue
-
-                raw_info = latest_message_info_list[0]  # execute_query 返回的是列表
-
-                instance_platform = raw_info.get("platform", "未知平台")
-                instance_type = "unknown"
-                instance_name = "未知名称"
-
-                group_info = raw_info.get("group_info")
-                user_info = raw_info.get("user_info")  # 这是消息发送者的信息
-
-                if group_info and group_info.get("group_id"):
-                    instance_type = "group"
-                    instance_name = group_info.get("group_name", f"群组_{group_info.get('group_id')}")
-                elif user_info and user_info.get("user_id"):  # 假设没有group_id就是私聊
-                    instance_type = "private"
-                    # 对于私聊，conversation_id 通常是 platform_dm_userid1_userid2
-                    # 我们需要知道 bot_id 来确定对方是谁
-                    # 简单处理：如果消息的发送者不是机器人自己，就用发送者的昵称
-                    # 复杂处理：解析 conversation_id 找出两个参与者，排除机器人自己
-                    # 这里先用简单方式，如果消息发送者是对方，那么 user_info 就是对方的
-                    # 但如果最新消息是机器人发的，user_info 就是机器人的，这时需要从 conversation_id 推断或找更早的对方消息
-                    # 为了简化，我们假设能从 user_info 中获取一个有意义的名称，或者从conv_id中获取
-                    bot_id_placeholder = (
-                        self.root_cfg.persona.bot_name if self.root_cfg else "bot"
-                    )  # 理论上 bot_id 应该从配置或 message_info.bot_id 获取
-
-                    # 尝试从 conversation_id 解析私聊对象 (这是一个简化版本)
-                    if "_dm_" in conv_id:
-                        parts = conv_id.split("_dm_")
-                        if len(parts) == 2:
-                            user_ids_in_dm = parts[1].split("_")
-                            # 假设 user_info.user_id 是这条最新消息的发送者
-                            # 如果发送者不是机器人，那这个昵称就是对方的
-                            if (
-                                user_info.get("user_id") and user_info.get("user_id") not in conv_id
-                            ):  # 一个简单的判断，可能不完全准确
-                                instance_name = (
-                                    user_info.get("user_nickname")
-                                    or user_info.get("user_cardname")
-                                    or f"用户_{user_info.get('user_id')}"
-                                )
-                            else:  # 如果最新消息是机器人发的，或者无法判断，尝试从conv_id里的id找
-                                other_user_id = next(
-                                    (uid for uid in user_ids_in_dm if uid != bot_id_placeholder), None
-                                )  # 假设你知道 bot_id
-                                if other_user_id:
-                                    instance_name = f"与用户_{other_user_id}的私聊"
-                                else:  # 如果无法确定对方，使用消息发送者昵称作为备选
-                                    instance_name = (
-                                        user_info.get("user_nickname")
-                                        or user_info.get("user_cardname")
-                                        or f"用户_{user_info.get('user_id')}"
-                                    )
-                        else:
-                            instance_name = (
-                                user_info.get("user_nickname")
-                                or user_info.get("user_cardname")
-                                or f"用户_{user_info.get('user_id', '未知')}"
-                            )
-                    else:  # 如果 conv_id 不是预期的私聊格式，也用发送者昵称
-                        instance_name = (
-                            user_info.get("user_nickname")
-                            or user_info.get("user_cardname")
-                            or f"用户_{user_info.get('user_id', '未知')}"
-                        )
-
-                detailed_instances.append(
-                    {
-                        "conversation_id": conv_id,
-                        "type": instance_type,
-                        "name": instance_name,
-                        "platform": instance_platform,
-                        "last_active_time_ms": last_active_ts_ms,  # 保留毫秒用于可能的精确排序
-                        "last_active_time_iso": datetime.datetime.fromtimestamp(
-                            last_active_ts_ms / 1000.0, tz=datetime.UTC
-                        ).isoformat(),
-                    }
-                )
-
-            # 可以根据 last_active_time_ms 再次排序，因为上面的LIMIT可能不完全按时间
-            detailed_instances.sort(key=lambda x: x["last_active_time_ms"], reverse=True)
-
-            # 准备返回给LLM的，通常不需要毫秒时间戳
-            for inst in detailed_instances:
-                del inst["last_active_time_ms"]
-
-            self.logger.info(f"成功获取并处理了 {len(detailed_instances)} 个活跃聊天实例的详细信息。")
-            return json.dumps({"instances": detailed_instances}, ensure_ascii=False)
+            query = f"""
+                FOR event IN {ArangoDBHandler.EVENTS_COLLECTION_NAME}
+                    FILTER event.event_type LIKE "message.%"
+                    FILTER event.timestamp >= @threshold_time
+                    COLLECT conversation_id = event.conversation_id INTO group
+                    LET latest_timestamp = MAX(group[*].event.timestamp)
+                    SORT latest_timestamp DESC
+                    LIMIT @max_instances
+                    RETURN {{
+                        conversation_id: conversation_id,
+                        last_active_timestamp: latest_timestamp,
+                        platform: FIRST(group[*].event.platform),
+                        type: "unknown"
+                    }}
+            """
+            
+            bind_vars = {
+                "threshold_time": threshold_time_ms,
+                "max_instances": max_instances_to_return
+            }
+            
+            results = await self.db_handler.execute_query(query, bind_vars)
+            
+            return json.dumps({"instances": results or []}, ensure_ascii=False)
 
         except Exception as e:
-            self.logger.error(f"获取活跃聊天实例时发生错误: {e}", exc_info=True)
-            return json.dumps({"error": f"获取活跃聊天实例时发生错误: {str(e)}", "instances": []})
+            self.logger.error(f"获取活跃聊天实例失败: {e}", exc_info=True)
+            return json.dumps({"error": str(e), "instances": []})
 
     # --- 新加的工具执行方法结束 ---
 
     async def _get_current_action_state_for_idempotency(self, doc_key: str) -> dict | None:
         """[幂等性辅助函数] 获取指定文档键的当前 action_attempted 状态。"""
         if not self.db_handler:
-            self.logger.error(f"数据库处理器未设置，无法获取文档 {doc_key} 的状态。")
+            self.logger.error(f"数据库处理器未设置，无法获取文档状态。")
             return None
-        if not doc_key:
+        
+        # 基本的文档键检查
+        if not doc_key or not isinstance(doc_key, str):
+            self.logger.error(f"无效的文档键: {type(doc_key)}, 值: {doc_key}")
             return None
+            
         try:
-            # 使用 db_handler 的方法，假设它有一个类似 get_document_by_key 的方法
-            # 或者直接使用其内部的 db 对象和集合名称常量
-            # 为了保持与原逻辑最接近，这里假设 ArangoDBHandler 有一个方法可以获取原始文档
-            # 或者我们直接访问 db_handler.db 和集合名称
             doc = await asyncio.to_thread(
-                self.db_handler.db.collection(ArangoDBHandler.THOUGHTS_COLLECTION_NAME).get,  # 使用常量
+                self.db_handler.db.collection(ArangoDBHandler.THOUGHTS_COLLECTION_NAME).get,
                 doc_key,
             )
             if doc and isinstance(doc.get("action_attempted"), dict):
                 return doc["action_attempted"]
             elif doc:
-                self.logger.warning(
-                    f"[状态获取] 文档 {doc_key} 中未找到有效的 'action_attempted' 字段。文档内容: {str(doc)[:200]}..."
-                )
-                return {}  # 返回空字典表示文档存在但无有效 action_attempted
+                return {}
             else:
-                self.logger.warning(
-                    f"[状态获取] 文档 {doc_key} 未在集合 {ArangoDBHandler.THOUGHTS_COLLECTION_NAME} 中找到。"
-                )
-                return None  # 文档未找到
+                self.logger.warning(f"文档 {doc_key} 未找到")
+                return None
         except Exception as e:
-            self.logger.error(f"[状态获取] 获取文档 {doc_key} 状态时发生错误: {e}", exc_info=True)
-            return None  # 获取时发生错误
+            self.logger.error(f"获取文档 {doc_key} 状态时发生错误: {e}", exc_info=True)
+            return None
 
     async def process_action_flow(
         self,
@@ -564,906 +420,450 @@ class ActionHandler:
         action_description: str,
         action_motivation: str,
         current_thought_context: str,
-        # arango_db_for_updates: ArangoStandardDatabase, # 由 self.db_handler.db 替代
-        # collection_name_for_updates: str, # 由 ArangoDBHandler.THOUGHTS_COLLECTION_NAME 替代
-        # comm_layer_for_actions: CoreWebsocketServer | None = None, # 由 self.core_communication_layer 替代
     ) -> None:
-        """处理一个完整的行动流程。"""
-        if not self.db_handler:
-            self.logger.critical(f"严重错误 [Action ID: {action_id}]: 数据库处理器未初始化，无法处理行动。")
-            # 可以在这里尝试更新文档状态为CRITICAL_FAILURE，但如果db_handler都没有，则无法操作
-            return
-
-        self.logger.debug(f"--- [Action ID: {action_id}, DocKey: {doc_key_for_updates}] 进入 process_action_flow ---")
-
-        if not self.action_llm_client or not self.summary_llm_client:
-            try:
-                await self.initialize_llm_clients()  # 调用实例方法
-                if not self.action_llm_client or not self.summary_llm_client:
-                    raise RuntimeError("LLM客户端在 initialize_llm_clients 调用后仍未初始化。")
-            except Exception as e_init:
-                self.logger.critical(
-                    f"严重错误 [Action ID: {action_id}, DocKey: {doc_key_for_updates}]: 无法初始化行动模块的LLM客户端: {e_init}",
-                    exc_info=True,
-                )
-                await self.db_handler.update_action_status_in_document(
-                    doc_key_for_updates,  # doc_key 直接传递
-                    action_id,
-                    {
-                        "status": "CRITICAL_FAILURE",
-                        "error_message": f"行动模块LLM客户端初始化失败: {str(e_init)}",
-                        "final_result_for_shuang": f"你尝试执行动作 '{action_description}' 时，系统遇到严重的初始化错误，无法继续。",
-                    },
-                    # collection_name 参数已包含在 db_handler 方法中
-                )
+        """处理行动流程"""
+        try:
+            # 添加类型验证
+            if not isinstance(doc_key_for_updates, str):
+                self.logger.error(f"doc_key_for_updates 应该是字符串，但收到了 {type(doc_key_for_updates)}: {doc_key_for_updates}")
                 return
 
-        current_action_state = await self._get_current_action_state_for_idempotency(doc_key_for_updates)
-        if current_action_state is None and doc_key_for_updates:  # 如果文档未找到 (返回None)
-            self.logger.error(
-                f"错误 [Action ID: {action_id}, DocKey: {doc_key_for_updates}]: 无法获取动作文档的初始状态 (文档可能不存在)，流程终止。"
-            )
-            # 注意：如果文档不存在，下面的 update_action_status_in_document 也会失败
-            return
+            # 基本参数检查
+            if not isinstance(action_id, str) or not isinstance(doc_key_for_updates, str):
+                self.logger.error(f"参数类型错误 - action_id: {type(action_id)}, doc_key: {type(doc_key_for_updates)}")
+                return
+            
+            if not self.db_handler:
+                self.logger.critical(f"严重错误 [Action ID: {action_id}]: 数据库处理器未初始化，无法处理行动。")
+                return
 
-        target_status_processing = "PROCESSING_DECISION"
-        expected_cond_for_processing = {}
-        proceed_to_llm_decision = True
+            self.logger.debug(f"--- [Action ID: {action_id}, DocKey: {doc_key_for_updates}] 进入 process_action_flow ---")
 
-        if current_action_state:  # 只有当文档存在且状态可获取时才进行条件判断
-            current_status_val = current_action_state.get("status")
-            if current_status_val == target_status_processing:
-                self.logger.debug(
-                    f"[条件更新检查] Action ID {action_id}: 状态已经是 {target_status_processing}，不尝试更新，继续流程。"
-                )
-            elif current_status_val in ["TOOL_EXECUTING", "COMPLETED_SUCCESS", "COMPLETED_FAILURE", "CRITICAL_FAILURE"]:
-                self.logger.debug(
-                    f"[条件更新检查] Action ID {action_id}: 状态 ({current_status_val}) 已跳过 {target_status_processing}，不回退更新。检查是否跳过LLM决策。"
-                )
-                if current_status_val in ["COMPLETED_SUCCESS", "COMPLETED_FAILURE", "CRITICAL_FAILURE"]:
-                    proceed_to_llm_decision = False
-            else:  # 状态不是目标，也不是已跳过的状态，尝试更新
-                self.logger.debug(
-                    f"[Action ID {action_id}]: 尝试更新状态到 {target_status_processing}。当前状态: {current_status_val}"
-                )
-                expected_cond_for_processing = (
-                    {"status": current_status_val} if current_status_val else None
-                )  # 如果当前无状态，则无条件
-
-                update_success_processing = await self.db_handler.update_action_status_in_document(
-                    doc_key_for_updates,
-                    action_id,
-                    {"status": target_status_processing},
-                    expected_conditions=expected_cond_for_processing,
-                )
-                if update_success_processing:
-                    self.logger.debug(f"[Action ID {action_id}]: 状态成功更新到 {target_status_processing}。")
-                    current_action_state = await self._get_current_action_state_for_idempotency(doc_key_for_updates)
-                else:  # 更新未执行
-                    self.logger.debug(
-                        f"[Action ID {action_id}]: 更新状态到 {target_status_processing} 的DB调用返回False。重新获取状态。"
+            if not self.action_llm_client or not self.summary_llm_client:
+                try:
+                    await self.initialize_llm_clients()
+                    if not self.action_llm_client or not self.summary_llm_client:
+                        raise RuntimeError("LLM客户端在 initialize_llm_clients 调用后仍未初始化。")
+                except Exception as e_init:
+                    self.logger.critical(
+                        f"严重错误 [Action ID: {action_id}, DocKey: {doc_key_for_updates}]: 无法初始化行动模块的LLM客户端: {e_init}",
+                        exc_info=True,
                     )
-                    current_action_state = await self._get_current_action_state_for_idempotency(doc_key_for_updates)
-                    if not (current_action_state and current_action_state.get("status") == target_status_processing):
-                        self.logger.error(
-                            f"错误 [Action ID: {action_id}]: 更新到 {target_status_processing} 后状态仍不正确 ({current_action_state.get('status') if current_action_state else 'None'})，流程终止。"
-                        )
-                        await self.db_handler.update_action_status_in_document(
-                            doc_key_for_updates,
-                            action_id,
-                            {
-                                "status": "COMPLETED_FAILURE",
-                                "error_message": f"无法将状态设置为{target_status_processing}",
-                                "final_result_for_shuang": f"系统在初始化动作时遇到状态问题，无法为动作 '{action_description}' 进行决策。",
-                            },
-                        )
-                        return
-                    else:
-                        self.logger.debug(
-                            f"[Action ID {action_id}]: 状态已是 {target_status_processing} (可能由并发操作完成，在更新尝试后确认)。"
-                        )
-        elif not doc_key_for_updates:  # 如果 doc_key_for_updates 为空或None
-            self.logger.error(
-                f"错误 [Action ID: {action_id}]: doc_key_for_updates 为空，无法进行状态更新或处理。流程终止。"
-            )
-            return
-
-        final_result_for_shuang: str = f"尝试执行动作 '{action_description}' 时出现未知的处理错误。"
-        action_was_successful: bool = False
-
-        if not proceed_to_llm_decision:
-            self.logger.debug(
-                f"[流程控制] Action ID {action_id}: 动作状态为 {current_action_state.get('status') if current_action_state else '未知'}，跳过LLM决策和工具执行。"
-            )
-            final_result_for_shuang = (
-                current_action_state.get("final_result_for_shuang", "动作已处理完成。")
-                if current_action_state
-                else "动作状态未知，结果无法确定。"
-            )
-            action_was_successful = (
-                current_action_state.get("status") == "COMPLETED_SUCCESS" if current_action_state else False
-            )
-        else:  # proceed_to_llm_decision is True
-            relevant_adapter_messages_context = "无相关外部消息或请求。"
-            try:
-                # 假设 CoreLogic 中有方法获取最近消息，或直接通过 db_handler
-                # 这里简化为直接使用 db_handler.get_latest_thought_document_raw() 来获取上下文
-                # 实际应用中，可能需要更精确的消息获取逻辑
-                latest_doc_for_msg_context = await self.db_handler.get_latest_thought_document_raw()
-
-                if latest_doc_for_msg_context and latest_doc_for_msg_context.get(
-                    "adapter_messages"
-                ):  # 假设消息存在于此字段
-                    formatted_messages = []
-                    # 假设 adapter_messages 是一个列表，包含消息条目
-                    for msg_entry in latest_doc_for_msg_context["adapter_messages"][-3:]:  # 取最近3条
-                        sender = msg_entry.get("sender_nickname", "未知用户")
-                        content = msg_entry.get("text_content", "[内容不可读]")
-                        msg_type = "用户消息" if not msg_entry.get("is_platform_request") else "平台请求"
-                        formatted_messages.append(f"- {msg_type}来自{sender}: {content}")
-                    if formatted_messages:
-                        relevant_adapter_messages_context = "\n".join(formatted_messages)
-            except Exception as e_fetch_msg:
-                self.logger.warning(f"获取最近适配器消息以供行动决策时出错: {e_fetch_msg}")
-
-            try:
-                tools_json_str = json.dumps(self.AVAILABLE_TOOLS_SCHEMA_FOR_GEMINI, indent=2, ensure_ascii=False)
-                decision_prompt = self.ACTION_DECISION_PROMPT_TEMPLATE.format(
-                    tools_json_string=tools_json_str,
-                    current_thought_context=current_thought_context,
-                    action_description=action_description,
-                    action_motivation=action_motivation,
-                    relevant_adapter_messages_context=relevant_adapter_messages_context,
-                )
-                self.logger.info(f"--- [Action ID: {action_id}] 请求行动决策LLM ---")
-                if not self.action_llm_client:  # 再次检查
-                    raise RuntimeError("行动决策 LLM 客户端未初始化。")
-
-                decision_response: dict = await self.action_llm_client.llm_client.generate_with_tools(
-                    prompt=decision_prompt,
-                    tools=self.AVAILABLE_TOOLS_SCHEMA_FOR_GEMINI,
-                    is_stream=False,
-                )
-                self.logger.debug(
-                    f"--- [Action ID: {action_id}, DocKey: {doc_key_for_updates}] 行动决策LLM调用完成 ---"
-                )
-
-                if decision_response.get("error"):
-                    error_msg = decision_response.get("message", "行动决策LLM调用时返回了错误状态")
-                    self.logger.error(f"错误 [Action ID: {action_id}]: 行动决策LLM调用失败 - {error_msg}")
-                    final_result_for_shuang = f"我试图决定如何执行动作 '{action_description}' 时遇到了问题: {error_msg}"
-                    action_was_successful = False
                     await self.db_handler.update_action_status_in_document(
                         doc_key_for_updates,
                         action_id,
                         {
-                            "status": "COMPLETED_FAILURE",
-                            "error_message": f"行动决策LLM错误: {error_msg}",
-                            "final_result_for_shuang": final_result_for_shuang,
+                            "status": "CRITICAL_FAILURE",
+                            "error_message": f"行动模块LLM客户端初始化失败: {str(e_init)}",
+                            "final_result_for_shuang": f"你尝试执行动作 '{action_description}' 时，系统遇到严重的初始化错误，无法继续。",
                         },
                     )
                     return
 
-                tool_call_chosen: dict | None = None
-                if (
-                    decision_response.get("tool_calls")
-                    and isinstance(decision_response["tool_calls"], list)
-                    and len(decision_response["tool_calls"]) > 0
-                ):
-                    tool_call_chosen = decision_response["tool_calls"][0]
-                elif decision_response.get("text"):  # 处理LLM可能将JSON包裹在文本中的情况
-                    llm_text_output: str = decision_response.get("text", "").strip()
-                    try:
-                        if llm_text_output.startswith("```json"):
-                            llm_text_output = llm_text_output[7:-3].strip()
-                        elif llm_text_output.startswith("```"):
-                            llm_text_output = llm_text_output[3:-3].strip()
-                        parsed_text_json: dict = json.loads(llm_text_output)
-                        if (
-                            isinstance(parsed_text_json, dict)
-                            and parsed_text_json.get("tool_calls")
-                            and isinstance(parsed_text_json["tool_calls"], list)
-                            and len(parsed_text_json["tool_calls"]) > 0
-                        ):
-                            tool_call_chosen = parsed_text_json["tool_calls"][0]
-                        else:  # 解析成功但结构不对
+            current_action_state = await self._get_current_action_state_for_idempotency(doc_key_for_updates)
+            if current_action_state is None and doc_key_for_updates:
+                self.logger.error(
+                    f"错误 [Action ID: {action_id}, DocKey: {doc_key_for_updates}]: 无法获取动作文档的初始状态 (文档可能不存在)，流程终止。"
+                )
+                return
+
+            # 添加类型检查
+            if current_action_state and not isinstance(current_action_state, dict):
+                self.logger.error(
+                    f"错误 [Action ID: {action_id}]: current_action_state 应该是字典类型，但收到了 {type(current_action_state)}: {current_action_state}"
+                )
+                current_action_state = {}
+
+            target_status_processing = "PROCESSING_DECISION"
+            expected_cond_for_processing = {}
+            proceed_to_llm_decision = True
+
+            if current_action_state:
+                current_status_val = current_action_state.get("status")
+                if current_status_val == target_status_processing:
+                    self.logger.debug(
+                        f"[条件更新检查] Action ID {action_id}: 状态已经是 {target_status_processing}，不尝试更新，继续流程。"
+                    )
+                elif current_status_val in ["TOOL_EXECUTING", "COMPLETED_SUCCESS", "COMPLETED_FAILURE", "CRITICAL_FAILURE"]:
+                    self.logger.debug(
+                        f"[条件更新检查] Action ID {action_id}: 状态 ({current_status_val}) 已跳过 {target_status_processing}，不回退更新。检查是否跳过LLM决策。"
+                    )
+                    if current_status_val in ["COMPLETED_SUCCESS", "COMPLETED_FAILURE", "CRITICAL_FAILURE"]:
+                        proceed_to_llm_decision = False
+                else:
+                    self.logger.debug(
+                        f"[Action ID {action_id}]: 尝试更新状态到 {target_status_processing}。当前状态: {current_status_val}"
+                    )
+                    expected_cond_for_processing = (
+                        {"status": current_status_val} if current_status_val else None
+                    )
+
+                    update_success_processing = await self.db_handler.update_action_status_in_document(
+                        doc_key_for_updates,
+                        action_id,
+                        {"status": target_status_processing},
+                        expected_conditions=expected_cond_for_processing,
+                    )
+                    if update_success_processing:
+                        self.logger.debug(f"[Action ID {action_id}]: 状态成功更新到 {target_status_processing}。")
+                        current_action_state = await self._get_current_action_state_for_idempotency(doc_key_for_updates)
+                    else:
+                        self.logger.debug(
+                            f"[Action ID {action_id}]: 更新状态到 {target_status_processing} 的DB调用返回False。重新获取状态。"
+                        )
+                        current_action_state = await self._get_current_action_state_for_idempotency(doc_key_for_updates)
+                        if not (current_action_state and current_action_state.get("status") == target_status_processing):
+                            self.logger.error(
+                                f"错误 [Action ID: {action_id}]: 更新到 {target_status_processing} 后状态仍不正确 ({current_action_state.get('status') if current_action_state else 'None'})，流程终止。"
+                            )
+                            await self.db_handler.update_action_status_in_document(
+                                doc_key_for_updates,
+                                action_id,
+                                {
+                                    "status": "COMPLETED_FAILURE",
+                                    "error_message": f"无法将状态设置为{target_status_processing}",
+                                    "final_result_for_shuang": f"系统在初始化动作时遇到状态问题，无法为动作 '{action_description}' 进行决策。",
+                                },
+                            )
+                            return
+                        else:
+                            self.logger.debug(
+                                f"[Action ID {action_id}]: 状态已是 {target_status_processing} (可能由并发操作完成，在更新尝试后确认)。"
+                            )
+            elif not doc_key_for_updates:
+                self.logger.error(
+                    f"错误 [Action ID: {action_id}]: doc_key_for_updates 为空，无法进行状态更新或处理。流程终止。"
+                )
+                return
+
+            final_result_for_shuang: str = f"尝试执行动作 '{action_description}' 时出现未知的处理错误。"
+            action_was_successful: bool = False
+
+            if not proceed_to_llm_decision:
+                self.logger.debug(
+                    f"[流程控制] Action ID {action_id}: 动作状态为 {current_action_state.get('status') if current_action_state else '未知'}，跳过LLM决策和工具执行。"
+                )
+                final_result_for_shuang = (
+                    current_action_state.get("final_result_for_shuang", "动作已处理完成。")
+                    if current_action_state
+                    else "动作状态未知，结果无法确定。"
+                )
+                action_was_successful = (
+                    current_action_state.get("status") == "COMPLETED_SUCCESS" if current_action_state else False
+                )
+            else:
+                relevant_adapter_messages_context = "无相关外部消息或请求。"
+                try:
+                    latest_doc_for_msg_context = await self.db_handler.get_latest_thought_document_raw()
+                    self.logger.debug(f"获取到最新思考文档类型: {type(latest_doc_for_msg_context)}")
+
+                    # 直接处理返回数据，按预期格式访问
+                    if latest_doc_for_msg_context:
+                        # 如果返回的是列表，取第一个元素
+                        if isinstance(latest_doc_for_msg_context, list):
+                            doc_data = latest_doc_for_msg_context[0] if latest_doc_for_msg_context else {}
+                        else:
+                            doc_data = latest_doc_for_msg_context
+                            
+                        # 记录文档键以便调试
+                        self.logger.debug(f"最新文档键: {list(doc_data.keys()) if isinstance(doc_data, dict) else '非字典类型'}")
+                        
+                        # 首先尝试使用recent_contextual_information_input字段
+                        if isinstance(doc_data, dict) and "recent_contextual_information_input" in doc_data:
+                            contextual_info = doc_data["recent_contextual_information_input"]
+                            self.logger.debug(f"从recent_contextual_information_input提取消息上下文")
+                            
+                            # 提取聊天历史
+                            if "chat_history:" in contextual_info:
+                                chat_lines = []
+                                chat_section = contextual_info.split("chat_history:")[1].split("\n")
+                                
+                                for line in chat_section:
+                                    if "time:" in line and "message:" in contextual_info:
+                                        # 提取时间和消息
+                                        time_part = line.strip()
+                                        sender_part = next((l for l in chat_section if "sender_id:" in l), "")
+                                        message_part = next((l for l in chat_section if "text:" in l), "")
+                                        
+                                        if time_part and sender_part and message_part:
+                                            sender = sender_part.split("sender_id:")[1].strip().strip('"')
+                                            content = message_part.split("text:")[1].strip().strip('"')
+                                            chat_lines.append(f"- 用户消息来自{sender}: {content}")
+                                
+                                if chat_lines:
+                                    relevant_adapter_messages_context = "\n".join(chat_lines[-3:])
+                                    self.logger.debug(f"从recent_contextual_information_input提取到 {len(chat_lines)} 条消息")
+                except Exception as e_fetch_msg:
+                    self.logger.warning(f"获取最近适配器消息以供行动决策时出错: {e_fetch_msg}", exc_info=True)
+                    # 确保即使出错，仍有默认值
+                    relevant_adapter_messages_context = "无法获取相关消息或请求。"
+
+                try:
+                    tools_json_str = json.dumps(self.AVAILABLE_TOOLS_SCHEMA_FOR_GEMINI, indent=2, ensure_ascii=False)
+                    decision_prompt = self.ACTION_DECISION_PROMPT_TEMPLATE.format(
+                        tools_json_string=tools_json_str,
+                        current_thought_context=current_thought_context,
+                        action_description=action_description,
+                        action_motivation=action_motivation,
+                        relevant_adapter_messages_context=relevant_adapter_messages_context,
+                    )
+                    self.logger.info(f"--- [Action ID: {action_id}] 请求行动决策LLM ---")
+                    if not self.action_llm_client:
+                        raise RuntimeError("行动决策 LLM 客户端未初始化。")
+
+                    decision_response: dict = await self.action_llm_client.llm_client.generate_with_tools(
+                        prompt=decision_prompt,
+                        tools=self.AVAILABLE_TOOLS_SCHEMA_FOR_GEMINI,
+                        is_stream=False,
+                    )
+                    self.logger.debug(
+                        f"--- [Action ID: {action_id}, DocKey: {doc_key_for_updates}] 行动决策LLM调用完成 ---"
+                    )
+
+                    if decision_response.get("error"):
+                        error_msg = decision_response.get("message", "行动决策LLM调用时返回了错误状态")
+                        self.logger.error(f"错误 [Action ID: {action_id}]: 行动决策LLM调用失败 - {error_msg}")
+                        final_result_for_shuang = f"我试图决定如何执行动作 '{action_description}' 时遇到了问题: {error_msg}"
+                        action_was_successful = False
+                        await self.db_handler.update_action_status_in_document(
+                            doc_key_for_updates,
+                            action_id,
+                            {
+                                "status": "COMPLETED_FAILURE",
+                                "error_message": f"行动决策LLM错误: {error_msg}",
+                                "final_result_for_shuang": final_result_for_shuang,
+                            },
+                        )
+                        return
+
+                    tool_call_chosen: dict | None = None
+                    if (
+                        decision_response.get("tool_calls")
+                        and isinstance(decision_response["tool_calls"], list)
+                        and len(decision_response["tool_calls"]) > 0
+                    ):
+                        tool_call_chosen = decision_response["tool_calls"][0]
+                    elif decision_response.get("text"):
+                        llm_text_output: str = decision_response.get("text", "").strip()
+                        try:
+                            if llm_text_output.startswith("```json"):
+                                llm_text_output = llm_text_output[7:-3].strip()
+                            elif llm_text_output.startswith("```"):
+                                llm_text_output = llm_text_output[3:-3].strip()
+                            parsed_text_json: dict = json.loads(llm_text_output)
+                            if (
+                                isinstance(parsed_text_json, dict)
+                                and parsed_text_json.get("tool_calls")
+                                and isinstance(parsed_text_json["tool_calls"], list)
+                                and len(parsed_text_json["tool_calls"]) > 0
+                            ):
+                                tool_call_chosen = parsed_text_json["tool_calls"][0]
+                            else:
+                                final_result_for_shuang = await report_action_failure(
+                                    intended_action_description=action_description,
+                                    intended_action_motivation=action_motivation,
+                                    reason_for_failure_short=f"行动决策模型未选择有效工具(text解析结构不对)：{llm_text_output[:100]}...",
+                                )
+                                action_was_successful = False
+                        except json.JSONDecodeError:
                             final_result_for_shuang = await report_action_failure(
                                 intended_action_description=action_description,
                                 intended_action_motivation=action_motivation,
-                                reason_for_failure_short=f"行动决策模型未选择有效工具(text解析结构不对)：{llm_text_output[:100]}...",
+                                reason_for_failure_short=f"行动决策模型的回复格式不正确(text解析失败)：{llm_text_output[:100]}...",
                             )
                             action_was_successful = False
-                    except json.JSONDecodeError:  # 解析文本中的JSON失败
-                        final_result_for_shuang = await report_action_failure(
-                            intended_action_description=action_description,
-                            intended_action_motivation=action_motivation,
-                            reason_for_failure_short=f"行动决策模型的回复格式不正确(text解析失败)：{llm_text_output[:100]}...",
+
+                    if not tool_call_chosen and not action_was_successful:
+                        self.logger.error(
+                            f"错误 [Action ID: {action_id}]: 行动决策LLM未能提供有效工具调用或解析失败（最终检查点）。"
                         )
-                        action_was_successful = False
-
-                if (
-                    not tool_call_chosen and not action_was_successful
-                ):  # 如果最终没有选出工具，并且之前没有因为解析错误而设置 action_was_successful = False
-                    self.logger.error(
-                        f"错误 [Action ID: {action_id}]: 行动决策LLM未能提供有效工具调用或解析失败（最终检查点）。"
-                    )
-                    # 确保 final_result_for_shuang 在此情况下被设置
-                    if final_result_for_shuang.startswith("尝试执行动作"):  # 检查是否是默认错误信息
-                        final_result_for_shuang = await report_action_failure(
-                            intended_action_description=action_description,
-                            intended_action_motivation=action_motivation,
-                            reason_for_failure_short="行动决策模型未能提供有效的工具调用指令或解析其输出失败（最终检查点）。",
-                        )
-                    action_was_successful = False  # 明确设置为False
-                    await self.db_handler.update_action_status_in_document(
-                        doc_key_for_updates,
-                        action_id,
-                        {
-                            "status": "COMPLETED_FAILURE",
-                            "error_message": "行动决策LLM未能提供有效工具调用或解析失败（最终检查点）。",
-                            "final_result_for_shuang": final_result_for_shuang,
-                        },
-                    )
-                    return  # 流程终止
-
-                # --- 接下来的工具执行逻辑 ---
-                if tool_call_chosen:  # 确保 tool_call_chosen 不是 None
-                    tool_name: str | None = tool_call_chosen.get("function", {}).get("name")
-                    tool_args_str: str | None = tool_call_chosen.get("function", {}).get("arguments")
-
-                    if not tool_name or tool_args_str is None:
-                        final_result_for_shuang = "系统在理解工具调用指令时出错（缺少工具名称或参数）。"
+                        if final_result_for_shuang.startswith("尝试执行动作"):
+                            final_result_for_shuang = await report_action_failure(
+                                intended_action_description=action_description,
+                                intended_action_motivation=action_motivation,
+                                reason_for_failure_short="行动决策模型未能提供有效的工具调用指令或解析其输出失败（最终检查点）。",
+                            )
                         action_was_successful = False
                         await self.db_handler.update_action_status_in_document(
                             doc_key_for_updates,
                             action_id,
                             {
                                 "status": "COMPLETED_FAILURE",
-                                "error_message": "解析工具调用格式错误",
-                                "final_result_for_shuang": final_result_for_shuang,
-                            },
-                        )
-                        return
-                    try:
-                        tool_args: dict = json.loads(tool_args_str)
-                        if not isinstance(tool_args, dict):  # 确保参数是字典
-                            raise json.JSONDecodeError("Arguments not a dict", tool_args_str, 0)
-                    except json.JSONDecodeError:
-                        final_result_for_shuang = (
-                            f"系统在理解动作 '{action_description}' 的工具参数时发生JSON解析错误。"
-                        )
-                        action_was_successful = False
-                        await self.db_handler.update_action_status_in_document(
-                            doc_key_for_updates,
-                            action_id,
-                            {
-                                "status": "COMPLETED_FAILURE",
-                                "error_message": f"工具参数JSON解析错误: {tool_args_str}",
+                                "error_message": "行动决策LLM未能提供有效工具调用或解析失败（最终检查点）。",
                                 "final_result_for_shuang": final_result_for_shuang,
                             },
                         )
                         return
 
-                    # 更新状态到 TOOL_EXECUTING
-                    target_status_tool_executing = "TOOL_EXECUTING"
-                    # 期望之前的状态是 PROCESSING_DECISION
-                    expected_cond_for_tool_exec = {"status": "PROCESSING_DECISION"}
+                    # 工具执行逻辑
+                    if tool_call_chosen:
+                        tool_name: str | None = tool_call_chosen.get("function", {}).get("name")
+                        tool_args_str: str | None = tool_call_chosen.get("function", {}).get("arguments")
 
-                    current_action_state_before_tool_exec = await self._get_current_action_state_for_idempotency(
-                        doc_key_for_updates
-                    )
-                    proceed_with_tool_execution_logic = True
-
-                    if (
-                        current_action_state_before_tool_exec
-                        and current_action_state_before_tool_exec.get("status") == target_status_tool_executing
-                        and current_action_state_before_tool_exec.get("tool_selected") == tool_name
-                        and current_action_state_before_tool_exec.get("tool_args") == tool_args
-                    ):
-                        self.logger.debug(
-                            f"[条件更新检查] Action ID {action_id}: 状态、工具和参数已是目标值 ({target_status_tool_executing}, {tool_name})，跳过DB更新。"
-                        )
-                        current_action_state = (
-                            current_action_state_before_tool_exec  # 更新 current_action_state 以反映当前DB状态
-                        )
-                    elif current_action_state_before_tool_exec and current_action_state_before_tool_exec.get(
-                        "status"
-                    ) in ["COMPLETED_SUCCESS", "COMPLETED_FAILURE", "CRITICAL_FAILURE"]:
-                        self.logger.warning(
-                            f"[条件更新检查] Action ID {action_id}: 动作已处于最终状态 ({current_action_state_before_tool_exec.get('status')})，不再更新到 {target_status_tool_executing}，并跳过工具执行。"
-                        )
-                        final_result_for_shuang = current_action_state_before_tool_exec.get(
-                            "final_result_for_shuang", "动作已完成。"
-                        )
-                        action_was_successful = (
-                            current_action_state_before_tool_exec.get("status") == "COMPLETED_SUCCESS"
-                        )
-                        proceed_with_tool_execution_logic = False  # 跳过工具执行
-                    else:  # 尝试更新到 TOOL_EXECUTING
-                        self.logger.debug(
-                            f"[Action ID {action_id}]: 尝试更新状态到 {target_status_tool_executing}, 工具: {tool_name}。期望旧状态: {expected_cond_for_tool_exec.get('status')}"
-                        )
-                        update_success_tool_exec = await self.db_handler.update_action_status_in_document(
-                            doc_key_for_updates,
-                            action_id,
-                            {
-                                "status": target_status_tool_executing,
-                                "tool_selected": tool_name,
-                                "tool_args": tool_args,
-                            },
-                            expected_conditions=expected_cond_for_tool_exec,
-                        )
-                        if update_success_tool_exec:
-                            self.logger.debug(
-                                f"[Action ID {action_id}]: 状态成功更新到 {target_status_tool_executing}。"
+                        if not tool_name or tool_args_str is None:
+                            final_result_for_shuang = "系统在理解工具调用指令时出错（缺少工具名称或参数）。"
+                            action_was_successful = False
+                            await self.db_handler.update_action_status_in_document(
+                                doc_key_for_updates,
+                                action_id,
+                                {
+                                    "status": "COMPLETED_FAILURE",
+                                    "error_message": "解析工具调用格式错误",
+                                    "final_result_for_shuang": final_result_for_shuang,
+                                },
                             )
-                            current_action_state = await self._get_current_action_state_for_idempotency(
-                                doc_key_for_updates
-                            )  # 更新后重新获取
-                        else:  # 更新到 TOOL_EXECUTING 失败或未执行 (DB调用返回False)
-                            self.logger.debug(
-                                f"[Action ID {action_id}]: 更新状态到 {target_status_tool_executing} 的DB调用返回False。重新获取并检查当前状态。"
+                            return
+                        try:
+                            tool_args: dict = json.loads(tool_args_str)
+                            if not isinstance(tool_args, dict):
+                                raise ValueError(f"解析后的工具参数不是字典类型，而是 {type(tool_args)}")
+                        except Exception as e:
+                            final_result_for_shuang = f"解析工具调用参数时出错：{str(e)}"
+                            action_was_successful = False
+                            await self.db_handler.update_action_status_in_document(
+                                doc_key_for_updates,
+                                action_id,
+                                {
+                                    "status": "COMPLETED_FAILURE",
+                                    "error_message": final_result_for_shuang,
+                                    "final_result_for_shuang": final_result_for_shuang,
+                                },
                             )
-                            current_action_state_after_failed_update = (
-                                await self._get_current_action_state_for_idempotency(doc_key_for_updates)
-                            )
-                            self.logger.debug(
-                                f"[DEBUG][Action ID {action_id}]: 更新到 TOOL_EXECUTING 失败后，DB实际状态: {repr(current_action_state_after_failed_update.get('status') if current_action_state_after_failed_update else 'None')}. "
-                                f"期望目标状态是: {repr(target_status_tool_executing)}"
-                            )
+                            return
 
-                            if (
-                                current_action_state_after_failed_update
-                                and current_action_state_after_failed_update.get("status")
-                                == target_status_tool_executing
-                            ):
-                                self.logger.debug(
-                                    f"[Action ID {action_id}]: 状态已经是 {target_status_tool_executing} (可能由并发操作完成)。将继续执行工具逻辑。"
-                                )
-                                current_action_state = (
-                                    current_action_state_after_failed_update  # 更新 current_action_state
-                                )
-                            elif (
-                                current_action_state_after_failed_update
-                                and current_action_state_after_failed_update.get("status")
-                                in ["COMPLETED_SUCCESS", "COMPLETED_FAILURE", "CRITICAL_FAILURE"]
-                            ):
-                                self.logger.debug(
-                                    f"[流程控制] Action ID {action_id}: 尝试更新到TOOL_EXECUTING失败，但发现动作已是最终状态 {current_action_state_after_failed_update.get('status')}。使用已有结果，跳过工具执行。"
-                                )
-                                final_result_for_shuang = current_action_state_after_failed_update.get(
-                                    "final_result_for_shuang", "动作已完成。"
-                                )
-                                action_was_successful = (
-                                    current_action_state_after_failed_update.get("status") == "COMPLETED_SUCCESS"
-                                )
-                                proceed_with_tool_execution_logic = False  # 跳过工具执行
-                            else:  # 状态既不是目标，也不是最终状态，这是个问题
-                                self.logger.error(
-                                    f"错误 [Action ID: {action_id}]: 无法将状态更新到 {target_status_tool_executing} 且动作未完成，流程终止。重新获取的状态为: {current_action_state_after_failed_update.get('status') if current_action_state_after_failed_update else 'None'}"
-                                )
-                                final_result_for_shuang = f"系统在准备执行工具时遇到状态同步问题（状态意外），无法继续动作 '{action_description}'。"
-                                action_was_successful = False
-                                await self.db_handler.update_action_status_in_document(
-                                    doc_key_for_updates,
-                                    action_id,
-                                    {
-                                        "status": "COMPLETED_FAILURE",  # 标记为失败
-                                        "error_message": f"状态同步问题（意外状态 {current_action_state_after_failed_update.get('status') if current_action_state_after_failed_update else 'None'}），无法更新到TOOL_EXECUTING",
-                                        "final_result_for_shuang": final_result_for_shuang,
-                                    },
-                                )
-                                return  # 流程终止
-
-                    # --- 执行工具 ---
-                    if proceed_with_tool_execution_logic:
-                        self.logger.info(
-                            f"开始执行动作: {tool_name},参数：{tool_args}"  # 修改：打印参数
-                        )
-                        raw_tool_output: str = "工具未返回任何输出或执行时发生错误。"  # 默认值
-
+                        # 执行具体工具
                         if tool_name == "web_search":
-                            raw_tool_output = await search_web(**tool_args)
-                            # 检查搜索结果是否指示错误
-                            if isinstance(raw_tool_output, str) and any(
-                                err_keyword in raw_tool_output.lower()
-                                for err_keyword in ["error", "出错", "失败", "未能通过"]
-                            ):
-                                final_result_for_shuang = str(raw_tool_output)  # 直接使用错误信息作为结果
-                                action_was_successful = False
-                            else:  # 搜索成功，进行总结
-                                self.logger.info(f"--- 关键词：{action_id} 网页搜索成功，准备总结 ---")
-                                original_query_for_summary: str = tool_args.get("query", action_description)
-                                summary_prompt: str = self.INFORMATION_SUMMARY_PROMPT_TEMPLATE.format(
-                                    original_query_or_action=original_query_for_summary,
-                                    original_motivation=action_motivation,
-                                    raw_tool_output=str(raw_tool_output),
-                                )
-                                if self.summary_llm_client:
-                                    summary_response: dict = await self.summary_llm_client.make_llm_request(
-                                        prompt=summary_prompt, is_stream=False
+                            self.logger.info(f"开始执行网络搜索工具，查询：{tool_args.get('query')}")
+                            try:
+                                search_results = await search_web(tool_args.get("query", ""), self.db_handler)
+                                self.logger.info(f"网络搜索工具执行成功，找到 {len(search_results)} 个结果。")
+                                if len(search_results) > 0:
+                                    top_result = search_results[0]
+                                    summary_text = (
+                                        top_result.get("summary")
+                                        or top_result.get("snippet")
+                                        or "找到的结果没有摘要信息。"
                                     )
-                                    if summary_response.get("error"):
-                                        final_result_for_shuang = f"找到信息，但总结时出错: {summary_response.get('message', '')}. 原始: {str(raw_tool_output)[:100]}..."
-                                        action_was_successful = False
-                                    elif summary_response.get("text"):
-                                        final_result_for_shuang = summary_response.get("text")  # type: ignore
-                                        action_was_successful = True
-                                        self.logger.info(f"关键词：{action_id} 搜索结果总结成功")
-                                    else:  # 总结服务未返回文本
-                                        final_result_for_shuang = (
-                                            f"找到信息，但总结服务未返回文本. 原始: {str(raw_tool_output)[:100]}..."
-                                        )
-                                        action_was_successful = False
-                                else:  # 总结LLM客户端未初始化
-                                    final_result_for_shuang = f"总结服务不可用. 原始: {str(raw_tool_output)[:100]}..."
+                                    final_result_for_shuang = f"网络搜索结果摘要：{summary_text}"
+                                    action_was_successful = True
+                                else:
+                                    final_result_for_shuang = "未找到任何相关的网络搜索结果。"
                                     action_was_successful = False
-
-                        # --- 我们新加的工具的调用逻辑 ---
-                        elif tool_name == "get_active_chat_instances":
-                            # 从 tool_args 中获取参数，如果LLM提供了的话
-                            threshold_days = tool_args.get("active_threshold_days", 7)  # 默认7天
-                            max_to_return = tool_args.get("max_instances_to_return", 20)  # 默认20个
-                            try:  # 做个类型转换和保护
-                                threshold_days = int(threshold_days) if threshold_days is not None else 7
-                                max_to_return = int(max_to_return) if max_to_return is not None else 20
-                            except (ValueError, TypeError):
-                                self.logger.warning(
-                                    f"工具 get_active_chat_instances 的参数类型不正确，将使用默认值。收到参数: {tool_args}"
-                                )
-                                threshold_days = 7
-                                max_to_return = 20
-
-                            raw_tool_output = await self._execute_get_active_chat_instances(
-                                active_threshold_days=threshold_days, max_instances_to_return=max_to_return
-                            )
-                            # 这个工具的结果通常直接就是给用户（或LLM进一步处理）看的，所以 action_was_successful 可以认为是True
-                            # 除非你想根据列表是否为空来判断成功与否
-                            action_was_successful = True  # 假设获取列表本身就是成功的动作
-                            final_result_for_shuang = str(raw_tool_output)  # 直接把JSON字符串给双
+                            except Exception as e:
+                                self.logger.error(f"执行网络搜索工具时发生错误: {e}", exc_info=True)
+                                final_result_for_shuang = f"执行网络搜索时发生错误：{str(e)}"
+                                action_was_successful = False
 
                         elif tool_name == "send_reply_message_to_adapter":
-                            if self.core_communication_layer:
-                                msg_content = tool_args.get("message_content_text", "...")
-                                target_uid = tool_args.get("target_user_id")
-                                target_gid = tool_args.get("target_group_id")
-                                reply_to_msg_id = tool_args.get("reply_to_message_id")
-
-                                if not target_uid and not target_gid:  # 必须有目标
-                                    raw_tool_output = "发送失败:无目标ID"
-                                    final_result_for_shuang = "不知回复给谁"
-                                    action_was_successful = False
-                                else:
-                                    # 构建v1.4.0事件对象
-                                    bot_id_for_action = "core_bot"  # 假设的机器人ID
-                                    platform_for_action = "core_platform"  # 假设的平台
-                                    
-                                    # 构建内容段
-                                    content_segs = [SegBuilder.text(msg_content)]
-                                    
-                                    # 构建用户信息和会话信息
-                                    target_user_info = None
-                                    target_conversation_info = None
-                                    
-                                    if target_uid:
-                                        target_user_info = UserInfo(
-                                            platform=platform_for_action,
-                                            user_id=target_uid,
-                                            user_nickname="目标用户"
-                                        )
-                                    
-                                    if target_gid:
-                                        target_conversation_info = ConversationInfo(
-                                            conversation_id=target_gid,
-                                            type=ConversationType.GROUP,
-                                            platform=platform_for_action,
-                                            name="目标群组"
-                                        )
-                                    elif target_uid:
-                                        target_conversation_info = ConversationInfo(
-                                            conversation_id=f"{platform_for_action}_dm_{bot_id_for_action}_{target_uid}",
-                                            type=ConversationType.PRIVATE,
-                                            platform=platform_for_action
-                                        )
-                                    
-                                    # 构建动作事件
-                                    action_event = Event(
-                                        event_id=f"core_action_reply_{action_id}",
-                                        event_type="action.send_message",
-                                        time=time.time() * 1000.0,
-                                        platform=platform_for_action,
-                                        bot_id=bot_id_for_action,
-                                        user_info=target_user_info,
-                                        conversation_info=target_conversation_info,
-                                        content=[
-                                            SegBuilder.send_message(
-                                                segments=content_segs,
-                                                target_user_id=target_uid,
-                                                target_group_id=target_gid,
-                                                reply_to_message_id=reply_to_msg_id
-                                            )
-                                        ],
-                                        raw_data=json.dumps({
-                                            "action_type": "send_message",
-                                            "target_uid": target_uid,
-                                            "target_gid": target_gid
-                                        })
-                                    )
-                                    
-                                    send_success = await self.core_communication_layer.broadcast_action_to_adapters(
-                                        action_event
-                                    )
-                                    if send_success:
-                                        raw_tool_output = f"消息已发送: '{msg_content}'"
-                                        final_result_for_shuang = f"已回复 '{msg_content[:30]}...'"
-                                        action_was_successful = True
-                                    else:
-                                        raw_tool_output = "传递消息给适配器失败"
-                                        final_result_for_shuang = "消息没发出"
-                                        action_was_successful = False
-                            else:  # 通信层未初始化
-                                raw_tool_output = "发送失败:通信层未初始化"
-                                final_result_for_shuang = "内部通讯出错"
+                            self.logger.info(f"准备通过适配器发送消息，目标用户ID：{tool_args.get('target_user_id')}")
+                            try:
+                                await self.db_handler.send_reply_message_to_adapter(
+                                    target_user_id=tool_args.get("target_user_id"),
+                                    target_group_id=tool_args.get("target_group_id"),
+                                    message_content_text=tool_args.get("message_content_text"),
+                                    reply_to_message_id=tool_args.get("reply_to_message_id"),
+                                )
+                                self.logger.info("消息通过适配器发送成功。")
+                                final_result_for_shuang = "消息已成功发送。"
+                                action_was_successful = True
+                            except Exception as e:
+                                self.logger.error(f"通过适配器发送消息时发生错误: {e}", exc_info=True)
+                                final_result_for_shuang = f"发送消息时发生错误：{str(e)}"
                                 action_was_successful = False
 
                         elif tool_name == "handle_platform_request_internally":
-                            if self.core_communication_layer:
-                                req_type = tool_args.get("request_type")
-                                req_flag = tool_args.get("request_flag")
-                                approve = tool_args.get("approve_action", False)  # 默认为False
-                                remark_reason = tool_args.get("remark_or_reason")
-
-                                if not req_type or not req_flag:
-                                    raw_tool_output = "处理平台请求失败:缺少参数"
-                                    final_result_for_shuang = "处理平台请求信息不完整"
-                                    action_was_successful = False
-                                else:
-                                    bot_id_for_action = "core_bot"
-                                    platform_for_action = "core_platform"
-                                    
-                                    # 构建动作内容段
-                                    action_seg_data = {
-                                        "request_flag": req_flag,
-                                        "approve": approve
-                                    }
-                                    
-                                    action_seg_type = ""
-                                    if req_type == "friend_add":
-                                        action_seg_type = "handle_friend_request"
-                                        if approve and remark_reason:
-                                            action_seg_data["remark"] = remark_reason
-                                    elif req_type in ["group_join_application", "group_invite_received"]:
-                                        action_seg_type = "handle_group_request"
-                                        action_seg_data["request_type"] = req_type
-                                        if not approve and remark_reason:
-                                            action_seg_data["reason"] = remark_reason
-                                    else:
-                                        raw_tool_output = f"处理平台请求失败:未知类型 '{req_type}'"
-                                        final_result_for_shuang = f"不确定如何处理类型为 '{req_type}' 的平台请求"
-                                        action_was_successful = False
-
-                                    if action_seg_type:
-                                        # 构建v1.4.0动作事件
-                                        action_event = Event(
-                                            event_id=f"core_action_handle_req_{action_id}",
-                                            event_type=f"action.{action_seg_type}",
-                                            time=time.time() * 1000.0,
-                                            platform=platform_for_action,
-                                            bot_id=bot_id_for_action,
-                                            user_info=None,
-                                            conversation_info=None,
-                                            content=[
-                                                Seg(type=action_seg_type, data=action_seg_data)
-                                            ],
-                                            raw_data=json.dumps({
-                                                "action_type": action_seg_type,
-                                                "request_type": req_type,
-                                                "approve": approve
-                                            })
-                                        )
-                                        
-                                        send_success = await self.core_communication_layer.broadcast_action_to_adapters(
-                                            action_event
-                                        )
-                                        if send_success:
-                                            raw_tool_output = f"平台请求({req_type})指令已发送"
-                                            final_result_for_shuang = f"已处理平台请求({req_type})"
-                                            action_was_successful = True
-                                        else:
-                                            raw_tool_output = "传递平台请求指令失败"
-                                            final_result_for_shuang = "平台请求指令没发出"
-                                            action_was_successful = False
-                            else:
-                                raw_tool_output = "处理平台请求失败:通信层未初始化"
-                                final_result_for_shuang = "内部通讯出错(平台请求)"
+                            self.logger.info(
+                                f"处理平台请求，类型：{tool_args.get('request_type')}，标识：{tool_args.get('request_flag')}"
+                            )
+                            try:
+                                await self.db_handler.handle_platform_request_internally(
+                                    request_type=tool_args.get("request_type"),
+                                    request_flag=tool_args.get("request_flag"),
+                                    approve_action=tool_args.get("approve_action"),
+                                    remark_or_reason=tool_args.get("remark_or_reason"),
+                                )
+                                self.logger.info("平台请求处理指令已发送。")
+                                final_result_for_shuang = "平台请求已处理。"
+                                action_was_successful = True
+                            except Exception as e:
+                                self.logger.error(f"处理平台请求时发生错误: {e}", exc_info=True)
+                                final_result_for_shuang = f"处理平台请求时发生错误：{str(e)}"
                                 action_was_successful = False
 
                         elif tool_name == "report_action_failure":
-                            tool_args_for_reporter: dict = tool_args.copy()
-                            tool_args_for_reporter["intended_action_description"] = action_description
-                            tool_args_for_reporter["intended_action_motivation"] = action_motivation
-                            raw_tool_output = await report_action_failure(**tool_args_for_reporter)
-                            final_result_for_shuang = str(raw_tool_output)
-                            action_was_successful = False  # 报告失败本身意味着行动未成功
-                        else:  # 未知工具
-                            raw_tool_output = f"未知工具 '{tool_name}'"
-                            final_result_for_shuang = raw_tool_output
+                            self.logger.info(f"报告行动失败，原因：{tool_args.get('reason_for_failure_short')}")
+                            try:
+                                final_result_for_shuang = await report_action_failure(
+                                    intended_action_description=action_description,
+                                    intended_action_motivation=action_motivation,
+                                    reason_for_failure_short=tool_args.get("reason_for_failure_short", ""),
+                                )
+                                self.logger.info("行动失败报告处理完毕。")
+                                action_was_successful = True
+                            except Exception as e:
+                                self.logger.error(f"报告行动失败时发生错误: {e}", exc_info=True)
+                                final_result_for_shuang = f"报告行动失败时发生错误：{str(e)}"
+                                action_was_successful = False
+
+                        elif tool_name == "get_active_chat_instances":
+                            self.logger.info(
+                                f"获取活跃聊天实例，阈值：{tool_args.get('active_threshold_days')} 天，最多返回：{tool_args.get('max_instances_to_return')} 个"
+                            )
+                            try:
+                                active_instances_result = await self._execute_get_active_chat_instances(
+                                    active_threshold_days=tool_args.get("active_threshold_days", 7),
+                                    max_instances_to_return=tool_args.get("max_instances_to_return", 20),
+                                )
+                                self.logger.info(f"获取活跃聊天实例成功，返回 {len(json.loads(active_instances_result).get('instances', []))} 个实例。")
+                                final_result_for_shuang = active_instances_result
+                                action_was_successful = True
+                            except Exception as e:
+                                self.logger.error(f"获取活跃聊天实例时发生错误: {e}", exc_info=True)
+                                final_result_for_shuang = f"获取活跃聊天实例时发生错误：{str(e)}"
+                                action_was_successful = False
+
+                        else:
+                            final_result_for_shuang = f"未知的工具调用：{tool_name}"
                             action_was_successful = False
+                            self.logger.error(final_result_for_shuang)
 
-                        # 保存工具的原始输出 (幂等性检查)
-                        current_action_state_for_raw_out = await self._get_current_action_state_for_idempotency(
-                            doc_key_for_updates
-                        )
-                        # 期望状态仍然是 TOOL_EXECUTING
-                        expected_cond_for_raw_out = {"status": target_status_tool_executing}
-                        new_raw_output_to_save = str(raw_tool_output)[:2000]  # 限制长度
+                except Exception as e:
+                    self.logger.error(f"处理LLM决策和工具执行时发生错误: {e}", exc_info=True)
+                    final_result_for_shuang = f"处理行动决策时发生错误：{str(e)}"
+                    action_was_successful = False
 
-                        should_attempt_db_update_for_raw_output = True
-                        if (
-                            current_action_state_for_raw_out
-                            and current_action_state_for_raw_out.get("tool_raw_output") == new_raw_output_to_save
-                            and current_action_state_for_raw_out.get("status") == target_status_tool_executing
-                        ):  # 确保状态也正确
-                            self.logger.debug(
-                                f"[Idempotency-Python] Action ID {action_id}: tool_raw_output ('{new_raw_output_to_save[:50]}...') is already set and status is correct. No DB call needed for raw_output."
-                            )
-                            should_attempt_db_update_for_raw_output = False
-                            current_action_state = current_action_state_for_raw_out  # 更新当前状态
-
-                        if should_attempt_db_update_for_raw_output:
-                            self.logger.debug(
-                                f"[Action ID {action_id}]: Attempting to update tool_raw_output. Expected DB status: {expected_cond_for_raw_out.get('status')}. New raw_output: '{new_raw_output_to_save[:50]}...'"
-                            )
-                            update_success_raw_out = await self.db_handler.update_action_status_in_document(
-                                doc_key_for_updates,
-                                action_id,
-                                {"tool_raw_output": new_raw_output_to_save},
-                                expected_conditions=expected_cond_for_raw_out,
-                            )
-                            if update_success_raw_out:
-                                self.logger.debug(
-                                    f"[Action ID {action_id}]: tool_raw_output update successful (writes_executed > 0)."
-                                )
-                                current_action_state = await self._get_current_action_state_for_idempotency(
-                                    doc_key_for_updates
-                                )  # 更新后重新获取
-                            else:  # DB调用返回False，重新获取并验证
-                                self.logger.debug(
-                                    f"[Action ID {action_id}]: tool_raw_output update DB call returned False. Re-fetching and verifying."
-                                )
-                                current_action_state_after_raw_attempt = (
-                                    await self._get_current_action_state_for_idempotency(doc_key_for_updates)
-                                )
-                                if (
-                                    current_action_state_after_raw_attempt
-                                    and current_action_state_after_raw_attempt.get("tool_raw_output")
-                                    == new_raw_output_to_save
-                                    and current_action_state_after_raw_attempt.get("status")
-                                    == expected_cond_for_raw_out.get("status")
-                                ):
-                                    self.logger.debug(
-                                        f"[Action ID {action_id}]: tool_raw_output is now correctly set in DB (likely by concurrent update). Status is also as expected ('{expected_cond_for_raw_out.get('status')}'). Proceeding."
-                                    )
-                                    current_action_state = current_action_state_after_raw_attempt  # 更新当前状态
-                                elif (
-                                    current_action_state_after_raw_attempt
-                                    and current_action_state_after_raw_attempt.get("status")
-                                    != expected_cond_for_raw_out.get("status")
-                                ):
-                                    # 状态已改变，这可能意味着动作已被其他流程完成或失败
-                                    self.logger.error(
-                                        f"ERROR [Action ID {action_id}]: tool_raw_output update attempt failed AND status changed unexpectedly. "
-                                        f"Expected status '{expected_cond_for_raw_out.get('status')}', but found '{current_action_state_after_raw_attempt.get('status')}'. "
-                                        "This might indicate the action was completed or failed by another process. Using the new status and result."
-                                    )
-                                    # 使用已改变的状态和结果
-                                    final_result_for_shuang = current_action_state_after_raw_attempt.get(
-                                        "final_result_for_shuang",
-                                        f"动作状态变为 {current_action_state_after_raw_attempt.get('status')}，原始工具输出可能未保存。",
-                                    )
-                                    action_was_successful = (
-                                        current_action_state_after_raw_attempt.get("status") == "COMPLETED_SUCCESS"
-                                    )
-                                    current_action_state = current_action_state_after_raw_attempt  # 更新当前状态
-                                    # 不再尝试更新 final_result_for_shuang，因为它已被新状态覆盖
-                                else:  # 状态未变，但 raw_output 仍未设置，这很奇怪
-                                    self.logger.error(
-                                        f"ERROR [Action ID {action_id}]: tool_raw_output update attempt failed AND DB value is still not the target, while status is as expected. This is unexpected."
-                                    )
-                                    current_action_state = current_action_state_after_raw_attempt  # 更新当前状态
-                                    # 此时 final_result_for_shuang 仍然是工具执行的结果，action_was_successful 也已设置
-
-            except Exception as e:  # LLM决策或工具执行中的其他意外错误
-                self.logger.critical(
-                    f"严重错误 [Action ID: {action_id}, DocKey: {doc_key_for_updates}]: 在LLM决策或工具执行中发生意外: {e}",
-                    exc_info=True,
-                )
-                final_result_for_shuang = (
-                    f"我尝试执行动作 '{action_description}' 时，系统在决策或工具执行阶段发生严重内部错误: {str(e)}"
-                )
-                action_was_successful = False
+            # 工具执行后续处理
+            if action_was_successful:
+                self.logger.info(f"行动 ID {action_id} 执行成功，更新文档状态。")
                 await self.db_handler.update_action_status_in_document(
                     doc_key_for_updates,
                     action_id,
                     {
-                        "status": "CRITICAL_FAILURE",
-                        "error_message": f"LLM决策/工具执行错误: {str(e)}",
+                        "status": "COMPLETED_SUCCESS",
                         "final_result_for_shuang": final_result_for_shuang,
                     },
                 )
-                return  # 流程终止
-
-        # --- 更新最终状态 ---
-        final_status_to_set: str = "COMPLETED_SUCCESS" if action_was_successful else "COMPLETED_FAILURE"
-        updates_for_final_status = {"status": final_status_to_set, "final_result_for_shuang": final_result_for_shuang}
-
-        # 幂等性检查：在尝试更新最终状态前，先获取当前DB中的状态
-        current_action_state_before_final = await self._get_current_action_state_for_idempotency(doc_key_for_updates)
-        expected_cond_for_final = {}  # 默认无条件，除非下面逻辑修改
-        allow_final_update_py_check = True  # Python 级别的检查，是否允许进行DB更新
-
-        if current_action_state_before_final:
-            db_status = current_action_state_before_final.get("status")
-            db_final_result = current_action_state_before_final.get("final_result_for_shuang")
-
-            if db_status == "CRITICAL_FAILURE":
-                self.logger.warning(
-                    f"[Idempotency-Python] Action ID {action_id}: Status is already CRITICAL_FAILURE. No further final status update will be attempted."
+            else:
+                self.logger.warning(f"行动 ID {action_id} 执行失败，状态：{final_result_for_shuang}")
+                await self.db_handler.update_action_status_in_document(
+                    doc_key_for_updates,
+                    action_id,
+                    {
+                        "status": "COMPLETED_FAILURE",
+                        "error_message": final_result_for_shuang,
+                        "final_result_for_shuang": final_result_for_shuang,
+                    },
                 )
-                allow_final_update_py_check = False
-            elif db_status == final_status_to_set and db_final_result == final_result_for_shuang:
-                self.logger.debug(
-                    f"[Idempotency-Python] Action ID {action_id}: Final status ('{final_status_to_set}') and result are already set. No DB call needed."
-                )
-                allow_final_update_py_check = False
-            elif db_status == final_status_to_set and db_final_result != final_result_for_shuang:
-                # 状态已是最终状态，但结果不同，只更新结果
-                self.logger.debug(
-                    f"[Action ID {action_id}]: Final status ('{final_status_to_set}') is already set, but final_result_for_shuang differs. Will attempt to update result. "
-                    f"Expected DB status for this update will be '{final_status_to_set}'."
-                )
-                expected_cond_for_final = {"status": final_status_to_set}  # 条件是状态必须还是这个最终状态
-            elif db_status != final_status_to_set:
-                # 如果当前DB状态不是任何已完成状态，则设置条件为当前状态
-                if db_status not in [
-                    "COMPLETED_SUCCESS",
-                    "COMPLETED_FAILURE",
-                ]:  # 避免从一个完成态变为另一个（除非是上面那种结果不同的情况）
-                    expected_cond_for_final = {"status": db_status}
-                # 如果是从一个完成态变为另一个（例如FAILURE到SUCCESS，这不应该发生，但作为防御），则无条件或基于特定逻辑
-                # 当前逻辑：如果db_status是COMPLETED_FAILURE，而我们要设为COMPLETED_SUCCESS，则允许（可能重试成功）
-                # 但如果db_status是COMPLETED_SUCCESS，我们要设为COMPLETED_FAILURE，则可能需要更复杂的逻辑（通常不回退）
-                # 为简单起见，如果db_status已经是某种完成态，且不是目标完成态，我们仍尝试更新，条件是旧的完成态
-                # 但更安全的做法可能是，如果已是某种完成态，就不再轻易改变它，除非是结果更新
-                if db_status in ["COMPLETED_SUCCESS", "COMPLETED_FAILURE"] and db_status != final_status_to_set:
-                    self.logger.warning(
-                        f"[Action ID {action_id}]: Attempting to change final status from '{db_status}' to '{final_status_to_set}'. This is unusual."
-                    )
-                    expected_cond_for_final = {"status": db_status}
 
-        if allow_final_update_py_check:
-            self.logger.debug(
-                f"[Action ID {action_id}]: Attempting to set final status to '{final_status_to_set}'. Expected DB conditions for update: {expected_cond_for_final if expected_cond_for_final else 'None (unconditional or first set)'}."
-            )
-            update_success_final = await self.db_handler.update_action_status_in_document(
+        except Exception as e:
+            self.logger.error(f"处理行动流程时发生错误: {e}", exc_info=True)
+            final_result_for_shuang = f"处理行动流程时发生错误：{str(e)}"
+            await self.db_handler.update_action_status_in_document(
                 doc_key_for_updates,
                 action_id,
-                updates_for_final_status,
-                expected_conditions=expected_cond_for_final
-                if expected_cond_for_final
-                else None,  # 如果 expected_cond_for_final 为空，则无条件
+                {
+                    "status": "COMPLETED_FAILURE",
+                    "error_message": final_result_for_shuang,
+                    "final_result_for_shuang": final_result_for_shuang,
+                },
             )
-            if update_success_final:
-                self.logger.debug(f"[Action ID {action_id}]: Final status update successful (writes_executed > 0).")
-            else:  # DB调用返回False，重新获取并验证
-                self.logger.debug(
-                    f"[Action ID {action_id}]: Final status update DB call returned False. Re-fetching and verifying."
-                )
-                final_check_state = await self._get_current_action_state_for_idempotency(doc_key_for_updates)
-
-                if (
-                    final_check_state
-                    and final_check_state.get("status") == final_status_to_set
-                    and final_check_state.get("final_result_for_shuang") == final_result_for_shuang
-                ):
-                    self.logger.debug(
-                        f"[Action ID {action_id}]: Final status and result are now correctly set in DB (likely by concurrent update)."
-                    )
-                elif final_check_state and final_check_state.get("status") == final_status_to_set:
-                    # 状态正确，但结果可能不同（例如，如果并发更新了结果）
-                    self.logger.debug(
-                        f"[Action ID {action_id}]: Final status in DB is '{final_status_to_set}', but final_result_for_shuang might differ or was not updated as intended (this is OK if result was already correct). "
-                        f"DB result (len {len(final_check_state.get('final_result_for_shuang', '')) if final_check_state else 0}): '{str(final_check_state.get('final_result_for_shuang'))[:50]}...'. "
-                        f"Intended result (len {len(final_result_for_shuang)}): '{final_result_for_shuang[:50]}...'."
-                    )
-                else:  # 状态仍未达到目标
-                    self.logger.error(
-                        f"ERROR [Action ID {action_id}]: Final status update attempt failed AND status in DB is not the target. "
-                        f"Target status '{final_status_to_set}', but DB status is '{final_check_state.get('status') if final_check_state else 'None'}'."
-                    )
-        else:  # Python 级别的检查阻止了DB更新
-            self.logger.debug(
-                f"[Idempotency-Python] Action ID {action_id}: No DB call attempted for final status update based on Python-level checks."
-            )
-
-        final_db_state_after_all = await self._get_current_action_state_for_idempotency(doc_key_for_updates)
-        final_status_in_db_str = final_db_state_after_all.get("status") if final_db_state_after_all else "无法获取"
-        self.logger.debug(
-            f"--- [Action ID: {action_id}, DocKey: {doc_key_for_updates}] 动作处理流程完成。逻辑判断最终状态: {final_status_to_set}。数据库中最终确认状态: {final_status_in_db_str} ---"
-        )
-        self.logger.info("结果成功反馈至主思维")
-
-    async def handle_action_request(self, action_event: Event) -> None:
-        """处理动作请求事件"""
-        try:
-            # 从事件内容中提取动作信息
-            for seg in action_event.content:
-                if seg.type.startswith("action.") or seg.type in ["send_message", "send_group_msg", "send_private_msg"]:
-                    await self._execute_action(seg, action_event)
-        except Exception as e:
-            self.logger.error(f"处理动作请求时发生错误: {e}", exc_info=True)
-    
-   
-    
-    async def _execute_action(self, action_seg: Seg, original_event: Event) -> None:
-        """执行具体的动作"""
-        action_type = action_seg.type
-        action_data = action_seg.data if isinstance(action_seg.data, dict) else {}
-        
-        if action_type in ["send_message", "send_group_msg"]:
-            await self._handle_send_message(action_data, original_event)
-        elif action_type == "send_private_msg":
-            await self._handle_send_private_message(action_data, original_event)
-        # ...existing code for other action types...
-    
-    async def _handle_send_message(self, action_data: Dict[str, Any], original_event: Event) -> None:
-        """处理发送消息动作"""
-        # 构建发送消息的事件
-        response_event = Event(
-            event_id=f"action_response_{original_event.event_id}",
-            event_type="action_response.send_message",
-            time=time.time() * 1000.0,
-            platform=original_event.platform,
-            bot_id=original_event.bot_id,
-            user_info=original_event.user_info,
-            conversation_info=original_event.conversation_info,
-            content=[
-                SegBuilder.action_response(
-                    action_type="send_message",
-                    success=True,
-                    message="消息发送成功",
-                    data=action_data
-                )
-            ],
-            raw_data=json.dumps(action_data)
-        )
-        
-        # 广播给适配器
-        if self.core_communication_layer:
-            await self.core_communication_layer.broadcast_action_to_adapters(response_event)
-
-    async def _handle_send_private_message(self, action_data: Dict[str, Any], original_event: Event) -> None:
-        """处理发送私聊消息动作"""
-        # 基本上与_handle_send_message相同，但可能有特定的私聊处理逻辑
-        response_event = Event(
-            event_id=f"action_response_{original_event.event_id}",
-            event_type="action_response.send_private_message",
-            time=time.time() * 1000.0,
-            platform=original_event.platform,
-            bot_id=original_event.bot_id,
-            user_info=original_event.user_info,
-            conversation_info=original_event.conversation_info,
-            content=[
-                SegBuilder.action_response(
-                    action_type="send_private_message",
-                    success=True,
-                    message="私聊消息发送成功",
-                    data=action_data
-                )
-            ],
-            raw_data=json.dumps(action_data)
-        )
-        
-        # 广播给适配器
-        if self.core_communication_layer:
-            await self.core_communication_layer.broadcast_action_to_adapters(response_event)

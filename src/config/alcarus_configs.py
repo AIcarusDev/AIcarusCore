@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional  # 添加 Any 的导入
 
 # 导入 ConfigBase
 from .config_base import ConfigBase
@@ -72,11 +73,22 @@ class ProvidersConfig(ConfigBase):  # 用于 [providers] 表
 
 # --- Database Settings ---
 @dataclass
-class DatabaseSettings(ConfigBase):
-    # 所有 *_env_var 字段已被移除。
-    # 此数据类现在为空，但保留它作为配置结构的一部分。
-    # 代码将直接从固定名称的环境变量读取数据库连接信息。
-    pass  # 表示这是一个空类，但它仍然是一个有效的 dataclass
+class DatabaseSettings:
+    """数据库设置 - 简化配置"""
+    host: str = "http://localhost:8529"
+    database_name: str = "aicarus_core"
+    username: str = "root" 
+    password: str = ""
+    auto_cleanup_days: int = 30  # 自动清理多少天前的数据
+    
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "host": self.host,
+            "database_name": self.database_name,
+            "username": self.username,
+            "password": self.password,
+            "auto_cleanup_days": self.auto_cleanup_days
+        }
 
 
 # --- Server Settings ---

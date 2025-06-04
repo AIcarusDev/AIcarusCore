@@ -117,7 +117,7 @@ class CoreLogic:
                 parsed_url = urlparse(proxy_settings_obj.http_proxy_url)
                 final_proxy_host = parsed_url.hostname
                 final_proxy_port = parsed_url.port
-                if not final_proxy_host or final_proxy_port is None:
+                if not final_proxy_host or not final_proxy_port:
                     self.logger.warning(f"代理URL '{proxy_settings_obj.http_proxy_url}' 解析不完整。将不使用代理。")
                     final_proxy_host, final_proxy_port = None, None
             except Exception as e_parse_proxy:
@@ -219,75 +219,70 @@ class CoreLogic:
     ) -> tuple[dict[str, Any], str | None]:
         action_id_whose_result_is_being_shown: str | None = None
         state_from_initial = self.INITIAL_STATE.copy()
-        if not latest_thought_document:
-            self.logger.info("最新的思考文档为空，使用初始思考状态。")
+        
+        # 简化：直接处理数据库返回的文档
+        if isinstance(latest_thought_document, list):
+            latest_thought_document = latest_thought_document[0] if latest_thought_document else None
+        
+        if not latest_thought_document or not isinstance(latest_thought_document, dict):
+            self.logger.info("最新的思考文档为空或格式不正确，使用初始思考状态。")
             mood_for_prompt = state_from_initial["mood"]
             previous_thinking_for_prompt = state_from_initial["previous_thinking"]
             thinking_guidance_for_prompt = state_from_initial["thinking_guidance"]
             current_task_for_prompt = state_from_initial["current_task"]
         else:
+            # 简化：直接使用 .get() 方法，无需额外的安全包装
             mood_db = latest_thought_document.get("emotion_output", state_from_initial["mood"].split("：", 1)[-1])
             mood_for_prompt = f"你现在的心情大概是：{mood_db}"
+            
             prev_think_db = latest_thought_document.get("think_output")
             previous_thinking_for_prompt = (
                 f"你的上一轮思考是：{prev_think_db}"
                 if prev_think_db and prev_think_db.strip()
                 else state_from_initial["previous_thinking"]
             )
+            
             guidance_db = latest_thought_document.get(
                 "next_think_output",
                 state_from_initial["thinking_guidance"].split("：", 1)[-1]
                 if "：" in state_from_initial["thinking_guidance"]
-                else (state_from_initial["thinking_guidance"] or "随意发散一下吧."),
+                else "随意发散一下吧。",
             )
             thinking_guidance_for_prompt = f"经过你上一轮的思考，你目前打算的思考方向是：{guidance_db}"
+            
             current_task_for_prompt = latest_thought_document.get("to_do_output", state_from_initial["current_task"])
-            if latest_thought_document.get(
-                "done_output", False
-            ) and current_task_for_prompt == latest_thought_document.get("to_do_output"):
-                current_task_for_prompt = ""
+            if latest_thought_document.get("done_output", False) and current_task_for_prompt == latest_thought_document.get("to_do_output"):
+                current_task_for_prompt = state_from_initial["current_task"]
+        
         action_result_info_prompt = state_from_initial["action_result_info"]
         pending_action_status_prompt = state_from_initial["pending_action_status"]
         last_action_attempt = latest_thought_document.get("action_attempted") if latest_thought_document else None
+        
         if last_action_attempt and isinstance(last_action_attempt, dict):
             action_status = last_action_attempt.get("status")
             action_description = last_action_attempt.get("action_description", "某个之前的动作")
             action_id = last_action_attempt.get("action_id")
             was_result_seen_by_llm = last_action_attempt.get("result_seen_by_shuang", False)
             if action_status in ["COMPLETED_SUCCESS", "COMPLETED_FAILURE", "CRITICAL_FAILURE"]:
-                if not was_result_seen_by_llm and action_id:
-                    final_result = last_action_attempt.get(
-                        "final_result_for_shuang", "动作已完成，但没有具体结果反馈。"
-                    )
-                    action_result_info_prompt = (
-                        f"你上一轮行动 '{action_description}' "
-                        f"(ID: {action_id[:8] if action_id else 'N/A'}) 的结果是：【{str(final_result)[:500]}】"
-                    )
+                result_for_shuang = last_action_attempt.get("final_result_for_shuang")
+                if result_for_shuang and not was_result_seen_by_llm:
+                    action_result_info_prompt = result_for_shuang
                     action_id_whose_result_is_being_shown = action_id
-                    pending_action_status_prompt = ""
-                elif was_result_seen_by_llm:
-                    action_result_info_prompt = "你上一轮的动作结果已处理。"
-                    pending_action_status_prompt = ""
             elif action_status and action_status not in ["COMPLETED_SUCCESS", "COMPLETED_FAILURE", "CRITICAL_FAILURE"]:
-                action_motivation = last_action_attempt.get("action_motivation", "之前的动机")
-                pending_action_status_prompt = (
-                    f"你之前尝试的动作 '{action_description}' "
-                    f"(ID: {action_id[:8] if action_id else 'N/A'}) "
-                    f"(动机: '{action_motivation}') "
-                    f"目前还在处理中 ({action_status})。"
-                )
-                action_result_info_prompt = ""
-        state_for_prompt: dict[str, Any] = {
+                pending_action_status_prompt = f"你目前有一个正在进行的动作：{action_description} (状态：{action_status})"
+
+        # 构建状态字典
+        current_state_for_prompt = {
             "mood": mood_for_prompt,
             "previous_thinking": previous_thinking_for_prompt,
             "thinking_guidance": thinking_guidance_for_prompt,
-            "current_task": current_task_for_prompt,
+            "current_task": f"你当前的目标是：{current_task_for_prompt}",
             "action_result_info": action_result_info_prompt,
             "pending_action_status": pending_action_status_prompt,
             "recent_contextual_information": formatted_recent_contextual_info,
         }
-        self.logger.info("在 _process_thought_and_action_state 中：成功处理并返回用于Prompt的状态。")
-        return state_for_prompt, action_id_whose_result_is_being_shown
+
+        return current_state_for_prompt, action_id_whose_result_is_being_shown
 
     async def _generate_thought_from_llm(
         self,
@@ -417,16 +412,64 @@ class CoreLogic:
             try:
                 # 使用正确的方法名获取最近消息
                 raw_context_messages = await self.db_handler.get_recent_chat_messages_for_context(chat_history_duration_minutes)
+                # 详细分析消息结构
+                if raw_context_messages:
+                    msg_count = len(raw_context_messages)
+                    self.logger.debug(f"获取到 {msg_count} 条原始上下文消息")
+                    
+                    # 详细分析第一条消息结构
+                    if msg_count > 0:
+                        first_msg = raw_context_messages[0]
+                        self.logger.debug(f"第一条消息类型: {type(first_msg)}")
+                        if isinstance(first_msg, dict):
+                            self.logger.debug(f"第一条消息字段: {list(first_msg.keys())}")
+                            
+                            # 特别检查消息内容字段
+                            for field in ['message_content', 'content', 'message']:
+                                if field in first_msg:
+                                    content = first_msg[field]
+                                    self.logger.debug(f"消息内容字段 '{field}' 类型: {type(content)}")
+                                    if isinstance(content, list) and content:
+                                        self.logger.debug(f"内容第一项类型: {type(content[0])}")
+                                        if isinstance(content[0], dict):
+                                            self.logger.debug(f"内容第一项字段: {list(content[0].keys())}")
+                            
+                            # 检查事件类型和元数据
+                            event_type = first_msg.get('event_type', 'unknown')
+                            self.logger.debug(f"事件类型: {event_type}")
+                            
+                            # 检查平台和ID字段
+                            platform = first_msg.get('platform', 'unknown')
+                            sender_id = first_msg.get('sender_id', 'unknown')
+                            timestamp = first_msg.get('timestamp', 0)
+                            self.logger.debug(f"平台: {platform}, 发送者ID: {sender_id}, 时间戳: {timestamp}")
                 if raw_context_messages:
                     self.logger.debug(f"获取到的原始上下文消息样本 (前2条): {raw_context_messages[:2]}")
                 else:
                     self.logger.warning("注意：从数据库未能获取到任何用于上下文的原始消息。")
                 if raw_context_messages:
+                    # 为防止格式化错误，进行类型检查
+                    if not isinstance(raw_context_messages, list):
+                        self.logger.warning(f"预期raw_context_messages为列表，但收到 {type(raw_context_messages)}")
+                        raw_context_messages = [raw_context_messages] if raw_context_messages else []
+
+                    # 记录格式化之前和之后
+                    self.logger.debug("正在调用format_chat_history_for_prompt进行格式化...")
                     formatted_recent_contextual_info = format_chat_history_for_prompt(raw_context_messages)
+                    self.logger.debug(f"格式化后的信息长度: {len(formatted_recent_contextual_info)} 字符")
+
+                    # 检查格式化后的字符串是否包含关键部分
+                    if "```yaml" in formatted_recent_contextual_info:
+                        self.logger.debug("格式化输出包含YAML块，格式正确")
+                    else:
+                        self.logger.warning("格式化输出可能有问题，未找到YAML块")
+                        self.logger.debug(f"格式化输出前100字符: {formatted_recent_contextual_info[:100]}...")
                 else:
                     self.logger.debug(f"在过去 {chat_history_duration_minutes} 分钟内未找到用于上下文的信息。")
             except Exception as e_hist:
                 self.logger.error(f"获取或格式化最近上下文信息时出错: {e_hist}", exc_info=True)
+                import traceback
+                self.logger.error(f"详细错误堆栈: {traceback.format_exc()}")
 
             current_state_for_prompt, action_id_whose_result_was_shown_in_last_prompt = (
                 self._process_thought_and_action_state(latest_thought_doc_from_db, formatted_recent_contextual_info)
@@ -541,9 +584,12 @@ class CoreLogic:
                 if "_llm_usage_info" in generated_thought_json:
                     document_to_save_in_main["_llm_usage_info"] = generated_thought_json["_llm_usage_info"]
                 saved_thought_doc_key = await self.db_handler.save_thought_document(document_to_save_in_main)
-                if action_id_whose_result_was_shown_in_last_prompt:
-                    await self.db_handler.mark_action_result_as_seen(action_id_whose_result_was_shown_in_last_prompt)
-                if action_info_for_task and saved_thought_doc_key and self.action_handler_instance:
+            
+            # 修复：确保正确处理返回值
+            if saved_thought_doc_key and isinstance(saved_thought_doc_key, str):
+                self.logger.debug(f"思考文档已保存，文档键: {saved_thought_doc_key}")
+                
+                if action_info_for_task and self.action_handler_instance:
                     action_task = asyncio.create_task(
                         self.action_handler_instance.process_action_flow(
                             action_id=action_info_for_task["action_id"],
@@ -556,18 +602,12 @@ class CoreLogic:
                     background_action_tasks.add(action_task)
                     action_task.add_done_callback(background_action_tasks.discard)
                     self.logger.debug(
-                        f"      动作 '{action_info_for_task['action_description']}' (ID: {action_info_for_task['action_id'][:8]}, 关联思考DocKey: {saved_thought_doc_key}) 已异步启动处理。"
+                        f"动作 '{action_info_for_task['action_description']}' (ID: {action_info_for_task['action_id'][:8]}, 关联思考DocKey: {saved_thought_doc_key}) 已异步启动处理。"
                     )
-                elif action_info_for_task and not saved_thought_doc_key:
-                    self.logger.error(
-                        f"未能获取保存思考文档的 _key，无法为动作 ID {action_info_for_task['action_id']} 创建处理任务。"
-                    )
-                elif action_info_for_task and not self.action_handler_instance:
-                    self.logger.error(
-                        f"ActionHandler 未初始化，无法为动作 ID {action_info_for_task['action_id']} 创建处理任务。"
-                    )
+            elif saved_thought_doc_key is None:
+                self.logger.error("保存思考文档失败，返回None")
             else:
-                self.logger.warning("  本轮思考生成失败或无内容。")
+                self.logger.error(f"保存思考文档返回了无效的类型: {type(saved_thought_doc_key)}, 值: {saved_thought_doc_key}")
             self.logger.debug(f"  等待 {thinking_interval_sec} 秒...")
             try:
                 await asyncio.wait_for(asyncio.to_thread(self.stop_event.wait), timeout=float(thinking_interval_sec))
@@ -594,7 +634,7 @@ class CoreLogic:
             return
 
         try:
-            # 2. 初始化核心 LLM 客 klient
+            # 2. 初始化核心 LLM 客户端
             self._initialize_core_llm_clients()
         except RuntimeError as e_llm_init:
             self.logger.critical(f"严重：核心LLM客户端初始化失败: {e_llm_init}", exc_info=True)
@@ -608,7 +648,6 @@ class CoreLogic:
                 raise RuntimeError("ArangoDBHandler 或其内部 db 对象未能初始化。")
 
             # 4. 初始化消息处理器 - 简化参数
-            from src.message_processing.default_message_processor import DefaultMessageProcessor
             self.message_processor = DefaultMessageProcessor(db_handler=self.db_handler)  # 移除 root_config 参数
             self.logger.info("DefaultMessageProcessor 已成功初始化。")
             
@@ -617,11 +656,12 @@ class CoreLogic:
                                if not method.startswith('_') and callable(getattr(self.message_processor, method))]
             self.logger.info(f"DefaultMessageProcessor 可用方法: {available_methods}")
 
-            # 5. 确保数据库集合存在
+            # 5. 确保数据库集合存在 - 只保留必要的
             await self.db_handler.ensure_collection_exists(ArangoDBHandler.THOUGHTS_COLLECTION_NAME)
-            await self.db_handler.ensure_collection_exists(ArangoDBHandler.RAW_CHAT_MESSAGES_COLLECTION_NAME)
             await self.db_handler.ensure_collection_exists(ArangoDBHandler.INTRUSIVE_THOUGHTS_POOL_COLLECTION_NAME)
-            
+            await self.db_handler.ensure_collection_exists(ArangoDBHandler.ACTION_LOGS_COLLECTION_NAME)
+            await self.db_handler.ensure_collection_exists(ArangoDBHandler.EVENTS_COLLECTION_NAME)
+
         except (ValueError, RuntimeError) as e_db_connect:
             self.logger.critical(f"严重：无法连接到 ArangoDB 或确保集合存在: {e_db_connect}", exc_info=True)
             return

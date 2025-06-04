@@ -14,8 +14,8 @@ from src.common.custom_logging.logger_manager import get_logger
 logger = get_logger("AIcarusCore.ws_server")  # 获取日志记录器
 
 # 定义回调函数类型，用于处理从适配器收到的事件
-# 参数：解析后的 Event 对象，发送此事件的 WebSocket 连接对象
-AdapterEventCallback = Callable[[Event, WebSocketServerProtocol], Awaitable[None]]
+# 参数：解析后的 Event 对象，发送此事件的 WebSocket 连接对象，是否需要持久化标志
+AdapterEventCallback = Callable[[Event, WebSocketServerProtocol, bool], Awaitable[None]]
 
 class CoreWebsocketServer:
     def __init__(
@@ -32,6 +32,25 @@ class CoreWebsocketServer:
         self._event_handler_callback: AdapterEventCallback = event_handler_callback  # 重命名属性
         self._stop_event: asyncio.Event = asyncio.Event()  # 用于优雅停止服务器的事件
         self.db_instance: StandardDatabase | None = db_instance  # 存储数据库实例，如果回调需要通过这里获取
+    
+    def _needs_persistence(self, event: Event) -> bool:
+        """
+        判断事件是否需要持久化存储到数据库
+        
+        参数:
+            event: 需要判断的事件对象
+            
+        返回:
+            bool: 如果需要持久化返回True，否则返回False
+        """
+        # 以下事件类型不需要持久化存储
+        non_persistent_types = [
+            "meta.heartbeat",          # 心跳包
+            "meta.lifecycle.connect",      # 连接建立
+            # 可以根据需要添加更多类型
+        ]
+        
+        return event.event_type not in non_persistent_types
 
     async def _register_adapter(self, websocket: WebSocketServerProtocol) -> None:
         """注册一个新的适配器连接。"""
@@ -62,18 +81,44 @@ class CoreWebsocketServer:
                     # 验证消息结构是否符合 Event 的基本形态
                     if "event_id" in message_dict and "event_type" in message_dict and "content" in message_dict:
                         try:
+                            # 输出详细的消息字典，帮助调试
+                            logger.debug(f"准备解析的消息字典: {message_dict}")
+                            
                             # 使用协议库的 from_dict 方法将字典转换为 Event 对象
                             aicarus_event = Event.from_dict(message_dict)
-                            # 调用注册的回调函数处理解析后的事件
-                            await self._event_handler_callback(aicarus_event, websocket)
+                            
+                            # 验证事件对象的完整性
+                            if not hasattr(aicarus_event, 'event_id') or not hasattr(aicarus_event, 'event_type'):
+                                logger.error(f"解析后的事件对象缺少必要属性: {vars(aicarus_event)}")
+                                continue
+                                
+                            logger.debug(f"解析后的 Event: {aicarus_event.event_type} (ID: {aicarus_event.event_id})")
+                            
+                            # 判断事件是否需要持久化
+                            needs_persistence = self._needs_persistence(aicarus_event)
+                            logger.debug(f"事件需要持久化: {needs_persistence}")
+                            
+                            # 调用注册的回调函数处理解析后的事件，并传递持久化标志
+                            try:
+                                await self._event_handler_callback(aicarus_event, websocket, needs_persistence)
+                                logger.info(f"事件处理回调已调用: {aicarus_event.event_type} (ID: {aicarus_event.event_id})")
+                            except Exception as e_callback:
+                                logger.error(f"事件处理回调执行错误: {e_callback}", exc_info=True)
+                                
+                        except KeyError as e_key:
+                            logger.error(f"解析或处理事件时发生键错误: {e_key}. 数据: {message_dict}", exc_info=True)
+                        except AttributeError as e_attr:
+                            logger.error(f"访问事件属性时出错: {e_attr}. 数据: {message_dict}", exc_info=True)
                         except Exception as e_parse:
-                            logger.error(
-                                f"从字典解析 Event 时出错: {e_parse}. 数据: {message_dict}", exc_info=True
-                            )
+                            logger.error(f"从字典解析 Event 时出错: {e_parse}. 数据: {message_dict}", exc_info=True)
                     else:
-                        logger.warning(f"收到的消息结构不像 Event: {message_dict}")
-                except json.JSONDecodeError:
-                    logger.error(f"从适配器解码 JSON 失败: {message_str}")
+                        missing_keys = []
+                        for key in ["event_id", "event_type", "content"]:
+                            if key not in message_dict:
+                                missing_keys.append(key)
+                        logger.warning(f"收到的消息结构不像 Event: 缺少 {missing_keys}. 数据: {message_dict}")
+                except json.JSONDecodeError as e_json:
+                    logger.error(f"从适配器解码 JSON 失败: {e_json}. 原始消息: {message_str[:200]}")
                 except Exception as e:  # 捕获回调函数或其他处理中未预料的错误
                     logger.error(f"处理来自适配器的事件时发生错误: {e}", exc_info=True)
 

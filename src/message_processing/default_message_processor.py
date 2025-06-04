@@ -22,192 +22,87 @@ if TYPE_CHECKING:
 class DefaultMessageProcessor:
     """默认的消息处理器，负责处理来自适配器的事件并分发到相应的处理逻辑"""
 
-    def __init__(self, db_handler: Optional[ArangoDBHandler] = None):
+    def __init__(self, db_handler: ArangoDBHandler):
+        """初始化消息处理器"""
         self.logger = get_logger(f"AIcarusCore.{self.__class__.__name__}")
-        self.db_handler: Optional[ArangoDBHandler] = db_handler
-        self.core_logic: Optional['CoreLogic'] = None
-        self.action_handler: Optional['ActionHandler'] = None
-        
-    def set_dependencies(self, db_handler: ArangoDBHandler, core_logic: 'CoreLogic', action_handler: 'ActionHandler'):
-        """设置依赖项"""
         self.db_handler = db_handler
-        self.core_logic = core_logic
-        self.action_handler = action_handler
-        self.logger.info("消息处理器依赖项已设置")
-    
-    async def process_event(self, event: Event, websocket: WebSocketServerProtocol) -> None:
-        """处理来自适配器的事件"""
+        self.logger.info("DefaultMessageProcessor 初始化完成")
+
+    async def process_event(self, event: Event, websocket: WebSocketServerProtocol, needs_persistence: bool = True) -> None:
+        """
+        处理来自适配器的事件
+        
+        参数:
+            event: 要处理的事件对象
+            websocket: 发送此事件的WebSocket连接
+            needs_persistence: 是否需要将此事件持久化到数据库，默认为True
+        """
         try:
-            self.logger.debug(f"处理事件: {event.event_type}, ID: {event.event_id}")
+            self.logger.info(f"处理事件: {event.event_type}, ID: {event.event_id}")
             
-            # 根据事件类型分发处理
+            # 只有当needs_persistence为True时才保存事件到数据库
+            if needs_persistence:
+                # 保存事件到数据库
+                event_data = event.to_dict()
+                save_success = await self.db_handler.save_event_v14(event_data)
+                
+                if not save_success:
+                    self.logger.error(f"保存事件失败: {event.event_id}")
+                else:
+                    self.logger.debug(f"事件保存成功: {event.event_id}")
+            else:
+                self.logger.debug(f"事件不需要持久化: {event.event_type} (ID: {event.event_id})")
+                return
+            
+            # 根据事件类型进行处理
             if event.event_type.startswith("message."):
                 await self._handle_message_event(event, websocket)
             elif event.event_type.startswith("request."):
                 await self._handle_request_event(event, websocket)
-            elif event.event_type.startswith("action."):
-                await self._handle_action_event(event, websocket)
-            elif event.event_type.startswith("meta."):
-                await self._handle_meta_event(event, websocket)
             else:
-                self.logger.warning(f"未知的事件类型: {event.event_type}")
+                self.logger.debug(f"未知事件类型: {event.event_type}")
                 
         except Exception as e:
             self.logger.error(f"处理事件时发生错误: {e}", exc_info=True)
-    
+
     async def _handle_message_event(self, event: Event, websocket: WebSocketServerProtocol) -> None:
         """处理消息事件"""
         try:
-            # 保存原始消息到数据库
-            await self._save_message_to_database(event)
+            # 提取消息文本内容
+            text_content = self._extract_text_from_content(event.content)
             
-            # 转发给核心逻辑处理
-            if self.core_logic:
-                # 这里可以调用核心逻辑的消息处理方法
-                pass
-                
+            if text_content:
+                self.logger.debug(f"消息内容: {text_content[:100]}...")
+            
         except Exception as e:
             self.logger.error(f"处理消息事件时发生错误: {e}", exc_info=True)
-    
+
     async def _handle_request_event(self, event: Event, websocket: WebSocketServerProtocol) -> None:
-        """处理请求事件（如好友申请、群邀请等）"""
+        """处理请求事件"""
         try:
-            # 保存请求信息
-            await self._save_request_to_database(event)
+            self.logger.info(f"收到请求事件: {event.event_type}")
+            # 这里可以添加处理请求事件的逻辑
             
-            # 转发给核心逻辑处理
-            if self.core_logic:
-                # 这里可以调用核心逻辑的请求处理方法
-                pass
-                
         except Exception as e:
             self.logger.error(f"处理请求事件时发生错误: {e}", exc_info=True)
-    
-    async def _handle_action_event(self, event: Event, websocket: WebSocketServerProtocol) -> None:
-        """处理动作事件"""
+
+    def _extract_text_from_content(self, content: list) -> str:
+        """从内容中提取文本"""
         try:
-            # 转发给动作处理器
-            if self.action_handler:
-                await self.action_handler.handle_action_request(event)
-                
+            text_parts = []
+            for segment in content:
+                if isinstance(segment, dict):
+                    if segment.get("type") == "text":
+                        text_parts.append(segment.get("data", {}).get("text", ""))
+                    elif segment.get("type") == "at":
+                        text_parts.append(f"@{segment.get('data', {}).get('display_name', '用户')}")
+                    elif segment.get("type") == "image":
+                        text_parts.append("[图片]")
+                    elif segment.get("type") == "voice":
+                        text_parts.append("[语音]")
+            
+            return " ".join(text_parts).strip()
+            
         except Exception as e:
-            self.logger.error(f"处理动作事件时发生错误: {e}", exc_info=True)
-    
-    async def _handle_meta_event(self, event: Event, websocket: WebSocketServerProtocol) -> None:
-        """处理元信息事件（如心跳包等）"""
-        try:
-            if event.event_type == "meta.heartbeat":
-                self.logger.debug(f"收到心跳包: {event.event_id}")
-                # 心跳包通常不需要特殊处理，只需要确认收到
-            elif event.event_type == "meta.lifecycle":
-                self.logger.info(f"收到生命周期事件: {event.event_id}")
-            else:
-                self.logger.debug(f"收到其他元信息事件: {event.event_type}")
-                
-        except Exception as e:
-            self.logger.error(f"处理元信息事件时发生错误: {e}", exc_info=True)
-    
-    async def _save_message_to_database(self, event: Event) -> None:
-        """将消息事件保存到数据库"""
-        try:
-            if not self.db_handler:
-                self.logger.warning("数据库处理器未设置，无法保存消息")
-                return
-            
-            # 安全获取会话类型
-            conversation_type = None
-            group_id = None
-            group_name = None
-            
-            if event.conversation_info:
-                # 处理可能是字符串或枚举的 type 字段
-                if hasattr(event.conversation_info.type, 'value'):
-                    conversation_type = event.conversation_info.type.value
-                else:
-                    conversation_type = str(event.conversation_info.type)
-                
-                # 如果是群聊，设置群组信息
-                if conversation_type == "group":
-                    group_id = event.conversation_info.conversation_id
-                    group_name = getattr(event.conversation_info, 'name', None)
-            
-            # 构建消息数据
-            message_data = {
-                "event_id": event.event_id,
-                "event_type": event.event_type,
-                "timestamp": event.time,
-                "platform": event.platform,
-                "bot_id": event.bot_id,
-                "conversation_id": event.conversation_info.conversation_id if event.conversation_info else None,
-                "sender_id": event.user_info.user_id if event.user_info else None,
-                "sender_nickname": event.user_info.user_nickname if event.user_info else None,
-                "group_id": group_id,
-                "group_name": group_name,
-                "message_content": [seg.to_dict() for seg in event.content],
-                "raw_data": event.raw_data,
-                # 兼容旧字段名
-                "message_id": event.event_id,
-                "post_type": "message",
-                "sub_type": event.event_type.split(".")[-1] if "." in event.event_type else "normal",
-                # 添加更多用户信息字段
-                "sender_group_permission": getattr(event.user_info, 'permission_level', None) if event.user_info else None,  # 修复：使用permission_level
-                "sender_group_card": getattr(event.user_info, 'user_cardname', None) if event.user_info else None,
-                "sender_group_titlename": getattr(event.user_info, 'user_titlename', None) if event.user_info else None,
-                # 添加原始消息信息转储
-                "raw_message_info_dump": {
-                    "platform": event.platform,
-                    "group_info": {
-                        "group_id": group_id,
-                        "group_name": group_name
-                    } if group_id else None,
-                    "user_info": {
-                        "user_id": event.user_info.user_id if event.user_info else None,
-                        "user_nickname": event.user_info.user_nickname if event.user_info else None,
-                        "user_cardname": getattr(event.user_info, 'user_cardname', None) if event.user_info else None,
-                    } if event.user_info else None
-                }
-            }
-            
-            # 保存到数据库
-            success = await self.db_handler.save_raw_chat_message(message_data)
-            if success:
-                self.logger.debug(f"消息已保存到数据库: {event.event_id}")
-            else:
-                self.logger.warning(f"保存消息到数据库失败: {event.event_id}")
-                
-        except Exception as e:
-            self.logger.error(f"保存消息到数据库时发生错误: {e}", exc_info=True)
-    
-    async def _save_request_to_database(self, event: Event) -> None:
-        """将请求事件保存到数据库"""
-        try:
-            if not self.db_handler:
-                self.logger.warning("数据库处理器未设置，无法保存请求")
-                return
-            
-            # 构建请求数据
-            request_data = {
-                "event_id": event.event_id,
-                "event_type": event.event_type,
-                "timestamp": event.time,
-                "platform": event.platform,
-                "bot_id": event.bot_id,
-                "requester_id": event.user_info.user_id if event.user_info else None,
-                "requester_nickname": event.user_info.user_nickname if event.user_info else None,
-                "content": [seg.to_dict() for seg in event.content],
-                "raw_data": event.raw_data
-            }
-            
-            # 这里可以保存到专门的请求表或集合
-            # 暂时保存到消息表，添加标识
-            request_data["post_type"] = "request"
-            request_data["sub_type"] = event.event_type.split(".")[-1] if "." in event.event_type else "unknown"
-            
-            success = await self.db_handler.save_raw_chat_message(request_data)
-            if success:
-                self.logger.debug(f"请求已保存到数据库: {event.event_id}")
-            else:
-                self.logger.warning(f"保存请求到数据库失败: {event.event_id}")
-                
-        except Exception as e:
-            self.logger.error(f"保存请求到数据库时发生错误: {e}", exc_info=True)
+            self.logger.error(f"提取文本内容时发生错误: {e}", exc_info=True)
+            return ""
