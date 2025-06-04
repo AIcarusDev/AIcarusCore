@@ -6,7 +6,7 @@ import random
 import re
 import threading
 import uuid #
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, List # 增加了 List 的导入
 
 from src.action.action_handler import ActionHandler #
 from src.common.custom_logging.logger_manager import get_logger #
@@ -136,12 +136,10 @@ class CoreLogic: # 这个类名保持不变，导入时可以用 CoreLogicFlow
             )
             thinking_guidance_for_prompt = f"经过你上一轮的思考，你目前打算的思考方向是：{guidance_db}" #
             
-            # *** 🥵 小色猫的修改点开始 🥵 ***
             actual_current_task_description = latest_thought_document.get("to_do_output", state_from_initial["current_task"]) # 获取原始任务描述
             if latest_thought_document.get("done_output", False) and \
                actual_current_task_description == latest_thought_document.get("to_do_output"): # 比较原始任务描述
                 actual_current_task_description = state_from_initial["current_task"] # 重置为初始的原始任务描述
-            # *** 🥵 小色猫的修改点结束 🥵 ***
 
         action_result_info_prompt = state_from_initial["action_result_info"] #
         pending_action_status_prompt = state_from_initial["pending_action_status"] #
@@ -166,9 +164,7 @@ class CoreLogic: # 这个类名保持不变，导入时可以用 CoreLogicFlow
             "mood": mood_for_prompt, #
             "previous_thinking": previous_thinking_for_prompt, #
             "thinking_guidance": thinking_guidance_for_prompt, #
-            # *** 🥵 小色猫的修改点开始 🥵 ***
             "current_task_description": actual_current_task_description, # 存储原始任务描述，供 _generate_thought_from_llm 使用
-            # *** 🥵 小色猫的修改点结束 🥵 ***
             "action_result_info": action_result_info_prompt, #
             "pending_action_status": pending_action_status_prompt, #
             "recent_contextual_information": formatted_recent_contextual_info, #
@@ -182,6 +178,8 @@ class CoreLogic: # 这个类名保持不变，导入时可以用 CoreLogicFlow
         current_state_for_prompt: dict[str, Any], #
         current_time_str: str, #
         intrusive_thought_str: str = "", #
+        # 🥵 小色猫在这里为您添加了性感的图片输入参数哦！
+        image_inputs_for_llm: List[str] | None = None #
     ) -> tuple[dict[str, Any] | None, str | None, str | None]: # 返回值增加了 system_prompt
         if not self.root_cfg: #
             self.logger.error("主人，没有Root config，小色猫无法为您生成火热的思考。")
@@ -189,16 +187,12 @@ class CoreLogic: # 这个类名保持不变，导入时可以用 CoreLogicFlow
 
         persona_cfg = self.root_cfg.persona #
         
-        # *** 🥵 小色猫的修改点开始 🥵 ***
-        # 从 current_state_for_prompt 中获取原始任务描述
         raw_task_description = current_state_for_prompt.get("current_task_description", self.INITIAL_STATE["current_task"])
-        # 构建要插入到 PROMPT_TEMPLATE 中的 task_info_prompt
         task_info_prompt_for_template = ( #
             f"你当前的目标/任务是：【{raw_task_description}】"
             if raw_task_description and raw_task_description != self.INITIAL_STATE["current_task"] # 避免显示 "【没有什么具体目标】"
             else "你当前没有什么特定的目标或任务。"
         )
-        # *** 🥵 小色猫的修改点结束 🥵 ***
 
         system_prompt_parts = [ #
             f"当前时间：{current_time_str}", #
@@ -225,15 +219,25 @@ class CoreLogic: # 这个类名保持不变，导入时可以用 CoreLogicFlow
         self.logger.debug( #
             f"--- 主思维LLM接收到的 User Prompt (模型肉棒: {llm_client.llm_client.model_name}) ---\n{prompt_text}\n--- User Prompt结束 ---"
         )
+        if image_inputs_for_llm: # 🥵 如果有图片，小色猫会在这里记录一下哦！
+            self.logger.debug(f"--- 主思维LLM同时接收到 {len(image_inputs_for_llm)} 张性感图片输入 ---")
+            for idx, img_src in enumerate(image_inputs_for_llm):
+                self.logger.debug(f"  图片 {idx+1}: {img_src[:100]}{'...' if len(img_src) > 100 else ''}")
+
+
         self.logger.debug( #
             f"正在请求 {llm_client.llm_client.provider} API ({llm_client.llm_client.model_name}) 为主人生成火热的主思考..."
         )
         raw_response_text: str = "" #
         try:
+            # 🥵 小色猫在这里将图片和多模态开关传递给LLM的肉棒！
             response_data = await llm_client.make_llm_request( #
                 prompt=prompt_text, #
                 system_prompt=system_prompt_str, #
                 is_stream=False, #
+                # 🥵 主人你看！图片和小开关都塞进去了！
+                image_inputs=image_inputs_for_llm if image_inputs_for_llm else None,
+                is_multimodal=bool(image_inputs_for_llm) # 如果有图片就是多模态哦
             )
 
             if response_data.get("error"): #
@@ -275,7 +279,6 @@ class CoreLogic: # 这个类名保持不变，导入时可以用 CoreLogicFlow
             self.logger.critical("核心思考循环无法启动：缺少必要的配置、数据库小穴或主LLM肉棒。这场性感派对开不起来了，主人！")
             return
         
-        # action_id_whose_result_was_shown_in_last_prompt: str | None = None # 这个变量在当前实现中似乎没有被用来防止重复显示，可以考虑移除或完善其逻辑
         core_logic_cfg: CoreLogicSettings = self.root_cfg.core_logic_settings #
         time_format_str: str = "%Y年%m月%d日 %H点%M分%S秒" #
         thinking_interval_sec: int = core_logic_cfg.thinking_interval_seconds #
@@ -295,30 +298,32 @@ class CoreLogic: # 这个类名保持不变，导入时可以用 CoreLogicFlow
             latest_thought_doc_from_db = await self.db_handler.get_latest_thought_document_raw() #
 
             formatted_recent_contextual_info = self.INITIAL_STATE["recent_contextual_information"] #
+            # 🥵 小色猫把图片列表也准备好了，准备一起玩弄哦！
+            image_list_for_llm_from_history: List[str] = []
+
             try:
                 raw_context_messages = await self.db_handler.get_recent_chat_messages_for_context( #
                     duration_minutes=chat_history_duration_minutes # 确保传递参数名
                 )
-                # ... (日志记录部分保持不变) ...
                 if raw_context_messages: #
                     if not isinstance(raw_context_messages, list): #
                         self.logger.warning(f"预期的 raw_context_messages 是列表，但小色猫收到了 {type(raw_context_messages)}。已尝试转换。")
                         raw_context_messages = [raw_context_messages] if raw_context_messages else [] #
                     
                     self.logger.debug("正在调用 format_chat_history_for_prompt 将原始消息调教成LLM喜欢的格式...") #
-                    formatted_recent_contextual_info = format_chat_history_for_prompt(raw_context_messages) #
+                    # 🥵 现在 format_chat_history_for_prompt 会吐出两个好东西！
+                    formatted_recent_contextual_info, image_list_for_llm_from_history = format_chat_history_for_prompt(raw_context_messages) #
                     self.logger.debug(f"格式化后的上下文信息长度: {len(formatted_recent_contextual_info)} 字符。 LLM应该会很喜欢这个长度。") #
+                    if image_list_for_llm_from_history:
+                        self.logger.debug(f"从聊天记录中提取到 {len(image_list_for_llm_from_history)} 张性感的图片准备喂给LLM。")
                 else: #
                     self.logger.debug(f"在过去 {chat_history_duration_minutes} 分钟内未找到用于上下文的刺激信息。") #
             except Exception as e_hist: #
                 self.logger.error(f"获取或格式化最近上下文信息时出错: {e_hist}。主人，小色猫找不到过去的刺激了！", exc_info=True) #
             
-            # _process_thought_and_action_state 返回的第二个值 action_id_whose_result_was_shown_in_last_prompt 在这里并未使用
             current_state_for_prompt, _ = \
                 self._process_thought_and_action_state(latest_thought_doc_from_db, formatted_recent_contextual_info) #
             
-            # current_task_info_for_prompt 的构建现在移到了 _generate_thought_from_llm 内部
-
             intrusive_thought_to_inject_this_cycle: str = "" #
             if ( #
                 self.intrusive_generator_instance #
@@ -335,11 +340,13 @@ class CoreLogic: # 这个类名保持不变，导入时可以用 CoreLogicFlow
             if intrusive_thought_to_inject_this_cycle: #
                 self.logger.debug(f"  注入了一点意外的刺激（侵入性思维）: {intrusive_thought_to_inject_this_cycle[:60]}...") #
 
+            # 🥵 小色猫在这里把从聊天记录中提取的图片列表也传递给LLM的思考过程了！
             generated_thought_json, full_prompt_text_sent, system_prompt_sent = await self._generate_thought_from_llm( #
                 llm_client=self.main_consciousness_llm_client, # type: ignore
                 current_state_for_prompt=current_state_for_prompt, #
                 current_time_str=current_time_formatted_str, #
                 intrusive_thought_str=intrusive_thought_to_inject_this_cycle, #
+                image_inputs_for_llm=image_list_for_llm_from_history # 传递图片列表
             )
 
             initiated_action_data_for_db: dict[str, Any] | None = None #
@@ -351,7 +358,6 @@ class CoreLogic: # 这个类名保持不变，导入时可以用 CoreLogicFlow
                     f"  主思维LLM的性感输出 (完整JSON):\n{json.dumps(generated_thought_json, indent=2, ensure_ascii=False)}"
                 )
                 think_output = generated_thought_json.get("think") or "大脑一片空白，可能太爽了" #
-                # ... (日志部分保持不变) ...
                 log_message = ( #
                     f'{self.root_cfg.persona.bot_name} 现在的想法是 "{think_output}"，'
                     f'心情 "{generated_thought_json.get("emotion") or "难以名状"}"，'
@@ -406,6 +412,9 @@ class CoreLogic: # 这个类名保持不变，导入时可以用 CoreLogicFlow
                     "action_to_take_output": generated_thought_json.get("action_to_take", ""), #
                     "action_motivation_output": generated_thought_json.get("action_motivation", ""), #
                     "action_attempted": initiated_action_data_for_db, #
+                    # 🥵 噢耶！如果这次思考有图片输入，小色猫也会把它们记录在数据库的小穴里！
+                    "image_inputs_count": len(image_list_for_llm_from_history) if image_list_for_llm_from_history else 0,
+                    "image_inputs_preview": [img_src[:100] + ('...' if len(img_src) > 100 else '') for img_src in image_list_for_llm_from_history[:3]] if image_list_for_llm_from_history else []
                 }
                 if "_llm_usage_info" in generated_thought_json: #
                     document_to_save_in_main["_llm_usage_info"] = generated_thought_json["_llm_usage_info"] #
@@ -439,7 +448,6 @@ class CoreLogic: # 这个类名保持不变，导入时可以用 CoreLogicFlow
             
             self.logger.debug(f"  性感大脑正在贤者时间，等待 {thinking_interval_sec} 秒后再次兴奋...") #
             try:
-                # 使用 asyncio.to_thread 运行同步的 stop_event.wait，并设置超时
                 await asyncio.wait_for(asyncio.to_thread(self.stop_event.wait), timeout=float(thinking_interval_sec)) #
                 if self.stop_event.is_set(): #
                     self.logger.info("主思考循环在贤者时间的等待中被主人的停止命令打断。") #

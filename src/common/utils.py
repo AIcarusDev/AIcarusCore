@@ -2,7 +2,8 @@
 import datetime
 import uuid
 from collections import defaultdict
-from typing import Any
+from typing import Any, Tuple, List
+import mimetypes # 导入mimetypes用于从文件名推断类型
 
 import yaml
 
@@ -14,13 +15,11 @@ logger = get_logger("AIcarusCore.utils")
 # --- 自定义YAML处理类 ---
 class ForceDoubleQuoteStr(str):
     """强制双引号输出的字符串包装类"""
-
     pass
 
 
 class MyDumper(yaml.SafeDumper):
     """自定义YAML转储器"""
-
     pass
 
 
@@ -50,45 +49,85 @@ class MessageContentProcessor:
     """统一的消息内容处理器"""
 
     @staticmethod
-    def extract_text_content(content: list[dict]) -> str:
-        """从标准格式的内容列表中提取纯文本"""
+    def extract_text_content(content: list[dict], image_placeholder_key: str = "llm_image_placeholder", image_placeholder_value: str = "[IMAGE_HERE]") -> Tuple[List[dict], List[str]]:
+        """
+        处理内容列表，在图片segment的data中加入占位符标记，并主要通过base64提取图片源列表。
+        返回处理后的内容列表 (用于YAML) 和图片源列表 (用于LLM)。
+        """
         if not content or not isinstance(content, list):
-            return ""
+            return [], []
 
-        text_parts = []
+        processed_segments_for_yaml = []
+        image_sources_for_llm = []
+
         for segment in content:
             if not isinstance(segment, dict):
+                processed_segments_for_yaml.append(segment)
                 continue
 
+            current_segment_for_yaml = segment.copy()
             seg_type = segment.get("type", "")
             seg_data = segment.get("data", {})
 
-            if seg_type == "text":
-                text_parts.append(seg_data.get("text", ""))
-            elif seg_type == "at":
-                text_parts.append(seg_data.get("display_name", "@用户"))
-            elif seg_type == "image":
-                text_parts.append("[图片]")
-            elif seg_type == "voice":
-                text_parts.append("[语音]")
-            elif seg_type == "file":
-                filename = seg_data.get("filename", "文件")
-                text_parts.append(f"[{filename}]")
-            elif seg_type == "reply":
-                text_parts.append("[回复]")
-            elif seg_type == "forward":
-                text_parts.append("[转发消息]")
+            if seg_type == "message.metadata":
+                continue
 
-        return " ".join(text_parts).strip()
+            if seg_type == "image":
+                current_segment_for_yaml["data"] = {
+                    image_placeholder_key: image_placeholder_value,
+                    "original_file_id": seg_data.get("file_id")
+                }
+                if seg_data.get("filename"):
+                    current_segment_for_yaml["data"]["original_filename"] = seg_data.get("filename")
+
+                img_base64 = seg_data.get("base64")
+                img_file_id = seg_data.get("file_id") # 用于推断mimetype
+                filename_from_data = seg_data.get("filename") # 也可用于推断mimetype
+
+                image_source_to_add = None
+                if img_base64 and isinstance(img_base64, str) and img_base64.strip(): # 确保base64存在且非空
+                    mimetype = "image/jpeg" # 默认
+                    filename_for_mimetype = img_file_id or filename_from_data
+                    if filename_for_mimetype and isinstance(filename_for_mimetype, str):
+                        guessed_mimetype, _ = mimetypes.guess_type(filename_for_mimetype)
+                        if guessed_mimetype:
+                            mimetype = guessed_mimetype
+                        else:
+                            logger.debug(f"无法从文件名 '{filename_for_mimetype}' 推断mimetype，将使用默认值: {mimetype}")
+                    else:
+                        logger.debug(f"图片缺少file_id和filename，无法推断mimetype，将使用默认值: {mimetype}")
+
+                    # 确保base64字符串是纯数据，而不是已经包含 "data:[mimetype];base64," 前缀
+                    # 有些情况下，传入的base64可能已经是完整的data URI
+                    if img_base64.startswith("data:image"):
+                        image_source_to_add = img_base64 # 已经是data URI
+                    else:
+                        # 确保base64字符串的padding正确，虽然通常不需要手动处理
+                        # missing_padding = len(img_base64) % 4
+                        # if missing_padding:
+                        #    img_base64 += '=' * (4 - missing_padding)
+                        image_source_to_add = f"data:{mimetype};base64,{img_base64}"
+                    
+                    image_sources_for_llm.append(image_source_to_add)
+                    logger.debug(f"成功从base64为图片 '{filename_for_mimetype or '未知图片'}' 构建data URI: {image_source_to_add[:70]}...")
+                else:
+                    # 如果没有base64数据，记录一下，这个图片将不会被发送给LLM
+                    img_url = seg_data.get("url")
+                    log_msg = f"图片 '{img_file_id or filename_from_data or '未知图片'}' 缺少有效的base64数据。"
+                    if img_url:
+                        log_msg += f" 它有一个URL: {img_url}，但我们现在优先使用base64。"
+                    logger.warning(log_msg)
+            
+            processed_segments_for_yaml.append(current_segment_for_yaml)
+
+        return processed_segments_for_yaml, image_sources_for_llm
 
     @staticmethod
     def create_text_segment(text: str) -> dict:
-        """创建标准文本段"""
         return {"type": "text", "data": {"text": text}}
 
     @staticmethod
     def create_at_segment(user_id: str, display_name: str = "") -> dict:
-        """创建@用户段"""
         return {
             "type": "at",
             "data": {
@@ -98,38 +137,25 @@ class MessageContentProcessor:
         }
 
     @staticmethod
-    def create_image_segment(file_id: str, url: str = "") -> dict:
-        """创建图片段"""
-        return {
-            "type": "image",
-            "data": {"file_id": file_id, "url": url},
-        }
+    def create_image_segment(file_id: str, url: str = "", base64_data: str = "") -> dict:
+        data = {"file_id": file_id}
+        if url: data["url"] = url
+        if base64_data: data["base64"] = base64_data
+        return {"type": "image", "data": data}
 
 
-# --- 简化的辅助函数 ---
-def extract_text_from_segments(content: list[dict]) -> str:
-    """提取文本内容的简化接口"""
-    return MessageContentProcessor.extract_text_content(content)
+def format_chat_history_for_prompt(raw_messages_from_db: list[dict[str, Any]]) -> Tuple[str, List[str]]:
+    IMAGE_PLACEHOLDER_VALUE: str = "[IMAGE_HERE]"
+    IMAGE_PLACEHOLDER_KEY_IN_YAML: str = "llm_image_placeholder"
 
-
-def create_simple_text_message(text: str) -> list[dict]:
-    """创建简单的文本消息内容"""
-    return [MessageContentProcessor.create_text_segment(text)]
-
-
-# --- 聊天记录格式化（更新为适应新结构）---
-def format_chat_history_for_prompt(raw_messages_from_db: list[dict[str, Any]]) -> str:
-    """
-    将从数据库获取的原始消息列表格式化为YAML字符串
-    适应新的消息结构 (v1.4.0 协议)
-    """
     if not raw_messages_from_db:
-        return "在指定的时间范围内没有找到聊天记录。"
+        return "在指定的时间范围内没有找到聊天记录。", []
 
     grouped_messages = defaultdict(lambda: {"group_info": {}, "user_info": {}, "chat_history": []})
+    all_extracted_image_sources: List[str] = []
+
     desired_history_span_minutes = 10
     max_messages_per_group = 20
-
     current_utc_time = datetime.datetime.now(datetime.UTC)
     span_cutoff_timestamp_utc = current_utc_time - datetime.timedelta(minutes=desired_history_span_minutes)
     assumed_local_tz_for_fallback = datetime.timezone(datetime.timedelta(hours=8))
@@ -139,244 +165,130 @@ def format_chat_history_for_prompt(raw_messages_from_db: list[dict[str, Any]]) -
             logger.warning(f"警告: 消息应该是字典类型，但收到了 {type(msg)}: {msg}")
             continue
 
-        # 支持新的时间戳字段结构
         msg_time_input = msg.get("timestamp") or msg.get("time")
         if msg_time_input is None:
             logger.warning(f"警告: 消息 {msg.get('event_id', msg.get('message_id', '未知ID'))} 缺少时间戳，已跳过。")
             continue
-
-        # 时间戳处理逻辑（保持原有逻辑）
+        
         try:
             if isinstance(msg_time_input, int | float):
-                msg_time_seconds_utc = msg_time_input / 1000.0
-                parsed_msg_time_utc = datetime.datetime.fromtimestamp(msg_time_seconds_utc, datetime.UTC)
+                parsed_msg_time_utc = datetime.datetime.fromtimestamp(msg_time_input / 1000.0, datetime.UTC)
             elif isinstance(msg_time_input, str):
-                logger.warning(f"警告: 消息时间戳是字符串，尝试解析: {msg_time_input}")
                 temp_time_str = msg_time_input.replace("Z", "+00:00")
-                parsed_msg_time_aware_or_naive = datetime.datetime.fromisoformat(temp_time_str)
-
-                if (
-                    parsed_msg_time_aware_or_naive.tzinfo is None
-                    or parsed_msg_time_aware_or_naive.tzinfo.utcoffset(parsed_msg_time_aware_or_naive) is None
-                ):
-                    parsed_msg_time_local = parsed_msg_time_aware_or_naive.replace(tzinfo=assumed_local_tz_for_fallback)
-                    parsed_msg_time_utc = parsed_msg_time_local.astimezone(datetime.UTC)
+                try:
+                    parsed_msg_time_aware_or_naive = datetime.datetime.fromisoformat(temp_time_str)
+                except ValueError:
+                    if ' ' in temp_time_str and '.' not in temp_time_str:
+                        parsed_msg_time_aware_or_naive = datetime.datetime.strptime(temp_time_str, "%Y-%m-%d %H:%M:%S%z" if "+" in temp_time_str or "-" in temp_time_str[10:] else "%Y-%m-%d %H:%M:%S")
+                    else:
+                        raise
+                if parsed_msg_time_aware_or_naive.tzinfo is None or parsed_msg_time_aware_or_naive.tzinfo.utcoffset(parsed_msg_time_aware_or_naive) is None:
+                    parsed_msg_time_utc = parsed_msg_time_aware_or_naive.replace(tzinfo=assumed_local_tz_for_fallback).astimezone(datetime.UTC)
                 else:
                     parsed_msg_time_utc = parsed_msg_time_aware_or_naive.astimezone(datetime.UTC)
             else:
                 raise ValueError(f"时间戳类型不支持: {type(msg_time_input)}")
-
         except ValueError as e_time:
-            logger.warning(f"警告: 时间戳处理失败: {e_time}")
+            logger.warning(f"警告: 时间戳处理失败 for '{msg_time_input}': {e_time}, 消息ID: {msg.get('event_id', msg.get('message_id', '未知ID'))}")
             continue
 
-        # 时间筛选
         if parsed_msg_time_utc < span_cutoff_timestamp_utc:
             continue
 
-        # 获取消息分组信息 - 适配新结构
         platform = msg.get("platform", "未知平台")
         conversation_info = msg.get("conversation_info", {})
-        group_id_val = (
-            conversation_info.get("conversation_id") if isinstance(conversation_info, dict) else msg.get("group_id")
-        )
+        group_id_val = conversation_info.get("conversation_id") if isinstance(conversation_info, dict) else msg.get("group_id")
         group_key_part = str(group_id_val) if group_id_val is not None else "direct_or_no_group"
         group_key = (platform, group_key_part)
 
-        # 群组信息处理 - 适配新结构
         if not grouped_messages[group_key]["group_info"]:
-            group_name = None
-            if isinstance(conversation_info, dict):
-                group_name = conversation_info.get("name")
-
-            if group_name is None:
-                group_name = msg.get("group_name")
-
+            group_name = conversation_info.get("name") if isinstance(conversation_info, dict) else None
+            if group_name is None: group_name = msg.get("group_name")
             if group_id_val is None and not group_name:
-                # 尝试从用户信息获取昵称
-                user_info = msg.get("user_info", {})
-                sender_nick_for_group_name = None
-                if isinstance(user_info, dict):
-                    sender_nick_for_group_name = user_info.get("user_nickname")
-
-                if not sender_nick_for_group_name:
-                    sender_nick_for_group_name = msg.get("sender_nickname", "未知用户")
-
-                group_name = (
-                    f"与 {sender_nick_for_group_name} 的对话"
-                    if sender_nick_for_group_name != "未知用户"
-                    else "直接消息"
-                )
-
+                user_info_for_group_name = msg.get("user_info", {})
+                sender_nick_for_group_name = user_info_for_group_name.get("user_nickname") if isinstance(user_info_for_group_name, dict) else None
+                if not sender_nick_for_group_name: sender_nick_for_group_name = msg.get("sender_nickname", "未知用户")
+                group_name = f"与 {sender_nick_for_group_name} 的对话" if sender_nick_for_group_name != "未知用户" else "直接消息"
             grouped_messages[group_key]["group_info"] = {
-                "platform_name": platform,
-                "group_id": str(group_id_val) if group_id_val is not None else None,
-                "group_name": group_name
-                if group_name is not None
-                else ("未知群名" if group_id_val is not None else "直接消息会话"),
+                "platform_name": platform, "group_id": str(group_id_val) if group_id_val is not None else None,
+                "group_name": group_name if group_name is not None else ("未知群名" if group_id_val is not None else "直接消息会话"),
             }
 
-        # 用户信息处理 - 适配新结构
         user_info = msg.get("user_info", {})
-        sender_id = None
-        if isinstance(user_info, dict):
-            sender_id = user_info.get("user_id")
-
-        if not sender_id:
-            sender_id = msg.get("sender_id") or msg.get("user_id")
-
+        sender_id = user_info.get("user_id") if isinstance(user_info, dict) else None
+        if not sender_id: sender_id = msg.get("sender_id") or msg.get("user_id")
         if sender_id:
             sender_id_str = str(sender_id)
             if sender_id_str not in grouped_messages[group_key]["user_info"]:
                 user_details = {}
-
-                # 从新的user_info结构中获取信息
                 if isinstance(user_info, dict):
-                    user_details = {
-                        "sender_nickname": user_info.get("user_nickname") or f"用户_{sender_id_str}",
-                        "sender_group_permission": user_info.get("permission_level") or user_info.get("role"),
-                    }
-
-                    # 可选字段
-                    for new_field, old_field in [
-                        ("user_cardname", "sender_group_card"),
-                        ("user_titlename", "sender_group_titlename"),
-                    ]:
+                    user_details = {"sender_nickname": user_info.get("user_nickname") or f"用户_{sender_id_str}", "sender_group_permission": user_info.get("permission_level") or user_info.get("role")}
+                    for new_field, old_field in [("user_cardname", "sender_group_card"), ("user_titlename", "sender_group_titlename")]:
                         value = user_info.get(new_field, "")
-                        if value:
-                            user_details[old_field] = value
-                else:
-                    # 兼容旧结构
-                    user_details = {
-                        "sender_nickname": msg.get("sender_nickname") or f"用户_{sender_id_str}",
-                        "sender_group_permission": msg.get("sender_group_permission"),
-                    }
-
-                    # 可选字段
+                        if value: user_details[old_field] = value
+                else: # Fallback to old structure if user_info is not a dict (though less likely now)
+                    user_details = {"sender_nickname": msg.get("sender_nickname") or f"用户_{sender_id_str}", "sender_group_permission": msg.get("sender_group_permission")}
                     for optional_field in ["sender_group_card", "sender_group_titlename"]:
                         value = msg.get(optional_field, "")
-                        if value:
-                            user_details[optional_field] = value
-
+                        if value: user_details[optional_field] = value
                 grouped_messages[group_key]["user_info"][sender_id_str] = user_details
-
-        # 消息内容处理 - 适配新结构
+        
         formatted_time = parsed_msg_time_utc.strftime("%Y-%m-%d %H:%M:%S")
-
-        # 优先从content字段获取消息内容，然后尝试message_content
         message_content_raw = msg.get("content")
-        if message_content_raw is None:
-            message_content_raw = msg.get("message_content")
+        if message_content_raw is None: message_content_raw = msg.get("message_content")
 
-        final_message_content = []
-        metadata_message_id = None  # 用于存储从metadata中提取的message_id
-
+        content_list_to_process = []
         if isinstance(message_content_raw, list):
-            # 首先提取metadata中的message_id
-            for segment in message_content_raw:
-                if isinstance(segment, dict) and segment.get("type") == "message.metadata":
-                    if isinstance(segment.get("data"), dict):
-                        metadata_message_id = segment["data"].get("message_id")
-                        break
-                    
-            # 处理内容列表，排除metadata元素
-            for segment in message_content_raw:
-                if isinstance(segment, dict):
-                    # 跳过metadata类型
-                    if segment.get("type") == "message.metadata":
-                        continue
-                    final_message_content.append(segment.copy())
-
-            # 如果所有元素都被排除，添加一个空文本
-            if not final_message_content and message_content_raw:
-                logger.debug("注意: 所有消息内容段都被过滤，使用空文本替代")
-                final_message_content = [{"type": "text", "data": {"text": ""}}]
+            content_list_to_process = message_content_raw
         elif isinstance(message_content_raw, dict) and "type" in message_content_raw:
-            if message_content_raw.get("type") != "message.metadata":
-                final_message_content = [message_content_raw.copy()]
-            elif message_content_raw.get("type") == "message.metadata":
-                metadata_message_id = message_content_raw.get("data", {}).get("message_id")
-                final_message_content = [{"type": "text", "data": {"text": ""}}]
+            content_list_to_process = [message_content_raw]
         elif isinstance(message_content_raw, str):
-            final_message_content = [{"type": "text", "data": {"text": message_content_raw}}]
+            content_list_to_process = [{"type": "text", "data": {"text": message_content_raw}}]
         elif message_content_raw is None:
-            # 处理空内容情况
-            logger.warning("警告: 消息内容为None")
-            final_message_content = [{"type": "text", "data": {"text": "[空消息]"}}]
+            content_list_to_process = [{"type": "text", "data": {"text": "[空消息]"}}]
         else:
-            logger.warning(f"警告: 消息内容格式未知: {type(message_content_raw)}")
-            final_message_content = [{"type": "text", "data": {"text": "[未识别的消息格式]"}}]
+            logger.warning(f"警告: 消息内容格式未知: {type(message_content_raw)} for msg_id: {msg.get('event_id', msg.get('message_id', '未知ID'))}")
+            content_list_to_process = [{"type": "text", "data": {"text": "[未识别的消息格式]"}}]
+            
+        final_message_segments_for_yaml, message_images_for_llm_this_message = MessageContentProcessor.extract_text_content(
+            content_list_to_process,
+            image_placeholder_key=IMAGE_PLACEHOLDER_KEY_IN_YAML,
+            image_placeholder_value=IMAGE_PLACEHOLDER_VALUE
+        )
+        all_extracted_image_sources.extend(message_images_for_llm_this_message)
 
-        # 构建新的chat_message结构 - 优化格式
         chat_message = {
-            "time": formatted_time,
-            "event_type": msg.get("event_type", "unknown"),  # 使用event_type替代post_type
-            # "message_id": metadata_message_id or str(msg.get("event_id") or msg.get("message_id", uuid.uuid4())),
-            "message": final_message_content,
+            "time": formatted_time, "event_type": msg.get("event_type", "unknown"),
+            "message": final_message_segments_for_yaml,
             "sender_id": str(sender_id) if sender_id else "SYSTEM_OR_UNKNOWN",
             "_parsed_timestamp_utc": parsed_msg_time_utc,
         }
         grouped_messages[group_key]["chat_history"].append(chat_message)
 
-    # 输出处理（保持原有逻辑）
     output_list_for_yaml = []
     for (_, _), data in grouped_messages.items():
         current_chat_history = data["chat_history"]
-
         if current_chat_history:
-            # 排序和截断
             current_chat_history.sort(key=lambda x: x["_parsed_timestamp_utc"])
-            if len(current_chat_history) > max_messages_per_group:
-                final_filtered_history = current_chat_history[-max_messages_per_group:]
-            else:
-                final_filtered_history = current_chat_history
-
-            # 清理临时字段
-            for msg_to_clean in final_filtered_history:
-                del msg_to_clean["_parsed_timestamp_utc"]
-
+            final_filtered_history = current_chat_history[-max_messages_per_group:] if len(current_chat_history) > max_messages_per_group else current_chat_history
+            for msg_to_clean in final_filtered_history: del msg_to_clean["_parsed_timestamp_utc"]
             data["chat_history"] = final_filtered_history
-
             if data["chat_history"]:
-                group_data_for_yaml = {
+                output_list_for_yaml.append({
                     "group_info": data["group_info"],
-                    "user_info": data["user_info"] if data["user_info"] else {},
-                    "chat_history": data["chat_history"],
-                }
-                output_list_for_yaml.append(group_data_for_yaml)
+                    "user_info": data["user_info"] or {}, "chat_history": data["chat_history"],
+                })
 
     if not output_list_for_yaml:
-        return "在最近10分钟内，或根据数量筛选后，没有有效的聊天记录可供格式化。"
+        return "在最近10分钟内，或根据数量筛选后，没有有效的聊天记录可供格式化。", []
 
-    # YAML输出
     try:
-        if len(output_list_for_yaml) == 1:
-            if "user_info" not in output_list_for_yaml[0]:
-                output_list_for_yaml[0]["user_info"] = {}
-            data_to_dump_processed = wrap_string_values_for_yaml(output_list_for_yaml[0])
-        else:
-            for item in output_list_for_yaml:
-                if "user_info" not in item:
-                    item["user_info"] = {}
-            multi_group_structure = {"chat_sessions": output_list_for_yaml}
-            data_to_dump_processed = wrap_string_values_for_yaml(multi_group_structure)
-
+        data_to_dump_processed = wrap_string_values_for_yaml(output_list_for_yaml[0] if len(output_list_for_yaml) == 1 else {"chat_sessions": output_list_for_yaml})
         yaml_content = yaml.dump(
-            data_to_dump_processed,
-            Dumper=MyDumper,
-            allow_unicode=True,
-            sort_keys=False,
-            indent=2,
-            default_flow_style=False,
+            data_to_dump_processed, Dumper=MyDumper, allow_unicode=True, sort_keys=False, indent=2, default_flow_style=False
         )
-
-        prefix = (
-            "以下是最近的聊天记录及相关内容"
-            if len(output_list_for_yaml) == 1
-            else "以下是最近多个会话的聊天记录及相关内容"
-        )
-        return f"{prefix} (时间以UTC显示)：\n```yaml\n{yaml_content}```"
-
+        prefix = "以下是最近的聊天记录及相关内容" if len(output_list_for_yaml) == 1 else "以下是最近多个会话的聊天记录及相关内容"
+        return f"{prefix} (时间以UTC显示，图片在聊天记录中以 '{IMAGE_PLACEHOLDER_KEY_IN_YAML}: {IMAGE_PLACEHOLDER_VALUE}' 形式标记)：\n```yaml\n{yaml_content}```", all_extracted_image_sources
     except Exception as e_yaml:
-        print(f"错误: 格式化聊天记录为YAML时出错: {e_yaml}")
-        return "格式化聊天记录为YAML时出错。"
+        logger.error(f"错误: 格式化聊天记录为YAML时出错: {e_yaml}", exc_info=True)
+        return "格式化聊天记录为YAML时出错。", []
