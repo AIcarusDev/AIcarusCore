@@ -7,61 +7,14 @@ from .failure_reporter import report_action_failure
 from .platform_actions import send_reply_message
 # 更多工具...
 
-# 工具的 Schema 定义
-# 这部分内容从 action_handler.py 中迁移过来
-AVAILABLE_TOOLS_SCHEMA = [
-    {
-        "function_declarations": [
-            {
-                "name": "web_search",
-                "description": "当需要从互联网查找最新信息、具体事实、定义、解释或任何当前未知的内容时使用此工具。",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "query": {"type": "string", "description": "要搜索的关键词或问题。"},
-                        "max_results": {"type": "integer", "description": "期望返回的最大结果数量，默认为5。"}
-                    },
-                    "required": ["query"],
-                },
-            },
-            {
-                "name": "report_action_failure",
-                "description": "当一个明确提出的行动意图因为没有合适的工具时，使用此工具来生成一个反馈信息。",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "reason_for_failure_short": {
-                            "type": "string",
-                            "description": "对动作失败原因的简短说明。",
-                        }
-                    },
-                    "required": ["reason_for_failure_short"],
-                },
-            },
-            {
-                "name": "send_reply_message",
-                "description": "当需要通过适配器向用户发送回复消息时使用此工具。例如，回答用户的问题，或在执行完一个动作后通知用户。",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "target_user_id": {"type": "string", "description": "目标用户的ID (如果是私聊回复)。"},
-                        "target_group_id": {"type": "string", "description": "目标群组的ID (如果是群聊回复)。"},
-                        "message_content_text": {"type": "string", "description": "要发送的纯文本消息内容。"},
-                        "reply_to_message_id": {
-                            "type": "string",
-                            "description": "[可选] 如果是回复特定消息，请提供原始消息的ID。",
-                        },
-                    },
-                    "required": ["message_content_text"],
-                },
-            },
-            # 其他工具的定义...
-        ]
-    }
-]
+# 【注意】AVAILABLE_TOOLS_SCHEMA 变量现在不再是必需的，
+# 因为工具的描述和参数信息已经直接包含在
+# src/action/prompts.py -> ACTION_DECISION_PROMPT_TEMPLATE 中了。
+# 如果你希望保留它作为代码内部的参考或用于其他目的，可以不删除。
+# 为了简化，这里我们将其注释掉或删除。
 
 # 工具名称到其实际异步函数实现的映射
-# 注意：这里的key必须与上面Schema中定义的 'name' 完全一致
+# 注意：这里的key必须与 ACTION_DECISION_PROMPT_TEMPLATE 中描述的工具名称完全一致
 TOOL_FUNCTION_MAP: Dict[str, Callable[..., Coroutine[Any, Any, Any]]] = {
     "web_search": search_web,
     "report_action_failure": report_action_failure,
@@ -69,9 +22,10 @@ TOOL_FUNCTION_MAP: Dict[str, Callable[..., Coroutine[Any, Any, Any]]] = {
     # 其他工具的映射...
 }
 
-def get_tool_schemas() -> List[Dict[str, Any]]:
-    """返回所有可用工具的JSON Schema列表。"""
-    return AVAILABLE_TOOLS_SCHEMA
+# get_tool_schemas 函数也可以移除了，因为它依赖于 AVAILABLE_TOOLS_SCHEMA
+# def get_tool_schemas() -> List[Dict[str, Any]]:
+#     """返回所有可用工具的JSON Schema列表。"""
+#     return AVAILABLE_TOOLS_SCHEMA
 
 def get_tool_function(name: str) -> Callable[..., Coroutine[Any, Any, Any]] | None:
     """根据名称获取工具的异步函数。"""

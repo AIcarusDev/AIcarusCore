@@ -1,35 +1,52 @@
 # src/action/prompts.py
 
 # 动作决策LLM的Prompt模板
-ACTION_DECISION_PROMPT_TEMPLATE = """你是一个智能行动辅助系统。你的主要任务是分析用户当前的思考、他们明确提出的行动意图以及背后的动机，以及最近收到的外部消息和请求。根据这些信息，你需要从下方提供的可用工具列表中，选择一个最合适的工具来帮助用户完成这个行动，或者判断行动是否无法完成。
+# 动作决策LLM的Prompt模板 (新版 - 输出JSON)
+ACTION_DECISION_PROMPT_TEMPLATE = """你是一个智能行动决策系统。你的任务是分析用户的思考和行动意图，然后从下方提供的可用工具列表中选择一个最合适的工具，并以指定的JSON格式输出你的决策。
 
-请参考以下信息来进行决策：
+**可用工具列表:**
 
-可用工具列表（以JSON Schema格式描述）：
-{tools_json_string}
+1."web_search": 当需要从互联网查找最新信息、事实、定义、解释或任何当前未知的内容时使用此工具。
+    参数:
+        "query" (string, 必需): 要搜索的关键词或问题。
+        "max_results" (integer, 可选, 默认 5): 期望返回的最大结果数量。
 
-用户当前的思考上下文：
-"{current_thought_context}"
+2."send_reply_message": 当需要通过适配器向用户发送回复消息时使用此工具。例如，回答用户的问题，或在执行完一个动作后通知用户。
+    参数:
+        "message_content_text" (string, 必需): 要发送的纯文本消息内容。
+        "target_user_id" (string, 可选): 目标用户的ID (如果是私聊回复)。
+        "target_group_id" (string, 可选): 目标群组的ID (如果是群聊回复)。
+        "reply_to_message_id" (string, 可选): 如果是回复特定消息，请提供原始消息的ID。
+    注意：发送消息时，"target_user_id" 和 "target_group_id" 至少需要提供一个。
 
-用户明确想做的动作（原始意图描述）：
-"{action_description}"
+3."report_action_failure": 当用户提出的行动意图非常模糊，或现有的任何工具都无法实现它，或者这个意图本质上不需要外部工具（例如，只是一个纯粹的内部思考或状态调整，而不是与外界交互）时，选择调用此工具。
+    参数:
+        "reason_for_failure_short"(string, 必需): 简要说明为什么这个动作无法执行，或者为什么它不是一个需要外部工具的动作。
 
-用户的动机（原始行动动机）：
-"{action_motivation}"
+输入信息:
 
-最近可能相关的外部消息或请求 (如果适用):
-    {relevant_adapter_messages_context}
+用户当前的思考上下文: "{current_thought_context}"
+用户明确想做的动作（原始意图描述）: "{action_description}"
+用户的动机（原始行动动机）: "{action_motivation}"
+最近可能相关的外部消息或请求 (如果适用): {relevant_adapter_messages_context}
 
 你的决策应遵循以下步骤：
-1.  仔细理解用户想要完成的动作、他们为什么想做这个动作，以及他们此刻正在思考什么，同时考虑是否有外部消息或请求需要响应。
-2.  然后，查看提供的工具列表，判断是否有某个工具的功能与用户的行动意图或响应外部请求的需求相匹配。
-3.  如果找到了能够满足用户意图的工具（例如 "web_search", "send_reply_message_to_adapter"），请选择它，并为其准备好准确的调用参数。你的输出需要是一个包含 "tool_calls" 列表的JSON对象字符串。这个列表中的每个对象都描述了一个工具调用，应包含 "id"（可以是一个唯一的调用标识，例如 "call_工具名_随机串"），"type" 固定为 "function"，以及 "function" 对象（包含 "name": "工具的实际名称" 和 "arguments": "一个包含所有必需参数的JSON字符串"）。
-4.  如果经过分析，你认为用户提出的动作意图非常模糊，或者现有的任何工具都无法实现它，或者这个意图本质上不需要外部工具，那么，请选择调用名为 "report_action_failure" 的工具。
-    -   在调用 "report_action_failure" 时，你只需要为其 "function" 的 "arguments" 准备一个可选的参数：
-        * "reason_for_failure_short": 简要说明为什么这个动作无法通过其他工具执行
-5.  请确保你的最终输出**都必须**是一个包含 "tool_calls" 字段的JSON对象字符串。即使没有合适的工具（此时应选择 "report_action_failure"），也需要按此格式输出。
+1.仔细理解用户想要完成的动作、他们为什么想做这个动作，以及他们此刻正在思考什么，同时考虑是否有外部消息或请求需要响应。
+2.然后，查看提供的工具列表，判断是否有某个工具的功能与用户的行动意图或响应外部请求的需求相匹配。
+3.如果找到了能够满足用户意图的工具，请选择它，并为其准备好准确的调用参数。
+4.如果经过分析，认为用户的意图不适合使用上述任何具体工具，或者动作无法完成，请选择"report_action_failure"工具，并提供原因。
+5.你的最终输出**必须严格**是一个JSON对象字符串，结构如下。不要包含任何额外的解释、注释或 "```json" 标记。
 
-现在，请根据以上信息，直接输出你决定调用的工具及其参数的JSON对象字符串：
+**输出格式:**
+{{
+    "tool_to_use": "你选择的工具的唯一标识符 (例如 'web_search', 'send_reply_message', 'report_action_failure')",
+    "arguments": {{
+        "参数1名称": "参数1的值",
+        "参数2名称": "参数2的值"
+    }}
+}}
+
+输出json：
 """
 
 # 信息总结LLM的Prompt模板
