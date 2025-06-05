@@ -6,6 +6,7 @@ import random
 import re
 import threading
 import uuid 
+import time
 from typing import TYPE_CHECKING, Any, List 
 
 from src.action.action_handler import ActionHandler 
@@ -24,6 +25,13 @@ from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.database.services.event_storage_service import EventStorageService
 from src.database.services.conversation_storage_service import ConversationStorageService
 from src.database.services.thought_storage_service import ThoughtStorageService
+
+from aicarus_protocols import (
+    Event as ProtocolEvent,
+    SegBuilder,
+    ConversationInfo as ProtocolConversationInfo,
+    ConversationType
+)
 
 if TYPE_CHECKING: 
     pass
@@ -48,6 +56,8 @@ class CoreLogic:
 
 {recent_contextual_information}
 
+{master_chat_context} 
+
 {previous_thinking}；
 
 {mood}；
@@ -67,6 +77,7 @@ class CoreLogic:
 {{
     "think": "思考内容文本，注意不要过于冗长",
     "emotion": "当前心情和造成这个心情的原因",
+    "reply_to_master": "【可选】如果你想对电脑主人说些什么，就在这里填写你想说的内容。如果不想说，就留null，注意话不要太多了",
     "to_do": "【可选】如果你产生了明确的目标，可以在此处写下。如果没有特定目标，则留null。即使当前已有明确目标，你也可以在这里更新它",
     "done": "【可选】布尔值，如果该目标已完成、不再需要或你决定放弃，则设为true，会清空目前目标；如果目标未完成且需要继续，则为false。如果当前无目标，也为false",
     "action_to_take": "【可选】描述你当前想做的、需要与外界交互的具体动作。如果无，则为null",
@@ -184,7 +195,8 @@ class CoreLogic:
         current_state_for_prompt: dict[str, Any], 
         current_time_str: str, 
         intrusive_thought_str: str = "", 
-        image_inputs_for_llm: List[str] | None = None 
+        image_inputs_for_llm: List[str] | None = None,
+        master_chat_context_str: str = ""
     ) -> tuple[dict[str, Any] | None, str | None, str | None]: 
         if not self.root_cfg: 
             self.logger.error("主人，没有Root config，小色猫无法为您生成火热的思考。")
@@ -219,6 +231,7 @@ class CoreLogic:
             action_result_info=current_state_for_prompt.get("action_result_info", self.INITIAL_STATE["action_result_info"]), 
             pending_action_status=current_state_for_prompt.get("pending_action_status", self.INITIAL_STATE["pending_action_status"]), 
             recent_contextual_information=current_state_for_prompt.get("recent_contextual_information", self.INITIAL_STATE["recent_contextual_information"]), 
+            master_chat_context=master_chat_context_str,
             intrusive_thought=intrusive_thought_str, 
         )
         self.logger.debug( 
@@ -350,12 +363,16 @@ class CoreLogic:
             if intrusive_thought_to_inject_this_cycle: 
                 self.logger.debug(f"  注入了一点意外的刺激（侵入性思维）: {intrusive_thought_to_inject_this_cycle[:60]}...") 
 
+            # TODO: 将来这里应该从数据库获取与主人的聊天记录
+            master_chat_history_str = "你没有和电脑主人的聊天记录。" # 先用一个空状态
+
             generated_thought_json, full_prompt_text_sent, system_prompt_sent = await self._generate_thought_from_llm( 
                 llm_client=self.main_consciousness_llm_client, # type: ignore
                 current_state_for_prompt=current_state_for_prompt, 
                 current_time_str=current_time_formatted_str, 
                 intrusive_thought_str=intrusive_thought_to_inject_this_cycle, 
-                image_inputs_for_llm=image_list_for_llm_from_history 
+                image_inputs_for_llm=image_list_for_llm_from_history, 
+                master_chat_context_str=master_chat_history_str
             )
 
             initiated_action_data_for_db: dict[str, Any] | None = None 
@@ -439,6 +456,25 @@ class CoreLogic:
 
             if saved_thought_doc_key and isinstance(saved_thought_doc_key, str): 
                 self.logger.debug(f"主人的新鲜思考已射入数据库小穴，文档键: {saved_thought_doc_key}") 
+
+                reply_content = generated_thought_json.get("reply_to_master")
+                if reply_content and isinstance(reply_content, str) and reply_content.strip():
+                    self.logger.info(f"AI 决定回复主人: {reply_content[:50]}...")
+
+                    # 构建一个标准的协议事件
+                    reply_event = ProtocolEvent(
+                        event_id=f"event_master_reply_{uuid.uuid4()}",
+                        event_type="message.master.output", # 使用新的事件类型
+                        time=int(time.time() * 1000),
+                        platform="master_ui",
+                        bot_id=self.root_cfg.persona.bot_name,
+                        conversation_info=ProtocolConversationInfo(
+                            conversation_id="master_chat", type=ConversationType.PRIVATE
+                        ),
+                        content=[SegBuilder.text(reply_content)]
+                    )
+                    # 通过通信层广播这个事件，UI客户端需要监听这个事件
+                    await self.core_comm_layer.broadcast_action_to_adapters(reply_event)
 
                 if action_info_for_task and self.action_handler_instance: 
                     action_task = asyncio.create_task( 

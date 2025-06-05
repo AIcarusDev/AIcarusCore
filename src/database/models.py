@@ -114,14 +114,19 @@ class EnrichedConversationInfo:
         if proto_conv_info and proto_conv_info.conversation_id:
             # 如果协议对象有效且包含 conversation_id，则基于它创建
             # 将协议枚举类型安全地转换为运行时使用的枚举类型或其值
-            conv_type = proto_conv_info.type if isinstance(proto_conv_info.type, ProtocolConversationType) \
-                          else ProtocolConversationType.UNKNOWN
-            try: # 进一步确保如果type是字符串，尝试转换
-                if isinstance(proto_conv_info.type, str):
-                    conv_type = ProtocolConversationType(proto_conv_info.type)
-            except ValueError:
-                 logger.warning(f"无法将字符串 '{proto_conv_info.type}' 转换为有效的 ProtocolConversationType。默认为 UNKNOWN。")
-                 conv_type = ProtocolConversationType.UNKNOWN
+            raw_type = proto_conv_info.type
+            conv_type = None # 默认是 None
+            if isinstance(raw_type, ProtocolConversationType):
+                conv_type = raw_type # 如果已经是正确的枚举类型，直接用
+            elif isinstance(raw_type, str) and raw_type.strip():
+                # 如果是字符串，我们尝试把它转换成枚举
+                try:
+                    conv_type = ProtocolConversationType(raw_type)
+                except ValueError:
+                    logger.warning(f"无法将字符串 '{raw_type}' 转换为有效的 ProtocolConversationType。将使用 None。")
+                    conv_type = None
+            # 其他所有乱七八糟的情况（比如是 None 或者别的类型），conv_type 都会保持为 None
+            
 
 
             return cls(

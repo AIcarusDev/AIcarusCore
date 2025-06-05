@@ -1,0 +1,6 @@
+@echo off
+echo Starting AIcarus Core Backend...
+start "AIcarus Backend" cmd /k python run_core_logic.py
+
+echo Starting Master Chat UI...
+start "AIcarus Chat UI" cmd /k streamlit run master_chat_ui.py

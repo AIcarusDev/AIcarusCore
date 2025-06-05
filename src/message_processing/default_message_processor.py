@@ -189,6 +189,16 @@ class DefaultMessageProcessor:
                 f"收到消息事件 ({proto_event.event_type}) 来自 {sender_nickname_log}({sender_id_log}): '{text_content[:50]}...'"
             )
 
+             # 如果是来自主人UI的特殊消息
+            if proto_event.event_type == "message.master.input":
+                self.logger.info(f"收到来自主人UI的消息，将触发一次被动思考。消息内容: '{text_content[:50]}...'")
+                # 检查我们之前在main.py里塞进来的引用是否存在
+                if hasattr(self, "core_initializer_ref") and self.core_initializer_ref.immediate_thought_trigger:
+                    self.core_initializer_ref.immediate_thought_trigger.set()
+                    return False # 返回 False，表示这个消息已经被特殊处理，不需要走后面的逻辑了
+                else:
+                    self.logger.warning("无法触发主思维，因为 MessageProcessor 缺少对核心触发器的引用。")
+
             # "完整测试" 的硬编码命令逻辑 (示例)
             if text_content == "完整测试":
                 self.logger.info(f"检测到硬编码命令 '完整测试'，来自事件 ID: {proto_event.event_id}")
