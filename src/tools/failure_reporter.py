@@ -29,7 +29,7 @@ async def report_action_failure(
 
         if reason_for_failure_short:
             failure_report = (
-                f"我原本想要'{intended_action_description}'，"
+                f"你原本想要'{intended_action_description}'，"
                 f"动机是'{intended_action_motivation}'，"
                 f"但是遇到了问题：{reason_for_failure_short}"
             )

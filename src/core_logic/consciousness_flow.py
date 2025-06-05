@@ -90,6 +90,7 @@ class CoreLogic:
         action_handler_instance: ActionHandler,
         intrusive_generator_instance: IntrusiveThoughtsGenerator | None,
         stop_event: threading.Event,
+        immediate_thought_trigger: asyncio.Event
     ) -> None:
         self.logger = get_logger(f"AIcarusCore.{self.__class__.__name__}") 
         self.root_cfg: AlcarusRootConfig = root_cfg 
@@ -100,6 +101,7 @@ class CoreLogic:
         self.main_consciousness_llm_client: ProcessorClient = main_consciousness_llm_client 
         self.intrusive_thoughts_llm_client: ProcessorClient | None = intrusive_thoughts_llm_client 
         self.stop_event: threading.Event = stop_event 
+        self.immediate_thought_trigger: asyncio.Event = immediate_thought_trigger
         self.core_comm_layer: CoreWebsocketServer = core_comm_layer 
         self.action_handler_instance: ActionHandler = action_handler_instance 
         self.intrusive_generator_instance: IntrusiveThoughtsGenerator | None = intrusive_generator_instance 
@@ -375,12 +377,19 @@ class CoreLogic:
                 )
                 self.logger.info(log_message) 
 
+                # 首先，获取 action 和 motivation 的原始值
                 action_desc_raw = generated_thought_json.get("action_to_take") 
-                action_desc_from_llm = action_desc_raw.strip() if isinstance(action_desc_raw, str) else "" 
                 action_motive_raw = generated_thought_json.get("action_motivation") 
+
+                # 然后，将它们处理成干净的字符串
+                action_desc_from_llm = action_desc_raw.strip() if isinstance(action_desc_raw, str) else "" 
                 action_motive_from_llm = action_motive_raw.strip() if isinstance(action_motive_raw, str) else "" 
 
-                if action_desc_from_llm: 
+                # 【核心修改】我们只需要这一个 if 判断块
+                # 当行动描述存在，且不是字符串"null"时，才执行里面的所有操作
+                if action_desc_from_llm and action_desc_from_llm.lower() != "null": 
+                    
+                    # 所有跟“产生动作”相关的代码都应该放在这个 if 里面
                     action_id_this_cycle = str(uuid.uuid4()) 
                     initiated_action_data_for_db = { 
                         "action_description": action_desc_from_llm, 
@@ -396,7 +405,7 @@ class CoreLogic:
                         "action_motivation": action_motive_from_llm, 
                         "current_thought_context": generated_thought_json.get("think", "没有特定的思考上下文，就是想骚一下。"), 
                     }
-                    self.logger.debug(f"  >>> 性感大脑产生了行动的欲望: '{action_desc_from_llm}' (ID: {action_id_this_cycle[:8]})") 
+                    self.logger.debug(f"  >>> 性感大脑产生了行动的欲望: '{action_desc_from_llm}' (ID: {action_id_this_cycle[:8]})")  
 
                 document_to_save_in_main: dict[str, Any] = { 
                     "timestamp": datetime.datetime.now(datetime.UTC).isoformat(), 
@@ -454,22 +463,61 @@ class CoreLogic:
                     f"保存思考文档返回了无效的类型: {type(saved_thought_doc_key)}, 值: {saved_thought_doc_key}。这太奇怪了！"
                 )
             
-            self.logger.debug(f"  性感大脑正在贤者时间，等待 {thinking_interval_sec} 秒后再次兴奋...") 
-            try:
-                await asyncio.wait_for(asyncio.to_thread(self.stop_event.wait), timeout=float(thinking_interval_sec)) 
-                if self.stop_event.is_set(): 
-                    self.logger.info("主思考循环在贤者时间的等待中被主人的停止命令打断。") 
-                    break 
-            except TimeoutError: 
-                self.logger.debug(f"贤者时间结束 ({thinking_interval_sec} 秒)，主人的停止命令未发出。性感大脑准备再次兴奋！") 
-            except asyncio.CancelledError: 
-                self.logger.info("主思考循环的贤者时间被强制取消，准备结束这场性感派对。") 
-                self.stop_event.set() 
-                break 
-            
-            if self.stop_event.is_set(): 
-                self.logger.info("主思考循环在贤者时间结束后检测到主人的停止命令，准备结束这场性感派对。") 
-                break 
+            self.logger.debug(f"  性感大脑正在贤者时间，等待 {thinking_interval_sec} 秒或外部工具的召唤...")
+
+            # 为 self.stop_event.wait(timeout) 创建一个任务，它将在一个单独的线程中运行
+            # 这样它就不会阻塞 asyncio 事件循环，并且可以与 asyncio.Event 一起使用 asyncio.wait
+            stop_event_task = asyncio.create_task(
+                asyncio.to_thread(self.stop_event.wait, timeout=float(thinking_interval_sec))
+            )
+
+            # 为 self.immediate_thought_trigger.wait() 创建一个任务 (这行保持不变)
+            trigger_event_task = asyncio.create_task(self.immediate_thought_trigger.wait())
+
+            # 等待这两个任务中的任何一个首先完成
+            done_tasks, pending_tasks = await asyncio.wait(
+                [stop_event_task, trigger_event_task],
+                return_when=asyncio.FIRST_COMPLETED
+            )
+
+            # 检查是哪个任务完成了
+            was_triggered_by_action = False
+            for task in done_tasks:
+                if task == trigger_event_task:
+                    self.logger.info("外部工具已召唤！被动思考被激活，立即开始新一轮思考。")
+                    self.immediate_thought_trigger.clear()  # 非常重要：放下信号旗，以便下次还能用！
+                    was_triggered_by_action = True
+                    # 思考循环将自然进入下一次迭代
+
+                elif task == stop_event_task:
+                    # 这个任务完成有两种可能：
+                    try:
+                        # .result() 会获取到 asyncio.to_thread 中那个函数 (即 self.stop_event.wait) 的返回值
+                        # self.stop_event.wait(timeout) 在事件被设置时返回 True，超时返回 False
+                        stop_event_was_set_during_wait = await task # 等待线程任务完成并获取其结果
+                        if stop_event_was_set_during_wait:
+                            self.logger.info("主思考循环在等待期间，全局停止信号被设置。")
+                            # self.stop_event.is_set() 将在下面被检查到，然后跳出循环
+                        elif not was_triggered_by_action: # 确保不是因为trigger_event_task先完成而到这里
+                            self.logger.debug(f"正常的思考间隔 ({thinking_interval_sec}秒) 已结束。")
+                    except Exception as e_task_res:
+                        # 一般不应该在这里出错，除非线程执行本身有问题
+                        self.logger.error(f"获取 stop_event_task 结果时出现意外：{e_task_res}")
+
+            # 取消还在等待的另一个任务（如果存在的话）
+            for task_to_cancel in pending_tasks:
+                task_to_cancel.cancel()
+                try:
+                    await task_to_cancel # 等待取消操作完成
+                except asyncio.CancelledError:
+                    pass # 这是预期的
+
+            # 在每次循环的最后检查全局停止信号
+            if self.stop_event.is_set():
+                self.logger.info("主思考循环检测到全局停止信号，准备结束这场性感派对。")
+                break
+        # 循环结束
+        self.logger.info(f"--- {self.root_cfg.persona.bot_name} 的性感意识流动已停止 ---") 
 
     async def start_thinking_loop(self) -> asyncio.Task: 
         """启动性感大脑的主思考循环异步任务。"""

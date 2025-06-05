@@ -64,6 +64,7 @@ class CoreSystemInitializer:
         # 控制后台任务的事件和线程
         self.intrusive_thread: Optional[threading.Thread] = None
         self.stop_event: threading.Event = threading.Event() # 用于优雅地停止所有后台循环
+        self.immediate_thought_trigger_event: asyncio.Event = asyncio.Event()
 
         logger.info("CoreSystemInitializer 实例已创建，准备进行初始化。")
 
@@ -406,7 +407,6 @@ class CoreSystemInitializer:
 
             self.core_logic_instance = CoreLogicFlow(
                 root_cfg=self.root_cfg,
-                # 移除旧的 db_handler，改为注入各个专项服务
                 event_storage_service=self.event_storage_service,
                 conversation_storage_service=self.conversation_storage_service,
                 thought_storage_service=self.thought_storage_service,
@@ -415,9 +415,14 @@ class CoreSystemInitializer:
                 core_comm_layer=self.core_comm_layer,
                 action_handler_instance=self.action_handler_instance,
                 intrusive_generator_instance=self.intrusive_generator_instance, # 可能为None
-                stop_event=self.stop_event # 传递全局停止事件
+                stop_event=self.stop_event, # 传递全局停止事件
+                immediate_thought_trigger=self.immediate_thought_trigger_event
             )
-            logger.info("核心逻辑流 (CoreLogicFlow) 已成功初始化并注入了新的存储服务。")
+            if self.action_handler_instance:
+                self.action_handler_instance.set_thought_trigger(self.immediate_thought_trigger_event)
+                logger.info("已尝试为 ActionHandler 设置主思维触发器。") # 添加日志方便确认
+
+            logger.info("核心逻辑流 (CoreLogicFlow) 已成功初始化并注入了新的存储服务和触发器。")
 
             logger.info("=== AIcarus Core 系统所有核心组件初始化完毕！ ===")
 

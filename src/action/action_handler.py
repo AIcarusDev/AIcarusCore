@@ -33,6 +33,7 @@ class ActionHandler:
         self.summary_llm_client: ProcessorClient | None = None # 用于信息总结的LLM客户端
         self.core_communication_layer: CoreWebsocketServer | None = None # WebSocket通信层，用于发送平台动作
         self.thought_storage_service: ThoughtStorageService | None = None # 思考存储服务，用于更新动作状态
+        self.thought_trigger: asyncio.Event | None = None
         self.logger.info(f"{self.__class__.__name__} instance created.")
 
     def set_dependencies(
@@ -50,6 +51,20 @@ class ActionHandler:
         self.thought_storage_service = thought_service
         self.core_communication_layer = comm_layer
         self.logger.info("ActionHandler 的依赖已成功设置 (thought_service, comm_layer)。")
+
+    # 【修改点3】新增 set_thought_trigger 方法
+    def set_thought_trigger(self, trigger_event: asyncio.Event | None) -> None:
+        """设置用于触发主思维的异步事件。"""
+        if trigger_event is not None and not isinstance(trigger_event, asyncio.Event):
+            self.logger.error(f"set_thought_trigger 收到一个无效的事件类型: {type(trigger_event)}，期望 asyncio.Event 或 None。")
+            self.thought_trigger = None
+            return
+        self.thought_trigger = trigger_event
+        if trigger_event:
+            self.logger.info("ActionHandler 的主思维触发器已成功设置。")
+        else:
+            self.logger.info("ActionHandler 的主思维触发器被设置为空。")
+
 
     def _create_llm_client_from_config(self, purpose_key: str) -> ProcessorClient | None:
         """
@@ -343,6 +358,15 @@ class ActionHandler:
         elif not tool_name_chosen and not final_result_for_shuang.startswith("行动决策LLM调用失败"):
             self.logger.warning(f"[Action ID: {action_id}] LLM未选择任何有效工具。原始输出: '{llm_raw_output_text_for_decision}'")
             action_was_successful = False
+
+        is_info_gathering_tool = tool_name_chosen in ["web_search"] 
+        
+        if action_was_successful and is_info_gathering_tool and self.thought_trigger:
+            self.logger.info(f"工具 '{tool_name_chosen}' 成功返回信息，将立即触发一次主思维循环。")
+            self.thought_trigger.set() # <--- 升起信号旗！
+        elif not self.thought_trigger and is_info_gathering_tool and action_was_successful:
+            self.logger.warning(f"工具 '{tool_name_chosen}' 完成，但 ActionHandler 的 thought_trigger 未设置，无法立即触发思考。")
+
         
         update_payload = {
             "status": "COMPLETED_SUCCESS" if action_was_successful else "COMPLETED_FAILURE",
