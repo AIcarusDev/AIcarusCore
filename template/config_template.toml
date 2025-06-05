@@ -5,7 +5,7 @@
 
 # 内部配置，用于版本控制
 [inner]
-version = "0.0.4" # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
+version = "0.0.6" # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
 
 # 通用 LLM 客户端设置 (应用于所有 LLM 实例)
 [llm_client_settings]
@@ -39,31 +39,35 @@ profile = """
 # LLM 提供商和模型详细配置
 # -----------------------------------------------------------------------------
 
-[providers]
+[llm_models]
 
-[providers.gemini.models.main_consciousness]
+[llm_models.main_consciousness]
 provider = "gemini"
 model_name = "gemini-2.0-flash"
 temperature = 0.6
-max_output_tokens = 2000
+max_output_tokens = 3000
 
-[providers.gemini.models.intrusive_thoughts]
+[llm_models.intrusive_thoughts]
 provider = "gemini"
 model_name = "gemini-2.0-flash"
 temperature = 0.75
-max_output_tokens = 500
+max_output_tokens = 3000
 
-[providers.gemini.models.action_decision]
+[llm_models.action_decision]
 provider = "gemini"
-model_name = "gemini-2.0-flash"
+model_name = "gemini-2.0-flash" 
 temperature = 0.3
-max_output_tokens = 800
+max_output_tokens = 3000
 
-[providers.gemini.models.information_summary]
+[llm_models.information_summary]
 provider = "gemini"
 model_name = "gemini-2.0-flash"
-temperature = 0.5
+temperature = 0.8
 max_output_tokens = 1000
+
+[llm_models.embedding_default]
+provider = "SILICONFLOW"
+model_name = "BAAI/bge-m3"
 
 # -----------------------------------------------------------------------------
 # 网络代理配置

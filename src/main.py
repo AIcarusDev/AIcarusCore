@@ -68,18 +68,21 @@ class CoreSystemInitializer:
         logger.info("CoreSystemInitializer 实例已创建，准备进行初始化。")
 
     async def _initialize_llm_clients(self) -> None:
-        """根据全局配置，初始化所有需要的LLM客户端。"""
+        """根据全局配置，初始化所有需要的LLM客户端。
+        新逻辑：从 self.root_cfg.llm_models 中读取每个模型用途的配置，
+        并根据其内部指定的 'provider' 字段来创建客户端。
+        """
         if not self.root_cfg:
             logger.critical("全局配置 (root_cfg) 未加载，无法初始化LLM客户端。")
             raise RuntimeError("Root config not loaded. Cannot initialize LLM clients.")
 
-        logger.info("开始初始化所有LLM客户端...")
+        logger.info("开始根据新的扁平化配置结构初始化所有LLM客户端...")
         general_llm_settings_obj = self.root_cfg.llm_client_settings
         proxy_settings_obj = self.root_cfg.proxy
         final_proxy_host: Optional[str] = None
         final_proxy_port: Optional[int] = None
 
-        # 解析代理设置
+        # 解析代理设置 (与之前逻辑相同)
         if proxy_settings_obj.use_proxy and proxy_settings_obj.http_proxy_url:
             try:
                 parsed_url = urlparse(proxy_settings_obj.http_proxy_url)
@@ -92,7 +95,7 @@ class CoreSystemInitializer:
                 logger.warning(f"解析代理URL '{proxy_settings_obj.http_proxy_url}' 失败: {e_parse_proxy}。将不使用代理。")
                 final_proxy_host, final_proxy_port = None, None
 
-        # 解析废弃的API密钥配置 (从环境变量)
+        # 解析废弃的API密钥配置 (与之前逻辑相同)
         resolved_abandoned_keys: Optional[List[str]] = None
         env_val_abandoned = os.getenv("LLM_ABANDONED_KEYS")
         if env_val_abandoned:
@@ -100,65 +103,35 @@ class CoreSystemInitializer:
                 keys_from_env = json.loads(env_val_abandoned)
                 if isinstance(keys_from_env, list):
                     resolved_abandoned_keys = [str(k).strip() for k in keys_from_env if str(k).strip()]
-            except json.JSONDecodeError: # 如果不是标准JSON，尝试按逗号分割
+            except json.JSONDecodeError:
                 logger.warning(
                     f"环境变量 'LLM_ABANDONED_KEYS' 的值不是有效的JSON列表。尝试按逗号分割。值 (前50字符): {env_val_abandoned[:50]}..."
                 )
                 resolved_abandoned_keys = [k.strip() for k in env_val_abandoned.split(",") if k.strip()]
-            if not resolved_abandoned_keys and env_val_abandoned.strip(): # 如果分割后仍为空但原始字符串不空
+            if not resolved_abandoned_keys and env_val_abandoned.strip():
                 resolved_abandoned_keys = [env_val_abandoned.strip()]
-
-        # 内部辅助函数，用于创建单个 ProcessorClient 实例
-        def _create_single_processor_client(purpose_key: str, default_provider_name: str) -> Optional[ProcessorClient]:
-            """根据指定用途和默认提供商名称，从配置中创建 ProcessorClient 实例。"""
+        
+        # 内部辅助函数，用于根据 ModelParams 创建单个 ProcessorClient 实例 (与之前版本相同)
+        def _create_client_from_model_params(
+            model_params_cfg: ModelParams, 
+            purpose_key_for_log: str
+        ) -> Optional[ProcessorClient]:
             try:
-                if not self.root_cfg or not self.root_cfg.providers:
-                    logger.error(f"配置错误：AlcarusRootConfig 或其 'providers' 配置段缺失，无法为用途 '{purpose_key}' 创建LLM客户端。")
-                    return None
-                
-                provider_name_lower = default_provider_name.lower() # 提供商名称转为小写以匹配配置键
-                if not hasattr(self.root_cfg.providers, provider_name_lower):
-                    logger.error(f"配置错误：在 AlcarusRootConfig.providers 下未找到名为 '{provider_name_lower}' 的提供商配置段。")
-                    return None
-
-                provider_settings = getattr(self.root_cfg.providers, provider_name_lower)
-                if provider_settings is None or provider_settings.models is None:
-                    logger.error(
-                        f"配置错误：未找到提供商 '{default_provider_name}' 的有效配置或其 'models' 配置段。"
-                        f"无法为用途 '{purpose_key}' 创建LLM客户端。"
-                    )
-                    return None
-                
-                if not hasattr(provider_settings.models, purpose_key): # 检查特定用途的模型配置是否存在
-                    logger.warning(
-                        f"配置警告：在提供商 '{default_provider_name}' 的 'models' 配置下未找到模型用途键 '{purpose_key}'。"
-                        f"将跳过此LLM客户端的创建。"
-                    )
-                    return None # 如果没有这个特定用途的配置，则不创建此客户端
-
-                model_params_cfg = getattr(provider_settings.models, purpose_key)
-                if not isinstance(model_params_cfg, ModelParams):
-                    logger.error(
-                        f"配置错误：模型用途键 '{purpose_key}' 的配置类型不正确 (期望 ModelParams)，得到 {type(model_params_cfg)}。"
-                        f"无法创建LLM客户端。"
-                    )
-                    return None
-                
                 actual_provider_name_str: str = model_params_cfg.provider
                 actual_model_api_name: str = model_params_cfg.model_name
+
                 if not actual_provider_name_str or not actual_model_api_name:
                     logger.error(
-                        f"配置错误：模型 '{purpose_key}' (来自配置 {default_provider_name}.{purpose_key}) "
+                        f"配置错误：用途为 '{purpose_key_for_log}' 的模型 "
                         f"未明确指定 'provider' 或 'model_name' 字段。"
                     )
                     return None
                 
-                # 准备构造 ProcessorClient 所需的参数
                 model_for_client_constructor: Dict[str, str] = {
-                    "provider": actual_provider_name_str.upper(), # 提供商名称统一大写
+                    "provider": actual_provider_name_str.upper(),
                     "name": actual_model_api_name,
                 }
-                model_specific_kwargs: Dict[str, Any] = {} # 模型特定的生成参数 (如 temperature, top_p 等)
+                model_specific_kwargs: Dict[str, Any] = {}
                 if model_params_cfg.temperature is not None:
                     model_specific_kwargs["temperature"] = model_params_cfg.temperature
                 if model_params_cfg.max_output_tokens is not None:
@@ -175,72 +148,81 @@ class CoreSystemInitializer:
                     "enable_image_compression": general_llm_settings_obj.enable_image_compression,
                     "image_compression_target_bytes": general_llm_settings_obj.image_compression_target_bytes,
                     "rate_limit_disable_duration_seconds": general_llm_settings_obj.rate_limit_disable_duration_seconds,
-                    "proxy_host": final_proxy_host, # 可能为 None
-                    "proxy_port": final_proxy_port, # 可能为 None
-                    "abandoned_keys_config": resolved_abandoned_keys, # 可能为 None
-                    **model_specific_kwargs, # 合并模型特定参数
+                    "proxy_host": final_proxy_host,
+                    "proxy_port": final_proxy_port,
+                    "abandoned_keys_config": resolved_abandoned_keys,
+                    **model_specific_kwargs,
                 }
-                # 移除值为 None 的参数，以使用 ProcessorClient 内部的默认值
                 final_constructor_args = {k: v for k, v in processor_constructor_args.items() if v is not None}
                 
-                client_instance = ProcessorClient(**final_constructor_args) # type: ignore # ProcessorClient的kwargs用Unpack处理
+                client_instance = ProcessorClient(**final_constructor_args)
                 logger.info(
-                    f"为用途 '{purpose_key}' 成功创建 ProcessorClient 实例 "
+                    f"为用途 '{purpose_key_for_log}' 成功创建 ProcessorClient 实例 "
                     f"(模型: {client_instance.llm_client.model_name}, "
                     f"提供商: {client_instance.llm_client.provider})."
                 )
                 return client_instance
-            except AttributeError as e_attr: # 配置访问错误
+            except Exception as e:
                 logger.error(
-                    f"访问配置属性时出错 (AttributeError)，为用途 '{purpose_key}' (提供商 '{default_provider_name}') 创建LLM客户端失败: {e_attr}。",
+                    f"为用途 '{purpose_key_for_log}' (提供商 '{model_params_cfg.provider if model_params_cfg else '未知'}') 创建LLM客户端时发生未知错误: {e}。",
                     exc_info=True
                 )
                 return None
-            except Exception as e: # 其他所有未知错误
-                logger.error(
-                    f"为用途 '{purpose_key}' (提供商 '{default_provider_name}') 创建LLM客户端时发生未知错误: {e}。",
-                    exc_info=True
-                )
-                return None
-        
+
+        # 开始初始化各个LLM客户端
         try:
-            # 假设 "gemini" 是一个在配置中定义的默认或主要提供商的名称
-            # 这个名称应与 AlcarusRootConfig.providers 下的属性名 (小写) 对应
-            default_provider_for_core_logic = "gemini" # 示例值，实际应可配置或更动态获取
+            # 从 self.root_cfg.llm_models 获取 AllModelPurposesConfig 实例
+            if not self.root_cfg.llm_models:
+                logger.error("配置错误：[llm_models] 配置块缺失，无法初始化任何LLM客户端。")
+                raise RuntimeError("[llm_models] 配置块缺失。")
 
-            # 初始化主意识LLM客户端
-            self.main_consciousness_llm_client = _create_single_processor_client("main_consciousness", default_provider_for_core_logic)
+            all_model_configs = self.root_cfg.llm_models
+
+            model_purpose_map = {
+                "main_consciousness": "main_consciousness_llm_client",
+                "action_decision": "action_llm_client",
+                "information_summary": "summary_llm_client",
+                "embedding_default": "embedding_llm_client",
+                "intrusive_thoughts": "intrusive_thoughts_llm_client"
+            }
+
+            for purpose_key, client_attr_name in model_purpose_map.items():
+                model_params_cfg = getattr(all_model_configs, purpose_key, None)
+                
+                if model_params_cfg and isinstance(model_params_cfg, ModelParams):
+                    if purpose_key == "intrusive_thoughts" and \
+                       (not self.root_cfg.intrusive_thoughts_module_settings or \
+                        not self.root_cfg.intrusive_thoughts_module_settings.enabled):
+                        logger.info(f"侵入性思维模块未启用，跳过 '{purpose_key}' LLM客户端的创建。")
+                        setattr(self, client_attr_name, None)
+                        continue
+
+                    client_instance = _create_client_from_model_params(model_params_cfg, purpose_key)
+                    setattr(self, client_attr_name, client_instance)
+                    
+                    if not client_instance:
+                        if purpose_key == "main_consciousness":
+                            raise RuntimeError(f"核心组件 '{purpose_key}' 的LLM客户端初始化失败。")
+                        else:
+                            logger.warning(f"可选组件 '{purpose_key}' 的LLM客户端未能初始化。相关功能可能受限。")
+                elif model_params_cfg is None:
+                     logger.info(f"在 [llm_models] 中未找到用途为 '{purpose_key}' 的模型配置，跳过其客户端创建。")
+                     setattr(self, client_attr_name, None)
+                else:
+                    logger.error(
+                        f"配置错误：用途为 '{purpose_key}' 的模型配置类型不正确 (期望 ModelParams)，得到 {type(model_params_cfg)}。"
+                        "将跳过此客户端的创建。"
+                    )
+                    setattr(self, client_attr_name, None)
+
             if not self.main_consciousness_llm_client:
-                raise RuntimeError("主意识LLM客户端初始化失败，这是核心组件。")
+                logger.critical("主意识LLM客户端未能成功初始化，这是一个核心依赖。系统可能无法正常运行。")
 
-            # 初始化动作决策和信息总结LLM客户端 (允许部分失败，但会警告)
-            self.action_llm_client = _create_single_processor_client("action_decision", default_provider_for_core_logic)
-            if not self.action_llm_client:
-                logger.warning("动作决策LLM客户端未能初始化。动作相关功能可能受限。")
-            
-            self.summary_llm_client = _create_single_processor_client("information_summary", default_provider_for_core_logic)
-            if not self.summary_llm_client:
-                 logger.warning("信息总结LLM客户端未能初始化。信息总结功能可能受限。")
+            logger.info("所有根据新的扁平化配置结构定义的LLM客户端已尝试初始化完毕。")
 
-            # 初始化嵌入模型LLM客户端 (如果配置了)
-            self.embedding_llm_client = _create_single_processor_client("embedding_default", default_provider_for_core_logic)
-            if not self.embedding_llm_client:
-                logger.warning("默认嵌入LLM客户端未能初始化。需要向量嵌入的功能（如高级记忆搜索）将不可用。")
-
-            # 初始化侵入性思维LLM客户端 (仅当模块启用时)
-            if self.root_cfg and self.root_cfg.intrusive_thoughts_module_settings.enabled:
-                self.intrusive_thoughts_llm_client = _create_single_processor_client("intrusive_thoughts", default_provider_for_core_logic)
-                if not self.intrusive_thoughts_llm_client:
-                    logger.warning("侵入性思维模块已启用，但其LLM客户端未能成功初始化。该模块可能无法正常工作。")
-            else:
-                self.intrusive_thoughts_llm_client = None # 如果模块未启用，则客户端为None
-
-            logger.info("所有配置的LLM客户端已初始化完毕。")
-        except RuntimeError: # 捕获上面显式抛出的 RuntimeError
-            raise
-        except Exception as e_init_all_llms: # 捕获在初始化所有LLM客户端过程中发生的其他意外错误
-            logger.critical(f"初始化所有LLM客户端过程中发生未预期的严重错误: {e_init_all_llms}", exc_info=True)
-            raise RuntimeError(f"LLM客户端初始化因意外错误而失败: {e_init_all_llms}") from e_init_all_llms
+        except Exception as e_init_all_llms:
+            logger.critical(f"在新的LLM客户端初始化过程中发生未预期的严重错误: {e_init_all_llms}", exc_info=True)
+            raise RuntimeError(f"新的LLM客户端初始化因意外错误而失败: {e_init_all_llms}") from e_init_all_llms
 
     async def _initialize_database_and_services(self) -> None:
         """

@@ -1,6 +1,6 @@
 # 文件: llmrequest/utils_model.py
 # 接下来是这个文件，呜呜呜，工作量好大...
-
+import re
 import asyncio
 import base64
 import io
@@ -181,85 +181,100 @@ DEFAULT_RATE_LIMIT_DISABLE_SECONDS: int = 30 * 60  # 30 分钟 #
 INITIAL_RETRY_PASS_DELAY_SECONDS: float = 10.0  # 每轮重试之间的初始等待时间 (秒) #
 
 
-class LLMClient:  #
+class LLMClient:
     def __init__(
         self,
-        model: dict,  #
-        abandoned_keys_config: list[str] | None = None,  #
-        proxy_host: str | None = None,  #
-        proxy_port: int | None = None,  #
-        image_placeholder_tag: str = DEFAULT_IMAGE_PLACEHOLDER_TAG,  #
-        stream_chunk_delay_seconds: float = DEFAULT_STREAM_CHUNK_DELAY_SECONDS,  #
-        enable_image_compression: bool = True,  #
-        image_compression_target_bytes: int = DEFAULT_IMAGE_COMPRESSION_TARGET_BYTES,  #
-        rate_limit_disable_duration_seconds: int = DEFAULT_RATE_LIMIT_DISABLE_SECONDS,  # <-- 新增参数 #
-        **kwargs: Unpack[GenerationParams],  #
+        model: dict,
+        abandoned_keys_config: list[str] | None = None,
+        proxy_host: str | None = None,
+        proxy_port: int | None = None,
+        image_placeholder_tag: str = DEFAULT_IMAGE_PLACEHOLDER_TAG,
+        stream_chunk_delay_seconds: float = DEFAULT_STREAM_CHUNK_DELAY_SECONDS,
+        enable_image_compression: bool = True,
+        image_compression_target_bytes: int = DEFAULT_IMAGE_COMPRESSION_TARGET_BYTES,
+        rate_limit_disable_duration_seconds: int = DEFAULT_RATE_LIMIT_DISABLE_SECONDS,
+        **kwargs: Unpack[GenerationParams],
     ) -> None:
-        load_custom_env()  #
-        self.default_generation_config: GenerationParams = kwargs  #
-        logger.debug(  #
-            f"LLMClient __init__ received model: {model}, default_generation_config: {self.default_generation_config}"  #
+        load_custom_env()
+        self.default_generation_config: GenerationParams = kwargs
+        logger.debug(
+            f"LLMClient __init__ received model: {model}, default_generation_config: {self.default_generation_config}"
         )
 
-        if not isinstance(model, dict) or "provider" not in model or "name" not in model:  #
-            raise ValueError("`model` 参数必须是一个包含 'provider' 和 'name' 键的字典。")  #
+        if not isinstance(model, dict) or "provider" not in model or "name" not in model:
+            raise ValueError("`model` 参数必须是一个包含 'provider' 和 'name' 键的字典。")
 
-        self.provider = model["provider"].upper()  #
-        self.model_name: str = model["name"]  #
-        # ... (rest of __init__ remains largely the same) ...
-        self.initial_stream_setting = model.get("stream", False)  #
-        self.pri_in = model.get("pri_in", 0)  #
-        self.pri_out = model.get("pri_out", 0)  #
-        self.rate_limit_disable_duration_seconds = rate_limit_disable_duration_seconds  # <-- 新增实例变量 #
-        self._temporarily_disabled_keys_429: dict[  #
+        # ███ 小懒猫的关键修改在这里！ ███
+        # 1. 获取原始的 provider 名称，例如 "BAAI/bge-m3"
+        original_provider_name: str = model["provider"]
+        
+        # 2. 将原始 provider 名称转换为适合用作环境变量前缀的“安全”格式
+        #    - 转换为大写
+        #    - 将所有非字母、非数字、非下划线的字符都替换为下划线
+        #    - 示例: "BAAI/bge-m3" -> "BAAI_BGE_M3"
+        self.env_provider_prefix = re.sub(r'[^A-Z0-9_]', '_', original_provider_name.upper())
+        
+        # 3. self.provider 仍然存储原始的大写名称，用于API风格判断
+        self.provider = original_provider_name.upper()
+
+        self.model_name: str = model["name"]
+        self.initial_stream_setting = model.get("stream", False)
+        self.pri_in = model.get("pri_in", 0)
+        self.pri_out = model.get("pri_out", 0)
+        self.rate_limit_disable_duration_seconds = rate_limit_disable_duration_seconds
+        self._temporarily_disabled_keys_429: dict[
             str, float
-        ] = {}  # <-- 新增: key=api_key, value=disable_until_timestamp #
+        ] = {}
 
-        api_keys_env_var_name = f"{self.provider}_API_KEYS"  # <--- 将会使用这种固定模式 #
-        raw_api_key_config = os.getenv(api_keys_env_var_name)  #
-        api_keys_env_var_name_singular = f"{self.provider}_KEY"  # <--- 保留对单数KEY的兼容 #
-        if not raw_api_key_config:  #
-            raw_api_key_config = os.getenv(api_keys_env_var_name_singular)  #
-            if raw_api_key_config:  #
-                logger.debug(f"找到环境变量 {api_keys_env_var_name_singular}。推荐使用 {api_keys_env_var_name}。")  #
+        # 4. 使用净化后的 self.env_provider_prefix 来构造要查找的环境变量名
+        api_keys_env_var_name = f"{self.env_provider_prefix}_API_KEYS"
+        api_keys_env_var_name_singular = f"{self.env_provider_prefix}_KEY"
+        api_keys_env_var_name_direct = self.env_provider_prefix
+
+        # (后续的 os.getenv 调用将使用这些安全的环境变量名)
+        raw_api_key_config = os.getenv(api_keys_env_var_name)
+        if not raw_api_key_config:
+            raw_api_key_config = os.getenv(api_keys_env_var_name_singular)
+            if raw_api_key_config:
+                logger.debug(f"找到环境变量 {api_keys_env_var_name_singular}。推荐使用 {api_keys_env_var_name} (如果需要多个密钥)。")
             else:
-                # 如果环境变量直接是 provider 名称，例如 GEMINI="key1,key2"
-                raw_api_key_config_provider_direct = os.getenv(self.provider)  #
-                if raw_api_key_config_provider_direct:  #
-                    raw_api_key_config = raw_api_key_config_provider_direct  #
-                    logger.debug(f"找到环境变量 {self.provider} 作为API密钥源。")  #
+                raw_api_key_config = os.getenv(api_keys_env_var_name_direct)
+                if raw_api_key_config:
+                    logger.debug(f"找到环境变量 {api_keys_env_var_name_direct} 作为API密钥源。")
                 else:
-                    logger.debug(  #
-                        f"环境变量 {api_keys_env_var_name}, {api_keys_env_var_name_singular}, 和 {self.provider} 均未找到。"  #
+                    logger.debug(
+                        f"环境变量 {api_keys_env_var_name}, {api_keys_env_var_name_singular}, 和 {api_keys_env_var_name_direct} 均未找到。"
                     )
 
-        self.api_keys_config: list[str] = []  #
-        if raw_api_key_config:  #
+        self.api_keys_config: list[str] = []
+        if raw_api_key_config and raw_api_key_config.strip():
             try:
-                # 尝试将环境变量值解析为 JSON 列表
-                parsed_keys = json.loads(raw_api_key_config)  #
-                if isinstance(parsed_keys, list):  #
-                    self.api_keys_config = [str(k).strip() for k in parsed_keys if str(k).strip()]  #
-                elif isinstance(parsed_keys, str) and parsed_keys.strip():  # 如果解析出来是单个字符串 #
-                    self.api_keys_config = [parsed_keys.strip()]  #
-            except json.JSONDecodeError:  #
-                # 如果不是有效的JSON，则尝试按逗号分隔（如果包含逗号），或者作为单个密钥处理
-                if "," in raw_api_key_config:  #
-                    self.api_keys_config = [k.strip() for k in raw_api_key_config.split(",") if k.strip()]  #
-                    if len(self.api_keys_config) > 1:  #
-                        logger.warning(  #
-                            f"环境变量 {self.provider} 的API密钥 '{raw_api_key_config[:20]}...' 不是有效的JSON列表，已按逗号分隔处理。建议使用JSON数组格式。"  #
+                if raw_api_key_config.strip().startswith('[') and raw_api_key_config.strip().endswith(']'):
+                    parsed_keys = json.loads(raw_api_key_config)
+                    if isinstance(parsed_keys, list):
+                        self.api_keys_config = [str(k).strip() for k in parsed_keys if str(k).strip()]
+                    elif isinstance(parsed_keys, str) and parsed_keys.strip():
+                        self.api_keys_config = [parsed_keys.strip()]
+                    else:
+                        logger.warning(f"环境变量 {self.env_provider_prefix} 的API密钥配置解析为意外类型: {type(parsed_keys)}。将尝试作为单个密钥处理。")
+                        self.api_keys_config = [raw_api_key_config.strip()]
+                else:
+                    raise json.JSONDecodeError("Not a JSON list format", raw_api_key_config, 0)
+            except json.JSONDecodeError:
+                if "," in raw_api_key_config:
+                    self.api_keys_config = [k.strip() for k in raw_api_key_config.split(",") if k.strip()]
+                    if len(self.api_keys_config) > 1:
+                        logger.warning(
+                            f"环境变量 {self.env_provider_prefix} 的API密钥 '{raw_api_key_config[:20]}...' 不是有效的JSON列表格式，已按逗号分隔处理。推荐使用JSON数组格式来定义多个密钥。"
                         )
                 else:
-                    self.api_keys_config = [raw_api_key_config.strip()] if raw_api_key_config.strip() else []  #
-                if not self.api_keys_config and raw_api_key_config.strip():  # 确保如果原始字符串不空，至少有一个key #
-                    self.api_keys_config = [raw_api_key_config.strip()]  #
-
-        if not self.api_keys_config:  #
-            raise APIKeyError(  #
-                f"未能为提供商 '{self.provider}' 从环境变量 "  #
-                f"({api_keys_env_var_name} 或 {api_keys_env_var_name_singular} 或 {self.provider}) "  # 更新了错误信息 #
-                "加载API密钥。"  #
+                    self.api_keys_config = [raw_api_key_config.strip()]
+        
+        if not self.api_keys_config:
+            raise APIKeyError(
+                f"未能为提供商 '{original_provider_name}' (环境变量前缀: {self.env_provider_prefix}) 从环境变量 "
+                f"({api_keys_env_var_name} 或 {api_keys_env_var_name_singular} 或 {api_keys_env_var_name_direct}) "
+                "加载任何有效的API密钥。"
             )
 
         # 这部分处理 Base URL
@@ -267,13 +282,17 @@ class LLMClient:  #
         if not self.base_url:  #
             # 兼容旧的 GEMINI_BASE_URL（如果 provider 是 GEMINI 但 GEMINI_BASE_URL 未设置）
             # 这种情况其实不太可能，因为上面已经用了 self.provider
-            if self.provider == "GEMINI" and os.getenv("GEMINI_BASE_URL"):  #
-                self.base_url = os.getenv("GEMINI_BASE_URL")  #
-                logger.debug("使用了通用的 GEMINI_BASE_URL 环境变量。")  #
+            if self.provider == "GEMINI" and os.getenv("GEMINI_BASE_URL"):
+                self.base_url = os.getenv("GEMINI_BASE_URL")
+                logger.debug(f"使用了旧的 GEMINI_BASE_URL 环境变量。推荐使用 {self.env_provider_prefix}_BASE_URL。")
+            elif self.provider == "OPENAI" and os.getenv("OPENAI_BASE_URL"):
+                self.base_url = os.getenv("OPENAI_BASE_URL")
+                logger.debug(f"使用了旧的 OPENAI_BASE_URL 环境变量。推荐使用 {self.env_provider_prefix}_BASE_URL。")
             else:
                 raise ValueError(
-                    f"未能为提供商 '{self.provider}' 从环境变量 ({self.provider}_BASE_URL) 加载Base URL。"
-                )  #
+                    f"未能为提供商 '{original_provider_name}' (环境变量前缀: {self.env_provider_prefix}) 从环境变量 "
+                    f"({self.env_provider_prefix}_BASE_URL) 加载Base URL。"
+                )
         self.base_url = self.base_url.rstrip("/")  #
 
         if self.provider == "GEMINI" or ("googleapis.com" in self.base_url.lower()):  #
