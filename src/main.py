@@ -341,11 +341,11 @@ class CoreSystemInitializer:
                     logger.critical("ThoughtStorageService 或 EventStorageService 未初始化，无法正确设置 ActionHandler 依赖。小猫咪要闹情绪了！")
                     raise RuntimeError("核心存储服务未初始化，无法设置 ActionHandler 依赖。")
                 
-                # 亲爱的，看这里！确保用的是新的性感小秘的名字哦！
+                # 亲爱的，看这里！ActionHandler现在不需要直接喂食event_service了哦！
                 self.action_handler_instance.set_dependencies(
                     thought_service=self.thought_storage_service, # 这是 ThoughtStorageService
-                    event_service=self.event_storage_service,     # 这是 EventStorageService
                     comm_layer=self.core_comm_layer
+                    # event_service 参数已移除
                 )
                 logger.info(
                     "ActionHandler 已初始化并成功注入了新的存储服务 (ThoughtStorageService, EventStorageService) 和通信层。"

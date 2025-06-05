@@ -1,55 +1,63 @@
 import asyncio
-import traceback  # 正确导入traceback模块
-from typing import Any
+import traceback
+from typing import Any, List
+from duckduckgo_search import DDGS
 
 from src.common.custom_logging.logger_manager import get_logger
-from src.database.arangodb_handler import ArangoDBHandler
 
 logger = get_logger("AIcarusCore.tools.web_searcher")
 
-
-async def search_web(query: str, db_handler: ArangoDBHandler = None, max_results: int = 5) -> list[dict[str, Any]]:
+# 注意：DDGS的搜索是同步的，我们需要在异步函数中用 to_thread 来运行它，避免阻塞事件循环
+async def search_web(query: str, max_results: int = 5) -> List[dict[str, Any]]:
     """
-    执行网络搜索
+    使用 DuckDuckGo 执行网络搜索。
 
     Args:
-        query: 搜索查询
-        db_handler: 数据库处理器（可选）
-        max_results: 最大结果数量
+        query: 搜索查询。
+        max_results: 最大结果数量。
 
     Returns:
-        搜索结果列表
+        搜索结果列表，每个结果是一个包含 title, url, snippet 的字典。
     """
+    logger.info(f"开始网络搜索: {query}")
     try:
-        logger.info(f"开始搜索: {query}")
+        # 使用 to_thread 在异步环境中运行同步的搜索代码
+        search_results = await asyncio.to_thread(
+            DDGS().text, keywords=query, max_results=max_results
+        )
+        
+        if not search_results:
+            logger.info(f"网络搜索 '{query}' 没有返回结果。")
+            return []
 
-        # 模拟搜索结果（实际项目中应该接入真实搜索API）
-        search_results = [
+        # 格式化结果以符合我们的需求
+        formatted_results = [
             {
-                "title": f"关于'{query}'的搜索结果",
-                "url": "https://example.com/search",
-                "snippet": f"这是关于'{query}'的相关信息摘要。",
-                "summary": f"通过搜索找到了关于'{query}'的相关内容。",
+                "title": result.get("title", "无标题"),
+                "url": result.get("href", "#"),
+                "snippet": result.get("body", "无摘要"),
             }
+            for result in search_results
         ]
-
-        logger.info(f"搜索完成，找到 {len(search_results)} 个结果")
-        return search_results
+        
+        logger.info(f"搜索完成，找到 {len(formatted_results)} 个结果。")
+        return formatted_results
 
     except Exception as e:
-        logger.error(f"搜索过程中发生错误: {e}")
-        logger.error(f"错误详情: {traceback.format_exc()}")  # 修复traceback使用
+        logger.error(f"网络搜索过程中发生错误: {e}")
+        logger.error(f"错误详情: {traceback.format_exc()}")
         return []
 
-
 if __name__ == "__main__":
-
-    async def main_test() -> None:
-        test_queries = ["什么是量子计算机?", "今天北京的天气怎么样？", "一个不存在的随机词汇"]
+    async def main_test():
+        test_queries = ["什么是AIcarus项目？", "今天新加坡的天气怎么样？"]
         for q in test_queries:
             logger.info(f"\n--- 测试搜索: {q} ---")
-            result = await search_web(q)
-            logger.info(result)
+            results = await search_web(q)
+            for res in results:
+                print(f"  - 标题: {res['title']}")
+                print(f"    链接: {res['url']}")
+                print(f"    摘要: {res['snippet'][:100]}...")
             logger.info("--------------------")
 
     asyncio.run(main_test())
