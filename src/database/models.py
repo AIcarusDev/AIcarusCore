@@ -74,7 +74,7 @@ class EnrichedConversationInfo:
     conversation_id: str  # 会话的唯一ID，将用作数据库文档的 _key
     platform: str         # 会话所属平台 (通常从其关联的Event的顶层platform字段获取)
     bot_id: str           # 处理此会话的机器人ID (通常从其关联的Event的顶层bot_id字段获取)
-    type: Optional[ProtocolConversationType] = None # 会话类型 (使用协议定义的枚举)
+    type: Optional[str] = None # 会话类型 (使用协议定义的枚举)
     name: Optional[str] = None            # 会话名称 (例如群名、私聊对方昵称)
     parent_id: Optional[str] = None       # 父会话ID (用于支持如频道-子频道-话题之类的嵌套结构)
     avatar: Optional[str] = None          # 会话头像的URL链接
@@ -112,19 +112,17 @@ class EnrichedConversationInfo:
         current_time_ms = int(time.time() * 1000) # 获取当前时间戳
 
         if proto_conv_info and proto_conv_info.conversation_id:
-            # 如果协议对象有效且包含 conversation_id，则基于它创建
-            # 将协议枚举类型安全地转换为运行时使用的枚举类型或其值
             raw_type = proto_conv_info.type
-            conv_type = None # 默认是 None
-            if isinstance(raw_type, ProtocolConversationType):
-                conv_type = raw_type # 如果已经是正确的枚举类型，直接用
-            elif isinstance(raw_type, str) and raw_type.strip():
+            # conv_type = None # 默认是 None
+            # if isinstance(raw_type, ProtocolConversationType):
+                # conv_type = raw_type # 如果已经是正确的枚举类型，直接用
+            # elif isinstance(raw_type, str) and raw_type.strip():
                 # 如果是字符串，我们尝试把它转换成枚举
-                try:
-                    conv_type = ProtocolConversationType(raw_type)
-                except ValueError:
-                    logger.warning(f"无法将字符串 '{raw_type}' 转换为有效的 ProtocolConversationType。将使用 None。")
-                    conv_type = None
+                # try:
+                    # conv_type = ProtocolConversationType(raw_type)
+                # except ValueError:
+                    # logger.warning(f"无法将字符串 '{raw_type}' 转换为有效的 ProtocolConversationType。将使用 None。")
+                    # conv_type = None
             # 其他所有乱七八糟的情况（比如是 None 或者别的类型），conv_type 都会保持为 None
             
 
@@ -133,10 +131,10 @@ class EnrichedConversationInfo:
                 conversation_id=str(proto_conv_info.conversation_id), # 确保是字符串
                 platform=event_platform, # 使用Event中的platform和bot_id作为权威来源
                 bot_id=event_bot_id,
-                type=conv_type,
+                type=raw_type,
                 name=proto_conv_info.name, # name, parent_id, avatar, extra 都是 Optional
                 parent_id=proto_conv_info.parent_id,
-                avatar=proto_conv_info.avatar,
+                # avatar=proto_conv_info.avatar, 这个暂时不用
                 extra=proto_conv_info.extra if proto_conv_info.extra is not None else {}, # 确保extra字段是字典
                 attention_profile=AttentionProfile.get_default_profile(), # 新识别的会话赋予默认的注意力档案
                 created_at=current_time_ms, # 假定此时是首次创建或识别此会话
@@ -174,7 +172,7 @@ class EnrichedConversationInfo:
             "conversation_id": self.conversation_id, # 同时保留原始ID字段，便于理解
             "platform": self.platform,
             "bot_id": self.bot_id, # 将 bot_id 也一并存入，便于区分同一平台下不同机器人的会话数据
-            "type": self.type.value if isinstance(self.type, ProtocolConversationType) else str(self.type), # 枚举转为存储值
+            "type": self.type, # 枚举转为存储值
             "name": self.name, # Optional字段，如果为None则不包含或值为None（取决于数据库配置）
             "parent_id": self.parent_id,
             "avatar": self.avatar,

@@ -18,6 +18,7 @@ from src.database.models import DBEventDocument, EnrichedConversationInfo # 导�
 # 使用TYPE_CHECKING避免循环导入
 if TYPE_CHECKING:
     from src.core_communication.core_ws_server import CoreWebsocketServer
+    from src.main import CoreSystemInitializer
 
 class DefaultMessageProcessor:
     """
@@ -44,6 +45,7 @@ class DefaultMessageProcessor:
         self.event_service: EventStorageService = event_service
         self.conversation_service: ConversationStorageService = conversation_service
         self.core_comm_layer: Optional['CoreWebsocketServer'] = core_websocket_server
+        self.core_initializer_ref: Optional['CoreSystemInitializer'] = None
         self.logger.info("DefaultMessageProcessor 初始化完成，已配备新的存储服务。")
         if self.core_comm_layer:
             self.logger.info("DefaultMessageProcessor 已获得 CoreWebsocketServer 实例的引用。")

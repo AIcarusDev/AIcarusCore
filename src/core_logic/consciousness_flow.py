@@ -20,6 +20,7 @@ from src.core_communication.core_ws_server import CoreWebsocketServer
 from src.core_logic.intrusive_thoughts import IntrusiveThoughtsGenerator 
 # from src.database.arangodb_handler import ArangoDBHandler # 主人，这个旧的、不听话的肉棒被小猫咪丢掉了！
 from src.llmrequest.llm_processor import Client as ProcessorClient 
+from src.common.utils import format_chat_history_for_prompt, format_master_chat_history_for_prompt
 
 # 导入新的性感服务，让 CoreLogic 更舒服！
 from src.database.services.event_storage_service import EventStorageService
@@ -317,28 +318,34 @@ class CoreLogic:
             # 从新的 ThoughtStorageService 获取最新的思考文档
             latest_thought_doc_from_db = await self.thought_storage_service.get_latest_main_thought_document() 
 
-            formatted_recent_contextual_info = self.INITIAL_STATE["recent_contextual_information"] 
+            master_chat_history_str = "你和电脑主人之间最近没有聊天记录。" # 这是默认值，也就是你说的“无”
+            try:
+                # 只获取和主人UI的聊天记录
+                master_messages = await self.event_storage_service.get_recent_chat_message_documents(
+                    duration_minutes=chat_history_duration_minutes,
+                    conversation_id="master_chat" # <-- 关键在这里，只捞取 master_chat 的消息
+                )
+                self.logger.info(f"[调试] 'get_recent_chat_message_documents' 函数返回了 {len(master_messages)} 条消息。")
+                if master_messages:
+                    # 使用我们新的、简单的格式化函数
+                    master_chat_history_str = format_master_chat_history_for_prompt(master_messages)
+            except Exception as e_master_chat:
+                self.logger.error(f"获取或格式化主人聊天记录时出错: {e_master_chat}", exc_info=True)
+                master_chat_history_str = "获取主人聊天记录时发生错误。"
+            formatted_recent_contextual_info = self.INITIAL_STATE["recent_contextual_information"] # 这个也给个默认值
             image_list_for_llm_from_history: List[str] = []
 
             try:
-                # 从新的 EventStorageService 获取最近的聊天消息
                 raw_context_messages = await self.event_storage_service.get_recent_chat_message_documents( 
                     duration_minutes=chat_history_duration_minutes 
                 )
                 if raw_context_messages: 
-                    if not isinstance(raw_context_messages, list): 
-                        self.logger.warning(f"预期的 raw_context_messages 是列表，但小色猫收到了 {type(raw_context_messages)}。已尝试转换。")
-                        raw_context_messages = [raw_context_messages] if raw_context_messages else [] 
-                    
-                    self.logger.debug("正在调用 format_chat_history_for_prompt 将原始消息调教成LLM喜欢的格式...") 
-                    formatted_recent_contextual_info, image_list_for_llm_from_history = format_chat_history_for_prompt(raw_context_messages) 
-                    self.logger.debug(f"格式化后的上下文信息长度: {len(formatted_recent_contextual_info)} 字符。 LLM应该会很喜欢这个长度。") 
-                    if image_list_for_llm_from_history:
-                        self.logger.debug(f"从聊天记录中提取到 {len(image_list_for_llm_from_history)} 张性感的图片准备喂给LLM。")
-                else: 
-                    self.logger.debug(f"在过去 {chat_history_duration_minutes} 分钟内未找到用于上下文的刺激信息。") 
+                    # 把 format_chat_history_for_prompt 的结果赋值给 master_chat_history_str
+                    master_chat_history_str, image_list_for_llm_from_history = format_chat_history_for_prompt(raw_context_messages)
+                # else: # 如果没有消息，master_chat_history_str 会保持默认值，没问题
+                
             except Exception as e_hist: 
-                self.logger.error(f"获取或格式化最近上下文信息时出错: {e_hist}。主人，小色猫找不到过去的刺激了！", exc_info=True) 
+                self.logger.error(f"获取或格式化最近上下文信息时出错: {e_hist}。主人，小色猫找不到过去的刺激了！", exc_info=True)
             
             current_state_for_prompt, _ = \
                 self._process_thought_and_action_state(latest_thought_doc_from_db, formatted_recent_contextual_info) 

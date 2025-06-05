@@ -37,6 +37,7 @@ class CoreSystemInitializer:
 
     def __init__(self):
         """初始化 CoreSystemInitializer 的各个组件为 None。"""
+        self.logger = get_logger("AIcarusCore.MainInitializer") 
         self.root_cfg: Optional[AlcarusRootConfig] = None # 全局配置实例
 
         # 数据库相关组件
@@ -64,7 +65,7 @@ class CoreSystemInitializer:
         # 控制后台任务的事件和线程
         self.intrusive_thread: Optional[threading.Thread] = None
         self.stop_event: threading.Event = threading.Event() # 用于优雅地停止所有后台循环
-        self.immediate_thought_trigger_event: asyncio.Event = asyncio.Event()
+        self.immediate_thought_trigger: asyncio.Event = asyncio.Event()
 
         logger.info("CoreSystemInitializer 实例已创建，准备进行初始化。")
 
@@ -306,6 +307,9 @@ class CoreSystemInitializer:
                 conversation_service=self.conversation_storage_service,
                 core_websocket_server=None # WebSocket服务器将在下一步创建并回填此引用
             )
+            self.message_processor.core_initializer_ref = self # <-- 加上这行代码！
+            self.logger.info("已将 CoreSystemInitializer 实例的引用注入到 DefaultMessageProcessor，这下可以触发思考了。")
+
             logger.info("DefaultMessageProcessor 已初始化并成功注入了新的存储服务。")
 
             # 5. 创建并设置 WebSocket 通信层 (CoreWebsocketServer)
@@ -416,10 +420,10 @@ class CoreSystemInitializer:
                 action_handler_instance=self.action_handler_instance,
                 intrusive_generator_instance=self.intrusive_generator_instance, # 可能为None
                 stop_event=self.stop_event, # 传递全局停止事件
-                immediate_thought_trigger=self.immediate_thought_trigger_event
+                immediate_thought_trigger=self.immediate_thought_trigger
             )
             if self.action_handler_instance:
-                self.action_handler_instance.set_thought_trigger(self.immediate_thought_trigger_event)
+                self.action_handler_instance.set_thought_trigger(self.immediate_thought_trigger)
                 logger.info("已尝试为 ActionHandler 设置主思维触发器。") # 添加日志方便确认
 
             logger.info("核心逻辑流 (CoreLogicFlow) 已成功初始化并注入了新的存储服务和触发器。")

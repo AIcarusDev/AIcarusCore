@@ -292,3 +292,55 @@ def format_chat_history_for_prompt(raw_messages_from_db: list[dict[str, Any]]) -
     except Exception as e_yaml:
         logger.error(f"错误: 格式化聊天记录为YAML时出错: {e_yaml}", exc_info=True)
         return "格式化聊天记录为YAML时出错。", []
+    
+def format_master_chat_history_for_prompt(raw_messages_from_db: list[dict[str, Any]]) -> str:
+    """
+    为主人UI专门创建一个简单的、人类可读的聊天记录格式。
+    """
+    if not raw_messages_from_db:
+        return "你和电脑主人之间最近没有聊天记录。"
+
+    formatted_lines = []
+    # 先按时间戳升序排序，确保对话顺序正确
+    sorted_messages = sorted(raw_messages_from_db, key=lambda msg: msg.get("timestamp", 0))
+
+    for msg in sorted_messages:
+        try:
+            # 解析时间戳
+            ts = msg.get("timestamp", 0) / 1000.0
+            dt_object = datetime.datetime.fromtimestamp(ts)
+            # 格式化时间，像你要求的那样
+            time_str = dt_object.strftime("%Y年%m月%d日 %H点%M分")
+
+            # 提取文本内容
+            text_content = ""
+            content_list = msg.get("content", [])
+            if isinstance(content_list, list):
+                text_parts = [
+                    seg.get("data", {}).get("text", "")
+                    for seg in content_list
+                    if isinstance(seg, dict) and seg.get("type") == "text"
+                ]
+                text_content = "".join(text_parts).strip()
+            
+            if not text_content:
+                continue # 如果消息没有文本内容，就跳过
+
+            # 判断角色
+            role = "未知"
+            event_type = msg.get("event_type", "")
+            if event_type == "message.master.input":
+                role = "主人（电脑主人）"
+            elif event_type == "message.master.output":
+                role = "你"
+            
+            formatted_lines.append(f"{time_str} {role}：{text_content}")
+
+        except Exception as e:
+            logger.warning(f"格式化单条主人聊天记录时出错: {e}, 消息ID: {msg.get('event_id', '未知ID')}")
+            continue
+
+    if not formatted_lines:
+        return "最近的对话中没有有效的文本消息。"
+        
+    return "\n".join(formatted_lines)
