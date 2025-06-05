@@ -7,7 +7,7 @@ import mimetypes # 导入mimetypes用于从文件名推断类型
 
 import yaml
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logger_manager import get_logger # type: ignore
 
 logger = get_logger("AIcarusCore.utils")
 
@@ -144,203 +144,196 @@ class MessageContentProcessor:
         return {"type": "image", "data": data}
 
 
-def format_chat_history_for_prompt(raw_messages_from_db: list[dict[str, Any]]) -> Tuple[str, List[str]]:
-    IMAGE_PLACEHOLDER_VALUE: str = "[IMAGE_HERE]"
-    IMAGE_PLACEHOLDER_KEY_IN_YAML: str = "llm_image_placeholder"
+# 文件: src/common/utils.py
 
-    if not raw_messages_from_db:
-        return "在指定的时间范围内没有找到聊天记录。", []
+def format_messages_for_llm_context(
+    raw_messages_from_db: list[dict[str, Any]],
+    style: str = 'yaml',  # 新增参数，可以是 'yaml' 或 'simple'
+    image_placeholder_key: str = "llm_image_placeholder",
+    image_placeholder_value: str = "[IMAGE_HERE]",
+    desired_history_span_minutes: int = 10,
+    max_messages_per_group: int = 20
+) -> Tuple[str, List[str]]:
+    """
+    一个统一的函数，用于将从数据库获取的原始消息列表，根据指定的风格格式化为LLM的上下文。
 
-    grouped_messages = defaultdict(lambda: {"group_info": {}, "user_info": {}, "chat_history": []})
+    Args:
+        raw_messages_from_db: 从数据库获取的原始消息文档列表。
+        style: 格式化风格。'yaml' (默认) 会生成详细的YAML格式；'simple' 会生成简洁的 "时间 角色: 内容" 格式。
+
+    Returns:
+        一个元组: (格式化后的字符串, 提取出的图片源列表)
+    """
     all_extracted_image_sources: List[str] = []
 
-    desired_history_span_minutes = 10
-    max_messages_per_group = 20
-    current_utc_time = datetime.datetime.now(datetime.UTC)
-    span_cutoff_timestamp_utc = current_utc_time - datetime.timedelta(minutes=desired_history_span_minutes)
-    assumed_local_tz_for_fallback = datetime.timezone(datetime.timedelta(hours=8))
-
-    for msg in raw_messages_from_db:
-        if not isinstance(msg, dict):
-            logger.warning(f"警告: 消息应该是字典类型，但收到了 {type(msg)}: {msg}")
-            continue
-
-        msg_time_input = msg.get("timestamp") or msg.get("time")
-        if msg_time_input is None:
-            logger.warning(f"警告: 消息 {msg.get('event_id', msg.get('message_id', '未知ID'))} 缺少时间戳，已跳过。")
-            continue
-        
-        try:
-            if isinstance(msg_time_input, int | float):
-                parsed_msg_time_utc = datetime.datetime.fromtimestamp(msg_time_input / 1000.0, datetime.UTC)
-            elif isinstance(msg_time_input, str):
-                temp_time_str = msg_time_input.replace("Z", "+00:00")
-                try:
-                    parsed_msg_time_aware_or_naive = datetime.datetime.fromisoformat(temp_time_str)
-                except ValueError:
-                    if ' ' in temp_time_str and '.' not in temp_time_str:
-                        parsed_msg_time_aware_or_naive = datetime.datetime.strptime(temp_time_str, "%Y-%m-%d %H:%M:%S%z" if "+" in temp_time_str or "-" in temp_time_str[10:] else "%Y-%m-%d %H:%M:%S")
-                    else:
-                        raise
-                if parsed_msg_time_aware_or_naive.tzinfo is None or parsed_msg_time_aware_or_naive.tzinfo.utcoffset(parsed_msg_time_aware_or_naive) is None:
-                    parsed_msg_time_utc = parsed_msg_time_aware_or_naive.replace(tzinfo=assumed_local_tz_for_fallback).astimezone(datetime.UTC)
-                else:
-                    parsed_msg_time_utc = parsed_msg_time_aware_or_naive.astimezone(datetime.UTC)
-            else:
-                raise ValueError(f"时间戳类型不支持: {type(msg_time_input)}")
-        except ValueError as e_time:
-            logger.warning(f"警告: 时间戳处理失败 for '{msg_time_input}': {e_time}, 消息ID: {msg.get('event_id', msg.get('message_id', '未知ID'))}")
-            continue
-
-        if parsed_msg_time_utc < span_cutoff_timestamp_utc:
-            continue
-
-        platform = msg.get("platform", "未知平台")
-        conversation_info = msg.get("conversation_info", {})
-        group_id_val = conversation_info.get("conversation_id") if isinstance(conversation_info, dict) else msg.get("group_id")
-        group_key_part = str(group_id_val) if group_id_val is not None else "direct_or_no_group"
-        group_key = (platform, group_key_part)
-
-        if not grouped_messages[group_key]["group_info"]:
-            group_name = conversation_info.get("name") if isinstance(conversation_info, dict) else None
-            if group_name is None: group_name = msg.get("group_name")
-            if group_id_val is None and not group_name:
-                user_info_for_group_name = msg.get("user_info", {})
-                sender_nick_for_group_name = user_info_for_group_name.get("user_nickname") if isinstance(user_info_for_group_name, dict) else None
-                if not sender_nick_for_group_name: sender_nick_for_group_name = msg.get("sender_nickname", "未知用户")
-                group_name = f"与 {sender_nick_for_group_name} 的对话" if sender_nick_for_group_name != "未知用户" else "直接消息"
-            grouped_messages[group_key]["group_info"] = {
-                "platform_name": platform, "group_id": str(group_id_val) if group_id_val is not None else None,
-                "group_name": group_name if group_name is not None else ("未知群名" if group_id_val is not None else "直接消息会话"),
-            }
-
-        user_info = msg.get("user_info", {})
-        sender_id = user_info.get("user_id") if isinstance(user_info, dict) else None
-        if not sender_id: sender_id = msg.get("sender_id") or msg.get("user_id")
-        if sender_id:
-            sender_id_str = str(sender_id)
-            if sender_id_str not in grouped_messages[group_key]["user_info"]:
-                user_details = {}
-                if isinstance(user_info, dict):
-                    user_details = {"sender_nickname": user_info.get("user_nickname") or f"用户_{sender_id_str}", "sender_group_permission": user_info.get("permission_level") or user_info.get("role")}
-                    for new_field, old_field in [("user_cardname", "sender_group_card"), ("user_titlename", "sender_group_titlename")]:
-                        value = user_info.get(new_field, "")
-                        if value: user_details[old_field] = value
-                else: # Fallback to old structure if user_info is not a dict (though less likely now)
-                    user_details = {"sender_nickname": msg.get("sender_nickname") or f"用户_{sender_id_str}", "sender_group_permission": msg.get("sender_group_permission")}
-                    for optional_field in ["sender_group_card", "sender_group_titlename"]:
-                        value = msg.get(optional_field, "")
-                        if value: user_details[optional_field] = value
-                grouped_messages[group_key]["user_info"][sender_id_str] = user_details
-        
-        formatted_time = parsed_msg_time_utc.strftime("%Y-%m-%d %H:%M:%S")
-        message_content_raw = msg.get("content")
-        if message_content_raw is None: message_content_raw = msg.get("message_content")
-
-        content_list_to_process = []
-        if isinstance(message_content_raw, list):
-            content_list_to_process = message_content_raw
-        elif isinstance(message_content_raw, dict) and "type" in message_content_raw:
-            content_list_to_process = [message_content_raw]
-        elif isinstance(message_content_raw, str):
-            content_list_to_process = [{"type": "text", "data": {"text": message_content_raw}}]
-        elif message_content_raw is None:
-            content_list_to_process = [{"type": "text", "data": {"text": "[空消息]"}}]
-        else:
-            logger.warning(f"警告: 消息内容格式未知: {type(message_content_raw)} for msg_id: {msg.get('event_id', msg.get('message_id', '未知ID'))}")
-            content_list_to_process = [{"type": "text", "data": {"text": "[未识别的消息格式]"}}]
-            
-        final_message_segments_for_yaml, message_images_for_llm_this_message = MessageContentProcessor.extract_text_content(
-            content_list_to_process,
-            image_placeholder_key=IMAGE_PLACEHOLDER_KEY_IN_YAML,
-            image_placeholder_value=IMAGE_PLACEHOLDER_VALUE
-        )
-        all_extracted_image_sources.extend(message_images_for_llm_this_message)
-
-        chat_message = {
-            "time": formatted_time, "event_type": msg.get("event_type", "unknown"),
-            "message": final_message_segments_for_yaml,
-            "sender_id": str(sender_id) if sender_id else "SYSTEM_OR_UNKNOWN",
-            "_parsed_timestamp_utc": parsed_msg_time_utc,
-        }
-        grouped_messages[group_key]["chat_history"].append(chat_message)
-
-    output_list_for_yaml = []
-    for (_, _), data in grouped_messages.items():
-        current_chat_history = data["chat_history"]
-        if current_chat_history:
-            current_chat_history.sort(key=lambda x: x["_parsed_timestamp_utc"])
-            final_filtered_history = current_chat_history[-max_messages_per_group:] if len(current_chat_history) > max_messages_per_group else current_chat_history
-            for msg_to_clean in final_filtered_history: del msg_to_clean["_parsed_timestamp_utc"]
-            data["chat_history"] = final_filtered_history
-            if data["chat_history"]:
-                output_list_for_yaml.append({
-                    "group_info": data["group_info"],
-                    "user_info": data["user_info"] or {}, "chat_history": data["chat_history"],
-                })
-
-    if not output_list_for_yaml:
-        return "在最近10分钟内，或根据数量筛选后，没有有效的聊天记录可供格式化。", []
-
-    try:
-        data_to_dump_processed = wrap_string_values_for_yaml(output_list_for_yaml[0] if len(output_list_for_yaml) == 1 else {"chat_sessions": output_list_for_yaml})
-        yaml_content = yaml.dump(
-            data_to_dump_processed, Dumper=MyDumper, allow_unicode=True, sort_keys=False, indent=2, default_flow_style=False
-        )
-        prefix = "以下是最近的聊天记录及相关内容" if len(output_list_for_yaml) == 1 else "以下是最近多个会话的聊天记录及相关内容"
-        return f"{prefix} (时间以UTC显示，图片在聊天记录中以 '{IMAGE_PLACEHOLDER_KEY_IN_YAML}: {IMAGE_PLACEHOLDER_VALUE}' 形式标记)：\n```yaml\n{yaml_content}```", all_extracted_image_sources
-    except Exception as e_yaml:
-        logger.error(f"错误: 格式化聊天记录为YAML时出错: {e_yaml}", exc_info=True)
-        return "格式化聊天记录为YAML时出错。", []
-    
-def format_master_chat_history_for_prompt(raw_messages_from_db: list[dict[str, Any]]) -> str:
-    """
-    为主人UI专门创建一个简单的、人类可读的聊天记录格式。
-    """
     if not raw_messages_from_db:
-        return "你和电脑主人之间最近没有聊天记录。"
+        if style == 'simple':
+            return "你和电脑主人之间最近没有聊天记录。", []
+        else:
+            return "在指定的时间范围内没有找到聊天记录。", []
 
-    formatted_lines = []
-    # 先按时间戳升序排序，确保对话顺序正确
-    sorted_messages = sorted(raw_messages_from_db, key=lambda msg: msg.get("timestamp", 0))
+    # --- 简单风格处理 (给 master_chat_context 用) ---
+    if style == 'simple':
+        formatted_lines = []
+        sorted_messages = sorted(raw_messages_from_db, key=lambda msg: msg.get("timestamp", 0))
+        for msg in sorted_messages:
+            try:
+                ts = msg.get("timestamp", 0) / 1000.0
+                dt_object = datetime.datetime.fromtimestamp(ts)
+                time_str = dt_object.strftime("%Y年%m月%d日 %H点%M分")
+                text_content = ""
+                content_list = msg.get("content", [])
+                if isinstance(content_list, list):
+                    text_parts = [
+                        seg.get("data", {}).get("text", "")
+                        for seg in content_list
+                        if isinstance(seg, dict) and seg.get("type") == "text"
+                    ]
+                    text_content = "".join(text_parts).strip()
+                if not text_content:
+                    continue
+                role = "未知"
+                event_type = msg.get("event_type", "")
+                if event_type == "message.master.input":
+                    role = "主人（电脑主人）"
+                elif event_type == "message.master.output":
+                    role = "你"
+                formatted_lines.append(f"{time_str} {role}：{text_content}")
+            except Exception as e:
+                logger.warning(f"格式化(simple)单条聊天记录时出错: {e}, 消息ID: {msg.get('event_id', '未知ID')}")
+                continue
+        if not formatted_lines:
+            return "最近的对话中没有有效的文本消息。", []
+        return "\n".join(formatted_lines), [] # 简单模式不处理图片，所以返回空列表
 
-    for msg in sorted_messages:
+    # --- YAML 风格处理 (给 recent_contextual_information 用) ---
+    elif style == 'yaml':
+        # (这部分代码就是你原来 format_chat_history_for_prompt 的逻辑，我直接搬过来了)
+        grouped_messages = defaultdict(lambda: {"group_info": {}, "user_info": {}, "chat_history": []})
+        current_utc_time = datetime.datetime.now(datetime.UTC)
+        span_cutoff_timestamp_utc = current_utc_time - datetime.timedelta(minutes=desired_history_span_minutes)
+        assumed_local_tz_for_fallback = datetime.timezone(datetime.timedelta(hours=8))
+
+        for msg in raw_messages_from_db:
+            if not isinstance(msg, dict): continue
+            msg_time_input = msg.get("timestamp") or msg.get("time")
+            if msg_time_input is None: continue
+            
+            try:
+                if isinstance(msg_time_input, int | float):
+                    parsed_msg_time_utc = datetime.datetime.fromtimestamp(msg_time_input / 1000.0, datetime.UTC)
+                elif isinstance(msg_time_input, str):
+                    temp_time_str = msg_time_input.replace("Z", "+00:00")
+                    try:
+                        parsed_msg_time_aware_or_naive = datetime.datetime.fromisoformat(temp_time_str)
+                    except ValueError:
+                        if ' ' in temp_time_str and '.' not in temp_time_str:
+                            parsed_msg_time_aware_or_naive = datetime.datetime.strptime(temp_time_str, "%Y-%m-%d %H:%M:%S%z" if "+" in temp_time_str or "-" in temp_time_str[10:] else "%Y-%m-%d %H:%M:%S")
+                        else: raise
+                    if parsed_msg_time_aware_or_naive.tzinfo is None or parsed_msg_time_aware_or_naive.tzinfo.utcoffset(parsed_msg_time_aware_or_naive) is None:
+                        parsed_msg_time_utc = parsed_msg_time_aware_or_naive.replace(tzinfo=assumed_local_tz_for_fallback).astimezone(datetime.UTC)
+                    else:
+                        parsed_msg_time_utc = parsed_msg_time_aware_or_naive.astimezone(datetime.UTC)
+                else: raise ValueError(f"时间戳类型不支持: {type(msg_time_input)}")
+            except ValueError: continue
+
+            if parsed_msg_time_utc < span_cutoff_timestamp_utc: continue
+
+            platform = msg.get("platform", "未知平台")
+            conversation_info = msg.get("conversation_info", {})
+            group_id_val = conversation_info.get("conversation_id") if isinstance(conversation_info, dict) else msg.get("group_id")
+            group_key_part = str(group_id_val) if group_id_val is not None else "direct_or_no_group"
+            group_key = (platform, group_key_part)
+
+            if not grouped_messages[group_key]["group_info"]:
+                group_name = conversation_info.get("name") if isinstance(conversation_info, dict) else None
+                if group_name is None: group_name = msg.get("group_name")
+                if group_id_val is None and not group_name:
+                    user_info_for_group_name = msg.get("user_info", {})
+                    sender_nick_for_group_name = (user_info_for_group_name.get("user_nickname") if isinstance(user_info_for_group_name, dict) else None) or msg.get("sender_nickname", "未知用户")
+                    group_name = f"与 {sender_nick_for_group_name} 的对话" if sender_nick_for_group_name != "未知用户" else "直接消息"
+                grouped_messages[group_key]["group_info"] = {
+                    "platform_name": platform, "group_id": str(group_id_val) if group_id_val is not None else None,
+                    "group_name": group_name if group_name is not None else ("未知群名" if group_id_val is not None else "直接消息会话"),
+                }
+
+            user_info = msg.get("user_info", {})
+            sender_id = (user_info.get("user_id") if isinstance(user_info, dict) else None) or (msg.get("sender_id") or msg.get("user_id"))
+            if sender_id:
+                sender_id_str = str(sender_id)
+                if sender_id_str not in grouped_messages[group_key]["user_info"]:
+                    user_details = {}
+                    if isinstance(user_info, dict):
+                        user_details = {"sender_nickname": user_info.get("user_nickname") or f"用户_{sender_id_str}", "sender_group_permission": user_info.get("permission_level") or user_info.get("role")}
+                        for new_field, old_field in [("user_cardname", "sender_group_card"), ("user_titlename", "sender_group_titlename")]:
+                            value = user_info.get(new_field, "")
+                            if value: user_details[old_field] = value
+                    else:
+                        user_details = {"sender_nickname": msg.get("sender_nickname") or f"用户_{sender_id_str}", "sender_group_permission": msg.get("sender_group_permission")}
+                        for optional_field in ["sender_group_card", "sender_group_titlename"]:
+                            value = msg.get(optional_field, "")
+                            if value: user_details[optional_field] = value
+                    grouped_messages[group_key]["user_info"][sender_id_str] = user_details
+            
+            formatted_time = parsed_msg_time_utc.strftime("%Y-%m-%d %H:%M:%S")
+            message_content_raw = msg.get("content")
+            if message_content_raw is None: message_content_raw = msg.get("message_content")
+
+            content_list_to_process = []
+            if isinstance(message_content_raw, list):
+                content_list_to_process = message_content_raw
+            elif isinstance(message_content_raw, dict) and "type" in message_content_raw:
+                content_list_to_process = [message_content_raw]
+            elif isinstance(message_content_raw, str):
+                content_list_to_process = [{"type": "text", "data": {"text": message_content_raw}}]
+            elif message_content_raw is None:
+                content_list_to_process = [{"type": "text", "data": {"text": "[空消息]"}}]
+            else:
+                logger.warning(f"警告: 消息内容格式未知: {type(message_content_raw)} for msg_id: {msg.get('event_id', msg.get('message_id', '未知ID'))}")
+                content_list_to_process = [{"type": "text", "data": {"text": "[未识别的消息格式]"}}]
+                
+            final_message_segments_for_yaml, message_images_for_llm_this_message = MessageContentProcessor.extract_text_content(
+                content_list_to_process,
+                image_placeholder_key=image_placeholder_key,
+                image_placeholder_value=image_placeholder_value
+            )
+            all_extracted_image_sources.extend(message_images_for_llm_this_message)
+
+            chat_message = {
+                "time": formatted_time, "event_type": msg.get("event_type", "unknown"),
+                "message": final_message_segments_for_yaml,
+                "sender_id": str(sender_id) if sender_id else "SYSTEM_OR_UNKNOWN",
+                "_parsed_timestamp_utc": parsed_msg_time_utc,
+            }
+            grouped_messages[group_key]["chat_history"].append(chat_message)
+
+        output_list_for_yaml = []
+        for (_, _), data in grouped_messages.items():
+            current_chat_history = data["chat_history"]
+            if current_chat_history:
+                current_chat_history.sort(key=lambda x: x["_parsed_timestamp_utc"])
+                final_filtered_history = current_chat_history[-max_messages_per_group:] if len(current_chat_history) > max_messages_per_group else current_chat_history
+                for msg_to_clean in final_filtered_history: del msg_to_clean["_parsed_timestamp_utc"]
+                data["chat_history"] = final_filtered_history
+                if data["chat_history"]:
+                    output_list_for_yaml.append({
+                        "group_info": data["group_info"],
+                        "user_info": data["user_info"] or {}, "chat_history": data["chat_history"],
+                    })
+
+        if not output_list_for_yaml:
+            return "在最近10分钟内，或根据数量筛选后，没有有效的聊天记录可供格式化。", []
+
         try:
-            # 解析时间戳
-            ts = msg.get("timestamp", 0) / 1000.0
-            dt_object = datetime.datetime.fromtimestamp(ts)
-            # 格式化时间，像你要求的那样
-            time_str = dt_object.strftime("%Y年%m月%d日 %H点%M分")
-
-            # 提取文本内容
-            text_content = ""
-            content_list = msg.get("content", [])
-            if isinstance(content_list, list):
-                text_parts = [
-                    seg.get("data", {}).get("text", "")
-                    for seg in content_list
-                    if isinstance(seg, dict) and seg.get("type") == "text"
-                ]
-                text_content = "".join(text_parts).strip()
-            
-            if not text_content:
-                continue # 如果消息没有文本内容，就跳过
-
-            # 判断角色
-            role = "未知"
-            event_type = msg.get("event_type", "")
-            if event_type == "message.master.input":
-                role = "主人（电脑主人）"
-            elif event_type == "message.master.output":
-                role = "你"
-            
-            formatted_lines.append(f"{time_str} {role}：{text_content}")
-
-        except Exception as e:
-            logger.warning(f"格式化单条主人聊天记录时出错: {e}, 消息ID: {msg.get('event_id', '未知ID')}")
-            continue
-
-    if not formatted_lines:
-        return "最近的对话中没有有效的文本消息。"
-        
-    return "\n".join(formatted_lines)
+            data_to_dump_processed = wrap_string_values_for_yaml(output_list_for_yaml[0] if len(output_list_for_yaml) == 1 else {"chat_sessions": output_list_for_yaml})
+            yaml_content = yaml.dump(
+                data_to_dump_processed, Dumper=MyDumper, allow_unicode=True, sort_keys=False, indent=2, default_flow_style=False
+            )
+            prefix = "以下是最近的聊天记录及相关内容" if len(output_list_for_yaml) == 1 else "以下是最近多个会话的聊天记录及相关内容"
+            return f"{prefix} (时间以UTC显示，图片在聊天记录中以 '{image_placeholder_key}: {image_placeholder_value}' 形式标记)：\n```yaml\n{yaml_content}```", all_extracted_image_sources
+        except Exception as e_yaml:
+            logger.error(f"错误: 格式化聊天记录为YAML时出错: {e_yaml}", exc_info=True)
+            return "格式化聊天记录为YAML时出错。", []
+    
+    # 如果传入了未知的 style
+    return "错误的格式化风格。", []

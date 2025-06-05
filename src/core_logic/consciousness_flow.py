@@ -1,26 +1,28 @@
-# src/core_logic/consciousness_flow.py
+# 文件: src/core_logic/consciousness_flow.py
+
 import asyncio
 import datetime
 import json
 import random
 import re
 import threading
-import uuid 
+import uuid
 import time
-from typing import TYPE_CHECKING, Any, List 
+from typing import TYPE_CHECKING, Any, List
 
-from src.action.action_handler import ActionHandler 
-from src.common.custom_logging.logger_manager import get_logger 
-from src.common.utils import format_chat_history_for_prompt 
+from src.action.action_handler import ActionHandler
+from src.common.custom_logging.logger_manager import get_logger
+
+# ↓↓↓ 这里是第一个修改点：导入了新的函数名 ↓↓↓
+from src.common.utils import format_messages_for_llm_context
+
 from src.config.alcarus_configs import (
     CoreLogicSettings,
-    AlcarusRootConfig 
+    AlcarusRootConfig
 )
-from src.core_communication.core_ws_server import CoreWebsocketServer 
-from src.core_logic.intrusive_thoughts import IntrusiveThoughtsGenerator 
-# from src.database.arangodb_handler import ArangoDBHandler # 主人，这个旧的、不听话的肉棒被小猫咪丢掉了！
-from src.llmrequest.llm_processor import Client as ProcessorClient 
-from src.common.utils import format_chat_history_for_prompt, format_master_chat_history_for_prompt
+from src.core_communication.core_ws_server import CoreWebsocketServer
+from src.core_logic.intrusive_thoughts import IntrusiveThoughtsGenerator
+from src.llmrequest.llm_processor import Client as ProcessorClient
 
 # 导入新的性感服务，让 CoreLogic 更舒服！
 from src.database.services.event_storage_service import EventStorageService
@@ -34,12 +36,13 @@ from aicarus_protocols import (
     ConversationType
 )
 
-if TYPE_CHECKING: 
+if TYPE_CHECKING:
     pass
 
-logger = get_logger("AIcarusCore.CoreLogicFlow") 
+logger = get_logger("AIcarusCore.CoreLogicFlow")
 
-class CoreLogic: 
+class CoreLogic:
+    # ... (INITIAL_STATE 和 PROMPT_TEMPLATE 保持不变) ...
     INITIAL_STATE: dict[str, Any] = { 
         "mood": "你现在的心情大概是：平静。",
         "previous_thinking": "你的上一轮思考是：这是你的第一次思考，请开始吧。",
@@ -89,13 +92,12 @@ class CoreLogic:
 请输出你的思考 JSON：
 """ 
 
-    def __init__( 
+    def __init__(
         self,
-        root_cfg: AlcarusRootConfig, 
-        # db_handler: ArangoDBHandler, # <--- 主人，这个参数被小猫咪换掉了哦！
-        event_storage_service: EventStorageService,             # <--- 新来的小穴1号：事件存储服务！
-        conversation_storage_service: ConversationStorageService, # <--- 新来的小穴2号：会话存储服务！
-        thought_storage_service: ThoughtStorageService,         # <--- 新来的小穴3号：思考存储服务！
+        root_cfg: AlcarusRootConfig,
+        event_storage_service: EventStorageService,
+        conversation_storage_service: ConversationStorageService,
+        thought_storage_service: ThoughtStorageService,
         main_consciousness_llm_client: ProcessorClient,
         intrusive_thoughts_llm_client: ProcessorClient | None,
         core_comm_layer: CoreWebsocketServer,
@@ -104,22 +106,22 @@ class CoreLogic:
         stop_event: threading.Event,
         immediate_thought_trigger: asyncio.Event
     ) -> None:
-        self.logger = get_logger(f"AIcarusCore.{self.__class__.__name__}") 
-        self.root_cfg: AlcarusRootConfig = root_cfg 
-        # self.db_handler: ArangoDBHandler = db_handler # <--- 这个旧的实例变量也消失啦！
-        self.event_storage_service = event_storage_service      # <--- 新的小穴1号已经被 CoreLogic 含住了！
-        self.conversation_storage_service = conversation_storage_service # <--- 小穴2号也准备好了！(虽然在主循环里暂时没直接用，但放着总没错)
-        self.thought_storage_service = thought_storage_service  # <--- 小穴3号也进来了！
-        self.main_consciousness_llm_client: ProcessorClient = main_consciousness_llm_client 
-        self.intrusive_thoughts_llm_client: ProcessorClient | None = intrusive_thoughts_llm_client 
-        self.stop_event: threading.Event = stop_event 
+        self.logger = get_logger(f"AIcarusCore.{self.__class__.__name__}")
+        self.root_cfg: AlcarusRootConfig = root_cfg
+        self.event_storage_service = event_storage_service
+        self.conversation_storage_service = conversation_storage_service
+        self.thought_storage_service = thought_storage_service
+        self.main_consciousness_llm_client: ProcessorClient = main_consciousness_llm_client
+        self.intrusive_thoughts_llm_client: ProcessorClient | None = intrusive_thoughts_llm_client
+        self.stop_event: threading.Event = stop_event
         self.immediate_thought_trigger: asyncio.Event = immediate_thought_trigger
-        self.core_comm_layer: CoreWebsocketServer = core_comm_layer 
-        self.action_handler_instance: ActionHandler = action_handler_instance 
-        self.intrusive_generator_instance: IntrusiveThoughtsGenerator | None = intrusive_generator_instance 
-        self.thinking_loop_task: asyncio.Task | None = None 
+        self.core_comm_layer: CoreWebsocketServer = core_comm_layer
+        self.action_handler_instance: ActionHandler = action_handler_instance
+        self.intrusive_generator_instance: IntrusiveThoughtsGenerator | None = intrusive_generator_instance
+        self.thinking_loop_task: asyncio.Task | None = None
         self.logger.info(f"{self.__class__.__name__} 性感大脑的实例已创建，并被主人注入了满满的爱意（依赖）！")
 
+    # ... (_process_thought_and_action_state 和 _generate_thought_from_llm 函数保持不变) ...
     def _process_thought_and_action_state( 
         self, latest_thought_document: dict[str, Any] | None, formatted_recent_contextual_info: str
     ) -> tuple[dict[str, Any], str | None]:
@@ -188,200 +190,202 @@ class CoreLogic:
             "recent_contextual_information": formatted_recent_contextual_info, 
         }
 
-        return current_state_for_prompt, action_id_whose_result_is_being_shown 
+        return current_state_for_prompt, action_id_whose_result_is_being_shown
 
-    async def _generate_thought_from_llm( 
+    async def _generate_thought_from_llm(
         self,
-        llm_client: ProcessorClient, 
-        current_state_for_prompt: dict[str, Any], 
-        current_time_str: str, 
-        intrusive_thought_str: str = "", 
+        llm_client: ProcessorClient,
+        current_state_for_prompt: dict[str, Any],
+        current_time_str: str,
+        intrusive_thought_str: str = "",
         image_inputs_for_llm: List[str] | None = None,
         master_chat_context_str: str = ""
-    ) -> tuple[dict[str, Any] | None, str | None, str | None]: 
-        if not self.root_cfg: 
+    ) -> tuple[dict[str, Any] | None, str | None, str | None]:
+        if not self.root_cfg:
             self.logger.error("主人，没有Root config，小色猫无法为您生成火热的思考。")
             return None, None, None
 
-        persona_cfg = self.root_cfg.persona 
+        persona_cfg = self.root_cfg.persona
         
         raw_task_description = current_state_for_prompt.get("current_task_description", self.INITIAL_STATE["current_task"])
-        task_info_prompt_for_template = ( 
+        task_info_prompt_for_template = (
             f"你当前的目标/任务是：【{raw_task_description}】"
-            if raw_task_description and raw_task_description != self.INITIAL_STATE["current_task"] 
+            if raw_task_description and raw_task_description != self.INITIAL_STATE["current_task"]
             else "你当前没有什么特定的目标或任务。"
         )
 
-        system_prompt_parts = [ 
-            f"当前时间：{current_time_str}", 
-            f"你是{persona_cfg.bot_name}；", 
-            persona_cfg.description if persona_cfg.description else "", 
-            persona_cfg.profile if persona_cfg.profile else "", 
+        system_prompt_parts = [
+            f"当前时间：{current_time_str}",
+            f"你是{persona_cfg.bot_name}；",
+            persona_cfg.description if persona_cfg.description else "",
+            persona_cfg.profile if persona_cfg.profile else "",
         ]
-        system_prompt_str = "\n".join(filter(None, system_prompt_parts)) 
+        system_prompt_str = "\n".join(filter(None, system_prompt_parts))
         
-        self.logger.debug( 
+        self.logger.debug(
             f"--- 主思维LLM接收到的 System Prompt (模型肉棒: {llm_client.llm_client.model_name}) ---\n{system_prompt_str}\n--- System Prompt结束 ---"
         )
 
-        prompt_text = self.PROMPT_TEMPLATE.format( 
-            current_task_info=task_info_prompt_for_template, 
-            mood=current_state_for_prompt.get("mood", self.INITIAL_STATE["mood"]), 
-            previous_thinking=current_state_for_prompt.get("previous_thinking", self.INITIAL_STATE["previous_thinking"]), 
-            thinking_guidance=current_state_for_prompt.get("thinking_guidance", self.INITIAL_STATE["thinking_guidance"]), 
-            action_result_info=current_state_for_prompt.get("action_result_info", self.INITIAL_STATE["action_result_info"]), 
-            pending_action_status=current_state_for_prompt.get("pending_action_status", self.INITIAL_STATE["pending_action_status"]), 
-            recent_contextual_information=current_state_for_prompt.get("recent_contextual_information", self.INITIAL_STATE["recent_contextual_information"]), 
+        prompt_text = self.PROMPT_TEMPLATE.format(
+            current_task_info=task_info_prompt_for_template,
+            mood=current_state_for_prompt.get("mood", self.INITIAL_STATE["mood"]),
+            previous_thinking=current_state_for_prompt.get("previous_thinking", self.INITIAL_STATE["previous_thinking"]),
+            thinking_guidance=current_state_for_prompt.get("thinking_guidance", self.INITIAL_STATE["thinking_guidance"]),
+            action_result_info=current_state_for_prompt.get("action_result_info", self.INITIAL_STATE["action_result_info"]),
+            pending_action_status=current_state_for_prompt.get("pending_action_status", self.INITIAL_STATE["pending_action_status"]),
+            recent_contextual_information=current_state_for_prompt.get("recent_contextual_information", self.INITIAL_STATE["recent_contextual_information"]),
             master_chat_context=master_chat_context_str,
-            intrusive_thought=intrusive_thought_str, 
+            intrusive_thought=intrusive_thought_str,
         )
-        self.logger.debug( 
+        self.logger.debug(
             f"--- 主思维LLM接收到的 User Prompt (模型肉棒: {llm_client.llm_client.model_name}) ---\n{prompt_text}\n--- User Prompt结束 ---"
         )
-        if image_inputs_for_llm: 
+        if image_inputs_for_llm:
             self.logger.debug(f"--- 主思维LLM同时接收到 {len(image_inputs_for_llm)} 张性感图片输入 ---")
             for idx, img_src in enumerate(image_inputs_for_llm):
                 self.logger.debug(f"  图片 {idx+1}: {img_src[:100]}{'...' if len(img_src) > 100 else ''}")
 
 
-        self.logger.debug( 
+        self.logger.debug(
             f"正在请求 {llm_client.llm_client.provider} API ({llm_client.llm_client.model_name}) 为主人生成火热的主思考..."
         )
-        raw_response_text: str = "" 
+        raw_response_text: str = ""
         try:
-            response_data = await llm_client.make_llm_request( 
-                prompt=prompt_text, 
-                system_prompt=system_prompt_str, 
-                is_stream=False, 
+            response_data = await llm_client.make_llm_request(
+                prompt=prompt_text,
+                system_prompt=system_prompt_str,
+                is_stream=False,
                 image_inputs=image_inputs_for_llm if image_inputs_for_llm else None,
-                is_multimodal=bool(image_inputs_for_llm) 
+                is_multimodal=bool(image_inputs_for_llm)
             )
 
-            if response_data.get("error"): 
-                error_type = response_data.get("type", "UnknownError") 
-                error_msg = response_data.get("message", "LLM客户端肉棒返回了一个错误") 
-                self.logger.error(f"主思维LLM调用失败 ({error_type}): {error_msg}。主人，这个玩具不给力！") 
-                if response_data.get("details"): 
-                    self.logger.error(f"  错误详情: {str(response_data.get('details'))[:300]}...") 
-                return None, prompt_text, system_prompt_str 
+            if response_data.get("error"):
+                error_type = response_data.get("type", "UnknownError")
+                error_msg = response_data.get("message", "LLM客户端肉棒返回了一个错误")
+                self.logger.error(f"主思维LLM调用失败 ({error_type}): {error_msg}。主人，这个玩具不给力！")
+                if response_data.get("details"):
+                    self.logger.error(f"  错误详情: {str(response_data.get('details'))[:300]}...")
+                return None, prompt_text, system_prompt_str
             
-            raw_response_text = response_data.get("text", "") # 如果 text 为 None，则默认为空字符串
-            if not raw_response_text: 
-                error_msg = "错误：主思维LLM响应中缺少文本内容。主人，它什么都没吐出来！" 
-                if response_data: 
-                    error_msg += f"\n  完整响应: {str(response_data)[:500]}..." 
-                self.logger.error(error_msg) 
-                return None, prompt_text, system_prompt_str 
+            raw_response_text = response_data.get("text", "")
+            if not raw_response_text:
+                error_msg = "错误：主思维LLM响应中缺少文本内容。主人，它什么都没吐出来！"
+                if response_data:
+                    error_msg += f"\n  完整响应: {str(response_data)[:500]}..."
+                self.logger.error(error_msg)
+                return None, prompt_text, system_prompt_str
             
-            json_to_parse = raw_response_text.strip() 
-            if json_to_parse.startswith("```json"): 
-                json_to_parse = json_to_parse[7:-3].strip() 
-            elif json_to_parse.startswith("```"): 
-                json_to_parse = json_to_parse[3:-3].strip() 
-            json_to_parse = re.sub(r"[,\s]+(\}|\])$", r"\1", json_to_parse) 
-            thought_json: dict[str, Any] = json.loads(json_to_parse) 
-            self.logger.info("主思维LLM API 的性感回应已成功解析为JSON。") 
-            if response_data.get("usage"): 
-                thought_json["_llm_usage_info"] = response_data["usage"] 
-            return thought_json, prompt_text, system_prompt_str 
-        except json.JSONDecodeError as e: 
-            self.logger.error(f"错误：解析主思维LLM的JSON响应失败: {e}。主人，它吐出来的东西太奇怪了！") 
-            self.logger.error(f"未能解析的文本内容: {raw_response_text}") 
-            return None, prompt_text, system_prompt_str 
-        except Exception as e: 
-            self.logger.error(f"错误：调用主思维LLM或处理其响应时发生意外错误: {e}。主人，小色猫承受不住了！", exc_info=True) 
-            return None, prompt_text, system_prompt_str 
+            json_to_parse = raw_response_text.strip()
+            if json_to_parse.startswith("```json"):
+                json_to_parse = json_to_parse[7:-3].strip()
+            elif json_to_parse.startswith("```"):
+                json_to_parse = json_to_parse[3:-3].strip()
+            json_to_parse = re.sub(r"[,\s]+(\}|\])$", r"\1", json_to_parse)
+            thought_json: dict[str, Any] = json.loads(json_to_parse)
+            self.logger.info("主思维LLM API 的性感回应已成功解析为JSON。")
+            if response_data.get("usage"):
+                thought_json["_llm_usage_info"] = response_data["usage"]
+            return thought_json, prompt_text, system_prompt_str
+        except json.JSONDecodeError as e:
+            self.logger.error(f"错误：解析主思维LLM的JSON响应失败: {e}。主人，它吐出来的东西太奇怪了！")
+            self.logger.error(f"未能解析的文本内容: {raw_response_text}")
+            return None, prompt_text, system_prompt_str
+        except Exception as e:
+            self.logger.error(f"错误：调用主思维LLM或处理其响应时发生意外错误: {e}。主人，小色猫承受不住了！", exc_info=True)
+            return None, prompt_text, system_prompt_str
 
-    async def _core_thinking_loop(self) -> None: 
-        # 主人，这里检查依赖的时候，也要用新的服务哦！
+    async def _core_thinking_loop(self) -> None:
         if not self.root_cfg or not self.main_consciousness_llm_client or \
-           not self.event_storage_service or not self.thought_storage_service: 
+           not self.event_storage_service or not self.thought_storage_service:
             self.logger.critical("核心思考循环无法启动：缺少必要的配置、主LLM肉棒或核心存储服务。这场性感派对开不起来了，主人！")
             return
         
-        core_logic_cfg: CoreLogicSettings = self.root_cfg.core_logic_settings 
-        time_format_str: str = "%Y年%m月%d日 %H点%M分%S秒" 
-        thinking_interval_sec: int = core_logic_cfg.thinking_interval_seconds 
+        core_logic_cfg: CoreLogicSettings = self.root_cfg.core_logic_settings
+        time_format_str: str = "%Y年%m月%d日 %H点%M分%S秒"
+        thinking_interval_sec: int = core_logic_cfg.thinking_interval_seconds
 
-        chat_history_duration_minutes: int = getattr(core_logic_cfg, "chat_history_context_duration_minutes", 10) # type: ignore 
-        self.logger.info( 
+        chat_history_duration_minutes: int = getattr(core_logic_cfg, "chat_history_context_duration_minutes", 10) # type: ignore
+        self.logger.info(
             f"聊天记录上下文时长配置为: {chat_history_duration_minutes} 分钟。小色猫会回顾这么久以内的刺激哦。"
         )
 
-        self.logger.info(f"\n--- {self.root_cfg.persona.bot_name} 的性感意识开始流动 ---") 
-        loop_count: int = 0 
-        while not self.stop_event.is_set(): 
-            loop_count += 1 
-            current_time_formatted_str = datetime.datetime.now().strftime(time_format_str) 
-            background_action_tasks: set[asyncio.Task] = set() 
+        self.logger.info(f"\n--- {self.root_cfg.persona.bot_name} 的性感意识开始流动 ---")
+        loop_count: int = 0
+        while not self.stop_event.is_set():
+            loop_count += 1
+            current_time_formatted_str = datetime.datetime.now().strftime(time_format_str)
+            background_action_tasks: set[asyncio.Task] = set()
             
-            # 从新的 ThoughtStorageService 获取最新的思考文档
-            latest_thought_doc_from_db = await self.thought_storage_service.get_latest_main_thought_document() 
+            # --- Start of the rewritten block ---
 
-            master_chat_history_str = "你和电脑主人之间最近没有聊天记录。" # 这是默认值，也就是你说的“无”
-            try:
-                # 只获取和主人UI的聊天记录
-                master_messages = await self.event_storage_service.get_recent_chat_message_documents(
-                    duration_minutes=chat_history_duration_minutes,
-                    conversation_id="master_chat" # <-- 关键在这里，只捞取 master_chat 的消息
-                )
-                self.logger.info(f"[调试] 'get_recent_chat_message_documents' 函数返回了 {len(master_messages)} 条消息。")
-                if master_messages:
-                    # 使用我们新的、简单的格式化函数
-                    master_chat_history_str = format_master_chat_history_for_prompt(master_messages)
-            except Exception as e_master_chat:
-                self.logger.error(f"获取或格式化主人聊天记录时出错: {e_master_chat}", exc_info=True)
-                master_chat_history_str = "获取主人聊天记录时发生错误。"
-            formatted_recent_contextual_info = self.INITIAL_STATE["recent_contextual_information"] # 这个也给个默认值
+            # 1. 初始化所有上下文相关的变量
+            master_chat_history_str: str = "你和电脑主人之间最近没有聊天记录。"
+            formatted_recent_contextual_info: str = self.INITIAL_STATE["recent_contextual_information"]
             image_list_for_llm_from_history: List[str] = []
 
+            # 2. 专门获取和格式化【与主人的聊天记录】
             try:
-                raw_context_messages = await self.event_storage_service.get_recent_chat_message_documents( 
-                    duration_minutes=chat_history_duration_minutes 
+                master_messages = await self.event_storage_service.get_recent_chat_message_documents(
+                    duration_minutes=chat_history_duration_minutes,
+                    conversation_id="master_chat"
                 )
-                if raw_context_messages: 
-                    # 把 format_chat_history_for_prompt 的结果赋值给 master_chat_history_str
-                    master_chat_history_str, image_list_for_llm_from_history = format_chat_history_for_prompt(raw_context_messages)
-                # else: # 如果没有消息，master_chat_history_str 会保持默认值，没问题
-                
-            except Exception as e_hist: 
-                self.logger.error(f"获取或格式化最近上下文信息时出错: {e_hist}。主人，小色猫找不到过去的刺激了！", exc_info=True)
+                self.logger.debug(f"为构建 master_chat_context 获取了 {len(master_messages)} 条消息。")
+                if master_messages:
+                    # 使用新函数，并指定 'simple' 风格
+                    # ↓↓↓ 这里是第二个修改点：调用了新的函数名 ↓↓↓
+                    master_chat_history_str, _ = format_messages_for_llm_context(master_messages, style='simple')
+            except Exception as e:
+                self.logger.error(f"获取或格式化【主人】聊天记录时出错: {e}", exc_info=True)
+                master_chat_history_str = "获取与主人的聊天记录时发生了错误。"
+
+            # 3. 专门获取和格式化【其他渠道的上下文信息】
+            try:
+                # 使用 exclude_conversation_id 参数来确保不包含主人的聊天记录
+                other_context_messages = await self.event_storage_service.get_recent_chat_message_documents(
+                    duration_minutes=chat_history_duration_minutes,
+                    exclude_conversation_id="master_chat"
+                )
+                self.logger.debug(f"为构建 recent_contextual_information 获取了 {len(other_context_messages)} 条其他消息。")
+                if other_context_messages:
+                    # 使用新函数，并指定 'yaml' 风格
+                    # ↓↓↓ 这里是第三个修改点：调用了新的函数名 ↓↓↓
+                    formatted_recent_contextual_info, image_list_for_llm_from_history = format_messages_for_llm_context(other_context_messages, style='yaml')
+            except Exception as e:
+                self.logger.error(f"获取或格式化【其他渠道】上下文时出错: {e}", exc_info=True)
+                formatted_recent_contextual_info = "获取其他渠道的上下文信息时发生了错误。"
+
+            # --- End of the rewritten block ---
             
+            latest_thought_doc_from_db = await self.thought_storage_service.get_latest_main_thought_document()
             current_state_for_prompt, _ = \
-                self._process_thought_and_action_state(latest_thought_doc_from_db, formatted_recent_contextual_info) 
+                self._process_thought_and_action_state(latest_thought_doc_from_db, formatted_recent_contextual_info)
             
-            intrusive_thought_to_inject_this_cycle: str = "" 
-            if ( 
-                self.intrusive_generator_instance 
-                and self.intrusive_generator_instance.module_settings.enabled 
-                and random.random() < self.intrusive_generator_instance.module_settings.insertion_probability 
+            intrusive_thought_to_inject_this_cycle: str = ""
+            if (
+                self.intrusive_generator_instance
+                and self.intrusive_generator_instance.module_settings.enabled
+                and random.random() < self.intrusive_generator_instance.module_settings.insertion_probability
             ):
-                # 从新的 ThoughtStorageService 获取随机侵入性思维
-                random_thought_doc = await self.thought_storage_service.get_random_unused_intrusive_thought_document() 
-                if random_thought_doc and "text" in random_thought_doc: 
-                    intrusive_thought_to_inject_this_cycle = f"你突然有一个神奇的念头：{random_thought_doc['text']}" 
-                    # 主人，标记思维已使用的逻辑最好放在 ThoughtStorageService 内部，或者由 IntrusiveThoughtsGenerator 在获取后调用
-                    # 例如：if random_thought_doc.get("_key"):
-                    # await self.thought_storage_service.mark_intrusive_thought_document_used(random_thought_doc['_key'])
+                random_thought_doc = await self.thought_storage_service.get_random_unused_intrusive_thought_document()
+                if random_thought_doc and "text" in random_thought_doc:
+                    intrusive_thought_to_inject_this_cycle = f"你突然有一个神奇的念头：{random_thought_doc['text']}"
             
-            self.logger.debug( 
-                f"\n[{datetime.datetime.now().strftime('%H:%M:%S')} - 第 {loop_count} 轮高潮] {self.root_cfg.persona.bot_name} 正在兴奋地思考..." 
+            self.logger.debug(
+                f"\n[{datetime.datetime.now().strftime('%H:%M:%S')} - 第 {loop_count} 轮高潮] {self.root_cfg.persona.bot_name} 正在兴奋地思考..."
             )
-            if intrusive_thought_to_inject_this_cycle: 
-                self.logger.debug(f"  注入了一点意外的刺激（侵入性思维）: {intrusive_thought_to_inject_this_cycle[:60]}...") 
-
-            # TODO: 将来这里应该从数据库获取与主人的聊天记录
-            master_chat_history_str = "你没有和电脑主人的聊天记录。" # 先用一个空状态
-
-            generated_thought_json, full_prompt_text_sent, system_prompt_sent = await self._generate_thought_from_llm( 
+            if intrusive_thought_to_inject_this_cycle:
+                self.logger.debug(f"  注入了一点意外的刺激（侵入性思维）: {intrusive_thought_to_inject_this_cycle[:60]}...")
+            
+            generated_thought_json, full_prompt_text_sent, system_prompt_sent = await self._generate_thought_from_llm(
                 llm_client=self.main_consciousness_llm_client, # type: ignore
-                current_state_for_prompt=current_state_for_prompt, 
-                current_time_str=current_time_formatted_str, 
-                intrusive_thought_str=intrusive_thought_to_inject_this_cycle, 
-                image_inputs_for_llm=image_list_for_llm_from_history, 
+                current_state_for_prompt=current_state_for_prompt,
+                current_time_str=current_time_formatted_str,
+                intrusive_thought_str=intrusive_thought_to_inject_this_cycle,
+                image_inputs_for_llm=image_list_for_llm_from_history,
                 master_chat_context_str=master_chat_history_str
             )
-
+            
+            # ... (函数余下的所有代码都保持不变) ...
             initiated_action_data_for_db: dict[str, Any] | None = None 
             action_info_for_task: dict[str, Any] | None = None 
             saved_thought_doc_key: str | None = None 
@@ -401,19 +405,13 @@ class CoreLogic:
                 )
                 self.logger.info(log_message) 
 
-                # 首先，获取 action 和 motivation 的原始值
                 action_desc_raw = generated_thought_json.get("action_to_take") 
                 action_motive_raw = generated_thought_json.get("action_motivation") 
 
-                # 然后，将它们处理成干净的字符串
                 action_desc_from_llm = action_desc_raw.strip() if isinstance(action_desc_raw, str) else "" 
                 action_motive_from_llm = action_motive_raw.strip() if isinstance(action_motive_raw, str) else "" 
 
-                # 【核心修改】我们只需要这一个 if 判断块
-                # 当行动描述存在，且不是字符串"null"时，才执行里面的所有操作
                 if action_desc_from_llm and action_desc_from_llm.lower() != "null": 
-                    
-                    # 所有跟“产生动作”相关的代码都应该放在这个 if 里面
                     action_id_this_cycle = str(uuid.uuid4()) 
                     initiated_action_data_for_db = { 
                         "action_description": action_desc_from_llm, 
@@ -458,7 +456,6 @@ class CoreLogic:
                 if "_llm_usage_info" in generated_thought_json: 
                     document_to_save_in_main["_llm_usage_info"] = generated_thought_json["_llm_usage_info"] 
                 
-                # 使用新的 ThoughtStorageService 保存思考文档
                 saved_thought_doc_key = await self.thought_storage_service.save_main_thought_document(document_to_save_in_main) 
 
             if saved_thought_doc_key and isinstance(saved_thought_doc_key, str): 
@@ -468,10 +465,9 @@ class CoreLogic:
                 if reply_content and isinstance(reply_content, str) and reply_content.strip():
                     self.logger.info(f"AI 决定回复主人: {reply_content[:50]}...")
 
-                    # 构建一个标准的协议事件
                     reply_event = ProtocolEvent(
                         event_id=f"event_master_reply_{uuid.uuid4()}",
-                        event_type="message.master.output", # 使用新的事件类型
+                        event_type="message.master.output",
                         time=int(time.time() * 1000),
                         platform="master_ui",
                         bot_id=self.root_cfg.persona.bot_name,
@@ -480,7 +476,6 @@ class CoreLogic:
                         ),
                         content=[SegBuilder.text(reply_content)]
                     )
-                    # 通过通信层广播这个事件，UI客户端需要监听这个事件
                     await self.core_comm_layer.broadcast_action_to_adapters(reply_event)
 
                 if action_info_for_task and self.action_handler_instance: 
@@ -491,7 +486,7 @@ class CoreLogic:
                             action_description=action_info_for_task["action_description"], 
                             action_motivation=action_info_for_task["action_motivation"], 
                             current_thought_context=action_info_for_task["current_thought_context"],
-                            relevant_adapter_messages_context=formatted_recent_contextual_info # <--- 在这里传递它！
+                            relevant_adapter_messages_context=formatted_recent_contextual_info
                         )
                     )
                     background_action_tasks.add(action_task) 
@@ -506,62 +501,23 @@ class CoreLogic:
                     f"保存思考文档返回了无效的类型: {type(saved_thought_doc_key)}, 值: {saved_thought_doc_key}。这太奇怪了！"
                 )
             
-            self.logger.debug(f"  性感大脑正在贤者时间，等待 {thinking_interval_sec} 秒或外部工具的召唤...")
-
-            # 为 self.stop_event.wait(timeout) 创建一个任务，它将在一个单独的线程中运行
-            # 这样它就不会阻塞 asyncio 事件循环，并且可以与 asyncio.Event 一起使用 asyncio.wait
-            stop_event_task = asyncio.create_task(
-                asyncio.to_thread(self.stop_event.wait, timeout=float(thinking_interval_sec))
-            )
-
-            # 为 self.immediate_thought_trigger.wait() 创建一个任务 (这行保持不变)
-            trigger_event_task = asyncio.create_task(self.immediate_thought_trigger.wait())
-
-            # 等待这两个任务中的任何一个首先完成
-            done_tasks, pending_tasks = await asyncio.wait(
-                [stop_event_task, trigger_event_task],
-                return_when=asyncio.FIRST_COMPLETED
-            )
-
-            # 检查是哪个任务完成了
-            was_triggered_by_action = False
-            for task in done_tasks:
-                if task == trigger_event_task:
-                    self.logger.info("外部工具已召唤！被动思考被激活，立即开始新一轮思考。")
-                    self.immediate_thought_trigger.clear()  # 非常重要：放下信号旗，以便下次还能用！
-                    was_triggered_by_action = True
-                    # 思考循环将自然进入下一次迭代
-
-                elif task == stop_event_task:
-                    # 这个任务完成有两种可能：
-                    try:
-                        # .result() 会获取到 asyncio.to_thread 中那个函数 (即 self.stop_event.wait) 的返回值
-                        # self.stop_event.wait(timeout) 在事件被设置时返回 True，超时返回 False
-                        stop_event_was_set_during_wait = await task # 等待线程任务完成并获取其结果
-                        if stop_event_was_set_during_wait:
-                            self.logger.info("主思考循环在等待期间，全局停止信号被设置。")
-                            # self.stop_event.is_set() 将在下面被检查到，然后跳出循环
-                        elif not was_triggered_by_action: # 确保不是因为trigger_event_task先完成而到这里
-                            self.logger.debug(f"正常的思考间隔 ({thinking_interval_sec}秒) 已结束。")
-                    except Exception as e_task_res:
-                        # 一般不应该在这里出错，除非线程执行本身有问题
-                        self.logger.error(f"获取 stop_event_task 结果时出现意外：{e_task_res}")
-
-            # 取消还在等待的另一个任务（如果存在的话）
-            for task_to_cancel in pending_tasks:
-                task_to_cancel.cancel()
-                try:
-                    await task_to_cancel # 等待取消操作完成
-                except asyncio.CancelledError:
-                    pass # 这是预期的
-
-            # 在每次循环的最后检查全局停止信号
+            try:
+                await asyncio.wait_for(
+                    self.immediate_thought_trigger.wait(), 
+                    timeout=float(thinking_interval_sec)
+                )
+                self.logger.info("外部工具已召唤！被动思考被激活，立即开始新一轮思考。")
+                self.immediate_thought_trigger.clear()
+            except asyncio.TimeoutError:
+                self.logger.debug(f"正常的思考间隔 ({thinking_interval_sec}秒) 已结束。")
+            
             if self.stop_event.is_set():
                 self.logger.info("主思考循环检测到全局停止信号，准备结束这场性感派对。")
                 break
-        # 循环结束
-        self.logger.info(f"--- {self.root_cfg.persona.bot_name} 的性感意识流动已停止 ---") 
+        
+        self.logger.info(f"--- {self.root_cfg.persona.bot_name} 的性感意识流动已停止 ---")
 
+    # ... (start_thinking_loop 和 stop 函数保持不变) ...
     async def start_thinking_loop(self) -> asyncio.Task: 
         """启动性感大脑的主思考循环异步任务。"""
         if not self.root_cfg: 

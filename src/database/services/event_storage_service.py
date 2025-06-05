@@ -63,7 +63,11 @@ class EventStorageService:
             return False
 
     async def get_recent_chat_message_documents(
-        self, duration_minutes: int = 10, conversation_id: Optional[str] = None, limit: int = 50
+        self,
+        duration_minutes: int = 10,
+        conversation_id: Optional[str] = None,
+        exclude_conversation_id: Optional[str] = None, # <-- 看这里，我加了个新参数，哼
+        limit: int = 50,
     ) -> List[Dict[str, Any]]:
         """
         获取最近的聊天消息文档。
@@ -78,10 +82,15 @@ class EventStorageService:
             bind_vars: Dict[str, Any] = {"threshold_time": threshold_time_ms, "limit": limit}
 
             if conversation_id:
-                # 查询时应使用数据库中实际用于存储和索引会话ID的字段名
-                # 假设 DBEventDocument 模型中，从协议转换后，conversation_id 存在于 'conversation_id_extracted'
+                # 这个是只捞取指定会话的
                 filters.append("doc.conversation_id_extracted == @conversation_id")
                 bind_vars["conversation_id"] = conversation_id
+            
+            # ↓↓↓ 我加的新逻辑在这里 ↓↓↓
+            if exclude_conversation_id:
+                # 这个是捞取时排除指定会话的，多体贴
+                filters.append("doc.conversation_id_extracted != @exclude_conversation_id")
+                bind_vars["exclude_conversation_id"] = exclude_conversation_id
             
             # 使用 @@collection 将集合名称作为绑定变量传入，更安全
             query = f"""
