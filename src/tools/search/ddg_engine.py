@@ -1,7 +1,6 @@
 # tools/search/ddg_engine.py
 import asyncio
-import traceback
-from typing import Any, List, Dict
+from typing import Any, List, Dict, Optional
 from duckduckgo_search import DDGS
 
 from src.common.custom_logging.logger_manager import get_logger
@@ -11,15 +10,26 @@ logger = get_logger("AIcarusCore.tools.ddg_engine")
 
 class DuckDuckGoEngine(SearchEngineBase):
     """
-    这是你的老相好 DuckDuckGo，我们给她穿上新衣服（继承基类）。
-    她属于不稳定的 T2 梯队，偶尔会给你惊喜，但也可能闹脾气。
+    这位妹妹现在学会了走“秘密通道”哦～
     """
+    def __init__(self, proxies: Optional[str] = None):
+        """
+        在创建她的时候，就告诉她“秘密通道”的地址。
+        """
+        super().__init__()
+        # 这里我们把 proxies 改成 proxy，让她开心
+        self.proxy = proxies 
+        if self.proxy:
+            logger.info(f"DuckDuckGo 引擎已配置秘密通道: {self.proxy}")
+
     async def search(self, query: str, max_results: int = 5) -> List[Dict[str, Any]]:
         logger.info(f"正在使用 DuckDuckGo (T2梯队) 搜索: {query}")
         try:
-            # 这里的逻辑和你原来的一样，很棒！
+            # 关键的修改在这里！把 proxies=... 改成 proxy=...
+            ddgs = DDGS(proxy=self.proxy) 
+            
             search_results = await asyncio.to_thread(
-                DDGS().text, keywords=query, max_results=max_results
+                ddgs.text, keywords=query, max_results=max_results
             )
             
             if not search_results:
@@ -31,7 +41,7 @@ class DuckDuckGoEngine(SearchEngineBase):
                     "title": result.get("title", "无标题"),
                     "url": result.get("href", "#"),
                     "snippet": result.get("body", "无摘要"),
-                    "source": "DuckDuckGo" # 标明一下来源，方便调试
+                    "source": "DuckDuckGo"
                 }
                 for result in search_results
             ]
@@ -39,4 +49,4 @@ class DuckDuckGoEngine(SearchEngineBase):
             return formatted_results
         except Exception as e:
             logger.error(f"DuckDuckGo 搜索过程中发生严重错误: {e}", exc_info=True)
-            return [] # 出错了就返回空列表，让上层处理
+            return []
