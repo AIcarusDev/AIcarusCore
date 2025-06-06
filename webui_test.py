@@ -12,7 +12,7 @@ import streamlit as st
 # (导入模块部分，与上一版基本一致)
 try:
     from src.action.action_handler import ActionHandler #
-    from AIcarusCore.src.config.aicarus_configs import ( #
+    from src.config.aicarus_configs import ( # <--- 修改路径
         AlcarusRootConfig,
         CoreLogicSettings,
         DatabaseSettings,
@@ -22,13 +22,16 @@ try:
         LoggingSettings,
         ModelParams,
         PersonaSettings,
-        ProviderModels,
-        ProvidersConfig,
-        ProviderSettings,
+        # ProviderModels, # 不再需要
+        # ProvidersConfig, # 不再需要
+        # ProviderSettings, # 不再需要
+        AllModelPurposesConfig, # <-- 新增导入
         ProxySettings,
         ServerSettings
     )
     from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow # <-- 导入新的 CoreLogic 文件并重命名
+    from src.core_logic.prompt_builder import ThoughtPromptBuilder # <-- 新增导入
+    from src.core_logic.state_manager import AIStateManager # <-- 新增导入
     # StorageManager 可能不再直接使用，因为我们将通过 CoreSystemInitializer 获得 ArangoDBHandler
     # from src.database import StorageManager
     from src.llmrequest.llm_processor import Client as ProcessorClient #
@@ -155,7 +158,7 @@ def initialize_session_state() -> None: #
     if "new_ui_prompt_components" not in st.session_state: #
         try:
             initial_output_format = ( #
-                CoreLogicFlow.PROMPT_TEMPLATE.split("严格以json字段输出：")[1].split("请输出你的思考 JSON：")[0].strip()
+                ThoughtPromptBuilder.PROMPT_TEMPLATE.split("严格以json字段输出：")[1].split("请输出你的思考 JSON：")[0].strip() # <-- 修改
             )
         except IndexError: #
             initial_output_format = '{\n  "think": "思考内容",\n  "emotion": "当前心情和原因",\n  "to_do": "目标",\n  "done": false,\n  "action_to_take": "想做的动作",\n  "action_motivation": "动作的动机",\n  "next_think": "下一步思考方向"\n}' #
@@ -163,15 +166,15 @@ def initialize_session_state() -> None: #
         st.session_state.new_ui_prompt_components = { #
             "persona_block": "我是AI小懒猫，一个爱睡觉的代码专家，最讨厌麻烦事了，但最后总能搞定。性别是秘密哦！", #
             "task_rules_block": "当前任务是：帮助用户测试不同的 Prompt 组合，并根据指令进行思考。\n输出时请严格遵循下方“输出格式要求”中的JSON结构。", #
-            "context_history_block": f"""{CoreLogicFlow.INITIAL_STATE["previous_thinking"]} 
-{CoreLogicFlow.INITIAL_STATE["action_result_info"]}
-{CoreLogicFlow.INITIAL_STATE["pending_action_status"]}
-{CoreLogicFlow.INITIAL_STATE["recent_contextual_information"]}""", #
+            "context_history_block": f"""{AIStateManager.INITIAL_STATE["previous_thinking"]} 
+{AIStateManager.INITIAL_STATE["action_result_info"]}
+{AIStateManager.INITIAL_STATE["pending_action_status"]}
+{AIStateManager.INITIAL_STATE["recent_contextual_information"]}""", # <-- 修改
             "output_format_block": initial_output_format, #
-            "thinking_guidance_block": CoreLogicFlow.INITIAL_STATE["thinking_guidance"] #
+            "thinking_guidance_block": AIStateManager.INITIAL_STATE["thinking_guidance"] # <-- 修改
             .split("：", 1)[-1] #
             .strip(), 
-            "mood_block": CoreLogicFlow.INITIAL_STATE["mood"].split("：", 1)[-1].strip(), #
+            "mood_block": AIStateManager.INITIAL_STATE["mood"].split("：", 1)[-1].strip(), # <-- 修改
             "intrusive_thought_block": "又有人来打扰我睡觉了，真烦！但好像有点意思...", #
             "current_time_block": datetime.datetime.now().strftime("%Y年%m月%d日 %H点%M分%S秒"), #
         }
@@ -252,11 +255,12 @@ def llm_configuration_sidebar() -> None: #
                     _inner_s = InnerConfig(version="ui-test-v0.4") #
                     _server_s = ServerSettings() #
 
-                    _providers_s = ProvidersConfig( #
-                        gemini=ProviderSettings(models=ProviderModels()),
-                        openai=ProviderSettings(models=ProviderModels()),
-                        # ... 其他提供商可以类似初始化 ...
-                    )
+                    # _providers_s = ProvidersConfig( #  <-- 不再需要这个
+                    #     gemini=ProviderSettings(models=ProviderModels()),
+                    #     openai=ProviderSettings(models=ProviderModels()),
+                    #     # ... 其他提供商可以类似初始化 ...
+                    # )
+                    _llm_models_cfg = AllModelPurposesConfig() # <-- 创建新的模型配置对象
                     
                     # 填充模型配置
                     model_configs_ui = {
@@ -269,17 +273,14 @@ def llm_configuration_sidebar() -> None: #
                     for purpose_key, (prov_name, model_n) in model_configs_ui.items():
                         if prov_name and model_n:
                             mp = ModelParams(provider=prov_name, model_name=model_n, temperature=temp, max_output_tokens=max_tokens)
-                            prov_attr_name = prov_name.lower()
-                            if hasattr(_providers_s, prov_attr_name):
-                                provider_setting_instance = getattr(_providers_s, prov_attr_name)
-                                if provider_setting_instance is None: # 初始化 ProviderSettings
-                                    provider_setting_instance = ProviderSettings(models=ProviderModels())
-                                    setattr(_providers_s, prov_attr_name, provider_setting_instance)
-                                if provider_setting_instance.models is None: # 初始化 ProviderModels
-                                     provider_setting_instance.models = ProviderModels()
-                                setattr(provider_setting_instance.models, purpose_key, mp)
+                            # prov_attr_name = prov_name.lower() # 不再需要这个
+                            if hasattr(_llm_models_cfg, purpose_key): # 直接检查 AllModelPurposesConfig 是否有该用途的字段
+                                setattr(_llm_models_cfg, purpose_key, mp)
+                            # else: # ProviderSettings 和 ProviderModels 的逻辑不再需要
+                                # logger.warning(f"提供商 '{prov_attr_name}' 在 ProvidersConfig 中没有预定义属性，请检查 alcarus_configs.py。") # 旧的警告
+                                # 新的结构下，如果 AllModelPurposesConfig 没有定义某个 purpose_key，那是个结构问题，但这里我们假设 purpose_key 都是有效的
                             else:
-                                logger.warning(f"提供商 '{prov_attr_name}' 在 ProvidersConfig 中没有预定义属性，请检查 alcarus_configs.py。")
+                                logger.warning(f"模型用途 '{purpose_key}' 在 AllModelPurposesConfig 中没有预定义属性，请检查 aicarus_configs.py。")
 
 
                     temp_root_cfg_for_llm = AlcarusRootConfig( #
@@ -289,7 +290,8 @@ def llm_configuration_sidebar() -> None: #
                         proxy=_proxy_s,
                         core_logic_settings=_core_logic_s,
                         intrusive_thoughts_module_settings=_intrusive_s,
-                        providers=_providers_s,
+                        # providers=_providers_s, # <-- 替换为 llm_models
+                        llm_models=_llm_models_cfg, # <-- 使用新的模型配置
                         database=_db_s, # 使用一个默认的，实际DB连接在下面处理
                         logging=_log_s,
                         server=_server_s 
@@ -354,19 +356,19 @@ def llm_configuration_sidebar() -> None: #
                     try:
                         # 调用 CoreSystemInitializer 内部的数据库初始化方法
                         # 这个方法会使用 self.root_cfg.database
-                        await st.session_state.core_initializer._initialize_database_handler() # 假设这个方法存在并按预期工作
+                        await st.session_state.core_initializer._initialize_database_and_services() # <-- 修改方法名
                         
-                        # 如果成功，db_handler 应该已经被设置在 core_initializer 实例上
-                        if st.session_state.core_initializer.db_handler:
+                        # 如果成功，conn_manager 和其内部的 db 应该已经被设置在 core_initializer 实例上
+                        if st.session_state.core_initializer.conn_manager and st.session_state.core_initializer.conn_manager.db: # <-- 修改检查逻辑
                             # st.session_state.storage_manager = st.session_state.core_initializer.db_handler # storage_manager不再单独使用
                             st.session_state.storage_initialized = True #
-                            st.success("数据库连接成功！🎉 (通过 CoreSystemInitializer)") #
+                            st.success("数据库连接成功！🎉 (通过 CoreSystemInitializer 的新方法)") #
                             st.rerun() #  替换 st.experimental_rerun()
                         else:
-                            st.error("数据库初始化后，CoreSystemInitializer.db_handler 仍然为空！😿")
+                            st.error("数据库初始化后，CoreSystemInitializer.conn_manager 或其内部db为空！😿") # <-- 修改错误信息
                             st.session_state.storage_initialized = False
                     except Exception as e_db_init_ui:
-                        st.error(f"数据库连接失败 (通过 CoreSystemInitializer): {e_db_init_ui} 😿")
+                        st.error(f"数据库连接失败 (通过 CoreSystemInitializer 的新方法): {e_db_init_ui} 😿") # <-- 修改错误信息
                         st.exception(e_db_init_ui)
                         st.session_state.storage_initialized = False
                 
@@ -415,14 +417,22 @@ async def show_original_ui() -> None: #
     # 获取初始化后的组件
     main_llm_client = st.session_state.core_initializer.main_consciousness_llm_client #
     action_handler_instance = st.session_state.core_initializer.action_handler_instance #
-    db_handler = st.session_state.core_initializer.db_handler #
+    # db_handler = st.session_state.core_initializer.db_handler # <-- 不再直接使用 db_handler
+    event_storage_service_ui = st.session_state.core_initializer.event_storage_service # <-- 获取新的服务实例
+    thought_storage_service_ui = st.session_state.core_initializer.thought_storage_service # <-- 获取新的服务实例
     root_cfg = st.session_state.core_initializer.root_cfg #
 
+    # initial_state_orig = CoreLogicFlow.INITIAL_STATE # <-- 不再需要，因为 CoreLogicFlow 不再有 INITIAL_STATE
+    initial_state_orig = AIStateManager.INITIAL_STATE # <-- 改用 AIStateManager 的初始状态
+
     # 确保 ActionHandler 的依赖在 UI 环境中是最新的
-    if action_handler_instance and db_handler: #
+    if action_handler_instance and thought_storage_service_ui: # <-- 修改依赖检查
         # UI测试中，core_comm_layer 可能为 None，ActionHandler 应能处理
         comm_layer_for_ui_test = getattr(st.session_state.core_initializer, 'core_comm_layer', None)
-        action_handler_instance.set_dependencies(db_handler=db_handler, comm_layer=comm_layer_for_ui_test) #
+        action_handler_instance.set_dependencies( # <-- 修改依赖设置
+            thought_service=thought_storage_service_ui, 
+            comm_layer=comm_layer_for_ui_test
+        )
         
         # 确保 ActionHandler 的 LLM 客户端也已通过 Initializer 设置
         if not action_handler_instance.action_llm_client and st.session_state.core_initializer.action_llm_client:
@@ -434,7 +444,17 @@ async def show_original_ui() -> None: #
             st.warning("ActionHandler 的 LLM 客户端在 UI 中可能未完全设置，将尝试在首次使用时重新初始化。") #
             # ActionHandler 内部的 process_action_flow 会调用 initialize_llm_clients
 
-    initial_state_orig = CoreLogicFlow.INITIAL_STATE #
+    # initial_state_orig = CoreLogicFlow.INITIAL_STATE #  <-- 这个已经被 AIStateManager.INITIAL_STATE 替换了，确保这里用的是更新后的
+    # persona_cfg_orig = root_cfg.persona # 这行没问题，保留
+
+    # 如果 initial_state_orig 还需要在这里被重新赋值，确保它从 AIStateManager 获取
+    # 但从逻辑上看，上面的 initial_state_orig = AIStateManager.INITIAL_STATE 应该已经够用了
+    # 所以这里可能不需要再次赋值 initial_state_orig，除非之前的赋值在某个条件下被跳过
+    # 为保险起见，如果之前的赋值是正确的，这里就不需要这行了。
+    # 但如果之前的赋值可能因为某些原因没有执行，那么这里需要确保 initial_state_orig 是正确的。
+    # 考虑到代码结构，上面的赋值是无条件的，所以这里可以安全地移除或注释掉对 CoreLogicFlow.INITIAL_STATE 的引用。
+    # 我们已经在上面将 initial_state_orig 设置为 AIStateManager.INITIAL_STATE
+    # 所以，下面的 persona_cfg_orig 赋值之前不需要再动 initial_state_orig
     persona_cfg_orig = root_cfg.persona #
 
     st.subheader("第一步：生成内心思考 🤔") #
@@ -454,19 +474,21 @@ async def show_original_ui() -> None: #
         submitted_orig_thought = st.form_submit_button("生成思考！") #
 
     if submitted_orig_thought: #
-        if main_llm_client and db_handler and root_cfg and action_handler_instance: # 确保 action_handler_instance 也可用 #
+        if main_llm_client and event_storage_service_ui and thought_storage_service_ui and root_cfg and action_handler_instance: # <-- 修改依赖检查
             st.info("正在生成思考...请稍候。") #
             try:
                 # 创建临时的 CoreLogicFlow 实例用于测试 Prompt 生成
                 temp_core_logic_for_prompt_ui = CoreLogicFlow( #
-                    root_cfg=root_cfg, #
-                    db_handler=db_handler, #
+                    # root_cfg=root_cfg, # CoreLogicFlow 现在直接从全局 config 获取配置
+                    event_storage_service=event_storage_service_ui, # <-- 修改
+                    thought_storage_service=thought_storage_service_ui, # <-- 新增
                     main_consciousness_llm_client=main_llm_client, #
                     intrusive_thoughts_llm_client=st.session_state.core_initializer.intrusive_thoughts_llm_client, #
                     core_comm_layer=getattr(st.session_state.core_initializer, 'core_comm_layer', None), #
                     action_handler_instance=action_handler_instance, #
                     intrusive_generator_instance=getattr(st.session_state.core_initializer, 'intrusive_generator_instance', None), #
-                    stop_event=threading.Event() #
+                    stop_event=threading.Event(), #
+                    immediate_thought_trigger=asyncio.Event() # <-- CoreLogicFlow 需要这个参数
                 )
                 
                 current_state_for_prompt_ui_dict = { #
@@ -532,7 +554,7 @@ async def show_original_ui() -> None: #
             submitted_action_decision = st.form_submit_button("决策动作！") #
 
         if submitted_action_decision: #
-            if action_handler_instance and action_handler_instance.action_llm_client: # 确保 action_llm_client 也存在 #
+            if action_handler_instance and action_handler_instance.action_llm_client and hasattr(action_handler_instance, 'ACTION_DECISION_PROMPT_TEMPLATE') and hasattr(action_handler_instance, 'AVAILABLE_TOOLS_SCHEMA_FOR_GEMINI'): # 确保 action_llm_client 和模板/schema 属性也存在 #
                 st.info("正在进行动作决策...") #
                 try:
                     tools_json_str_ui = json.dumps(action_handler_instance.AVAILABLE_TOOLS_SCHEMA_FOR_GEMINI, indent=2, ensure_ascii=False) #
@@ -704,11 +726,11 @@ async def show_new_ui() -> None: #
 
 
             # 构建 User Prompt (任务规则 + 上下文历史 + 思考指引 + 心情 + 侵入思维 + 输出格式要求)
-            # 使用 CoreLogicFlow 的原始模板作为基础，替换其中的占位符
+            # 使用 ThoughtPromptBuilder 的模板作为基础，替换其中的占位符
             # 这确保了即使模板结构复杂，我们也能正确填充
             try: #
-                # 从 CoreLogicFlow.PROMPT_TEMPLATE 中提取 JSON Schema 前后的部分
-                template_parts_ui = CoreLogicFlow.PROMPT_TEMPLATE.split("严格以json字段输出：", 1) #
+                # 从 ThoughtPromptBuilder.PROMPT_TEMPLATE 中提取 JSON Schema 前后的部分
+                template_parts_ui = ThoughtPromptBuilder.PROMPT_TEMPLATE.split("严格以json字段输出：", 1) # <-- 修改
                 part1_before_json_schema_ui = template_parts_ui[0] + "严格以json字段输出：" #
                 schema_and_suffix_parts_ui = template_parts_ui[1].split("请输出你的思考 JSON：", 1) #
                 part2_after_json_schema_ui = "请输出你的思考 JSON：" + schema_and_suffix_parts_ui[1] #
@@ -719,25 +741,26 @@ async def show_new_ui() -> None: #
                 )
             except IndexError: #
                 st.warning("无法按预期分割原始Prompt模板以插入自定义JSON Schema，将使用原始模板结构（自定义Schema可能未生效）。") #
-                user_prompt_template_with_custom_schema = CoreLogicFlow.PROMPT_TEMPLATE #
+                user_prompt_template_with_custom_schema = ThoughtPromptBuilder.PROMPT_TEMPLATE # <-- 修改
 
             # 填充 User Prompt 模板
-            # 注意：CoreLogicFlow.PROMPT_TEMPLATE 中的 {current_time}, {bot_name}, {persona_description}, {persona_profile}
+            # 注意：ThoughtPromptBuilder.PROMPT_TEMPLATE 中的 {current_time}, {bot_name}, {persona_description}, {persona_profile}
             # 这些已经移到 System Prompt 中了，所以在 format 用户 prompt 时，它们不应该再被期望。
             # 我们需要确保 user_prompt_template_with_custom_schema 只包含 User Prompt 该有的占位符。
-            # CoreLogicFlow.PROMPT_TEMPLATE 本身就只包含该有的 User Prompt 占位符。
+            # ThoughtPromptBuilder.PROMPT_TEMPLATE 本身就只包含该有的 User Prompt 占位符。
             
             # 从 comps 中获取行动结果、待处理行动状态等，如果它们是动态的
-            # 为简化，暂时使用 CoreLogicFlow.INITIAL_STATE 中的值
-            action_result_info_for_user_prompt = CoreLogicFlow.INITIAL_STATE["action_result_info"]
-            pending_action_status_for_user_prompt = CoreLogicFlow.INITIAL_STATE["pending_action_status"]
-            previous_thinking_for_user_prompt = CoreLogicFlow.INITIAL_STATE["previous_thinking"] # 假设这些也是从历史记录中来
+            # 为简化，暂时使用 AIStateManager.INITIAL_STATE 中的值
+            action_result_info_for_user_prompt = AIStateManager.INITIAL_STATE["action_result_info"] # <-- 修改
+            pending_action_status_for_user_prompt = AIStateManager.INITIAL_STATE["pending_action_status"] # <-- 修改
+            previous_thinking_for_user_prompt = AIStateManager.INITIAL_STATE["previous_thinking"] # 假设这些也是从历史记录中来 # <-- 修改
 
             final_user_prompt_for_llm = user_prompt_template_with_custom_schema.format( #
                 current_task_info=comps["task_rules_block"],  # 这是UI中的 "Task & Rules" #
                 action_result_info=action_result_info_for_user_prompt, 
                 pending_action_status=pending_action_status_for_user_prompt, 
                 recent_contextual_information=comps["context_history_block"], # 这是UI中的 "Context & History" #
+                master_chat_context="你和主人之间没有最近的聊天记录。", # <-- 新增 master_chat_context
                 previous_thinking=previous_thinking_for_user_prompt, 
                 mood=f"你现在的心情大概是：{comps['mood_block']}", # 这是UI中的 "Mood" #
                 thinking_guidance=f"经过你上一轮的思考，你目前打算的思考方向是：{comps['thinking_guidance_block']}", # 这是UI中的 "Thinking Guidance" #
