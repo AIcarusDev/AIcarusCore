@@ -4,7 +4,7 @@
 """
 
 from ..common.custom_logging.logger_manager import get_logger
-from .alcarus_configs import AlcarusRootConfig
+from .aicarus_configs import AlcarusRootConfig
 from .config_manager import get_typed_settings
 
 logger = get_logger("AIcarusCore.GlobalConfig")

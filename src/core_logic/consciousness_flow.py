@@ -53,10 +53,9 @@ class CoreLogic:
         self.action_handler_instance = action_handler_instance
         self.intrusive_generator_instance = intrusive_generator_instance
         self.stop_event = stop_event
-        self.immediate_thought_trigger = immediate_thought_trigger
-          # 把小弟们实例化，以后有活都叫它们干
+        self.immediate_thought_trigger = immediate_thought_trigger          # 把小弟们实例化，以后有活都叫它们干
         self.state_manager = AIStateManager(thought_storage_service)
-        self.prompt_builder = ThoughtPromptBuilder(config.persona)
+        self.prompt_builder = ThoughtPromptBuilder()
 
         self.thinking_loop_task: Optional[asyncio.Task] = None
         self.logger.info(f"{self.__class__.__name__} (包工头版) 已创建，小弟们已就位！")
@@ -242,11 +241,9 @@ class CoreLogic:
             # 如果需要，标记上一轮的动作结果为“已阅”, 这功能还没写，算了
             if action_id_seen:
                 # await self.thought_storage_service.mark_action_result_seen(...)
-                pass
-
-            # 3. 准备点随机调味品（侵入性思维）
+                pass            # 3. 准备点随机调味品（侵入性思维）
             intrusive_thought_str = ""
-            if self.intrusive_generator_instance and self.intrusive_generator_instance.module_settings.enabled and random.random() < self.intrusive_generator_instance.module_settings.insertion_probability:
+            if self.intrusive_generator_instance and config.intrusive_thoughts_module_settings.enabled and random.random() < config.intrusive_thoughts_module_settings.insertion_probability:
                 random_thought_doc = await self.thought_storage_service.get_random_unused_intrusive_thought_document()
                 if random_thought_doc and random_thought_doc.get("text"):
                     intrusive_thought_str = f"你突然有一个神奇的念头：{random_thought_doc['text']}"

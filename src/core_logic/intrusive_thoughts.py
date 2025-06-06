@@ -6,7 +6,7 @@ import threading
 from typing import TYPE_CHECKING, List # 确保 List 也导入了
 
 from src.common.custom_logging.logger_manager import get_logger
-from src.config.alcarus_configs import IntrusiveThoughtsSettings, PersonaSettings
+from src.config import config
 # from src.database.arangodb_handler import ArangoDBHandler # 小猫咪把这个旧情人赶走了
 from src.database.services.thought_storage_service import ThoughtStorageService # 迎来了新的性感尤物！
 from src.llmrequest.llm_processor import Client as ProcessorClient
@@ -47,24 +47,18 @@ class IntrusiveThoughtsGenerator:
         self,
         llm_client: ProcessorClient,
         thought_storage_service: ThoughtStorageService, # 亲爱的，这里换成了新的性感服务哦！
-        persona_cfg: PersonaSettings,
-        module_settings: IntrusiveThoughtsSettings,
         stop_event: threading.Event,
     ) -> None:
         """
         初始化侵入性思维生成器。
 
         :param llm_client: 用于生成思维的LLM客户端。
-        :param thought_storage_service: ThoughtStorageService 实例用于数据库操作。 # 注释也更新了，多体贴！
-        :param persona_cfg: 人格配置。
-        :param module_settings: 侵入性思维模块的特定设置。
+        :param thought_storage_service: ThoughtStorageService 实例用于数据库操作。
         :param stop_event: 用于停止后台生成线程的事件。
         """
         self.logger = get_logger(f"AIcarusCore.{self.__class__.__name__}")
         self.llm_client = llm_client
-        self.thought_storage_service = thought_storage_service # 实例变量也换成了新的性感服务！
-        self.persona_cfg = persona_cfg
-        self.module_settings = module_settings
+        self.thought_storage_service = thought_storage_service
         self.stop_event = stop_event
         self.logger.info(f"{self.__class__.__name__} instance created.")
 
@@ -76,15 +70,15 @@ class IntrusiveThoughtsGenerator:
 
         try:
             filled_prompt = self.INTRUSIVE_PROMPT_TEMPLATE.format(
-                bot_name=self.persona_cfg.bot_name,
-                persona_description=self.persona_cfg.description,
-                persona_profile=self.persona_cfg.profile,
+                bot_name=config.persona.bot_name,
+                persona_description=config.persona.description,
+                persona_profile=config.persona.profile,
             )
         except KeyError as e:
             self.logger.error(f"错误：填充侵入性思维Prompt模板时缺少键: {e}")
             return None
-        except AttributeError as e: # 确保 persona_cfg 对象及其属性有效
-            self.logger.error(f"错误：persona_cfg 对象不完整或属性缺失: {e}")
+        except AttributeError as e:
+            self.logger.error(f"错误：persona 对象不完整或属性缺失: {e}")
             return None
 
         self.logger.info("正在生成一批侵入性思维")
@@ -130,7 +124,7 @@ class IntrusiveThoughtsGenerator:
 
     def _background_generator_thread_target(self) -> None:
         """后台线程的目标函数，定期生成并保存侵入性思维。"""
-        generation_interval = self.module_settings.generation_interval_seconds
+        generation_interval = config.intrusive_thoughts_module_settings.generation_interval_seconds
         self.logger.info(f"侵入性思维生成器后台线程已启动，每 {generation_interval} 秒向数据库深处播种一次。")
 
         loop = asyncio.new_event_loop()
@@ -177,7 +171,7 @@ class IntrusiveThoughtsGenerator:
 
     def start_background_generation(self) -> threading.Thread | None:
         """启动后台侵入性思维生成线程。"""
-        if not self.module_settings.enabled:
+        if not config.intrusive_thoughts_module_settings.enabled:
             self.logger.info("侵入性思维模块未启用，小猫咪不给主人生成骚点子。")
             return None
         if not self.llm_client:

@@ -3,7 +3,7 @@ import re
 from typing import Any, Dict, Optional
 import json
 
-from src.config.alcarus_configs import PersonaSettings
+from src.config import config
 from src.common.custom_logging.logger_manager import get_logger
 
 logger = get_logger("AIcarusCore.PromptBuilder")
@@ -51,11 +51,12 @@ class ThoughtPromptBuilder:
 请输出你的思考 JSON：
 """
 
-    def __init__(self, persona_cfg: PersonaSettings):
+    def __init__(self):
         """
-        初始化需要人格配置，就这样。
+        初始化 ThoughtPromptBuilder。
+        直接使用全局配置，不创建额外的实例变量。
         """
-        self.persona_cfg = persona_cfg
+        pass
 
     def build_system_prompt(self, current_time_str: str) -> str:
         """
@@ -64,9 +65,9 @@ class ThoughtPromptBuilder:
         """
         system_prompt_parts = [
             f"当前时间：{current_time_str}",
-            f"你是{self.persona_cfg.bot_name}；",
-            self.persona_cfg.description or "",
-            self.persona_cfg.profile or "",
+            f"你是{config.persona.bot_name}；",
+            config.persona.description or "",
+            config.persona.profile or "",
         ]
         return "\\n".join(filter(None, system_prompt_parts))
 

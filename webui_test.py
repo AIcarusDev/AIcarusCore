@@ -12,7 +12,7 @@ import streamlit as st
 # (导入模块部分，与上一版基本一致)
 try:
     from src.action.action_handler import ActionHandler #
-    from src.config.alcarus_configs import ( #
+    from AIcarusCore.src.config.aicarus_configs import ( #
         AlcarusRootConfig,
         CoreLogicSettings,
         DatabaseSettings,

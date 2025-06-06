@@ -6,7 +6,6 @@ from typing import Any, List, Dict # 确保导入了 List 和 Dict
 from urllib.parse import urlparse
 
 from src.common.custom_logging.logger_manager import get_logger
-from src.config.alcarus_configs import LLMClientSettings, ModelParams, ProxySettings # 确保导入这些配置类
 from src.config import config  # 直接导入配置对象，不再需要全局变量
 from src.core_communication.core_ws_server import CoreWebsocketServer
 from src.database.services.thought_storage_service import ThoughtStorageService
@@ -64,8 +63,6 @@ class ActionHandler:
             self.logger.info("ActionHandler 的主思维触发器已成功设置。")
         else:
             self.logger.info("ActionHandler 的主思维触发器被设置为空。")
-
-
     def _create_llm_client_from_config(self, purpose_key: str) -> ProcessorClient | None:
         """
         根据全局配置和指定的用途键 (purpose_key) 创建一个LLM客户端实例。
@@ -77,9 +74,9 @@ class ActionHandler:
                 return None
 
             model_params_cfg = getattr(config.llm_models, purpose_key, None)
-            if not isinstance(model_params_cfg, ModelParams):
+            if not model_params_cfg or not hasattr(model_params_cfg, 'provider'):
                 self.logger.error(
-                    f"配置错误：在 AlcarusRootConfig.llm_models 下未找到模型用途键 '{purpose_key}' 对应的有效 ModelParams 配置，或类型不匹配。"
+                    f"配置错误：在 AlcarusRootConfig.llm_models 下未找到模型用途键 '{purpose_key}' 对应的有效模型配置，或类型不匹配。"
                 )
                 return None
 
@@ -92,8 +89,8 @@ class ActionHandler:
                 )
                 return None
 
-            general_llm_settings_obj: LLMClientSettings = config.llm_client_settings
-            proxy_settings_obj: ProxySettings = config.proxy
+            general_llm_settings_obj = config.llm_client_settings
+            proxy_settings_obj = config.proxy
             
             final_proxy_host: str | None = None
             final_proxy_port: int | None = None

@@ -5,7 +5,7 @@ import traceback
 from typing import Any
 from dotenv import load_dotenv
 from src.common.custom_logging.logger_manager import get_logger
-from .alcarus_configs import AlcarusRootConfig
+from .aicarus_configs import AlcarusRootConfig
 from .config_paths import PROJECT_ROOT, RUNTIME_CONFIG_DIR, ACTUAL_CONFIG_FILENAME
 from .config_io import ConfigIOHandler
 from .config_updater import perform_config_update_check, substitute_env_vars_recursive

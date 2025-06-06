@@ -4,13 +4,13 @@ import threading
 import os # 用于环境变量和路径操作
 import json # 用于解析环境变量中的JSON字符串
 from urllib.parse import urlparse # 用于解析代理URL
-from typing import Any, Callable, Awaitable, Optional, Dict, List, Tuple # 确保导入所有需要的类型
+from typing import Any, Callable, Awaitable, Optional, Dict, List, Tuple, TYPE_CHECKING # 确保导入所有需要的类型
 
 # 核心组件导入
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logger_manager import get_logger
 from src.config import config
-from src.config.alcarus_configs import ModelParams # 从 alcarus_configs 导入 ModelParams
+
 from src.core_communication.core_ws_server import CoreWebsocketServer, AdapterEventCallback
 from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
 from src.core_logic.intrusive_thoughts import IntrusiveThoughtsGenerator
@@ -107,11 +107,9 @@ class CoreSystemInitializer:
                 )
                 resolved_abandoned_keys = [k.strip() for k in env_val_abandoned.split(",") if k.strip()]
             if not resolved_abandoned_keys and env_val_abandoned.strip():
-                resolved_abandoned_keys = [env_val_abandoned.strip()]
-        
-        # 内部辅助函数，用于根据 ModelParams 创建单个 ProcessorClient 实例 (与之前版本相同)
+                resolved_abandoned_keys = [env_val_abandoned.strip()]          # 内部辅助函数，用于根据模型配置创建单个 ProcessorClient 实例
         def _create_client_from_model_params(
-            model_params_cfg: ModelParams, 
+            model_params_cfg, 
             purpose_key_for_log: str
         ) -> Optional[ProcessorClient]:
             try:
@@ -184,7 +182,7 @@ class CoreSystemInitializer:
 
             for purpose_key, client_attr_name in model_purpose_map.items():
                 model_params_cfg = getattr(all_model_configs, purpose_key, None)
-                if model_params_cfg and isinstance(model_params_cfg, ModelParams):
+                if model_params_cfg and hasattr(model_params_cfg, 'provider') and hasattr(model_params_cfg, 'model_name'):
                     if purpose_key == "intrusive_thoughts" and \
                        (not config.intrusive_thoughts_module_settings or \
                         not config.intrusive_thoughts_module_settings.enabled):
@@ -194,7 +192,6 @@ class CoreSystemInitializer:
 
                     client_instance = _create_client_from_model_params(model_params_cfg, purpose_key)
                     setattr(self, client_attr_name, client_instance)
-                    
                     if not client_instance:
                         if purpose_key == "main_consciousness":
                             raise RuntimeError(f"核心组件 '{purpose_key}' 的LLM客户端初始化失败。")
@@ -205,7 +202,7 @@ class CoreSystemInitializer:
                      setattr(self, client_attr_name, None)
                 else:
                     logger.error(
-                        f"配置错误：用途为 '{purpose_key}' 的模型配置类型不正确 (期望 ModelParams)，得到 {type(model_params_cfg)}。"
+                        f"配置错误：用途为 '{purpose_key}' 的模型配置类型不正确 (期望有效的模型参数配置)，得到 {type(model_params_cfg)}。"
                         "将跳过此客户端的创建。"
                     )
                     setattr(self, client_attr_name, None)
@@ -339,14 +336,11 @@ class CoreSystemInitializer:
                     " 其LLM客户端将按需加载，准备好大干一场了！"
                 )            # 7. 初始化侵入性思维生成器 (IntrusiveThoughtsGenerator)
             intrusive_settings = config.intrusive_thoughts_module_settings
-            persona_settings = config.persona
             if intrusive_settings.enabled: # 仅当模块在配置中启用时才初始化
                 if self.intrusive_thoughts_llm_client and self.thought_storage_service: # 检查依赖是否就绪
                     self.intrusive_generator_instance = IntrusiveThoughtsGenerator(
                         llm_client=self.intrusive_thoughts_llm_client,
                         thought_storage_service=self.thought_storage_service, # 注入新的ThoughtStorageService
-                        persona_cfg=persona_settings,
-                        module_settings=intrusive_settings,
                         stop_event=self.stop_event, # 传递全局停止事件
                     )
                     logger.info("侵入性思维生成器 (IntrusiveThoughtsGenerator) 已成功初始化。")

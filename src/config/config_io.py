@@ -1,5 +1,3 @@
-\
-# filepath: i:\\github\\FengM\\AIcarusCore\\src\\config\\config_io.py
 """
 配置文件输入输出小助手 (づ｡◕‿‿◕｡)づ
 这个模块掌管着所有与配置文件相关的磁盘操作，
