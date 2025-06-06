@@ -35,6 +35,8 @@ def init_session_state():
     if "websocket_client" not in st.session_state:
         st.session_state.websocket_client = get_websocket_client(WEBSOCKET_URI)
         logger.info("WebSocketClient 已初始化并存储在 session_state 中。")
+    if "main_execution_logged" not in st.session_state: # 初始化首次执行日志标记
+        st.session_state.main_execution_logged = False
     # 确保 WebSocketClient 拿到队列的引用，只在连接时传递一次
     # 这里需要加一个判断，确保 client._streamlit_message_queue 不为 None，否则会报错
     # 之前是 client._streamlit_message_queue is None，这里改为 if client and client._streamlit_message_queue is None:
@@ -128,14 +130,19 @@ class WebSocketClient:
         if self._streamlit_message_queue is None:
             logger.critical("后台监听器无法运行：消息队列未设置！")
             return # 无法继续监听
-            
+        
+        logger.info(f"后台监听器循环开始，连接状态: {self.is_connected()}")
         while self.is_connected():
             try:
+                logger.debug(f"后台监听器: 等待 WebSocket 消息 (ID: {id(self._connection)})...")
                 message_str = await self._connection.recv()
-                message_data = json.loads(message_str)
-                logger.debug(f"后台线程收到消息: {message_str[:100]}...")
+                logger.debug(f"后台监听器: 收到原始消息 (长度 {len(message_str)}): {message_str[:200]}...") # 增加原始消息日志
                 
+                message_data = json.loads(message_str)
+                logger.debug(f"后台监听器: JSON 解析后数据: {message_data}") # 打印解析后的数据
+
                 if message_data.get("event_type") == BOT_EVENT_TYPE:
+                    logger.debug(f"后台监听器: 识别到 BOT_EVENT_TYPE ({BOT_EVENT_TYPE})")
                     text_content = ""
                     if message_data.get('content') and isinstance(message_data['content'], list):
                         text_parts = [
@@ -146,12 +153,24 @@ class WebSocketClient:
                         text_content = "".join(text_parts)
                     
                     if text_content:
-                        logger.info(f"后台线程解析到机器人回复: {text_content[:50]}...")
+                        logger.info(f"后台监听器: 解析到机器人回复文本: '{text_content[:50]}...'")
                         # 将消息放入队列
-                        await self._streamlit_message_queue.put({"role": "assistant", "content": text_content})
+                        queue_item = {"role": "assistant", "content": text_content}
+                        logger.debug(f"后台监听器: 准备将消息放入队列: {queue_item}")
+                        await self._streamlit_message_queue.put(queue_item)
+                        logger.debug(f"后台监听器: 消息已成功放入队列, 当前队列大小: {self._streamlit_message_queue.qsize()}")
+                    else:
+                        logger.warning(f"后台监听器: 收到 BOT_EVENT_TYPE 但未解析出有效 text_content。原始数据: {message_data}")
+                else:
+                    logger.debug(f"后台监听器: 收到非 BOT_EVENT_TYPE 消息: {message_data.get('event_type')}")
+
             except ConnectionClosed:
-                logger.warning("与AI核心的连接已断开。")
+                logger.warning("后台监听器: 与AI核心的连接已断开 (ConnectionClosed)。")
                 break
+            except json.JSONDecodeError as e:
+                logger.error(f"后台监听器: JSON 解析 WebSocket 消息失败: {e}. 原始消息: {message_str[:200]}...", exc_info=True)
+                # 发生JSON解析错误时，可以选择继续监听下一条，或者也break，取决于业务需求
+                # 这里选择继续监听
             except Exception as e:
                 logger.error(f"监听后台消息时出错: {e}", exc_info=True)
                 await asyncio.sleep(1) # 短暂等待，避免无限循环报错
@@ -185,6 +204,7 @@ def main():
     init_session_state() # 确保会话状态在最前面初始化
 
     client = st.session_state.websocket_client
+    # logger.debug(f"WebSocket client 实例: {client}") # 注释掉，减少日志刷屏
 
     st.title("和 AI 主思维聊天")
 
@@ -201,19 +221,26 @@ def main():
     
     # 延迟修复：一次性从队列取出所有消息，避免多次rerun
     new_messages_received = False
+    # logger.debug(f"主线程: 开始检查消息队列 (received_messages_queue), 当前大小: {st.session_state.received_messages_queue.qsize()}") # 注释掉，减少日志刷屏
     while not st.session_state.received_messages_queue.empty():
         try:
+            logger.debug("主线程: 尝试从队列 get_nowait()")
             message = st.session_state.received_messages_queue.get_nowait()
+            logger.info(f"主线程: 从队列成功获取消息: {message}")
             st.session_state.messages.append(message)
-            logger.info(f"主线程从队列获取并显示消息: {message['content'][:50]}...")
+            logger.debug(f"主线程: 消息已追加到 st.session_state.messages, 当前共 {len(st.session_state.messages)} 条消息。")
             new_messages_received = True # 标记有新消息
         except asyncio.QueueEmpty:
+            logger.debug("主线程: 消息队列已空 (QueueEmpty)。")
             break
         except Exception as e:
-            logger.error(f"从消息队列处理消息时出错: {e}", exc_info=True)
+            logger.error(f"主线程: 从消息队列处理消息时出错: {e}", exc_info=True)
 
     if new_messages_received: # 只有当真正有新消息被添加到 session_state 时，才触发一次rerun
-        st.rerun() 
+        logger.info("主线程: 检测到新接收的消息，准备调用 st.rerun() 刷新UI。")
+        st.rerun()
+    else:
+        pass # logger.debug("主线程: 本次检查未从队列获取新消息，不调用 st.rerun()。") # 注释掉，减少日志刷屏
 
 
     for message in st.session_state.messages:
@@ -232,12 +259,23 @@ def main():
             conversation_info=ConversationInfo(conversation_id=MASTER_CONVERSATION_ID, type=ConversationType.PRIVATE),
             content=[SegBuilder.text(prompt)]
         )
+        logger.debug(f"主线程: 用户发送新消息，构造的 ProtocolEvent: {user_event.to_dict()}")
         
         json_message_to_send = json.dumps(user_event.to_dict(), ensure_ascii=False)
+        logger.debug(f"主线程: 准备通过 WebSocket 发送 JSON: {json_message_to_send[:150]}...")
         client.send(json_message_to_send)
+        logger.info("主线程: 用户消息已通过 WebSocket 发送。")
         st.toast("消息已发送，AI正在思考...", icon="🧠")
         # 用户发送消息后，立即刷新UI显示用户发送的消息
+        logger.info("主线程: 用户发送消息后，准备调用 st.rerun() 刷新UI。")
         st.rerun()
 
+    # 强制刷新逻辑，确保主线程持续检查队列
+    time.sleep(0.5) # 短暂休眠，调整刷新频率以减少CPU占用和日志量
+    st.rerun()
+
 if __name__ == "__main__":
+    if not st.session_state.get("main_execution_logged", False):
+        logger.info("--- master_chat_ui.py 脚本首次执行 (if __name__ == '__main__') ---")
+        st.session_state.main_execution_logged = True
     main()
