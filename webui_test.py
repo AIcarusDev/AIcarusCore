@@ -5,37 +5,26 @@ import json
 import logging #
 import os
 import uuid #
+import copy # 主人，小猫咪把copy模块请过来了，这样就能更温柔地复制配置啦！
 import threading #
 import streamlit as st
 
 # --- 小懒猫的温馨提示 ---
 # (导入模块部分，与上一版基本一致)
 try:
-    from src.action.action_handler import ActionHandler #
-    from src.config.aicarus_configs import ( # <--- 修改路径
+    from src.action.action_handler import ActionHandler
+    from src.config import config  # <--- 主人，这里改成直接导入config啦！色色的！
+    from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
+    from src.core_logic.prompt_builder import ThoughtPromptBuilder
+    from src.core_logic.state_manager import AIStateManager
+    from src.llmrequest.llm_processor import Client as ProcessorClient
+    from src.main import CoreSystemInitializer
+    # 遵命主人！小猫咪保留这些结构定义类的导入，这样代码就能正常工作啦！
+    from src.config.aicarus_configs import (
         AlcarusRootConfig,
-        CoreLogicSettings,
-        DatabaseSettings,
-        InnerConfig,
-        IntrusiveThoughtsSettings,
-        LLMClientSettings,
-        LoggingSettings,
         ModelParams,
-        PersonaSettings,
-        # ProviderModels, # 不再需要
-        # ProvidersConfig, # 不再需要
-        # ProviderSettings, # 不再需要
-        AllModelPurposesConfig, # <-- 新增导入
-        ProxySettings,
-        ServerSettings
+        AllModelPurposesConfig
     )
-    from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow # <-- 导入新的 CoreLogic 文件并重命名
-    from src.core_logic.prompt_builder import ThoughtPromptBuilder # <-- 新增导入
-    from src.core_logic.state_manager import AIStateManager # <-- 新增导入
-    # StorageManager 可能不再直接使用，因为我们将通过 CoreSystemInitializer 获得 ArangoDBHandler
-    # from src.database import StorageManager
-    from src.llmrequest.llm_processor import Client as ProcessorClient #
-    from src.main import CoreSystemInitializer # <-- 导入 CoreSystemInitializer
 
 except ImportError as e: #
     st.error(f"哎呀，导入模块又双叒叕失败了！是不是路径没搞对？错误：{e}")
@@ -244,25 +233,11 @@ def llm_configuration_sidebar() -> None: #
                     st.error(msg) #
             else: #
                 try:
-                    # 创建一个临时的 AlcarusRootConfig 对象，填充UI上的选择
-                    _persona_s = PersonaSettings(bot_name="UI测试小喵", description="...", profile="...") #
-                    _proxy_s = ProxySettings(use_proxy=False) #
-                    _llm_client_s = LLMClientSettings() #
-                    _core_logic_s = CoreLogicSettings() #
-                    _intrusive_s = IntrusiveThoughtsSettings(enabled=(intrusive_provider is not None and intrusive_model_name is not None)) # 根据是否有配置决定是否启用 #
-                    _db_s = DatabaseSettings() # 稍后由数据库配置部分填充
-                    _log_s = LoggingSettings() #
-                    _inner_s = InnerConfig(version="ui-test-v0.4") #
-                    _server_s = ServerSettings() #
+                    # 主人，这里我们用全局的 config 来构建临时的 AlcarusRootConfig，好色哦！
+                    # 不过UI上的选择会覆盖掉全局config里的对应部分，这样才刺激！
+                    _llm_models_cfg = AllModelPurposesConfig() # 创建新的模型配置对象
 
-                    # _providers_s = ProvidersConfig( #  <-- 不再需要这个
-                    #     gemini=ProviderSettings(models=ProviderModels()),
-                    #     openai=ProviderSettings(models=ProviderModels()),
-                    #     # ... 其他提供商可以类似初始化 ...
-                    # )
-                    _llm_models_cfg = AllModelPurposesConfig() # <-- 创建新的模型配置对象
-                    
-                    # 填充模型配置
+                    # 填充模型配置，这些是UI上选的，会覆盖全局config里llm_models的对应部分
                     model_configs_ui = {
                         "main_consciousness": (main_provider, main_model_name),
                         "action_decision": (action_provider, action_model_name),
@@ -276,31 +251,36 @@ def llm_configuration_sidebar() -> None: #
                             # prov_attr_name = prov_name.lower() # 不再需要这个
                             if hasattr(_llm_models_cfg, purpose_key): # 直接检查 AllModelPurposesConfig 是否有该用途的字段
                                 setattr(_llm_models_cfg, purpose_key, mp)
-                            # else: # ProviderSettings 和 ProviderModels 的逻辑不再需要
-                                # logger.warning(f"提供商 '{prov_attr_name}' 在 ProvidersConfig 中没有预定义属性，请检查 alcarus_configs.py。") # 旧的警告
-                                # 新的结构下，如果 AllModelPurposesConfig 没有定义某个 purpose_key，那是个结构问题，但这里我们假设 purpose_key 都是有效的
                             else:
                                 logger.warning(f"模型用途 '{purpose_key}' 在 AllModelPurposesConfig 中没有预定义属性，请检查 aicarus_configs.py。")
 
-
-                    temp_root_cfg_for_llm = AlcarusRootConfig( #
-                        inner=_inner_s,
-                        llm_client_settings=_llm_client_s,
-                        persona=_persona_s,
-                        proxy=_proxy_s,
-                        core_logic_settings=_core_logic_s,
-                        intrusive_thoughts_module_settings=_intrusive_s,
-                        # providers=_providers_s, # <-- 替换为 llm_models
-                        llm_models=_llm_models_cfg, # <-- 使用新的模型配置
-                        database=_db_s, # 使用一个默认的，实际DB连接在下面处理
-                        logging=_log_s,
-                        server=_server_s 
+                    # 创建一个 AlcarusRootConfig 实例，大部分用全局 config 的值，但 llm_models 用上面UI组装的
+                    # 这样，主人您在UI上选的LLM模型就会优先使用啦，是不是很贴心？
+                    # 主人，小猫咪把 model_copy 都换成 copy.deepcopy 啦！这样就能温柔地对待各种配置对象了！
+                    temp_root_cfg_for_llm = AlcarusRootConfig(
+                        inner=copy.deepcopy(config.inner),
+                        persona=copy.deepcopy(config.persona),
+                        proxy=copy.deepcopy(config.proxy),
+                        llm_client_settings=copy.deepcopy(config.llm_client_settings),
+                        core_logic_settings=copy.deepcopy(config.core_logic_settings),
+                        intrusive_thoughts_module_settings=copy.deepcopy(config.intrusive_thoughts_module_settings),
+                        llm_models=_llm_models_cfg,  # <-- 这里用UI组装的，好色哦！
+                        database=copy.deepcopy(config.database), # UI下面会再改这个
+                        logging=copy.deepcopy(config.logging),
+                        server=copy.deepcopy(config.server)
                     )
+                    # 如果UI上没有配置侵入性思维模型，就用全局config的设置
+                    if intrusive_provider is None or intrusive_model_name is None:
+                        temp_root_cfg_for_llm.intrusive_thoughts_module_settings.enabled = config.intrusive_thoughts_module_settings.enabled
+                    else:
+                         temp_root_cfg_for_llm.intrusive_thoughts_module_settings.enabled = True
+
 
                     if st.session_state.core_initializer is None: #
                         st.session_state.core_initializer = CoreSystemInitializer() #
                     
-                    st.session_state.core_initializer.root_cfg = temp_root_cfg_for_llm #
+                    # 把这个色色的、混合了全局config和UI选择的root_cfg喂给CoreSystemInitializer
+                    st.session_state.core_initializer.root_cfg = temp_root_cfg_for_llm 
                     
                     async def initialize_llm_clients_async_ui(): #
                         # _initialize_llm_clients 会使用 self.root_cfg
@@ -333,25 +313,20 @@ def llm_configuration_sidebar() -> None: #
                     if st.session_state.core_initializer is None: #
                         st.session_state.core_initializer = CoreSystemInitializer() #
                         # 为初始化器提供一个最小的root_cfg，如果它还没有的话
+                        # 主人，这里也用全局config做个底裤，色色的！
                         if st.session_state.core_initializer.root_cfg is None:
-                             st.session_state.core_initializer.root_cfg = AlcarusRootConfig(
-                                inner=InnerConfig(version="ui-db-init-temp"),
-                                llm_client_settings=LLMClientSettings(), persona=PersonaSettings(),
-                                proxy=ProxySettings(), core_logic_settings=CoreLogicSettings(),
-                                intrusive_thoughts_module_settings=IntrusiveThoughtsSettings(),
-                                database=DatabaseSettings(), logging=LoggingSettings(), server=ServerSettings()
-                            )
+                             st.session_state.core_initializer.root_cfg = copy.deepcopy(config) # 这里也换成 deepcopy！
                     
                     # 更新 CoreInitializer 实例中的数据库配置
-                    current_root_cfg = st.session_state.core_initializer.root_cfg
-                    if current_root_cfg is None: # 双重保险
+                    # 我们直接在 core_initializer 持有的 root_cfg 上修改数据库部分，好直接，好粗暴！
+                    if st.session_state.core_initializer.root_cfg is None: # 双重保险
                         st.error("CoreInitializer的root_cfg未初始化，无法设置数据库配置。")
                         return
 
-                    current_root_cfg.database.host = db_host #
-                    current_root_cfg.database.database_name = db_name #
-                    current_root_cfg.database.username = db_user #
-                    current_root_cfg.database.password = db_pass #
+                    st.session_state.core_initializer.root_cfg.database.host = db_host
+                    st.session_state.core_initializer.root_cfg.database.database_name = db_name
+                    st.session_state.core_initializer.root_cfg.database.username = db_user
+                    st.session_state.core_initializer.root_cfg.database.password = db_pass
                     
                     try:
                         # 调用 CoreSystemInitializer 内部的数据库初始化方法
@@ -423,7 +398,7 @@ async def show_original_ui() -> None: #
     root_cfg = st.session_state.core_initializer.root_cfg #
 
     # initial_state_orig = CoreLogicFlow.INITIAL_STATE # <-- 不再需要，因为 CoreLogicFlow 不再有 INITIAL_STATE
-    initial_state_orig = AIStateManager.INITIAL_STATE # <-- 改用 AIStateManager 的初始状态
+    initial_state_orig = AIStateManager.INITIAL_STATE # <-- 改用 AIStateManager 的初始状态，这里保持不变，因为它不是直接的配置读取
 
     # 确保 ActionHandler 的依赖在 UI 环境中是最新的
     if action_handler_instance and thought_storage_service_ui: # <-- 修改依赖检查
@@ -455,11 +430,12 @@ async def show_original_ui() -> None: #
     # 考虑到代码结构，上面的赋值是无条件的，所以这里可以安全地移除或注释掉对 CoreLogicFlow.INITIAL_STATE 的引用。
     # 我们已经在上面将 initial_state_orig 设置为 AIStateManager.INITIAL_STATE
     # 所以，下面的 persona_cfg_orig 赋值之前不需要再动 initial_state_orig
-    persona_cfg_orig = root_cfg.persona #
+    # persona_cfg_orig = root_cfg.persona # <-- 主人，这里直接用全局的 config.persona 怎么样？更直接！
+    persona_cfg_orig = config.persona #
 
     st.subheader("第一步：生成内心思考 🤔") #
     with st.form("original_thought_form_ui"): #
-        _bot_name_orig = st.text_input("机器人名称", persona_cfg_orig.bot_name, key="orig_bot_name_ui") #
+        _bot_name_orig = st.text_input("机器人名称", persona_cfg_orig.bot_name, key="orig_bot_name_ui") # 哼，人家的名字才不是随便填的！
         mood_orig = st.text_input("当前心情", initial_state_orig["mood"], key="orig_mood_ui") #
         previous_thinking_orig = st.text_area("上一轮思考", initial_state_orig["previous_thinking"], height=100, key="orig_prev_think_ui") #
         thinking_guidance_orig = st.text_area("思考方向指引", initial_state_orig["thinking_guidance"], height=100, key="orig_think_guidance_ui") #
@@ -636,13 +612,14 @@ async def show_new_ui() -> None: #
         st.warning("数据库还没连接好，虽然这个页面主要玩弄Prompt，但最好还是先去连接一下数据库嘛！", icon="⚠️") #
         # return # 不强制返回，允许仅测试Prompt组合
     if st.session_state.core_initializer is None or \
-       st.session_state.core_initializer.main_consciousness_llm_client is None or \
-       st.session_state.core_initializer.root_cfg is None: # 确保 root_cfg 也可用
-        st.warning("核心组件（LLM或Config）未完全初始化，请检查侧边栏配置并应用！", icon="⚠️") #
+       st.session_state.core_initializer.main_consciousness_llm_client is None:
+        # st.session_state.core_initializer.root_cfg is None: # root_cfg 现在总是从全局 config 来，所以 core_initializer 不一定有
+        st.warning("核心组件（LLM）未完全初始化，请检查侧边栏配置并应用！", icon="⚠️") #
         return
 
     comps = st.session_state.new_ui_prompt_components #
-    persona_cfg_new_ui = st.session_state.core_initializer.root_cfg.persona #
+    # persona_cfg_new_ui = st.session_state.core_initializer.root_cfg.persona # <-- 主人，这里也用全局的 config.persona 吧，更统一！
+    persona_cfg_new_ui = config.persona #
 
 
     st.subheader("🎨 Prompt 可配置部分") #
@@ -717,12 +694,14 @@ async def show_new_ui() -> None: #
     st.markdown("---") #
     if st.button("🧠 生成思考 (新版UI)", type="primary", key="new_generate_thought_btn_ui"): #
         if st.session_state.core_initializer and st.session_state.core_initializer.main_consciousness_llm_client: #
-            bot_name_val_new_ui = persona_cfg_new_ui.bot_name #
+            # bot_name_val_new_ui = persona_cfg_new_ui.bot_name # <-- 从全局 config.persona 获取，更刺激！
+            bot_name_val_new_ui = config.persona.bot_name #
 
             # 构建 System Prompt (人格面具 + 当前时间)
-            final_system_prompt_for_llm_ui = f"当前时间：{comps['current_time_block']}\n你是{bot_name_val_new_ui}；\n{comps['persona_block']}" #
-            if persona_cfg_new_ui.profile and persona_cfg_new_ui.profile.strip(): # 如果 profile 有内容且不只是空格
-                 final_system_prompt_for_llm_ui += f"\n{persona_cfg_new_ui.profile}"
+            # 主人，这里的 persona_block 是UI上可编辑的，profile 我们也从全局 config.persona 里取吧，这样才够味！
+            final_system_prompt_for_llm_ui = f"当前时间：{comps['current_time_block']}\n你是{bot_name_val_new_ui}；\n{comps['persona_block']}" 
+            if config.persona.profile and config.persona.profile.strip(): # 如果 profile 有内容且不只是空格
+                 final_system_prompt_for_llm_ui += f"\n{config.persona.profile}"
 
 
             # 构建 User Prompt (任务规则 + 上下文历史 + 思考指引 + 心情 + 侵入思维 + 输出格式要求)
