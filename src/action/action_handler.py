@@ -314,12 +314,6 @@ class ActionHandler:
                 try:
                     kwargs_for_tool = tool_arguments.copy()
 
-                    if tool_name_chosen == "send_reply_message":
-                        if self.core_communication_layer:
-                            kwargs_for_tool["comm_layer"] = self.core_communication_layer
-                        else:
-                            raise RuntimeError(f"工具 '{tool_name_chosen}' 需要 core_communication_layer，但它未被ActionHandler正确设置。")
-                    
                     if tool_name_chosen == "report_action_failure":
                         kwargs_for_tool["intended_action_description"] = action_description
                         kwargs_for_tool["intended_action_motivation"] = action_motivation
