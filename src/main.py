@@ -244,7 +244,7 @@ class CoreSystemInitializer:
         # 创建 ArangoDBConnectionManager 实例
         # 它会优先使用 db_config_from_root 中的配置，如果缺失则回退到环境变量
         self.conn_manager = await ArangoDBConnectionManager.create_from_config(
-            db_config_from_root if db_config_from_root else object(), # 传递一个空对象如果配置不存在，让其完全依赖环境变量
+            db_config_from_root or object(), # 传递一个空对象如果配置不存在，让其完全依赖环境变量
             core_collection_configs=all_core_collection_configs
         )
 
@@ -412,7 +412,7 @@ class CoreSystemInitializer:
             self.core_logic_instance = CoreLogicFlow(
                 root_cfg=self.root_cfg,
                 event_storage_service=self.event_storage_service,
-                conversation_storage_service=self.conversation_storage_service,
+                # conversation_storage_service=self.conversation_storage_service,
                 thought_storage_service=self.thought_storage_service,
                 main_consciousness_llm_client=self.main_consciousness_llm_client,
                 intrusive_thoughts_llm_client=self.intrusive_thoughts_llm_client, # 可能为None
