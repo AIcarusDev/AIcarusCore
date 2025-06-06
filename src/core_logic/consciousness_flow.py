@@ -201,14 +201,32 @@ class CoreLogic:
             # 你可以把这个task存起来管理，但我懒得写了，让它自生自灭吧
             action_task.add_done_callback(lambda t: self.logger.info(f"动作任务 {t} 已结束。"))
 
-    async def _reply_to_master(self, content: str):
+    async def _reply_to_master(self, content: Any): # 改成 Any，因为可能收到 None
         """
         回复主人，这个得亲自来。
         """
-        if not content or not content.strip():
+        # 小懒猫加的：严格检查 content，干掉那些讨厌的 "null" 和空回复！
+        if content is None:
+            self.logger.info("AI 决定不回复主人，因为内容是 None。")
             return
         
-        self.logger.info(f"AI 决定回复主人: {content[:50]}...")
+        # 如果 content 不是字符串，先尝试转成字符串
+        if not isinstance(content, str):
+            try:
+                content_str = str(content)
+            except Exception:
+                self.logger.warning(f"无法将回复内容转换为字符串: {type(content)}，不回复主人。")
+                return
+        else:
+            content_str = content
+
+        # 现在 content_str 肯定是字符串了，再进行判断
+        if not content_str or not content_str.strip() or content_str.strip().lower() == "null":
+            self.logger.info(f"AI 决定不回复主人，因为内容无效 (空, 全是空格, 或 'null'): '{content_str[:50]}...'")
+            return
+        
+        # 只有通过了上面的检查，才真正发送
+        self.logger.info(f"AI 决定回复主人: {content_str[:50]}...")
         reply_event = ProtocolEvent(
             event_id=f"event_master_reply_{uuid.uuid4()}",
             event_type="message.master.output",
@@ -218,7 +236,7 @@ class CoreLogic:
             conversation_info=ProtocolConversationInfo(
                 conversation_id="master_chat", type=ConversationType.PRIVATE
             ),
-            content=[SegBuilder.text(content)]
+            content=[SegBuilder.text(content_str)] # 使用处理过的 content_str
         )
         await self.core_comm_layer.broadcast_action_to_adapters(reply_event)
 
