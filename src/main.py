@@ -9,7 +9,7 @@ from typing import Any, Callable, Awaitable, Optional, Dict, List, Tuple # 确�
 # 核心组件导入
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logger_manager import get_logger
-from src.config.global_config import get_global_config, AlcarusRootConfig
+from src.config import config
 from src.config.alcarus_configs import ModelParams # 从 alcarus_configs 导入 ModelParams
 from src.core_communication.core_ws_server import CoreWebsocketServer, AdapterEventCallback
 from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
@@ -38,7 +38,7 @@ class CoreSystemInitializer:
     def __init__(self):
         """初始化 CoreSystemInitializer 的各个组件为 None。"""
         self.logger = get_logger("AIcarusCore.MainInitializer") 
-        self.root_cfg: Optional[AlcarusRootConfig] = None # 全局配置实例
+        # 现在使用全局配置对象，不再需要实例变量
 
         # 数据库相关组件
         self.conn_manager: Optional[ArangoDBConnectionManager] = None # 新的数据库连接管理器
@@ -71,16 +71,12 @@ class CoreSystemInitializer:
 
     async def _initialize_llm_clients(self) -> None:
         """根据全局配置，初始化所有需要的LLM客户端。
-        新逻辑：从 self.root_cfg.llm_models 中读取每个模型用途的配置，
+        新逻辑：从 config.llm_models 中读取每个模型用途的配置，
         并根据其内部指定的 'provider' 字段来创建客户端。
         """
-        if not self.root_cfg:
-            logger.critical("全局配置 (root_cfg) 未加载，无法初始化LLM客户端。")
-            raise RuntimeError("Root config not loaded. Cannot initialize LLM clients.")
-
         logger.info("开始根据新的扁平化配置结构初始化所有LLM客户端...")
-        general_llm_settings_obj = self.root_cfg.llm_client_settings
-        proxy_settings_obj = self.root_cfg.proxy
+        general_llm_settings_obj = config.llm_client_settings
+        proxy_settings_obj = config.proxy
         final_proxy_host: Optional[str] = None
         final_proxy_port: Optional[int] = None
 
@@ -169,16 +165,14 @@ class CoreSystemInitializer:
                     f"为用途 '{purpose_key_for_log}' (提供商 '{model_params_cfg.provider if model_params_cfg else '未知'}') 创建LLM客户端时发生未知错误: {e}。",
                     exc_info=True
                 )
-                return None
-
-        # 开始初始化各个LLM客户端
+                return None        # 开始初始化各个LLM客户端
         try:
-            # 从 self.root_cfg.llm_models 获取 AllModelPurposesConfig 实例
-            if not self.root_cfg.llm_models:
+            # 从 config.llm_models 获取 AllModelPurposesConfig 实例
+            if not config.llm_models:
                 logger.error("配置错误：[llm_models] 配置块缺失，无法初始化任何LLM客户端。")
                 raise RuntimeError("[llm_models] 配置块缺失。")
 
-            all_model_configs = self.root_cfg.llm_models
+            all_model_configs = config.llm_models
 
             model_purpose_map = {
                 "main_consciousness": "main_consciousness_llm_client",
@@ -190,11 +184,10 @@ class CoreSystemInitializer:
 
             for purpose_key, client_attr_name in model_purpose_map.items():
                 model_params_cfg = getattr(all_model_configs, purpose_key, None)
-                
                 if model_params_cfg and isinstance(model_params_cfg, ModelParams):
                     if purpose_key == "intrusive_thoughts" and \
-                       (not self.root_cfg.intrusive_thoughts_module_settings or \
-                        not self.root_cfg.intrusive_thoughts_module_settings.enabled):
+                       (not config.intrusive_thoughts_module_settings or \
+                        not config.intrusive_thoughts_module_settings.enabled):
                         logger.info(f"侵入性思维模块未启用，跳过 '{purpose_key}' LLM客户端的创建。")
                         setattr(self, client_attr_name, None)
                         continue
@@ -231,12 +224,8 @@ class CoreSystemInitializer:
         初始化数据库连接管理器 (ArangoDBConnectionManager) 及其管理的核心集合和索引，
         然后基于此连接管理器初始化所有核心的数据存储服务。
         """
-        if not self.root_cfg: # 再次检查以防万一
-            logger.critical("全局配置 (root_cfg) 未加载，无法初始化数据库连接和存储服务。")
-            raise RuntimeError("Root config not loaded. Cannot initialize Database and Services.")
-            
-        # 从全局配置中获取数据库特定配置部分 (例如 AlcarusRootConfig.database)
-        db_config_from_root = getattr(self.root_cfg, 'database', None)
+        # 从全局配置中获取数据库特定配置部分
+        db_config_from_root = getattr(config, 'database', None)
 
         # 获取所有核心集合及其索引定义的配置
         all_core_collection_configs = CoreDBCollections.get_all_core_collection_configs()
@@ -284,13 +273,8 @@ class CoreSystemInitializer:
         这是一个有序的过程，确保各组件在启动前都已正确配置和连接。
         """
         logger.info("=== AIcarus Core 系统开始核心组件初始化流程... ===")
-        try:
-            # 1. 加载全局配置
-            self.root_cfg = get_global_config()
-            if not self.root_cfg: # 再次确认配置加载成功
-                 logger.critical("全局配置未能成功加载！系统无法继续初始化。")
-                 raise RuntimeError("全局配置 (AlcarusRootConfig) 加载失败。")
-            logger.info("全局配置已成功加载。")
+        try:            # 1. 使用全局配置对象
+            logger.info("使用全局配置对象。")
 
             # 2. 初始化所有LLM客户端
             await self._initialize_llm_clients()
@@ -320,11 +304,9 @@ class CoreSystemInitializer:
                 event_handler_for_ws = self.message_processor.process_event # 获取事件处理回调
             else: # 如果消息处理器或其方法无效
                 logger.critical("DefaultMessageProcessor 或其 'process_event' 方法无效，无法设置WebSocket回调！")
-                raise RuntimeError("DefaultMessageProcessor 或其 'process_event' 方法无效。")
-
-            # 从配置中获取WebSocket服务器的host和port
-            ws_host = self.root_cfg.server.host
-            ws_port = self.root_cfg.server.port
+                raise RuntimeError("DefaultMessageProcessor 或其 'process_event' 方法无效。")            # 从配置中获取WebSocket服务器的host和port
+            ws_host = config.server.host
+            ws_port = config.server.port
             self.core_comm_layer = CoreWebsocketServer(
                 host=ws_host,
                 port=ws_port,
@@ -355,11 +337,9 @@ class CoreSystemInitializer:
                 logger.info(
                     "ActionHandler 已初始化并成功注入了新的存储服务 (ThoughtStorageService, EventStorageService) 和通信层。"
                     " 其LLM客户端将按需加载，准备好大干一场了！"
-                )
-
-            # 7. 初始化侵入性思维生成器 (IntrusiveThoughtsGenerator)
-            intrusive_settings = self.root_cfg.intrusive_thoughts_module_settings
-            persona_settings = self.root_cfg.persona
+                )            # 7. 初始化侵入性思维生成器 (IntrusiveThoughtsGenerator)
+            intrusive_settings = config.intrusive_thoughts_module_settings
+            persona_settings = config.persona
             if intrusive_settings.enabled: # 仅当模块在配置中启用时才初始化
                 if self.intrusive_thoughts_llm_client and self.thought_storage_service: # 检查依赖是否就绪
                     self.intrusive_generator_instance = IntrusiveThoughtsGenerator(
@@ -380,12 +360,9 @@ class CoreSystemInitializer:
                     )
             else: # 如果模块在配置中未启用
                 self.intrusive_generator_instance = None # 明确设置为None
-                logger.info("侵入性思维模块在配置中未启用，跳过其初始化。")
-
-            # 8. 初始化核心逻辑流 (CoreLogicFlow)
+                logger.info("侵入性思维模块在配置中未启用，跳过其初始化。")            # 8. 初始化核心逻辑流 (CoreLogicFlow)
             # 检查 CoreLogicFlow 所需的所有核心服务和配置是否都已成功初始化
             if not all([
-                self.root_cfg,
                 self.main_consciousness_llm_client,
                 self.core_comm_layer,
                 self.action_handler_instance, # 即使其DB部分待重构，实例本身应存在
@@ -396,21 +373,18 @@ class CoreSystemInitializer:
                 # 构建缺失依赖的列表，用于清晰地报错
                 missing_core_logic_deps = [
                     item_name for item_name, status in {
-                        "全局配置 (RootConfig)": self.root_cfg,
                         "主意识LLM客户端": self.main_consciousness_llm_client,
                         "核心通信层": self.core_comm_layer,
                         "动作处理器": self.action_handler_instance,
                         "事件存储服务": self.event_storage_service,
                         "会话存储服务": self.conversation_storage_service,
-                        "思考存储服务": self.thought_storage_service
-                    }.items() if not status
+                        "思考存储服务": self.thought_storage_service                    }.items() if not status
                 ]
                 error_message = f"核心逻辑流 (CoreLogicFlow) 初始化失败：核心依赖缺失 - {', '.join(missing_core_logic_deps)}。"
                 logger.critical(error_message)
                 raise RuntimeError(error_message)
 
             self.core_logic_instance = CoreLogicFlow(
-                root_cfg=self.root_cfg,
                 event_storage_service=self.event_storage_service,
                 # conversation_storage_service=self.conversation_storage_service,
                 thought_storage_service=self.thought_storage_service,
@@ -447,7 +421,7 @@ class CoreSystemInitializer:
         try:
             # 启动侵入性思维的后台生成线程 (如果已启用且初始化成功)
             if self.intrusive_generator_instance and \
-               self.root_cfg and self.root_cfg.intrusive_thoughts_module_settings.enabled:
+               config.intrusive_thoughts_module_settings.enabled:
                 # start_background_generation 方法返回一个 threading.Thread 实例
                 self.intrusive_thread = self.intrusive_generator_instance.start_background_generation()
                 if self.intrusive_thread:

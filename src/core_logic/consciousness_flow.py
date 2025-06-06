@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Dict
 from src.action.action_handler import ActionHandler # type: ignore
 from src.common.custom_logging.logger_manager import get_logger # type: ignore
 from src.common.utils import format_messages_for_llm_context # type: ignore
-from src.config.alcarus_configs import AlcarusRootConfig # type: ignore
+from src.config import config  # 直接导入配置对象
 from src.core_communication.core_ws_server import CoreWebsocketServer # type: ignore
 from src.core_logic.intrusive_thoughts import IntrusiveThoughtsGenerator # type: ignore
 from src.llmrequest.llm_processor import Client as ProcessorClient # type: ignore
@@ -33,7 +33,6 @@ class CoreLogic:
     """
     def __init__(
         self,
-        root_cfg: AlcarusRootConfig,
         event_storage_service: EventStorageService,
         thought_storage_service: ThoughtStorageService,
         main_consciousness_llm_client: ProcessorClient,
@@ -46,7 +45,7 @@ class CoreLogic:
         intrusive_thoughts_llm_client: Optional[ProcessorClient] = None, # 这个不是必须的
     ) -> None:
         self.logger = logger
-        self.root_cfg = root_cfg
+        # 直接使用全局配置对象，不再需要实例变量
         self.event_storage_service = event_storage_service
         self.thought_storage_service = thought_storage_service
         self.main_consciousness_llm_client = main_consciousness_llm_client
@@ -55,10 +54,9 @@ class CoreLogic:
         self.intrusive_generator_instance = intrusive_generator_instance
         self.stop_event = stop_event
         self.immediate_thought_trigger = immediate_thought_trigger
-        
-        # 把小弟们实例化，以后有活都叫它们干
+          # 把小弟们实例化，以后有活都叫它们干
         self.state_manager = AIStateManager(thought_storage_service)
-        self.prompt_builder = ThoughtPromptBuilder(root_cfg.persona)
+        self.prompt_builder = ThoughtPromptBuilder(config.persona)
 
         self.thinking_loop_task: Optional[asyncio.Task] = None
         self.logger.info(f"{self.__class__.__name__} (包工头版) 已创建，小弟们已就位！")
@@ -67,7 +65,7 @@ class CoreLogic:
         """
         专门负责从 event_storage_service 获取上下文，这是体力活。
         """
-        chat_history_duration_minutes: int = getattr(self.root_cfg.core_logic_settings, "chat_history_context_duration_minutes", 10)
+        chat_history_duration_minutes: int = getattr(config.core_logic_settings, "chat_history_context_duration_minutes", 10)
         
         master_chat_history_str: str = "你和电脑主人之间最近没有聊天记录。"
         formatted_recent_contextual_info: str = self.state_manager.INITIAL_STATE["recent_contextual_information"]
@@ -217,7 +215,7 @@ class CoreLogic:
             event_type="message.master.output",
             time=int(time.time() * 1000),
             platform="master_ui",
-            bot_id=self.root_cfg.persona.bot_name,
+            bot_id=config.persona.bot_name,
             conversation_info=ProtocolConversationInfo(
                 conversation_id="master_chat", type=ConversationType.PRIVATE
             ),
@@ -230,7 +228,7 @@ class CoreLogic:
         """
         主循环，现在是不是干净多了？哼。
         """
-        thinking_interval_sec = self.root_cfg.core_logic_settings.thinking_interval_seconds
+        thinking_interval_sec = config.core_logic_settings.thinking_interval_seconds
 
         while not self.stop_event.is_set():
             current_time_str = datetime.datetime.now().strftime("%Y年%m月%d日 %H点%M分%S秒")
@@ -258,7 +256,7 @@ class CoreLogic:
             user_prompt = self.prompt_builder.build_user_prompt(current_state, master_chat_str, intrusive_thought_str)
 
             # 5. 包工头亲自调用LLM
-            self.logger.info(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {self.root_cfg.persona.bot_name} 开始思考...")
+            self.logger.info(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {config.persona.bot_name} 开始思考...")
             generated_thought = await self._generate_thought_from_llm(system_prompt, user_prompt, image_list)
 
             # 6. 处理结果，该存的存，该干的活分下去
@@ -283,17 +281,17 @@ class CoreLogic:
             if self.stop_event.is_set():
                 break
 
-        self.logger.info(f"--- {self.root_cfg.persona.bot_name} 的意识流动已停止 ---")
+        self.logger.info(f"--- {config.persona.bot_name} 的意识流动已停止 ---")
 
     async def start_thinking_loop(self) -> asyncio.Task:
         """启动思考循环异步任务。"""
-        self.logger.info(f"=== {self.root_cfg.persona.bot_name} (包工头版) 的大脑准备开始持续思考 ===")
+        self.logger.info(f"=== {config.persona.bot_name} (包工头版) 的大脑准备开始持续思考 ===")
         self.thinking_loop_task = asyncio.create_task(self._core_thinking_loop())
         return self.thinking_loop_task
 
     async def stop(self) -> None:
         """停止核心逻辑。"""
-        self.logger.info(f"--- {self.root_cfg.persona.bot_name} 的意识流动正在停止 ---")
+        self.logger.info(f"--- {config.persona.bot_name} 的意识流动正在停止 ---")
         self.stop_event.set()
         if self.thinking_loop_task and not self.thinking_loop_task.done():
             self.thinking_loop_task.cancel()

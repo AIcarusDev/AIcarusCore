@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 
 from src.common.custom_logging.logger_manager import get_logger
 from src.config.alcarus_configs import LLMClientSettings, ModelParams, ProxySettings # 确保导入这些配置类
-from src.config.global_config import global_config
+from src.config import config  # 直接导入配置对象，不再需要全局变量
 from src.core_communication.core_ws_server import CoreWebsocketServer
 from src.database.services.thought_storage_service import ThoughtStorageService
 from src.llmrequest.llm_processor import Client as ProcessorClient
@@ -28,7 +28,7 @@ class ActionHandler:
         初始化 ActionHandler 实例。
         """
         self.logger = get_logger(f"AIcarusCore.{self.__class__.__name__}")
-        self.root_cfg = global_config # 获取全局配置
+        # 不再需要赋值给实例变量，直接使用全局配置对象
         self.action_llm_client: ProcessorClient | None = None # 用于动作决策的LLM客户端
         self.summary_llm_client: ProcessorClient | None = None # 用于信息总结的LLM客户端
         self.core_communication_layer: CoreWebsocketServer | None = None # WebSocket通信层，用于发送平台动作
@@ -71,15 +71,12 @@ class ActionHandler:
         根据全局配置和指定的用途键 (purpose_key) 创建一个LLM客户端实例。
         (此方法内部逻辑保持不变)
         """
-        if not self.root_cfg:
-            self.logger.critical("Root config 未加载。无法创建LLM客户端。")
-            return None
         try:
-            if not self.root_cfg.llm_models:
+            if not config.llm_models:
                 self.logger.error("配置错误：AlcarusRootConfig 中缺少 'llm_models' 配置段。")
                 return None
 
-            model_params_cfg = getattr(self.root_cfg.llm_models, purpose_key, None)
+            model_params_cfg = getattr(config.llm_models, purpose_key, None)
             if not isinstance(model_params_cfg, ModelParams):
                 self.logger.error(
                     f"配置错误：在 AlcarusRootConfig.llm_models 下未找到模型用途键 '{purpose_key}' 对应的有效 ModelParams 配置，或类型不匹配。"
@@ -95,8 +92,8 @@ class ActionHandler:
                 )
                 return None
 
-            general_llm_settings_obj: LLMClientSettings = self.root_cfg.llm_client_settings
-            proxy_settings_obj: ProxySettings = self.root_cfg.proxy
+            general_llm_settings_obj: LLMClientSettings = config.llm_client_settings
+            proxy_settings_obj: ProxySettings = config.proxy
             
             final_proxy_host: str | None = None
             final_proxy_port: int | None = None
