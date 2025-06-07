@@ -127,7 +127,7 @@ class TestActionHandler(unittest.IsolatedAsyncioTestCase):
 
         args_completed, _ = call_args_list[1]
         self.assertEqual(args_completed[2]["status"], "COMPLETED_SUCCESS")
-        self.assertIn("成功执行", args_completed[2]["final_result_for_shuang"])
+        self.assertIn("成功执行", args_completed[2]["final_result_for_Shimo"])
 
         self.mock_event_storage_service.save_event_document.assert_called_once()
         saved_event_arg = self.mock_event_storage_service.save_event_document.call_args[0][0]
@@ -186,7 +186,7 @@ class TestActionHandler(unittest.IsolatedAsyncioTestCase):
 
         args_completed, _ = call_args_list[1]
         self.assertEqual(args_completed[2]["status"], "COMPLETED_FAILURE")
-        self.assertIn(failure_reason, args_completed[2]["final_result_for_shuang"])
+        self.assertIn(failure_reason, args_completed[2]["final_result_for_Shimo"])
         self.assertEqual(args_completed[2]["error_message"], failure_reason)
 
         self.mock_event_storage_service.save_event_document.assert_called_once()
@@ -232,7 +232,7 @@ class TestActionHandler(unittest.IsolatedAsyncioTestCase):
 
         args_timeout, _ = call_args_list[1]
         self.assertEqual(args_timeout[2]["status"], "TIMEOUT_FAILURE")
-        self.assertIn("等待响应超时了", args_timeout[2]["final_result_for_shuang"])
+        self.assertIn("等待响应超时了", args_timeout[2]["final_result_for_Shimo"])
         self.assertEqual(args_timeout[2]["error_message"], "Action response timed out.")
 
         self.mock_event_storage_service.save_event_document.assert_not_called()

@@ -140,7 +140,7 @@ class ActionHandler:
 
             if not is_direct_reply_action_for_timeout and stored_thought_doc_key and self.thought_storage_service:
                 timeout_message = f"你尝试执行动作 '{stored_original_action_description}' 时，等待响应超时了。"
-                update_payload_thought = {"status": "TIMEOUT_FAILURE", "final_result_for_shuang": timeout_message, "error_message": "Action response timed out."}
+                update_payload_thought = {"status": "TIMEOUT_FAILURE", "final_result_for_Shimo": timeout_message, "error_message": "Action response timed out."}
                 # action_id here should be the one associated with the thought document's action_attempted,
                 # which might be different from the platform action's action_id if it's a sub-action or a direct reply.
                 # For now, we assume if it's not a direct reply, the action_id in thought_doc matches the platform action_id.
@@ -197,7 +197,7 @@ class ActionHandler:
         else: self.logger.error(f"收到动作 '{original_action_id}' 的响应，但 action_log_service 未设置，无法更新 ActionLog！")
 
         if not is_direct_reply_action_for_response and stored_thought_doc_key and self.thought_storage_service:
-            update_payload_thought = {"status": "COMPLETED_SUCCESS" if action_successful else "COMPLETED_FAILURE", "final_result_for_shuang": final_result_for_thought, "error_message": "" if action_successful else error_message_from_response, "response_received_at": response_timestamp}
+            update_payload_thought = {"status": "COMPLETED_SUCCESS" if action_successful else "COMPLETED_FAILURE", "final_result_for_Shimo": final_result_for_thought, "error_message": "" if action_successful else error_message_from_response, "response_received_at": response_timestamp}
             # original_action_id here is the ID of the platform action.
             # If this is not a direct reply, this ID should match the action_id in the thought_doc's action_attempted.
             await self.thought_storage_service.update_action_status_in_thought_document(stored_thought_doc_key, original_action_id, update_payload_thought)
@@ -287,7 +287,7 @@ class ActionHandler:
                 await self.action_log_service.update_action_log_with_response(action_id=core_action_id, status="send_failure", response_timestamp=error_timestamp, error_info=error_message_comm)
                 
                 if not is_direct_reply_action and thought_doc_key and self.thought_storage_service:
-                    await self.thought_storage_service.update_action_status_in_thought_document(thought_doc_key, core_action_id, {"status": "SEND_FAILURE", "error_message": error_message_comm, "final_result_for_shuang": f"尝试执行动作 '{original_action_description}' 时，发送给平台 '{platform_id_from_event}' 失败，它可能不在线。"})
+                    await self.thought_storage_service.update_action_status_in_thought_document(thought_doc_key, core_action_id, {"status": "SEND_FAILURE", "error_message": error_message_comm, "final_result_for_Shimo": f"尝试执行动作 '{original_action_description}' 时，发送给平台 '{platform_id_from_event}' 失败，它可能不在线。"})
                 
                 # 生成 system.notice 事件
                 if self.event_storage_service:
@@ -311,7 +311,7 @@ class ActionHandler:
             error_timestamp = int(time.time() * 1000)
             await self.action_log_service.update_action_log_with_response(action_id=core_action_id, status="send_failure", response_timestamp=error_timestamp, error_info=f"发送时发生意外异常: {str(e_send)}")
             if not is_direct_reply_action and thought_doc_key and self.thought_storage_service:
-                await self.thought_storage_service.update_action_status_in_thought_document(thought_doc_key, core_action_id, {"status": "SEND_FAILURE", "error_message": f"发送时发生意外异常: {str(e_send)}", "final_result_for_shuang": f"尝试执行动作 '{original_action_description}' 时，发送给平台 '{platform_id_from_event}' 失败。"})
+                await self.thought_storage_service.update_action_status_in_thought_document(thought_doc_key, core_action_id, {"status": "SEND_FAILURE", "error_message": f"发送时发生意外异常: {str(e_send)}", "final_result_for_Shimo": f"尝试执行动作 '{original_action_description}' 时，发送给平台 '{platform_id_from_event}' 失败。"})
             return False, f"发送平台动作时发生意外异常: {str(e_send)}"
 
         response_received_event = asyncio.Event()
@@ -329,13 +329,25 @@ class ActionHandler:
             sent_at = action_to_send.get("timestamp", timeout_timestamp - ACTION_RESPONSE_TIMEOUT_SECONDS * 1000)
             await self.action_log_service.update_action_log_with_response(action_id=core_action_id, status="timeout", response_timestamp=timeout_timestamp, response_time_ms=timeout_timestamp - sent_at, error_info="Action response timed out")
             if not is_direct_reply_action and thought_doc_key and self.thought_storage_service:
-                await self.thought_storage_service.update_action_status_in_thought_document(thought_doc_key, core_action_id, {"status": "TIMEOUT_FAILURE", "error_message": "Action response timed out", "final_result_for_shuang": f"你尝试执行动作 '{original_action_description}' 时，等待响应超时了。"})
+                await self.thought_storage_service.update_action_status_in_thought_document(thought_doc_key, core_action_id, {"status": "TIMEOUT_FAILURE", "error_message": "Action response timed out", "final_result_for_Shimo": f"你尝试执行动作 '{original_action_description}' 时，等待响应超时了。"})
             return False, f"动作 '{original_action_description}' 响应超时。"
         finally:
             if core_action_id in self._pending_actions: self._pending_actions.pop(core_action_id, None)
         
-        return False, f"执行动作 '{original_action_description}' 时发生未知错误。"
+        # Fallback, should ideally be covered by specific logic in wait_for block
+        final_log_entry_fallback = await self.action_log_service.get_action_log(core_action_id) # type: ignore
+        if final_log_entry_fallback and final_log_entry_fallback.get("status") == "success":
+             return True, f"动作 '{original_action_description}' 已成功执行并收到响应 (Fallback check)。"
+        elif final_log_entry_fallback:
+             return False, f"动作 '{original_action_description}' 执行失败 (Fallback check): {final_log_entry_fallback.get('error_info', '未知错误')}"
+        return False, f"执行动作 '{original_action_description}' 时发生未知错误或状态未明确成功。"
 
+    async def _maybe_log_internal_tool_action_to_events(self, action_log_entry: Dict[str, Any]) -> None:
+        """
+        预留方法，用于未来可能需要将内部工具调用的某些信息记录到 events 表。
+        目前什么也不做。主人，这是为您留的“小后门”哦，嘻嘻～
+        """
+        pass
 
     async def process_action_flow(
         self,
@@ -368,19 +380,19 @@ class ActionHandler:
             return False, error_msg_no_client
 
         decision_response = await self.action_llm_client.make_llm_request(prompt=decision_prompt_text, is_stream=False)
-        final_result_for_shuang: str = f"尝试执行动作 '{action_description}' 时出现未知的处理错误。"
+        final_result_for_Shimo: str = f"尝试执行动作 '{action_description}' 时出现未知的处理错误。"
         action_was_successful: bool = False
         tool_name_chosen: Optional[str] = None
         tool_arguments: Dict[str, Any] = {}
         # ... (rest of the LLM decision parsing logic)
 
         if decision_response.get("error"):
-            final_result_for_shuang = f"行动决策LLM调用失败: {decision_response.get('message', '未知API错误')}"
+            final_result_for_Shimo = f"行动决策LLM调用失败: {decision_response.get('message', '未知API错误')}"
             action_was_successful = False
         else:
             llm_raw_output_text_for_decision = decision_response.get("text", "").strip()
             if not llm_raw_output_text_for_decision:
-                final_result_for_shuang = "行动决策失败，LLM的响应中不包含任何文本内容。"
+                final_result_for_Shimo = "行动决策失败，LLM的响应中不包含任何文本内容。"
                 action_was_successful = False
             else:
                 try:
@@ -392,16 +404,16 @@ class ActionHandler:
                     tool_name_chosen = parsed_decision.get("tool_to_use")
                     tool_arguments = parsed_decision.get("arguments", {})
                     if not tool_name_chosen or not isinstance(tool_arguments, dict):
-                        final_result_for_shuang = "LLM返回的JSON格式不正确"; tool_name_chosen = None; action_was_successful = False
+                        final_result_for_Shimo = "LLM返回的JSON格式不正确"; tool_name_chosen = None; action_was_successful = False
                     # ...
                 except Exception as e_parse: # Simplified error handling for brevity
-                    final_result_for_shuang = f"解析LLM决策JSON失败: {e_parse}"; tool_name_chosen = None; action_was_successful = False
+                    final_result_for_Shimo = f"解析LLM决策JSON失败: {e_parse}"; tool_name_chosen = None; action_was_successful = False
 
         if tool_name_chosen:
             if tool_name_chosen.startswith("platform."):
                 # ... (platform action parameter check)
                 if not all([...]): # Simplified check
-                    final_result_for_shuang = "平台动作参数不足"; action_was_successful = False
+                    final_result_for_Shimo = "平台动作参数不足"; action_was_successful = False
                     # ... (update thought doc with PLATFORM_ACTION_PARAM_ERROR)
                 else:
                     action_to_send_to_adapter = { "event_id": action_id,  # IMPORTANT: Use the action_id from the thought document
@@ -412,15 +424,112 @@ class ActionHandler:
                         thought_doc_key=doc_key_for_updates,
                         original_action_description=action_description # This is the LLM's action_to_take
                     )
-                    final_result_for_shuang = result_message
-            else: # Internal tool
-                # ... (internal tool execution logic)
-                # ... (update thought doc with COMPLETED_SUCCESS/FAILURE based on tool_execution_result)
-                pass # Placeholder for internal tool logic
+                    final_result_for_Shimo = result_message
+            else: # Internal tool - 主人，小猫咪开始在这里小心翼翼地操作了！
+                self.logger.info(f"LLM选择执行内部工具: '{tool_name_chosen}'，参数: {tool_arguments}")
+                # 为内部工具调用创建一个唯一的ActionLog ID
+                internal_action_log_id = f"internal_{action_id}_{tool_name_chosen}_{str(uuid.uuid4())[:8]}"
+                
+                tool_execution_successful = False
+                tool_result_data: Any = None
+                tool_error_message: Optional[str] = None
+                
+                # 1. 记录工具调用尝试到 ActionLog
+                if self.action_log_service:
+                    await self.action_log_service.save_action_attempt(
+                        action_id=internal_action_log_id,
+                        action_type=tool_name_chosen, # 工具名称作为action_type
+                        timestamp=int(time.time() * 1000),
+                        platform="internal_tool", # 标记为内部工具
+                        bot_id=config.persona.bot_name,
+                        # 对于内部工具，conversation_id 可以是触发它的思考文档的key
+                        conversation_id=doc_key_for_updates, 
+                        content=[{"type": "tool_parameters", "data": tool_arguments if tool_arguments else {}}],
+                        original_event_id=action_id # 关联到触发此工具调用的原始思考动作ID
+                    )
+                    self.logger.info(f"内部工具 '{tool_name_chosen}' (Log ID: {internal_action_log_id}) 调用尝试已记录到 ActionLog，状态：executing。")
+                
+                # 2. 执行内部工具
+                try:
+                    tool_function = get_tool_function(tool_name_chosen)
+                    if not tool_function:
+                        tool_error_message = f"未找到名为 '{tool_name_chosen}' 的内部工具。"
+                        self.logger.error(tool_error_message)
+                    elif not asyncio.iscoroutinefunction(tool_function):
+                        tool_error_message = f"工具 '{tool_name_chosen}' 不是一个异步函数 (coroutine function)，无法在此处异步调用。"
+                        self.logger.error(tool_error_message)
+                    else:
+                        self.logger.info(f"正在执行内部工具 '{tool_name_chosen}' (Log ID: {internal_action_log_id})...")
+                        if tool_arguments: # 确保参数不为空时才解包
+                            tool_result_data = await tool_function(**tool_arguments)
+                        else:
+                            tool_result_data = await tool_function()
+                        tool_execution_successful = True
+                        self.logger.info(f"内部工具 '{tool_name_chosen}' (Log ID: {internal_action_log_id}) 执行成功。")
+                
+                except Exception as e_tool_exec:
+                    tool_error_message = f"执行内部工具 '{tool_name_chosen}' (Log ID: {internal_action_log_id}) 时发生错误: {str(e_tool_exec)}"
+                    self.logger.error(tool_error_message, exc_info=True)
+                    tool_execution_successful = False 
+                    tool_result_data = None
+                
+                # 3. 更新 ActionLog 中的工具调用结果
+                if self.action_log_service:
+                    current_ts_for_log_update = int(time.time() * 1000)
+                    await self.action_log_service.update_action_log_with_response(
+                        action_id=internal_action_log_id,
+                        status="success" if tool_execution_successful else "failure",
+                        response_timestamp=current_ts_for_log_update,
+                        result_details={"output": tool_result_data} if tool_execution_successful and tool_result_data is not None else None,
+                        error_info=tool_error_message if not tool_execution_successful else None
+                    )
+                    self.logger.info(f"内部工具 '{tool_name_chosen}' (Log ID: {internal_action_log_id}) 的执行结果已更新到 ActionLog。")
+                
+                # 4. 准备更新思考文档的结果
+                if tool_execution_successful:
+                    action_was_successful = True 
+                    if tool_name_chosen == "search_web" and tool_result_data and self.summary_llm_client:
+                        self.logger.info(f"内部工具 '{tool_name_chosen}' (Log ID: {internal_action_log_id}) 的结果需要总结。")
+                        final_result_for_Shimo = await self._summarize_tool_result_async(
+                            original_query=tool_arguments.get("query", action_description), 
+                            original_motivation=action_motivation,
+                            tool_output=tool_result_data
+                        )
+                    elif tool_result_data is not None:
+                        try:
+                            final_result_for_Shimo = f"内部工具 '{tool_name_chosen}' 执行成功。结果: {json.dumps(tool_result_data, ensure_ascii=False, indent=2, default=str)}"
+                        except TypeError:
+                            final_result_for_Shimo = f"内部工具 '{tool_name_chosen}' 执行成功。结果: {str(tool_result_data)}"
+                    else:
+                         final_result_for_Shimo = f"内部工具 '{tool_name_chosen}' 执行成功，但未返回具体数据。"
+                else: 
+                    action_was_successful = False 
+                    final_result_for_Shimo = tool_error_message or f"内部工具 '{tool_name_chosen}' 执行失败，原因未知。"
+
+                # 更新思考文档
+                if self.thought_storage_service:
+                    update_payload_for_thought = {
+                        "status": "COMPLETED_SUCCESS" if action_was_successful else "COMPLETED_FAILURE",
+                        "final_result_for_Shimo": final_result_for_Shimo,
+                        "error_message": tool_error_message if not action_was_successful else None,
+                        "response_received_at": int(time.time() * 1000) 
+                    }
+                    await self.thought_storage_service.update_action_status_in_thought_document(
+                        doc_key_for_updates,
+                        action_id, # 这是主思考动作的ID
+                        update_payload_for_thought
+                    )
+                    self.logger.info(f"已更新思考文档 '{doc_key_for_updates}' 中关于内部工具 '{tool_name_chosen}' (关联主动作ID: {action_id}) 的执行结果。")
+                
+                # 5. 预留的 Event 迁移接口
+                if self.action_log_service: # 确保服务存在
+                    action_log_entry = await self.action_log_service.get_action_log(internal_action_log_id)
+                    if action_log_entry:
+                        await self._maybe_log_internal_tool_action_to_events(action_log_entry)
         elif not tool_name_chosen: # LLM did not choose a tool
             # ... (update thought doc with NO_TOOL_CHOSEN_FAILURE)
             pass # Placeholder
 
         # ... (trigger thought logic)
         self.logger.info(f"--- [Action ID: {action_id}] 行动流程结束 ---")
-        return action_was_successful, final_result_for_shuang
+        return action_was_successful, final_result_for_Shimo

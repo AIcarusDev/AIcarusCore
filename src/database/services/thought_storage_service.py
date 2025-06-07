@@ -343,7 +343,7 @@ class ThoughtStorageService:
 
     async def mark_action_result_as_seen(self, action_id_to_mark: str) -> bool:
         """
-        根据 action_id 找到对应的思考文档，并将其 action_attempted.result_seen_by_shuang 标记为 True。
+        根据 action_id 找到对应的思考文档，并将其 action_attempted.result_seen_by_Shimo 标记为 True。
         """
         if not action_id_to_mark:
             self.logger.warning("需要一个有效的 action_id 才能将其结果标记为已阅。")
@@ -389,18 +389,18 @@ class ThoughtStorageService:
                 return False
             
             # 如果已经是 True，则无需更新，直接返回成功
-            if action_attempted_current.get("result_seen_by_shuang") is True:
+            if action_attempted_current.get("result_seen_by_Shimo") is True:
                 self.logger.info(f"动作ID '{action_id_to_mark}' (文档key: {doc_key_to_update}) 的结果已经被标记为已阅，无需重复操作。")
                 return True
 
             action_attempted_updated = action_attempted_current.copy()
-            action_attempted_updated["result_seen_by_shuang"] = True
+            action_attempted_updated["result_seen_by_Shimo"] = True
             
             patch_for_db = {"action_attempted": action_attempted_updated}
             
             # 使用 to_thread 执行同步的 update 方法
             await asyncio.to_thread(collection.update, {"_key": doc_key_to_update, **patch_for_db})
-            self.logger.info(f"已成功将文档 '{doc_key_to_update}' (action_id: {action_id_to_mark}) 的 action_attempted.result_seen_by_shuang 标记为 true。")
+            self.logger.info(f"已成功将文档 '{doc_key_to_update}' (action_id: {action_id_to_mark}) 的 action_attempted.result_seen_by_Shimo 标记为 true。")
             return True
         except DocumentUpdateError as e_update:
             self.logger.error(f"更新文档 '{doc_key_to_update}' (action_id: {action_id_to_mark}) 标记已阅时数据库操作失败: {e_update}", exc_info=True)

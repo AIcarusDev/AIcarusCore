@@ -217,7 +217,7 @@ class CoreLogic:
                 "action_motivation": action_motive_from_llm,
                 "action_id": action_id_this_cycle,
                 "status": "PENDING",
-                "result_seen_by_shuang": False,
+                "result_seen_by_Shimo": False,
                 "initiated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             }
         

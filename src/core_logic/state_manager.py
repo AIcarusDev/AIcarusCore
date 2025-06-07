@@ -76,11 +76,11 @@ class AIStateManager:
             action_status = last_action_attempt.get("status")
             action_description_prev = last_action_attempt.get("action_description", "某个之前的动作")
             action_id = last_action_attempt.get("action_id")
-            was_result_seen_by_llm = last_action_attempt.get("result_seen_by_shuang", False)
+            was_result_seen_by_llm = last_action_attempt.get("result_seen_by_Shimo", False)
             if action_status in ["COMPLETED_SUCCESS", "COMPLETED_FAILURE", "CRITICAL_FAILURE"]:
-                result_for_shuang = last_action_attempt.get("final_result_for_shuang")
-                if result_for_shuang and not was_result_seen_by_llm:
-                    action_result_info_prompt = result_for_shuang
+                result_for_Shimo = last_action_attempt.get("final_result_for_Shimo")
+                if result_for_Shimo and not was_result_seen_by_llm:
+                    action_result_info_prompt = result_for_Shimo
                     action_id_whose_result_is_being_shown = action_id
             elif action_status and action_status not in ["COMPLETED_SUCCESS", "COMPLETED_FAILURE", "CRITICAL_FAILURE"]:
                 pending_action_status_prompt = (

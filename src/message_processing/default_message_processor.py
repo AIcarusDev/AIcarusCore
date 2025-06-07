@@ -402,7 +402,7 @@ class DefaultMessageProcessor:
                 #     success_flag = status_code == 200 or str(status_code).lower() == 'ok' # 简化的成功判断
                 #     update_payload_for_thought = {
                 #         "status": "COMPLETED_SUCCESS" if success_flag else "COMPLETED_FAILURE",
-                #         "final_result_for_shuang": message if data_payload is None else str(data_payload), # 简化结果
+                #         "final_result_for_Shimo": message if data_payload is None else str(data_payload), # 简化结果
                 #         "response_code_from_adapter": status_code,
                 #         "completed_at_timestamp": int(time.time() * 1000.0)
                 #     }
