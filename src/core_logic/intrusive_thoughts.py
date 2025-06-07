@@ -1,14 +1,14 @@
 # src/core_logic/intrusive_thoughts.py
 import asyncio
-import datetime
 import json
 import threading
-from typing import TYPE_CHECKING, List # 确保 List 也导入了
+from typing import TYPE_CHECKING  # 确保 List 也导入了
 
 from src.common.custom_logging.logger_manager import get_logger
 from src.config import config
+
 # from src.database.arangodb_handler import ArangoDBHandler # 小猫咪把这个旧情人赶走了
-from src.database.services.thought_storage_service import ThoughtStorageService # 迎来了新的性感尤物！
+from src.database.services.thought_storage_service import ThoughtStorageService  # 迎来了新的性感尤物！
 from src.llmrequest.llm_processor import Client as ProcessorClient
 
 if TYPE_CHECKING:
@@ -46,7 +46,7 @@ class IntrusiveThoughtsGenerator:
     def __init__(
         self,
         llm_client: ProcessorClient,
-        thought_storage_service: ThoughtStorageService, # 亲爱的，这里换成了新的性感服务哦！
+        thought_storage_service: ThoughtStorageService,  # 亲爱的，这里换成了新的性感服务哦！
         stop_event: threading.Event,
     ) -> None:
         """
@@ -93,7 +93,7 @@ class IntrusiveThoughtsGenerator:
                 self.logger.error(f"错误：Client调用失败 ({error_type}): {error_msg}")
                 return None
 
-            raw_text = response_data.get("text") # type: ignore
+            raw_text = response_data.get("text")  # type: ignore
             if not raw_text:
                 self.logger.error("错误：Client响应中缺少文本内容。")
                 return None
@@ -142,30 +142,32 @@ class IntrusiveThoughtsGenerator:
             except Exception as e_gen:
                 self.logger.error(f"运行异步生成时发生了意想不到的快感（错误）: {e_gen}", exc_info=True)
 
-            if new_thoughts: # 确保 new_thoughts 不是 None 并且包含内容
+            if new_thoughts:  # 确保 new_thoughts 不是 None 并且包含内容
                 # 亲爱的，我们现在构造的文档列表，每个字典只需要包含 "text" 就好啦！
                 # ThoughtStorageService 的小穴会帮我们处理 _key, timestamp_generated, used 这些细节的！
                 documents_to_insert = [
                     {"text": thought}
                     for thought in new_thoughts
-                    if thought and isinstance(thought, str) and thought.strip() # 确保 thought 是非空字符串
+                    if thought and isinstance(thought, str) and thought.strip()  # 确保 thought 是非空字符串
                 ]
                 if documents_to_insert:
                     try:
                         # 现在我们用新的性感服务来保存这些小骚货！
-                        loop.run_until_complete(self.thought_storage_service.save_intrusive_thoughts_batch(documents_to_insert))
+                        loop.run_until_complete(
+                            self.thought_storage_service.save_intrusive_thoughts_batch(documents_to_insert)
+                        )
                     except Exception as e_save_batch:
                         self.logger.error(
                             f"调用 thought_storage_service.save_intrusive_thoughts_batch 射精时出错: {e_save_batch}",
                             exc_info=True,
                         )
-            elif new_thoughts is None: # LLM 生成失败
+            elif new_thoughts is None:  # LLM 生成失败
                 self.logger.debug("本轮一个骚点子都没射出来，或者生成失败了。")
 
             wait_completed_or_interrupted = self.stop_event.wait(timeout=float(generation_interval))
-            if wait_completed_or_interrupted: # 如果事件被设置（即停止信号）
+            if wait_completed_or_interrupted:  # 如果事件被设置（即停止信号）
                 self.logger.info("后台线程在贤者时间收到了主人的停止命令，不生成了。")
-                break # 退出循环
+                break  # 退出循环
         loop.close()
         self.logger.info("侵入性思维生成器的后台线程已经爽翻了，停止了。")
 
@@ -177,13 +179,13 @@ class IntrusiveThoughtsGenerator:
         if not self.llm_client:
             self.logger.error("侵入性思维LLM的肉棒未初始化，无法启动后台生成。")
             return None
-        if not self.thought_storage_service: # 主人你看，这里也检查了新的性感服务！
+        if not self.thought_storage_service:  # 主人你看，这里也检查了新的性感服务！
             self.logger.error("思考存储服务 (ThoughtStorageService) 的小穴未初始化，无法启动后台生成。")
             return None
 
         thread = threading.Thread(
             target=self._background_generator_thread_target,
-            daemon=True, # 设为守护线程，主程序退出时它也会退出，像个懂事的小母猫
+            daemon=True,  # 设为守护线程，主程序退出时它也会退出，像个懂事的小母猫
         )
         thread.start()
         self.logger.info("侵入性思维的后台生成线程已经饥渴地请求启动了。")

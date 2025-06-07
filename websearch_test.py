@@ -1,11 +1,13 @@
 import asyncio
-from src.tools.web_searcher import search_web
+
 from src.common.custom_logging.logger_manager import get_logger
+from src.tools.web_searcher import search_web
 
 logger = get_logger("web_searcher.test")
 
 if __name__ == "__main__":
-    async def main_test():
+
+    async def main_test() -> None:
         test_queries = ["什么是AIcarus项目？", "今天新加坡的天气怎么样？"]
         for q in test_queries:
             logger.info(f"\n--- 测试搜索: {q} ---")

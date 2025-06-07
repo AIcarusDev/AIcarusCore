@@ -3,18 +3,21 @@
 这个模块掌管着所有与配置文件相关的磁盘操作，
 比如悄悄地读取它们，温柔地保存它们，或者在需要的时候给它们一个备份的家。
 """
+
 import shutil
-import tomlkit  # 用来和 TOML 文件玩耍，还能保留注释和格式哦
 from datetime import datetime  # 生成时间戳，给备份文件一个独特的印记
 from pathlib import Path  # 面向对象的路径操作，让路径处理更优雅
 
+import tomlkit  # 用来和 TOML 文件玩耍，还能保留注释和格式哦
+
 from src.common.custom_logging.logger_manager import get_logger
+
 from .config_paths import (
-    TEMPLATE_DIR,
-    CONFIG_TEMPLATE_FILENAME,
-    RUNTIME_CONFIG_DIR,
     ACTUAL_CONFIG_FILENAME,
+    CONFIG_TEMPLATE_FILENAME,
     OLD_CONFIG_BACKUP_DIR,
+    RUNTIME_CONFIG_DIR,
+    TEMPLATE_DIR,
 )
 
 logger = get_logger("AIcarusCore.config_io")
@@ -65,7 +68,7 @@ class ConfigIOHandler:
             logger.warning(f"想加载的 TOML 文件 '{file_path}' 好像不见了...")
             return None
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 logger.debug(f"正在加载 TOML 文件: {file_path}")
                 data = tomlkit.load(f)
                 logger.info(f"TOML 文件 '{file_path}' 加载成功！")
@@ -115,18 +118,17 @@ class ConfigIOHandler:
         if not self.runtime_config_exists():
             logger.info(f"运行时配置文件 '{self.runtime_path}' 本来就不在，不用备份啦。")
             return None
-        
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         # 确保 runtime_filename 是纯文件名，不带路径
         base_filename = Path(self.runtime_filename).name
         backup_filename = f"{prefix}{base_filename}_{timestamp}.toml"
         backup_file_path = self.backup_dir / backup_filename
-        
+
         try:
-            shutil.move(str(self.runtime_path), str(backup_file_path)) # str() 确保兼容性
+            shutil.move(str(self.runtime_path), str(backup_file_path))  # str() 确保兼容性
             logger.info(f"已将运行时配置文件 '{self.runtime_path}' 备份到 '{backup_file_path}'。")
             return backup_file_path
         except Exception as e:
             logger.error(f"备份运行时配置文件 '{self.runtime_path}' 失败: {e}")
             return None
-

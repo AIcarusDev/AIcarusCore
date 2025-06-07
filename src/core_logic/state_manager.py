@@ -1,16 +1,18 @@
 # src/core_logic/state_manager.py
-from typing import Any, Dict, Tuple, Optional
+from typing import Any
 
-from src.database.services.thought_storage_service import ThoughtStorageService
 from src.common.custom_logging.logger_manager import get_logger
+from src.database.services.thought_storage_service import ThoughtStorageService
 
 logger = get_logger("AIcarusCore.StateManager")
+
 
 class AIStateManager:
     """
     管理AI的内心世界，烦死了，这么多内心戏。
     负责从数据库获取和处理AI的思考状态。
     """
+
     INITIAL_STATE: dict[str, Any] = {
         "mood": "你现在的心情大概是：平静。",
         "previous_thinking": "你的上一轮思考是：这是你的第一次思考，请开始吧。",
@@ -21,18 +23,20 @@ class AIStateManager:
         "recent_contextual_information": "最近未感知到任何特定信息或通知。",
     }
 
-    def __init__(self, thought_service: ThoughtStorageService):
+    def __init__(self, thought_service: ThoughtStorageService) -> None:
         """
         初始化需要一个 thought_storage_service 才能干活，哼。
         """
         self.thought_service = thought_service
 
-    async def get_current_state_for_prompt(self, formatted_recent_contextual_info: str) -> Tuple[Dict[str, Any], Optional[str]]:
+    async def get_current_state_for_prompt(
+        self, formatted_recent_contextual_info: str
+    ) -> tuple[dict[str, Any], str | None]:
         """
         从数据库获取最新的思考，处理一下，变成能直接喂给PromptBuilder的状态。
         这个方法就是把原来 CoreLogic._process_thought_and_action_state 的逻辑搬过来了。
         """
-        action_id_whose_result_is_being_shown: Optional[str] = None
+        action_id_whose_result_is_being_shown: str | None = None
         state_from_initial = self.INITIAL_STATE.copy()
 
         latest_thought_documents = await self.thought_service.get_latest_main_thought_document()
@@ -62,10 +66,13 @@ class AIStateManager:
                 else "随意发散一下吧。",
             )
             thinking_guidance_for_prompt = f"经过你上一轮的思考，你目前打算的思考方向是：{guidance_db}"
-            
-            actual_current_task_description = latest_thought_document.get("to_do_output", state_from_initial["current_task"])
-            if latest_thought_document.get("done_output", False) and \
-               actual_current_task_description == latest_thought_document.get("to_do_output"):
+
+            actual_current_task_description = latest_thought_document.get(
+                "to_do_output", state_from_initial["current_task"]
+            )
+            if latest_thought_document.get(
+                "done_output", False
+            ) and actual_current_task_description == latest_thought_document.get("to_do_output"):
                 actual_current_task_description = state_from_initial["current_task"]
 
         action_result_info_prompt = state_from_initial["action_result_info"]
@@ -76,17 +83,17 @@ class AIStateManager:
             action_status = last_action_attempt.get("status")
             action_description_prev = last_action_attempt.get("action_description", "某个之前的动作")
             action_id = last_action_attempt.get("action_id")
-            was_result_seen_by_llm = last_action_attempt.get("result_seen_by_Shimo", False)
+            was_result_seen_by_llm = last_action_attempt.get("result_seen_by_shimo", False)
             if action_status in ["COMPLETED_SUCCESS", "COMPLETED_FAILURE", "CRITICAL_FAILURE"]:
-                result_for_Shimo = last_action_attempt.get("final_result_for_Shimo")
-                if result_for_Shimo and not was_result_seen_by_llm:
-                    action_result_info_prompt = result_for_Shimo
+                result_for_shimo = last_action_attempt.get("final_result_for_shimo")
+                if result_for_shimo and not was_result_seen_by_llm:
+                    action_result_info_prompt = result_for_shimo
                     action_id_whose_result_is_being_shown = action_id
             elif action_status and action_status not in ["COMPLETED_SUCCESS", "COMPLETED_FAILURE", "CRITICAL_FAILURE"]:
                 pending_action_status_prompt = (
                     f"你目前有一个正在进行的动作：{action_description_prev} (状态：{action_status})"
                 )
-        
+
         current_state_for_prompt = {
             "mood": mood_for_prompt,
             "previous_thinking": previous_thinking_for_prompt,

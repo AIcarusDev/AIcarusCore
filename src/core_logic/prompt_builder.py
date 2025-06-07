@@ -1,17 +1,19 @@
 # src/core_logic/prompt_builder.py
-import re
-from typing import Any, Dict, Optional
 import json
+import re
+from typing import Any
 
-from src.config import config
 from src.common.custom_logging.logger_manager import get_logger
+from src.config import config
 
 logger = get_logger("AIcarusCore.PromptBuilder")
+
 
 class ThoughtPromptBuilder:
     """
     哼，专门负责构建思考时用的Prompt，别来烦我。
     """
+
     PROMPT_TEMPLATE: str = """{current_task_info}
 
 {action_result_info}
@@ -19,7 +21,7 @@ class ThoughtPromptBuilder:
 
 {recent_contextual_information}
 
-{master_chat_context} 
+{master_chat_context}
 
 {previous_thinking}；
 
@@ -51,7 +53,7 @@ class ThoughtPromptBuilder:
 请输出你的思考 JSON：
 """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """
         初始化 ThoughtPromptBuilder。
         直接使用全局配置，不创建额外的实例变量。
@@ -72,10 +74,7 @@ class ThoughtPromptBuilder:
         return "\\n".join(filter(None, system_prompt_parts))
 
     def build_user_prompt(
-        self,
-        current_state: Dict[str, Any],
-        master_chat_context_str: str,
-        intrusive_thought_str: str
+        self, current_state: dict[str, Any], master_chat_context_str: str, intrusive_thought_str: str
     ) -> str:
         """
         构建用户输入的Prompt，就是那个最长最臭的。
@@ -101,7 +100,7 @@ class ThoughtPromptBuilder:
         return prompt
 
     @staticmethod
-    def parse_llm_response(raw_response_text: str) -> Optional[Dict[str, Any]]:
+    def parse_llm_response(raw_response_text: str) -> dict[str, Any] | None:
         """
         一个更宽容的JSON解析器，哼，专门给不听话的LLM准备的。
         它会尝试找到被 ```json ... ``` 包裹的代码块，或者直接找第一个'{'和最后一个'}'。
@@ -117,15 +116,15 @@ class ThoughtPromptBuilder:
             json_str = match.group(1)
         else:
             # 如果没有，就粗暴地找到第一个 { 和最后一个 }
-            start_index = text_to_parse.find('{')
-            end_index = text_to_parse.rfind('}')
-            
+            start_index = text_to_parse.find("{")
+            end_index = text_to_parse.rfind("}")
+
             if start_index != -1 and end_index > start_index:
                 json_str = text_to_parse[start_index : end_index + 1]
             else:
                 logger.error(f"在LLM的响应中找不到有效的JSON对象结构。原始响应: {text_to_parse[:200]}...")
                 return None
-        
+
         try:
             # 尝试解析提取出来的JSON字符串
             return json.loads(json_str)

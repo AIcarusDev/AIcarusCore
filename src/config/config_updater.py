@@ -4,18 +4,20 @@
 # 版本检查、内容合并、环境变量替换，这些魔法都交给我吧！
 
 import os
-from pathlib import Path
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import tomlkit  # TOML 文件处理，我的好帮手！
 
 from src.common.custom_logging.logger_manager import get_logger
+
 from .config_io import ConfigIOHandler  # 从隔壁 config_io 借工具人 ConfigIOHandler
-from .config_paths import EXPECTED_CONFIG_VERSION # 版本号标准得听 config_paths 的
+from .config_paths import EXPECTED_CONFIG_VERSION  # 版本号标准得听 config_paths 的
 
 logger = get_logger("AIcarusCore.config_updater")
 
 # --- 配置合并与环境变量替换 ---
+
 
 def _merge_configs_recursive(
     target_config: dict[str, Any] | tomlkit.items.Table,
@@ -33,10 +35,10 @@ def _merge_configs_recursive(
                 and "version" in old_value
                 and "inner" in target_config
                 and isinstance(target_config.get("inner"), dict | tomlkit.items.Table)
-                and "version" in target_config["inner"] # type: ignore
+                and "version" in target_config["inner"]  # type: ignore
             ):
                 logger.debug(
-                    f"  合并提示：新配置将使用自己的版本号: {target_config['inner']['version']} (旧版本是: {old_value['version']})" # type: ignore
+                    f"  合并提示：新配置将使用自己的版本号: {target_config['inner']['version']} (旧版本是: {old_value['version']})"  # type: ignore
                 )
             continue  # 'inner' 表就到此为止，不继续往里钻了
 
@@ -62,7 +64,9 @@ def _merge_configs_recursive(
                     else:
                         # 其他简单类型（包括 None），直接用 tomlkit.item 处理
                         target_config[key] = tomlkit.item(old_value)
-                    logger.debug(f"  合并值: [{key}] = {str(old_value)[:50]}{'...' if len(str(old_value)) > 50 else ''}")
+                    logger.debug(
+                        f"  合并值: [{key}] = {str(old_value)[:50]}{'...' if len(str(old_value)) > 50 else ''}"
+                    )
                 except Exception as e:
                     logger.warning(
                         f"  合并警告：合并键 '{key}' 的值 '{str(old_value)[:50]}' 时遇到小麻烦: {e}。只好保留模板里的值啦。"
@@ -75,7 +79,7 @@ def _merge_configs_recursive(
             logger.debug(f"  合并提示：旧配置里的键 '{key}' 在新模板里失踪了，忽略它吧。")
 
 
-def substitute_env_vars_recursive( # 改为公开函数，因为 config_manager 可能也需要直接调用
+def substitute_env_vars_recursive(  # 改为公开函数，因为 config_manager 可能也需要直接调用
     config_node: dict[str, Any] | list[Any] | tomlkit.items.Table | tomlkit.items.Array,
 ) -> None:
     """
@@ -105,8 +109,9 @@ def substitute_env_vars_recursive( # 改为公开函数，因为 config_manager 
                                 processed_value = float(env_value)  # 再试试是不是小数
                             except ValueError:
                                 # 如果环境变量的值看起来像 TOML 列表或内联表，尝试用 tomlkit 解析
-                                if (env_value.startswith("[") and env_value.endswith("]")) or \
-                                   (env_value.startswith("{") and env_value.endswith("}")):
+                                if (env_value.startswith("[") and env_value.endswith("]")) or (
+                                    env_value.startswith("{") and env_value.endswith("}")
+                                ):
                                     try:
                                         # 偷偷构造一个临时的 TOML 片段来解析
                                         parsed_item = tomlkit.parse(f"temp_key = {env_value}")
@@ -154,12 +159,11 @@ def substitute_env_vars_recursive( # 改为公开函数，因为 config_manager 
                 # 列表项是嵌套结构？递归进去！
                 substitute_env_vars_recursive(item)
 
+
 # --- 核心配置更新检查逻辑 ---
 
-def perform_config_update_check(
-    io_handler: ConfigIOHandler,
-    prompt_user_and_exit_fn: Callable[[str], None]
-) -> bool:
+
+def perform_config_update_check(io_handler: ConfigIOHandler, prompt_user_and_exit_fn: Callable[[str], None]) -> bool:
     """
     执行配置文件的核心检查和更新流程。我可是专业的！
     返回一个布尔值，告诉你配置是不是刚刚新鲜出炉或者焕然一新了。
@@ -171,8 +175,8 @@ def perform_config_update_check(
     # 1. 模板文件是我们的生命线，必须存在！
     if not io_handler.template_exists():
         message = f"天哪！配置文件模板 '{io_handler.template_path}' 居然不见了！程序没法继续了，嘤嘤嘤..."
-        logger.critical(message) # 这是非常严重的问题！
-        raise FileNotFoundError(message) # 没有模板，直接罢工！
+        logger.critical(message)  # 这是非常严重的问题！
+        raise FileNotFoundError(message)  # 没有模板，直接罢工！
 
     # 2. 看看运行时配置文件在不在，或者是不是坏掉了
     if not io_handler.runtime_config_exists():
@@ -183,8 +187,8 @@ def perform_config_update_check(
         else:
             message = f"糟糕！从模板创建运行时配置文件 '{io_handler.runtime_path}' 失败了！快检查下权限和路径吧。"
             logger.critical(message)
-            prompt_user_and_exit_fn(message) # 告诉用户然后溜了
-        return config_was_created_or_updated # 返回 True，因为需要用户检查
+            prompt_user_and_exit_fn(message)  # 告诉用户然后溜了
+        return config_was_created_or_updated  # 返回 True，因为需要用户检查
 
     # 运行时配置文件存在，加载它看看
     logger.debug(f"发现现有的运行时配置文件: '{io_handler.runtime_path}'，让我瞅瞅里面写了啥。")
@@ -200,18 +204,20 @@ def perform_config_update_check(
             message = f"雪上加霜！从模板重新创建损坏的配置文件 '{io_handler.runtime_path}' 也失败了！"
             logger.critical(message)
             prompt_user_and_exit_fn(message)
-        return config_was_created_or_updated # 返回 True
+        return config_was_created_or_updated  # 返回 True
 
     # 3. 加载模板配置，准备比对版本号，看看是不是老古董了
     template_config = io_handler.load_toml_file(io_handler.template_path)
     if template_config is None:  # 模板文件这时候必须能读啊！
         message = f"致命错误！无法加载模板配置文件 '{io_handler.template_path}' 来比较版本！这不应该发生啊！"
         logger.critical(message)
-        raise RuntimeError(message) # 内部逻辑错误，直接抛异常
+        raise RuntimeError(message)  # 内部逻辑错误，直接抛异常
 
     # 获取版本号，要小心翼翼，万一没有呢
     current_template_version = str(template_config.get("inner", {}).get("version", EXPECTED_CONFIG_VERSION))
-    actual_runtime_version = str(actual_config.get("inner", {}).get("version", "未知版本")) # 如果没写版本，就当它是未知
+    actual_runtime_version = str(
+        actual_config.get("inner", {}).get("version", "未知版本")
+    )  # 如果没写版本，就当它是未知
 
     # 4. 版本大比拼！
     if actual_runtime_version == current_template_version:

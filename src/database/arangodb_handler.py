@@ -1,14 +1,16 @@
 # AICC/src/database/arangodb_handler.py
 # 修复 StandardCollection.update() got an unexpected keyword argument 'keep_null'
 # 并进行初步清理和注释规范化
-
+# Standard library imports
 import asyncio
 import datetime
 import os
 import time
 import uuid
-from typing import Any, List, Optional # Optional 已被使用
+from contextlib import suppress
+from typing import Any
 
+# Third-party imports
 from arango import ArangoClient
 from arango.collection import StandardCollection
 from arango.database import StandardDatabase
@@ -17,11 +19,14 @@ from arango.exceptions import (
     ArangoClientError,
     ArangoServerError,
     DocumentInsertError,
+    DocumentRevisionError,
     DocumentUpdateError,
-    DocumentRevisionError
 )
 
+# Local imports
 from src.common.custom_logging.logger_manager import get_logger
+from src.database.models import DatabaseConfig  # Assuming DatabaseConfig is defined in models.py
+
 # 假设 AttentionProfile 会在 models.py 中定义
 # from src.database.models import AttentionProfile # 未来重构时可能会用到
 
@@ -38,9 +43,9 @@ class ArangoDBHandler:
 
     THOUGHTS_COLLECTION_NAME = "thoughts_collection"
     INTRUSIVE_THOUGHTS_POOL_COLLECTION_NAME = "intrusive_thoughts_pool"
-    ACTION_LOGS_COLLECTION_NAME = "action_logs" # 目前在核心逻辑中似乎未直接使用，但保留
+    ACTION_LOGS_COLLECTION_NAME = "action_logs"  # 目前在核心逻辑中似乎未直接使用，但保留
     EVENTS_COLLECTION_NAME = "events"
-    CONVERSATIONS_COLLECTION_NAME = "conversations" # 存储会话信息及其注意力档案
+    CONVERSATIONS_COLLECTION_NAME = "conversations"  # 存储会话信息及其注意力档案
 
     # 暂时不启用的集合，注释掉以保持清晰
     # USERS_COLLECTION_NAME = "users"
@@ -53,8 +58,9 @@ class ArangoDBHandler:
         self.logger = get_logger(f"AIcarusCore.database.{self.__class__.__name__}")
         self.logger.info(f"ArangoDBHandler instance initialized with database '{db.name}'.")
 
-    @classmethod
-    async def create_from_config(cls, database_config_obj: Any) -> "ArangoDBHandler": # 修改参数名为 obj 以区分字典
+    async def create_from_config(
+        self, database_config_obj: "DatabaseConfig"
+    ) -> "ArangoDBHandler":  # 修改参数名为 obj 以区分字典
         """
         从配置对象 (通常是 dataclass 实例) 创建 ArangoDBHandler 实例。
         优先从配置对象读取，其次尝试环境变量。
@@ -71,10 +77,10 @@ class ArangoDBHandler:
             or getattr(database_config_obj, "arangodb_user", None)
             or os.getenv("ARANGODB_USER")
         )
-        password = ( #NOSONAR
+        password = (  # NOSONAR
             getattr(database_config_obj, "password", None)
-            or getattr(database_config_obj, "arangodb_password", None) #NOSONAR
-            or os.getenv("ARANGODB_PASSWORD") #NOSONAR
+            or getattr(database_config_obj, "arangodb_password", None)  # NOSONAR
+            or os.getenv("ARANGODB_PASSWORD")  # NOSONAR
         )
         database_name = (
             getattr(database_config_obj, "name", None)
@@ -83,10 +89,12 @@ class ArangoDBHandler:
             or os.getenv("ARANGODB_DATABASE")
         )
 
-        if not all([host, database_name]): # Username 和 password 可以为 None
+        if not all([host, database_name]):  # Username 和 password 可以为 None
             missing_params = []
-            if not host: missing_params.append("host/ARANGODB_HOST")
-            if not database_name: missing_params.append("database_name/ARANGODB_DATABASE")
+            if not host:
+                missing_params.append("host/ARANGODB_HOST")
+            if not database_name:
+                missing_params.append("database_name/ARANGODB_DATABASE")
             message = f"Error: Required ArangoDB connection parameters are not fully set. Missing: {', '.join(missing_params)}"
             module_logger.critical(message)
             raise ValueError(message)
@@ -106,10 +114,10 @@ class ArangoDBHandler:
             db_instance: StandardDatabase = await asyncio.to_thread(
                 client_instance.db, database_name, username=username, password=password
             )
-            await asyncio.to_thread(db_instance.properties) # Verify connection to the target database
+            await asyncio.to_thread(db_instance.properties)  # Verify connection to the target database
             module_logger.info(f"Successfully connected to ArangoDB! Host: {host}, Database: {database_name}")
 
-            handler_instance = cls(client_instance, db_instance)
+            handler_instance = ArangoDBHandler(client_instance, db_instance)
             await handler_instance._ensure_core_collections_exist()
             return handler_instance
 
@@ -117,7 +125,7 @@ class ArangoDBHandler:
             message = f"Error connecting to ArangoDB (Host: {host}, DB: {database_name}): {e}"
             module_logger.critical(message, exc_info=True)
             raise RuntimeError(message) from e
-        except Exception as e: # Catch-all for other unexpected errors
+        except Exception as e:  # Catch-all for other unexpected errors
             message = f"Unknown or permission error connecting to ArangoDB (Host: {host}, DB: {database_name}, User: {username}): {e}"
             module_logger.critical(message, exc_info=True)
             raise RuntimeError(message) from e
@@ -128,13 +136,14 @@ class ArangoDBHandler:
         从环境变量创建 ArangoDBHandler 实例。
         这是 create_from_config 的一个便捷包装，当配置直接来自环境变量时使用。
         """
+
         # 构造一个简单的对象或字典来模拟 database_config_obj，让 create_from_config 处理
         class EnvConfig:
             pass
+
         env_cfg = EnvConfig()
         # create_from_config 内部会处理 os.getenv 作为后备
         return await cls.create_from_config(env_cfg)
-
 
     async def _ensure_core_collections_exist(self) -> None:
         """Ensures that all core business logic collections exist."""
@@ -143,7 +152,7 @@ class ArangoDBHandler:
             self.INTRUSIVE_THOUGHTS_POOL_COLLECTION_NAME,
             self.ACTION_LOGS_COLLECTION_NAME,
             self.EVENTS_COLLECTION_NAME,
-            self.CONVERSATIONS_COLLECTION_NAME
+            self.CONVERSATIONS_COLLECTION_NAME,
         ]
         self.logger.info("Ensuring core collections exist...")
         for collection_name in core_collections:
@@ -154,7 +163,7 @@ class ArangoDBHandler:
         """
         Ensures a single collection exists, creates it if not, and applies specific indexes.
         """
-        collection: Optional[StandardCollection] = None
+        collection: StandardCollection | None = None
         if not await asyncio.to_thread(self.db.has_collection, collection_name):
             self.logger.info(f"Collection '{collection_name}' does not exist, creating...")
             collection = await asyncio.to_thread(self.db.create_collection, collection_name)
@@ -179,8 +188,8 @@ class ArangoDBHandler:
         indexes = [
             (["event_type", "timestamp"], False, False),
             (["platform", "bot_id", "timestamp"], False, False),
-            (["conversation_id_extracted", "timestamp"], False, False), # Assuming these are top-level extracted fields
-            (["user_id_extracted", "timestamp"], False, False),       # Assuming these are top-level extracted fields
+            (["conversation_id_extracted", "timestamp"], False, False),  # Assuming these are top-level extracted fields
+            (["user_id_extracted", "timestamp"], False, False),  # Assuming these are top-level extracted fields
             (["timestamp"], False, False),
         ]
         await self._apply_indexes_to_collection(collection, indexes)
@@ -189,11 +198,11 @@ class ArangoDBHandler:
         """Creates indexes for the Thoughts collection."""
         indexes = [
             (["timestamp"], False, False),
-            (["action_attempted.action_id"], True, True), # Sparse unique index on action_id if it exists
+            (["action_attempted.action_id"], True, True),  # Sparse unique index on action_id if it exists
         ]
         await self._apply_indexes_to_collection(collection, indexes)
 
-    async def _create_action_logs_indexes(self, collection: StandardCollection) -> None: # Kept for now
+    async def _create_action_logs_indexes(self, collection: StandardCollection) -> None:  # Kept for now
         """Creates indexes for the Action Logs collection."""
         indexes = [
             (["action_id"], True, False),
@@ -207,23 +216,29 @@ class ArangoDBHandler:
         indexes = [
             (["platform", "type"], False, False),
             (["updated_at"], False, False),
-            (["parent_id"], False, True), # parent_id can be null, so sparse is good
+            (["parent_id"], False, True),  # parent_id can be null, so sparse is good
             # Future: Indexes on attention_profile fields e.g., (["attention_profile.is_suspended_by_ai"], False, True)
         ]
         await self._apply_indexes_to_collection(collection, indexes)
 
-    async def _apply_indexes_to_collection(self, collection: StandardCollection, indexes_to_create: List[tuple[List[str], bool, bool]]) -> None:
+    async def _apply_indexes_to_collection(
+        self, collection: StandardCollection, indexes_to_create: list[tuple[list[str], bool, bool]]
+    ) -> None:
         """Helper to apply a list of index definitions to a collection."""
         collection_name = collection.name
         for fields, unique, sparse in indexes_to_create:
             try:
-                self.logger.debug(f"Applying index on '{collection_name}': fields={fields}, unique={unique}, sparse={sparse}")
+                self.logger.debug(
+                    f"Applying index on '{collection_name}': fields={fields}, unique={unique}, sparse={sparse}"
+                )
                 await asyncio.to_thread(
                     collection.add_persistent_index, fields=fields, unique=unique, sparse=sparse, in_background=True
                 )
             except Exception as e:
                 # It's common for this to fail if the index already exists, which is fine.
-                self.logger.warning(f"Failed to create index {fields} on '{collection_name}' (may already exist or config issue): {e}")
+                self.logger.warning(
+                    f"Failed to create index {fields} on '{collection_name}' (may already exist or config issue): {e}"
+                )
 
     def _get_default_attention_profile(self) -> dict:
         """
@@ -239,7 +254,7 @@ class ArangoDBHandler:
             "cooldown_until_timestamp": None,
             "is_suspended_by_ai": False,
             "suspension_reason": None,
-            "ai_custom_notes": "Newly discovered conversation. Profile awaiting initialization."
+            "ai_custom_notes": "Newly discovered conversation. Profile awaiting initialization.",
         }
 
     async def upsert_conversation_info(self, conversation_info_data: dict) -> str | None:
@@ -262,18 +277,17 @@ class ArangoDBHandler:
         current_time_ms = int(time.time() * 1000)
 
         data_for_db = conversation_info_data.copy()
-        data_for_db["_key"] = doc_key # Ensure _key is set for ArangoDB
+        data_for_db["_key"] = doc_key  # Ensure _key is set for ArangoDB
         data_for_db["updated_at"] = current_time_ms
 
-        existing_doc: Optional[dict] = None
-        try:
+        existing_doc: dict | None = None
+
+        with suppress(Exception):  # DocumentNotFoundError, etc.
             existing_doc = await asyncio.to_thread(collection.get, doc_key)
-        except Exception: # DocumentNotFoundError, etc.
-            pass # Will be handled as an insert
 
         if existing_doc:
             self.logger.debug(f"Conversation '{doc_key}' exists. Updating its profile.")
-            data_for_db["created_at"] = existing_doc.get("created_at", current_time_ms) # Preserve original created_at
+            data_for_db["created_at"] = existing_doc.get("created_at", current_time_ms)  # Preserve original created_at
 
             # Merge attention_profile: new data overrides, but if new is absent, keep old.
             existing_profile = existing_doc.get("attention_profile", {})
@@ -283,8 +297,8 @@ class ArangoDBHandler:
                 data_for_db["attention_profile"] = existing_profile
             elif isinstance(new_profile_in_data, dict):
                 data_for_db["attention_profile"] = {**existing_profile, **new_profile_in_data}
-            elif new_profile_in_data is None and not existing_profile :
-                 data_for_db["attention_profile"] = self._get_default_attention_profile()
+            elif new_profile_in_data is None and not existing_profile:
+                data_for_db["attention_profile"] = self._get_default_attention_profile()
             # else: new_profile_in_data might be an invalid type, current logic would use it or error.
 
             # Merge 'extra' field similarly
@@ -293,10 +307,9 @@ class ArangoDBHandler:
             if new_extra_in_data is None and isinstance(existing_extra, dict) and existing_extra:
                 data_for_db["extra"] = existing_extra
             elif isinstance(new_extra_in_data, dict):
-                 data_for_db["extra"] = {**existing_extra, **new_extra_in_data}
+                data_for_db["extra"] = {**existing_extra, **new_extra_in_data}
             elif new_extra_in_data is None and not existing_extra:
                 data_for_db["extra"] = {}
-
 
             try:
                 # Use collection.update(document) - it will use the _key from the document for matching.
@@ -308,32 +321,39 @@ class ArangoDBHandler:
                 self.logger.error(f"Failed to update conversation profile for '{doc_key}': {e}", exc_info=True)
                 return None
             except DocumentRevisionError as e_rev:
-                self.logger.warning(f"Revision conflict updating conversation '{doc_key}'. Retrying or specific strategy may be needed: {e_rev}")
+                self.logger.warning(
+                    f"Revision conflict updating conversation '{doc_key}'. Retrying or specific strategy may be needed: {e_rev}"
+                )
                 return None
         else:
             self.logger.debug(f"Conversation '{doc_key}' is new. Creating its profile.")
             data_for_db["created_at"] = current_time_ms
             if "attention_profile" not in data_for_db or data_for_db["attention_profile"] is None:
                 data_for_db["attention_profile"] = self._get_default_attention_profile()
-            if "extra" not in data_for_db or data_for_db["extra"] is None: # Ensure extra is at least an empty dict if not provided
+            if (
+                "extra" not in data_for_db or data_for_db["extra"] is None
+            ):  # Ensure extra is at least an empty dict if not provided
                 data_for_db["extra"] = {}
-
 
             try:
                 # insert will fail if _key already exists.
                 result = await asyncio.to_thread(collection.insert, data_for_db, overwrite=False)
                 if result and result.get("_key"):
-                    self.logger.info(f"New conversation profile for '{doc_key}' created successfully with ID: {result['_key']}")
+                    self.logger.info(
+                        f"New conversation profile for '{doc_key}' created successfully with ID: {result['_key']}"
+                    )
                     return result["_key"]
                 else:
                     self.logger.error(f"Failed to get _key after inserting new conversation profile for '{doc_key}'.")
                     return None
             except DocumentInsertError as e:
-                self.logger.error(f"Failed to insert new conversation profile for '{doc_key}' (it might have been created concurrently): {e}", exc_info=True)
+                self.logger.error(
+                    f"Failed to insert new conversation profile for '{doc_key}' (it might have been created concurrently): {e}",
+                    exc_info=True,
+                )
                 # Potentially attempt a get and update here if concurrent creation is likely
                 return None
         return None
-
 
     async def save_event_v14(self, event_data: dict) -> bool:
         """Saves a v1.4.0 protocol event to the database."""
@@ -344,43 +364,53 @@ class ArangoDBHandler:
                 event_data["event_id"] = str(uuid.uuid4())
             event_data["_key"] = str(event_data["event_id"])
 
-            if "timestamp" not in event_data or not isinstance(event_data["timestamp"], (int, float)):
-                 event_data["timestamp"] = time.time() * 1000.0
+            if "timestamp" not in event_data or not isinstance(event_data["timestamp"], int | float):
+                event_data["timestamp"] = time.time() * 1000.0
             event_data["timestamp"] = int(event_data["timestamp"])
-
 
             if "protocol_version" not in event_data:
                 event_data["protocol_version"] = "1.4.0"
 
             # Ensure user_info and conversation_info are dicts or None
-            for key_info in ["user_info", "conversation_info", "raw_data", "content"]: # content should be list of dicts
-                if key_info in event_data and not isinstance(event_data[key_info], (dict, list, type(None))): # Allow list for content
-                    self.logger.warning(f"Event field '{key_info}' is not a dict, list or None, it's {type(event_data[key_info])}. Converting to string for safety.")
+            for key_info in [
+                "user_info",
+                "conversation_info",
+                "raw_data",
+                "content",
+            ]:  # content should be list of dicts
+                if key_info in event_data and not isinstance(
+                    event_data[key_info], dict | list | type(None)
+                ):  # Allow list for content
+                    self.logger.warning(
+                        f"Event field '{key_info}' is not a dict, list or None, it's {type(event_data[key_info])}. Converting to string for safety."
+                    )
                     event_data[key_info] = str(event_data[key_info])
                 elif key_info == "content" and isinstance(event_data.get(key_info), list):
                     # Ensure all elements in content list are dicts (if it's supposed to be Seg dicts)
-                    event_data[key_info] = [item if isinstance(item, dict) else {"type": "unknown", "data_str": str(item)} for item in event_data[key_info]]
-
+                    event_data[key_info] = [
+                        item if isinstance(item, dict) else {"type": "unknown", "data_str": str(item)}
+                        for item in event_data[key_info]
+                    ]
 
             try:
                 result = await asyncio.to_thread(events_collection.insert, event_data, overwrite=False)
             except DocumentInsertError:
-                 self.logger.warning(f"Attempted to insert an already existing Event ID: {event_data['_key']}. Skipped.")
-                 return True # Considered success as data is present
+                self.logger.warning(f"Attempted to insert an already existing Event ID: {event_data['_key']}. Skipped.")
+                return True  # Considered success as data is present
 
             return bool(result and (result.get("_id") or result.get("_key")))
 
         except Exception as e:
-            event_id_log = event_data.get('event_id', event_data.get('_key', 'Unknown'))
+            event_id_log = event_data.get("event_id", event_data.get("_key", "Unknown"))
             self.logger.error(f"Failed to save event (ID: {event_id_log}): {e}", exc_info=True)
             return False
 
     async def get_recent_chat_messages_for_context(
-        self, duration_minutes: int = 10, conversation_id: Optional[str] = None, limit: int = 50
-    ) -> List[dict]:
+        self, duration_minutes: int = 10, conversation_id: str | None = None, limit: int = 50
+    ) -> list[dict]:
         """Fetches recent chat messages, directly from the Events collection."""
         try:
-            await self.ensure_collection_exists(self.EVENTS_COLLECTION_NAME) # Ensure collection and indexes
+            await self.ensure_collection_exists(self.EVENTS_COLLECTION_NAME)  # Ensure collection and indexes
 
             current_time_ms = int(time.time() * 1000.0)
             threshold_time_ms = current_time_ms - (duration_minutes * 60 * 1000)
@@ -404,10 +434,12 @@ class ArangoDBHandler:
             results = await self.execute_query(query, bind_vars)
             return results if results is not None else []
         except Exception as e:
-            self.logger.error(f"Failed to get recent chat messages for context (ConvID: {conversation_id}): {e}", exc_info=True)
+            self.logger.error(
+                f"Failed to get recent chat messages for context (ConvID: {conversation_id}): {e}", exc_info=True
+            )
             return []
 
-    async def get_latest_thought_document_raw(self, limit: int = 1) -> List[dict]:
+    async def get_latest_thought_document_raw(self, limit: int = 1) -> list[dict]:
         """Fetches the latest raw thought document(s)."""
         try:
             await self.ensure_collection_exists(self.THOUGHTS_COLLECTION_NAME)
@@ -428,28 +460,37 @@ class ArangoDBHandler:
         """Saves a thought document."""
         try:
             thoughts_collection = await self.ensure_collection_exists(self.THOUGHTS_COLLECTION_NAME)
-            if "timestamp" not in document: # Ensure timestamp
+            if "timestamp" not in document:  # Ensure timestamp
                 document["timestamp"] = datetime.datetime.now(datetime.UTC).isoformat()
-            if "_key" not in document: # Ensure _key for idempotency if desired, or let ArangoDB generate
-                 document["_key"] = str(uuid.uuid4())
+            if "_key" not in document:  # Ensure _key for idempotency if desired, or let ArangoDB generate
+                document["_key"] = str(uuid.uuid4())
 
-            result = await asyncio.to_thread(thoughts_collection.insert, document, overwrite=False) # overwrite=False if _key should be unique
+            result = await asyncio.to_thread(
+                thoughts_collection.insert, document, overwrite=False
+            )  # overwrite=False if _key should be unique
             if result and result.get("_key"):
                 return result["_key"]
             self.logger.error(f"Failed to get _key after inserting thought document: {result}")
             return None
         except DocumentInsertError as e:
-            self.logger.error(f"Failed to insert thought document (Key: {document.get('_key', 'N/A')}), it might already exist: {e}", exc_info=True)
-            return document.get('_key') # Return key if it failed due to existence
+            self.logger.error(
+                f"Failed to insert thought document (Key: {document.get('_key', 'N/A')}), it might already exist: {e}",
+                exc_info=True,
+            )
+            return document.get("_key")  # Return key if it failed due to existence
         except Exception as e:
-            self.logger.error(f"Failed to save thought document (Key: {document.get('_key', 'N/A')}): {e}", exc_info=True)
+            self.logger.error(
+                f"Failed to save thought document (Key: {document.get('_key', 'N/A')}): {e}", exc_info=True
+            )
             return None
 
-    async def save_intrusive_thoughts_batch(self, thoughts_list: List[Any]) -> bool: # thoughts_list can be List[str] or List[dict]
+    async def save_intrusive_thoughts_batch(
+        self, thoughts_list: list[Any]
+    ) -> bool:  # thoughts_list can be List[str] or List[dict]
         """Saves a batch of intrusive thoughts."""
         try:
             if not thoughts_list:
-                return True # No thoughts to save is a success in this context
+                return True  # No thoughts to save is a success in this context
 
             pool_collection = await self.ensure_collection_exists(self.INTRUSIVE_THOUGHTS_POOL_COLLECTION_NAME)
             documents_to_insert = []
@@ -462,13 +503,16 @@ class ArangoDBHandler:
                         "_key": str(uuid.uuid4()),
                         "text": item,
                         "timestamp_generated": current_time_iso,
-                        "used": False
+                        "used": False,
                     }
                 elif isinstance(item, dict):
                     doc = item.copy()
-                    if "_key" not in doc: doc["_key"] = str(uuid.uuid4())
-                    if "timestamp_generated" not in doc: doc["timestamp_generated"] = current_time_iso
-                    if "used" not in doc: doc["used"] = False # Ensure 'used' field
+                    if "_key" not in doc:
+                        doc["_key"] = str(uuid.uuid4())
+                    if "timestamp_generated" not in doc:
+                        doc["timestamp_generated"] = current_time_iso
+                    if "used" not in doc:
+                        doc["used"] = False  # Ensure 'used' field
                 else:
                     self.logger.warning(f"Skipping invalid item in intrusive_thoughts_list: {type(item)}")
                     continue
@@ -483,7 +527,9 @@ class ArangoDBHandler:
             success_count = sum(1 for r in results if not r.get("error"))
             if success_count < len(documents_to_insert):
                 errors = [r.get("errorMessage") for r in results if r.get("error")]
-                self.logger.warning(f"Batch save intrusive thoughts: {success_count}/{len(documents_to_insert)} succeeded. Errors (first 3): {errors[:3]}")
+                self.logger.warning(
+                    f"Batch save intrusive thoughts: {success_count}/{len(documents_to_insert)} succeeded. Errors (first 3): {errors[:3]}"
+                )
             else:
                 self.logger.info(f"Successfully batch saved {success_count} intrusive thoughts.")
             return success_count > 0
@@ -494,11 +540,11 @@ class ArangoDBHandler:
     async def get_random_intrusive_thought(self) -> dict | None:
         """Gets a random, unused intrusive thought."""
         try:
-            pool_collection = await self.ensure_collection_exists(self.INTRUSIVE_THOUGHTS_POOL_COLLECTION_NAME)
+            _pool_collection = await self.ensure_collection_exists(self.INTRUSIVE_THOUGHTS_POOL_COLLECTION_NAME)
             # Check if there are any unused thoughts first to avoid error on empty set for RAND()
             count_query = f"RETURN LENGTH(FOR doc IN {self.INTRUSIVE_THOUGHTS_POOL_COLLECTION_NAME} FILTER doc.used == false LIMIT 1 RETURN 1)"
             count_res = await self.execute_query(count_query)
-            if not count_res or count_res[0] == 0: # No unused thoughts
+            if not count_res or count_res[0] == 0:  # No unused thoughts
                 self.logger.info("No unused intrusive thoughts available to fetch randomly.")
                 return None
 
@@ -542,7 +588,7 @@ class ArangoDBHandler:
         doc_key: str,
         action_id: str,
         status_update: dict[str, Any],
-        expected_conditions: Optional[dict[str, Any]] = None, # Not used in this simplified version
+        expected_conditions: dict[str, Any] | None = None,  # Not used in this simplified version
     ) -> bool:
         """Updates the status of a specific action within a thought document."""
         if not doc_key or not action_id:
@@ -570,7 +616,9 @@ class ArangoDBHandler:
             self.logger.info(f"Action '{action_id}' status in document '{doc_key}' updated with: {status_update}")
             return True
         except Exception as e:
-            self.logger.error(f"Failed to update action status for action '{action_id}' in doc '{doc_key}': {e}", exc_info=True)
+            self.logger.error(
+                f"Failed to update action status for action '{action_id}' in doc '{doc_key}': {e}", exc_info=True
+            )
             return False
 
     async def save_raw_chat_message(self, message_data: dict) -> bool:
@@ -581,29 +629,24 @@ class ArangoDBHandler:
         self.logger.warning("Usage of save_raw_chat_message is deprecated. Convert to Event object upstream.")
         try:
             event_id = str(message_data.get("message_id", uuid.uuid4()))
-            msg_type = message_data.get("message_type", "unknown") # e.g. group, private
+            msg_type = message_data.get("message_type", "unknown")  # e.g. group, private
 
             event_type_map = {
                 "group": f"message.group.{message_data.get('sub_type', 'normal')}",
                 "private": f"message.private.{message_data.get('sub_type', 'friend')}",
-                "channel": f"message.channel.{message_data.get('sub_type', 'normal')}", # Example
+                "channel": f"message.channel.{message_data.get('sub_type', 'normal')}",  # Example
             }
             event_type = event_type_map.get(msg_type, f"message.{msg_type}.unknown")
 
-            ts = message_data.get("time", time.time()) # Assume seconds if 'time'
-            if ts > 1e12: # Likely already milliseconds
-                timestamp_ms = int(ts)
-            else: # Convert seconds to milliseconds
-                timestamp_ms = int(ts * 1000.0)
+            ts = message_data.get("time", time.time())  # Assume seconds if 'time'
+            timestamp_ms = int(ts) if ts > 1000000000000.0 else int(ts * 1000.0)  # Convert based on threshold
 
-
-            content_list: List[dict] = []
+            content_list: list[dict] = []
             raw_message_content = message_data.get("message", message_data.get("raw_message", ""))
             if isinstance(raw_message_content, str):
                 content_list.append({"type": "text", "data": {"text": raw_message_content}})
-            elif isinstance(raw_message_content, list): # Assume it's already a list of Seg dicts
+            elif isinstance(raw_message_content, list):  # Assume it's already a list of Seg dicts
                 content_list = [seg for seg in raw_message_content if isinstance(seg, dict)]
-
 
             user_info_dict = None
             sender_data = message_data.get("sender")
@@ -613,24 +656,22 @@ class ArangoDBHandler:
                     "user_nickname": sender_data.get("nickname"),
                     "user_cardname": sender_data.get("card"),
                 }
-            elif message_data.get("user_id"): # Fallback
-                 user_info_dict = {"user_id": str(message_data.get("user_id"))}
-
+            elif message_data.get("user_id"):  # Fallback
+                user_info_dict = {"user_id": str(message_data.get("user_id"))}
 
             conv_info_dict = None
             if message_data.get("group_id"):
                 conv_info_dict = {
                     "conversation_id": str(message_data.get("group_id")),
-                    "type": "group", # Or map from message_type
-                    "name": message_data.get("group_name")
+                    "type": "group",  # Or map from message_type
+                    "name": message_data.get("group_name"),
                 }
             elif msg_type == "private" and user_info_dict and user_info_dict.get("user_id"):
                 conv_info_dict = {
-                    "conversation_id": user_info_dict["user_id"], # For DMs, conv_id is often user_id
+                    "conversation_id": user_info_dict["user_id"],  # For DMs, conv_id is often user_id
                     "type": "private",
-                     "name": user_info_dict.get("user_nickname")
+                    "name": user_info_dict.get("user_nickname"),
                 }
-
 
             event_data_to_save = {
                 "event_id": event_id,
@@ -641,18 +682,20 @@ class ArangoDBHandler:
                 "content": content_list,
                 "user_info": user_info_dict,
                 "conversation_info": conv_info_dict,
-                "protocol_version": "from_raw_chat_message_v0", # Indicate source
-                "raw_data": message_data, # Store original message for debugging
+                "protocol_version": "from_raw_chat_message_v0",  # Indicate source
+                "raw_data": message_data,  # Store original message for debugging
                 # Ensure extracted fields for querying are present
                 "user_id_extracted": user_info_dict.get("user_id") if user_info_dict else None,
                 "conversation_id_extracted": conv_info_dict.get("conversation_id") if conv_info_dict else None,
             }
             return await self.save_event_v14(event_data_to_save)
         except Exception as e:
-            self.logger.error(f"Failed to save raw chat message due to conversion error or DB error: {e}", exc_info=True)
+            self.logger.error(
+                f"Failed to save raw chat message due to conversion error or DB error: {e}", exc_info=True
+            )
             return False
 
-    async def execute_query(self, query: str, bind_vars: Optional[dict[str, Any]] = None) -> Optional[List[dict]]:
+    async def execute_query(self, query: str, bind_vars: dict[str, Any] | None = None) -> list[dict] | None:
         """Executes an AQL query and returns a list of results, or None on error."""
         try:
             final_bind_vars = bind_vars or {}
@@ -671,7 +714,8 @@ class ArangoDBHandler:
         except AQLQueryExecuteError as e:
             self.logger.error(f"AQL query execution failed. Error: {e.errors()}")
             self.logger.error(f"Failed AQL Query: {query}")
-            if bind_vars: self.logger.error(f"Failed AQL Bind Vars: {bind_vars}")
+            if bind_vars:
+                self.logger.error(f"Failed AQL Bind Vars: {bind_vars}")
             return None
         except Exception as e:
             self.logger.error(f"An unexpected error occurred during AQL query execution: {e}", exc_info=True)
@@ -688,7 +732,7 @@ class ArangoDBHandler:
             except Exception as e:
                 self.logger.error(f"Error closing ArangoDB client: {e}", exc_info=True)
             finally:
-                self.client = None # type: ignore # Mark as closed
-                self.db = None # type: ignore
+                self.client = None  # type: ignore # Mark as closed
+                self.db = None  # type: ignore
         else:
             self.logger.info("ArangoDB client was not initialized or already closed.")

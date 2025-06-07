@@ -1,5 +1,4 @@
 from dataclasses import dataclass, field
-from typing import Any, Optional, Dict, List # 确保导入所有需要的类型
 
 # 导入 ConfigBase
 from .config_base import ConfigBase
@@ -10,7 +9,7 @@ class PersonaSettings(ConfigBase):
     """定义 AI 机器人的人格设置。
     包括名称、描述和个人资料信息。
     """
-    
+
     bot_name: str = "霜"
     """AI 机器人的名称。"""
 
@@ -26,7 +25,7 @@ class LLMClientSettings(ConfigBase):
     """定义 LLM 客户端的设置。
     包括 API 密钥、基础 URL、图像处理设置等。
     """
-    
+
     image_placeholder_tag: str = "[IMAGE_HERE]"
     """图像占位符标签，用于指示图像位置的占位符文本。"""
 
@@ -36,7 +35,7 @@ class LLMClientSettings(ConfigBase):
     enable_image_compression: bool = True
     """是否启用图像压缩。"""
 
-    image_compression_target_bytes: int = 1*1024*1024
+    image_compression_target_bytes: int = 1 * 1024 * 1024
     """图像压缩的目标大小（字节）。"""
 
     rate_limit_disable_duration_seconds: int = 1800
@@ -49,23 +48,23 @@ class ModelParams(ConfigBase):
     定义单个模型的参数。
     'provider' 字段至关重要，它决定了如何获取API密钥和基础URL。
     """
-    
+
     provider: str  # 例如 "gemini", "openai", "ollama"
     """模型提供者的名称，用于确定如何获取 API 密钥和基础 URL。"""
-    
+
     model_name: str
     """模型的名称，例如 "gemini-1.5-flash" 或 "gpt-4o"。"""
 
-    temperature: Optional[float] = None
+    temperature: float | None = None
     """控制生成文本的随机性，值越高，输出越多样化。"""
 
-    max_output_tokens: Optional[int] = None
+    max_output_tokens: int | None = None
     """生成文本的最大长度（以标记为单位）。"""
-    
-    top_p: Optional[float] = None
+
+    top_p: float | None = None
     """控制生成文本的多样性，使用 nucleus sampling 方法。"""
-    
-    top_k: Optional[int] = None
+
+    top_k: int | None = None
     """控制生成文本的多样性，使用 top-k sampling 方法。"""
 
 
@@ -76,20 +75,20 @@ class AllModelPurposesConfig(ConfigBase):
     每个字段代表一个AI任务，其值是该任务所使用的模型参数 (ModelParams)。
     这个类现在将直接作为 AlcarusRootConfig 的一个字段。
     """
-    
-    main_consciousness: Optional[ModelParams] = None
+
+    main_consciousness: ModelParams | None = None
     """主要意识模型，用于处理核心任务和对话。"""
-    
-    intrusive_thoughts: Optional[ModelParams] = None
+
+    intrusive_thoughts: ModelParams | None = None
     """侵入性思维模型，用于生成和处理侵入性思维。"""
 
-    action_decision: Optional[ModelParams] = None
+    action_decision: ModelParams | None = None
     """行动决策模型，用于生成和处理行动决策相关的思维。"""
 
-    information_summary: Optional[ModelParams] = None
+    information_summary: ModelParams | None = None
     """信息摘要模型，用于生成和处理信息摘要相关的思维。"""
 
-    embedding_default: Optional[ModelParams] = None
+    embedding_default: ModelParams | None = None
     """嵌入模型，用于生成和处理文本嵌入相关的思维。"""
     # 如果未来有其他任务，例如图像生成、语音识别等，可以在这里添加新的字段。
 
@@ -112,6 +111,7 @@ class CoreLogicSettings(ConfigBase):
     thinking_interval_seconds: int = 30
     """思考间隔时间（秒），用于控制 AI 的思考频率。"""
 
+
 @dataclass
 class IntrusiveThoughtsSettings(ConfigBase):
     """侵入性思维模块的设置，包括启用状态、生成间隔和插入概率。"""
@@ -124,6 +124,7 @@ class IntrusiveThoughtsSettings(ConfigBase):
 
     insertion_probability: float = 0.15
     """插入概率，用于控制侵入性思维的插入频率。"""
+
 
 @dataclass
 class LoggingSettings(ConfigBase):
@@ -156,6 +157,6 @@ class AlcarusRootConfig(ConfigBase):
     persona: PersonaSettings
     core_logic_settings: CoreLogicSettings
     intrusive_thoughts_module_settings: IntrusiveThoughtsSettings
-    llm_models: Optional[AllModelPurposesConfig] = field(default_factory=AllModelPurposesConfig)
+    llm_models: AllModelPurposesConfig | None = field(default_factory=AllModelPurposesConfig)
     logging: LoggingSettings = field(default_factory=LoggingSettings)
     server: ServerSettings = field(default_factory=ServerSettings)

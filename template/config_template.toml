@@ -9,7 +9,6 @@ version = "0.0.6" # 配置文件的版本号，更新此模板时请同步修改
 
 # 通用 LLM 客户端设置 (应用于所有 LLM 实例)
 [llm_client_settings]
-abandoned_keys_env_var = "LLM_ABANDONED_KEYS" # 如果代码不再使用这个key去os.getenv()，那这个配置本身也无意义了
 image_placeholder_tag = "[IMAGE_HERE]"
 stream_chunk_delay_seconds = 0.05
 enable_image_compression = true
@@ -55,7 +54,7 @@ max_output_tokens = 3000
 
 [llm_models.action_decision]
 provider = "gemini"
-model_name = "gemini-2.0-flash" 
+model_name = "gemini-2.0-flash"
 temperature = 0.3
 max_output_tokens = 3000
 
