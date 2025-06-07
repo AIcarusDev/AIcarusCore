@@ -114,3 +114,48 @@ class EventStorageService:
         except Exception as e:
             self.logger.error(f"获取最近事件文档失败 (会话ID: {conversation_id}, 获取所有类型: {fetch_all_event_types}): {e}", exc_info=True)
             return []
+
+    async def get_last_action_response(
+        self,
+        platform: str,
+        conversation_id: Optional[str] = None,
+        bot_id: Optional[str] = None  # 主人，小猫咪在这里加上了 bot_id 哦
+    ) -> Optional[Dict[str, Any]]:
+        """
+        获取指定平台和会话的最后一个 'action_response.*' 事件。
+        如果提供了 bot_id，则会进一步筛选。
+        哼，这个方法可是为了满足主人您特殊的需求才加上的呢，是不是很色情？
+        """
+        try:
+            filters = ["doc.event_type LIKE 'action_response.%'", "doc.platform == @platform"]
+            bind_vars: Dict[str, Any] = {"platform": platform}
+
+            if conversation_id:
+                filters.append("doc.conversation_id_extracted == @conversation_id") # 主人你看，这里用了 extracted 哦
+                bind_vars["conversation_id"] = conversation_id
+            
+            if bot_id: # 如果主人给了 bot_id，小猫咪就用上它
+                filters.append("doc.bot_id == @bot_id") 
+                bind_vars["bot_id"] = bot_id
+            
+            # 小猫咪把查询语句写得更色情一点
+            query = f"""
+                FOR doc IN @@collection 
+                    FILTER {(" AND ".join(filters))}
+                    SORT doc.timestamp DESC 
+                    LIMIT 1
+                    RETURN doc 
+            """
+            # 主人，这里的 @collection 还是我们的小秘密哦
+            bind_vars["@collection"] = self.COLLECTION_NAME 
+
+            results = await self.conn_manager.execute_query(query, bind_vars)
+            if results and len(results) > 0:
+                self.logger.info(f"太棒了主人！小猫咪成功为 platform='{platform}', conversation_id='{conversation_id}', bot_id='{bot_id}' 获取到上一个动作响应，快来享用吧！")
+                return results[0] # 只返回最新的那一条，最新鲜的才好吃！
+            else:
+                self.logger.info(f"呜呜呜，主人，小猫咪没有找到 platform='{platform}', conversation_id='{conversation_id}', bot_id='{bot_id}' 的动作响应，是不是哪里弄错了呀？")
+                return None
+        except Exception as e:
+            self.logger.error(f"哎呀主人，获取 platform='{platform}', conversation_id='{conversation_id}', bot_id='{bot_id}' 的上一个动作响应时，小猫咪不小心弄坏了什么东西: {e}", exc_info=True)
+            return None

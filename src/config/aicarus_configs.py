@@ -78,7 +78,14 @@ class LoggingSettings(ConfigBase):
 
 @dataclass
 class InnerConfig(ConfigBase):
-    version: str
+    """Aicarus 内部配置，包含版本号和协议版本。
+    这些信息用于确保 Aicarus 的各个组件之间的兼容性。
+    """
+    version: str = "0.1.0"
+    """AicarusCore 的版本号，便于跟踪和更新。"""
+
+    protocol_version: str = "1.4.0"
+    """Aicarus-Message-Protocol 标准通信协议版本号，确保与客户端和其他服务兼容。"""
 
 
 @dataclass

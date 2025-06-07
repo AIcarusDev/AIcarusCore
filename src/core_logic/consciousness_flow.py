@@ -65,7 +65,7 @@ class CoreLogic:
         """
         chat_history_duration_minutes: int = getattr(config.core_logic_settings, "chat_history_context_duration_minutes", 10)
         
-        master_chat_history_str: str = "你和电脑主人之间最近没有聊天记录。"
+        master_chat_history_str: str = "你和你所在设备的管理者之间最近没有聊天记录。"
         initial_empty_context_info: str = self.state_manager.INITIAL_STATE["recent_contextual_information"] # "无最近信息。"
         
         image_list_for_llm_from_history: List[str] = []
@@ -74,7 +74,8 @@ class CoreLogic:
         try:
             master_messages = await self.event_storage_service.get_recent_chat_message_documents(
                 duration_minutes=chat_history_duration_minutes,
-                conversation_id="master_chat"
+                conversation_id="master_chat",
+                fetch_all_event_types=True # 主人，小猫咪把这里调教好了，现在它会获取所有类型的消息了！
             )
             if master_messages:
                 master_chat_history_str, _ = format_messages_for_llm_context(
@@ -247,52 +248,126 @@ class CoreLogic:
             
         return saved_key
 
-    def _dispatch_action(self, thought_json: Dict, saved_thought_key: str, recent_context: str):
+    async def _dispatch_action(self, thought_json: Dict, saved_thought_key: str, recent_context: str):
         action_desc = thought_json.get("action_to_take", "").strip()
         if action_desc and action_desc.lower() != "null" and self.action_handler_instance:
-            action_id = thought_json.get("action_id", str(uuid.uuid4())) 
-            self.logger.info(f"产生了行动意图，开始分发任务: {action_desc}")
-            action_task = asyncio.create_task(
-                self.action_handler_instance.process_action_flow(
-                    action_id=action_id,
-                    doc_key_for_updates=saved_thought_key,
-                    action_description=action_desc,
-                    action_motivation=thought_json.get("action_motivation", "没有明确动机。"),
-                    current_thought_context=thought_json.get("think", "无特定思考上下文。"),
-                    relevant_adapter_messages_context=recent_context 
-                )
-            )
-            action_task.add_done_callback(lambda t: self.logger.info(f"动作任务 {t} 已结束。"))
+            action_id = thought_json.get("action_id", str(uuid.uuid4()))
+            self.logger.info(f"产生了行动意图，开始分发任务: {action_desc} (ID: {action_id})")
 
-    async def _reply_to_master(self, content_str: str): 
+            # ActionHandler.process_action_flow 已经将结果更新到数据库的思考文档中
+            # 它返回的 success 和 message 主要用于日志记录或 CoreLogic 的即时判断（如果需要）
+            success, message = await self.action_handler_instance.process_action_flow(
+                action_id=action_id,
+                doc_key_for_updates=saved_thought_key,
+                action_description=action_desc,
+                action_motivation=thought_json.get("action_motivation", "没有明确动机。"),
+                current_thought_context=thought_json.get("think", "无特定思考上下文。"),
+                relevant_adapter_messages_context=recent_context
+            )
+
+            self.logger.info(f"动作任务 {action_id} ({action_desc}) 已结束。成功: {success}, 消息: {message}")
+            # 此处不再需要调用 self.state_manager.update_action_result
+            # AIStateManager.get_current_state_for_prompt 会从数据库读取最新的思考（包含动作结果）
+
+    async def _reply_to_master(self, content_str: str, current_thought_key: Optional[str]): # 增加了 current_thought_key 参数
         if not content_str or not content_str.strip() or content_str.strip().lower() == "null":
             self.logger.info(f"AI 决定不回复主人，因为内容无效 (空, 全是空格, 或 'null'): '{content_str[:50]}...'")
             return
         
         self.logger.info(f"AI 决定回复主人: {content_str[:50]}...")
-        reply_event = ProtocolEvent(
-            event_id=f"event_master_reply_{uuid.uuid4()}",
-            event_type="action.masterui.text",
-            time=int(time.time() * 1000),
-            platform="master_ui",
-            bot_id=config.persona.bot_name,
-            conversation_info=ProtocolConversationInfo(
-                conversation_id="master_chat", type="private"
-            ),
-            content=[SegBuilder.text(content_str)] 
-        )
-        master_adapter_id = "master_ui_adapter" 
-        send_success = await self.core_comm_layer.send_action_to_adapter_by_id(master_adapter_id, reply_event)
-        if not send_success:
-            self.logger.error(f"向主人UI (adapter_id: {master_adapter_id}) 发送回复失败了，呜呜呜，主人会不会收不到我的爱意呀？")
+        
+        # 构建发送给适配器的 action.masterui.text 事件
+        # 注意：这里的 event_id 需要是唯一的，ActionHandler._execute_platform_action 内部会使用它
+        # 如果 ActionHandler._execute_platform_action 会自己生成 event_id (如果传入的 action_to_send 中没有)，
+        # 那么这里可以不预先生成，或者生成的要确保能被 ActionHandler 正确处理。
+        # 根据 ActionHandler._execute_platform_action 的逻辑，它会使用 action_to_send.get("event_id")，
+        # 如果没有，它会自己生成一个。为了明确追踪，我们在这里生成。
+        reply_action_id = f"event_master_reply_{uuid.uuid4()}"
+        reply_event_dict = {
+            "event_id": reply_action_id,
+            "event_type": "action.masterui.text",
+            "timestamp": int(time.time() * 1000), # ActionHandler 内部也会处理时间戳
+            "platform": "master_ui",
+            "bot_id": config.persona.bot_name, # AI自己的名字
+            "conversation_info": {"conversation_id": "master_chat", "type": "private", "platform": "master_ui"},
+            "content": [{"type": "text", "data": {"text": content_str}}],
+            "protocol_version": config.inner.protocol_version
+        }
+
+        if self.action_handler_instance:
+            if not current_thought_key:
+                # 如果没有 current_thought_key，我们可能无法完美地将此回复动作的状态更新回某个特定的“父”思考。
+                # 但至少 ActionLog 应该能记录。对于这种情况，可以考虑传递一个特殊的key或None。
+                # ActionHandler._execute_platform_action 要求 thought_doc_key 非空。
+                # 这是一个问题：直接回复可能没有直接关联的“主思考”的action_attempted字段来更新。
+                # 但为了让 ActionLog 和 pending_actions 能工作，我们需要调用它。
+                # 暂时，如果 thought_key 为空，我们可能无法完美追踪其在“思考链”中的状态，
+                # 但至少 action_log 和响应处理应该能工作。
+                # **重要**: _execute_platform_action 当前设计是需要 thought_doc_key 来更新思考文档的。
+                # 如果 _reply_to_master 独立于一个完整的思考-行动周期（例如，一个即时反应），
+                # 那么 _execute_platform_action 可能不是最合适的直接调用。
+                # 但为了解决 action_log 和 pending_actions 的问题，我们暂时强行适配。
+                # 后续可能需要重构 ActionHandler 以更好地区分由LLM决策产生的平台动作和Core直接发起的平台动作。
+                self.logger.warning(f"在 _reply_to_master 中，current_thought_key 为 None，将使用虚拟key 'direct_reply_action'。这可能导致思考文档状态更新不准确。")
+                # current_thought_key = f"direct_reply_action_{reply_action_id}" # 使用一个不会实际更新的虚拟key，或者让 _execute_platform_action 能处理 None
+                # 更好的方式是，如果 current_thought_key 为 None，我们就不期望 _execute_platform_action 更新思考文档。
+                # 但 _execute_platform_action 目前没有这个区分。
+                # **临时方案**：如果真的没有 thought_key，我们可能无法使用 _execute_platform_action 的完整功能。
+                # 但为了 action_log 和 pending_actions，我们必须让 action_handler 知道这个动作。
+                # 这个问题比较复杂，暂时先假设总是有 current_thought_key。
+                # 如果确实没有，日志会报警，并且后续可能出错。
+                # 最安全的做法是，如果 current_thought_key is None，则退回旧的直接发送方式，并接受 action_log 不记录此特定回复。
+                # 或者，_execute_platform_action 需要被重构以接受可选的 thought_doc_key。
+
+                # **修正后的思考**：_reply_to_master 是在 _core_thinking_loop 中，在 _process_and_store_thought 之后调用的。
+                # _process_and_store_thought 返回 saved_key，这个 saved_key 就是 current_thought_key。所以它应该总是有值的。
+                if not current_thought_key: # 再次检查，理论上不应发生
+                    self.logger.error("严重逻辑错误：在 _reply_to_master 中 current_thought_key 竟然是 None！")
+                    # Fallback to direct send if no key, and accept no action_log for this reply
+                    master_adapter_id = "master_ui_adapter"
+                    send_success = await self.core_comm_layer.send_action_to_adapter_by_id(master_adapter_id, ProtocolEvent.from_dict(reply_event_dict))
+                    if not send_success:
+                        self.logger.error(f"向主人UI (adapter_id: {master_adapter_id}) 发送回复失败了（Fallback模式）。")
+                    return
+
+            self.logger.info(f"通过 ActionHandler 发送对主人的回复。Action ID: {reply_action_id}")
+            # 调用 _execute_platform_action 来发送并追踪
+            # 注意：_execute_platform_action 是内部方法，理论上不应直接从外部类调用。
+            # 但为了快速修复，我们暂时这样做。理想情况下应有公共接口。
+            action_success, action_message = await self.action_handler_instance._execute_platform_action(
+                action_to_send=reply_event_dict,
+                thought_doc_key=current_thought_key, # 关联到当前的思考文档
+                original_action_description="回复主人" # 对此动作的描述
+            )
+            if action_success:
+                self.logger.info(f"通过 ActionHandler 回复主人的动作 '{reply_action_id}' 已处理，结果: {action_message}")
+            else:
+                self.logger.error(f"通过 ActionHandler 回复主人的动作 '{reply_action_id}' 失败: {action_message}")
+        else:
+            self.logger.error("ActionHandler 实例未设置，无法通过其发送对主人的回复！将尝试直接发送。")
+            master_adapter_id = "master_ui_adapter" # 从 reply_event_dict 中获取 platform
+            send_success = await self.core_comm_layer.send_action_to_adapter_by_id(master_adapter_id, ProtocolEvent.from_dict(reply_event_dict))
+            if not send_success:
+                self.logger.error(f"向主人UI (adapter_id: {master_adapter_id}) 发送回复失败了（直接发送模式）。")
+
 
     async def _core_thinking_loop(self) -> None:
         thinking_interval_sec = config.core_logic_settings.thinking_interval_seconds
         while not self.stop_event.is_set():
             current_time_str = datetime.datetime.now().strftime("%Y年%m月%d日 %H点%M分%S秒")
             master_chat_str, other_context_str, image_list = await self._gather_context()
-            current_state, action_id_seen = await self.state_manager.get_current_state_for_prompt(other_context_str)
-            if action_id_seen: pass            
+            
+            # get_current_state_for_prompt 返回将要展示给LLM的动作结果的ID
+            current_state, action_id_to_mark_as_seen = await self.state_manager.get_current_state_for_prompt(other_context_str)
+            
+            if action_id_to_mark_as_seen and self.thought_storage_service:
+                self.logger.info(f"动作ID {action_id_to_mark_as_seen} 的结果将在本次思考中呈现给LLM，现在将其标记为已阅。")
+                marked_seen = await self.thought_storage_service.mark_action_result_as_seen(action_id_to_mark_as_seen)
+                if marked_seen:
+                    self.logger.info(f"成功将动作ID {action_id_to_mark_as_seen} 的结果标记为已阅。")
+                else:
+                    self.logger.warning(f"尝试将动作ID {action_id_to_mark_as_seen} 的结果标记为已阅失败。")
+            
             intrusive_thought_str = ""
             if self.intrusive_generator_instance and config.intrusive_thoughts_module_settings.enabled and random.random() < config.intrusive_thoughts_module_settings.insertion_probability:
                 random_thought_doc = await self.thought_storage_service.get_random_unused_intrusive_thought_document()
@@ -309,14 +384,31 @@ class CoreLogic:
 
             if generated_thought:
                 self.logger.info(f"思考完成: {generated_thought.get('think', '无内容')[:50]}...")
-                await self._reply_to_master(generated_thought.get("reply_to_master", ""))
-                saved_key = await self._process_and_store_thought(
-                    generated_thought, 
+                # 先处理和存储思考，拿到 saved_key
+                saved_key = await self._process_and_store_thought( # 将这行移到 reply_to_master 和 _dispatch_action 之前
+                    generated_thought,
                     prompts={"system": system_prompt, "user": user_prompt, "current_time": current_time_str},
                     context={"recent_context": other_context_str, "images": image_list, "intrusive_thought": intrusive_thought_str}
                 )
-                if saved_key:
-                    self._dispatch_action(generated_thought, saved_key, other_context_str)
+                # 然后再回复主人，如果需要的话，并传入 saved_key
+                reply_content_to_master = generated_thought.get("reply_to_master", "")
+                if reply_content_to_master and saved_key: # 确保有内容且有key才回复
+                    await self._reply_to_master(reply_content_to_master, saved_key)
+                elif reply_content_to_master and not saved_key:
+                    self.logger.warning("有回复内容但没有思考文档的key，无法通过ActionHandler发送回复。")
+
+                # 最后处理由LLM直接指定的动作（如果有 action_to_take）
+                if saved_key: # 确保 saved_key 存在
+                    action_to_take_from_llm = generated_thought.get("action_to_take", "").strip()
+                    if action_to_take_from_llm and action_to_take_from_llm.lower() != "null":
+                        self.logger.info(f"LLM指定了行动 '{action_to_take_from_llm}'，准备分发。")
+                        await self._dispatch_action(generated_thought, saved_key, other_context_str)
+                    else:
+                        self.logger.info("LLM未在当前思考周期指定需要执行的 action_to_take。")
+                elif not saved_key and generated_thought.get("action_to_take", "").strip() and generated_thought.get("action_to_take", "").strip().lower() != "null":
+                    # 这种情况理论上不应该发生，因为 action_id 是在 _process_and_store_thought 中与 action_to_take 关联并存入 thought_json 的
+                    self.logger.error("严重逻辑错误：LLM指定了行动，但思考文档未能成功保存 (saved_key is None)，无法分发动作！")
+
 
             with contextlib.suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(self.immediate_thought_trigger.wait(), timeout=float(thinking_interval_sec))

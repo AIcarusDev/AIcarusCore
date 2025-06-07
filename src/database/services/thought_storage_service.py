@@ -340,3 +340,71 @@ class ThoughtStorageService:
         except Exception as e: # 捕获其他所有可能的错误，例如 DocumentNotFoundError (虽然前面已经用 has 检查了)
             self.logger.error(f"标记侵入性思维 '{thought_doc_key}' 为已使用时发生意外错误: {e}", exc_info=True)
             return False
+
+    async def mark_action_result_as_seen(self, action_id_to_mark: str) -> bool:
+        """
+        根据 action_id 找到对应的思考文档，并将其 action_attempted.result_seen_by_shuang 标记为 True。
+        """
+        if not action_id_to_mark:
+            self.logger.warning("需要一个有效的 action_id 才能将其结果标记为已阅。")
+            return False
+
+        self.logger.debug(f"尝试将 action_id '{action_id_to_mark}' 的结果标记为已阅。")
+
+        # 步骤1: 通过 action_id 查询文档的 _key
+        find_query = f"""
+            FOR doc IN @@collection
+                FILTER doc.action_attempted.action_id == @action_id
+                LIMIT 1
+                RETURN doc._key
+        """
+        bind_vars_find = {"@collection": self.MAIN_THOUGHTS_COLLECTION, "action_id": action_id_to_mark}
+        
+        try:
+            found_keys = await self.conn_manager.execute_query(find_query, bind_vars_find)
+        except Exception as e_query:
+            self.logger.error(f"查询 action_id '{action_id_to_mark}' 对应的文档key时出错: {e_query}", exc_info=True)
+            return False
+            
+        if not found_keys:
+            self.logger.warning(f"未找到 action_id 为 '{action_id_to_mark}' 的思考文档来标记结果为已阅。")
+            return False
+            
+        doc_key_to_update = found_keys[0]
+        self.logger.debug(f"找到文档key '{doc_key_to_update}' 对应 action_id '{action_id_to_mark}'。")
+
+        # 步骤2: 获取并更新文档
+        try:
+            collection = await self.conn_manager.get_collection(self.MAIN_THOUGHTS_COLLECTION)
+            # 使用 to_thread 执行同步的 get 方法
+            doc_to_update = await asyncio.to_thread(collection.get, doc_key_to_update)
+            
+            if not doc_to_update:
+                self.logger.error(f"获取文档key '{doc_key_to_update}' 失败，无法标记已阅。")
+                return False
+
+            action_attempted_current = doc_to_update.get("action_attempted")
+            if not isinstance(action_attempted_current, dict):
+                self.logger.error(f"文档 '{doc_key_to_update}' 中的 action_attempted 结构不正确，无法标记已阅。")
+                return False
+            
+            # 如果已经是 True，则无需更新，直接返回成功
+            if action_attempted_current.get("result_seen_by_shuang") is True:
+                self.logger.info(f"动作ID '{action_id_to_mark}' (文档key: {doc_key_to_update}) 的结果已经被标记为已阅，无需重复操作。")
+                return True
+
+            action_attempted_updated = action_attempted_current.copy()
+            action_attempted_updated["result_seen_by_shuang"] = True
+            
+            patch_for_db = {"action_attempted": action_attempted_updated}
+            
+            # 使用 to_thread 执行同步的 update 方法
+            await asyncio.to_thread(collection.update, {"_key": doc_key_to_update, **patch_for_db})
+            self.logger.info(f"已成功将文档 '{doc_key_to_update}' (action_id: {action_id_to_mark}) 的 action_attempted.result_seen_by_shuang 标记为 true。")
+            return True
+        except DocumentUpdateError as e_update:
+            self.logger.error(f"更新文档 '{doc_key_to_update}' (action_id: {action_id_to_mark}) 标记已阅时数据库操作失败: {e_update}", exc_info=True)
+            return False
+        except Exception as e_general:
+            self.logger.error(f"更新文档 '{doc_key_to_update}' (action_id: {action_id_to_mark}) 标记已阅时发生意外错误: {e_general}", exc_info=True)
+            return False
