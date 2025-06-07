@@ -260,12 +260,12 @@ def llm_configuration_sidebar() -> None: #
                     temp_root_cfg_for_llm = AlcarusRootConfig(
                         inner=copy.deepcopy(config.inner),
                         persona=copy.deepcopy(config.persona),
-                        proxy=copy.deepcopy(config.proxy),
+                        # proxy 字段已从 AlcarusRootConfig 中移除
                         llm_client_settings=copy.deepcopy(config.llm_client_settings),
                         core_logic_settings=copy.deepcopy(config.core_logic_settings),
                         intrusive_thoughts_module_settings=copy.deepcopy(config.intrusive_thoughts_module_settings),
                         llm_models=_llm_models_cfg,  # <-- 这里用UI组装的，好色哦！
-                        database=copy.deepcopy(config.database), # UI下面会再改这个
+                        # database 字段已从 AlcarusRootConfig 中移除
                         logging=copy.deepcopy(config.logging),
                         server=copy.deepcopy(config.server)
                     )
@@ -319,25 +319,31 @@ def llm_configuration_sidebar() -> None: #
                     
                     # 更新 CoreInitializer 实例中的数据库配置
                     # 我们直接在 core_initializer 持有的 root_cfg 上修改数据库部分，好直接，好粗暴！
-                    if st.session_state.core_initializer.root_cfg is None: # 双重保险
-                        st.error("CoreInitializer的root_cfg未初始化，无法设置数据库配置。")
-                        return
-
-                    st.session_state.core_initializer.root_cfg.database.host = db_host
-                    st.session_state.core_initializer.root_cfg.database.database_name = db_name
-                    st.session_state.core_initializer.root_cfg.database.username = db_user
-                    st.session_state.core_initializer.root_cfg.database.password = db_pass
+                    # 由于 root_cfg 上不再有 database 属性，我们需要将这些值传递给 _initialize_database_and_services
+                    # 或者让 _initialize_database_and_services 能够从其他地方（如环境变量或特定参数）获取这些值。
+                    # 暂时，我们假设 _initialize_database_and_services 会优先使用环境变量，
+                    # 并且UI上输入的这些值会通过设置环境变量的方式生效（如果用户希望UI输入优先）。
+                    # 或者，更理想的是修改 CoreSystemInitializer 以便能接受这些参数。
+                    # 这里我们先移除直接修改 root_cfg.database 的代码。
+                    # 用户在UI上输入的 db_host, db_name 等值，需要一种新的机制传递给数据库初始化逻辑。
+                    # 一个简单的方式是，在调用 _initialize_database_and_services 之前，将这些值设置为环境变量，
+                    # 这样 ArangoDBConnectionManager.create_from_config 就能读取到。
                     
+                    os.environ["ARANGODB_HOST"] = db_host
+                    os.environ["ARANGODB_DATABASE"] = db_name
+                    os.environ["ARANGODB_USER"] = db_user
+                    os.environ["ARANGODB_PASSWORD"] = db_pass
+                    logger.info(f"WebUI: 数据库连接参数已通过环境变量设置: HOST={db_host}, DB={db_name}, USER={db_user}")
+
                     try:
                         # 调用 CoreSystemInitializer 内部的数据库初始化方法
-                        # 这个方法会使用 self.root_cfg.database
-                        await st.session_state.core_initializer._initialize_database_and_services() # <-- 修改方法名
+                        # _initialize_database_and_services 现在应该能从环境变量读取这些值
+                        await st.session_state.core_initializer._initialize_database_and_services()
                         
                         # 如果成功，conn_manager 和其内部的 db 应该已经被设置在 core_initializer 实例上
-                        if st.session_state.core_initializer.conn_manager and st.session_state.core_initializer.conn_manager.db: # <-- 修改检查逻辑
-                            # st.session_state.storage_manager = st.session_state.core_initializer.db_handler # storage_manager不再单独使用
-                            st.session_state.storage_initialized = True #
-                            st.success("数据库连接成功！🎉 (通过 CoreSystemInitializer 的新方法)") #
+                        if st.session_state.core_initializer.conn_manager and st.session_state.core_initializer.conn_manager.db:
+                            st.session_state.storage_initialized = True
+                            st.success("数据库连接成功！🎉 (通过 CoreSystemInitializer 的新方法，并从环境变量读取UI输入)")
                             st.rerun() #  替换 st.experimental_rerun()
                         else:
                             st.error("数据库初始化后，CoreSystemInitializer.conn_manager 或其内部db为空！😿") # <-- 修改错误信息

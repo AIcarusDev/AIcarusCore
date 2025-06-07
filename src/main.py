@@ -76,22 +76,6 @@ class CoreSystemInitializer:
         """
         logger.info("开始根据新的扁平化配置结构初始化所有LLM客户端...")
         general_llm_settings_obj = config.llm_client_settings
-        proxy_settings_obj = config.proxy
-        final_proxy_host: Optional[str] = None
-        final_proxy_port: Optional[int] = None
-
-        # 解析代理设置 (与之前逻辑相同)
-        if proxy_settings_obj.use_proxy and proxy_settings_obj.http_proxy_url:
-            try:
-                parsed_url = urlparse(proxy_settings_obj.http_proxy_url)
-                final_proxy_host = parsed_url.hostname
-                final_proxy_port = parsed_url.port
-                if not final_proxy_host or not final_proxy_port:
-                    logger.warning(f"代理URL '{proxy_settings_obj.http_proxy_url}' 解析不完整，将不使用代理。")
-                    final_proxy_host, final_proxy_port = None, None
-            except Exception as e_parse_proxy:
-                logger.warning(f"解析代理URL '{proxy_settings_obj.http_proxy_url}' 失败: {e_parse_proxy}。将不使用代理。")
-                final_proxy_host, final_proxy_port = None, None
 
         # 解析废弃的API密钥配置 (与之前逻辑相同)
         resolved_abandoned_keys: Optional[List[str]] = None
@@ -144,8 +128,6 @@ class CoreSystemInitializer:
                     "enable_image_compression": general_llm_settings_obj.enable_image_compression,
                     "image_compression_target_bytes": general_llm_settings_obj.image_compression_target_bytes,
                     "rate_limit_disable_duration_seconds": general_llm_settings_obj.rate_limit_disable_duration_seconds,
-                    "proxy_host": final_proxy_host,
-                    "proxy_port": final_proxy_port,
                     "abandoned_keys_config": resolved_abandoned_keys,
                     **model_specific_kwargs,
                 }

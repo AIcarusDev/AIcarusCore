@@ -60,12 +60,6 @@ class ServerSettings(ConfigBase):
 
 
 @dataclass
-class ProxySettings(ConfigBase):
-    use_proxy: bool = False
-    http_proxy_url: Optional[str] = ""
-
-
-@dataclass
 class CoreLogicSettings(ConfigBase):
     thinking_interval_seconds: int = 30
 
@@ -83,14 +77,6 @@ class LoggingSettings(ConfigBase):
 
 
 @dataclass
-class DatabaseSettings(ConfigBase):
-    host: Optional[str] = None
-    database_name: Optional[str] = None
-    username: Optional[str] = None
-    password: Optional[str] = None
-
-
-@dataclass
 class InnerConfig(ConfigBase):
     version: str
 
@@ -100,7 +86,6 @@ class AlcarusRootConfig(ConfigBase):
     inner: InnerConfig
     llm_client_settings: LLMClientSettings
     persona: PersonaSettings
-    proxy: ProxySettings
     core_logic_settings: CoreLogicSettings
     intrusive_thoughts_module_settings: IntrusiveThoughtsSettings
     
@@ -109,6 +94,5 @@ class AlcarusRootConfig(ConfigBase):
     # 这里我们使用 llm_models 以示清晰
     llm_models: Optional[AllModelPurposesConfig] = field(default_factory=AllModelPurposesConfig)
     
-    database: Optional[DatabaseSettings] = field(default_factory=DatabaseSettings)
     logging: LoggingSettings = field(default_factory=LoggingSettings)
     server: ServerSettings = field(default_factory=ServerSettings)

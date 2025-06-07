@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 import os # 确保导入 os 模块以使用 getenv
 
 from src.common.custom_logging.logger_manager import get_logger
-from .aicarus_configs import AlcarusRootConfig, DatabaseSettings # 导入 DatabaseSettings 以便类型检查和实例化
+from .aicarus_configs import AlcarusRootConfig
 from .config_paths import PROJECT_ROOT, RUNTIME_CONFIG_DIR, ACTUAL_CONFIG_FILENAME
 from .config_io import ConfigIOHandler
 from .config_updater import perform_config_update_check, substitute_env_vars_recursive
@@ -91,49 +91,9 @@ def get_typed_settings() -> AlcarusRootConfig:
         # 并使用 dataclass 的 default_factory 创建默认实例。
         typed_config = AlcarusRootConfig.from_dict(config_dict)
         
-        # --- 强制从环境变量填充/覆盖数据库配置 ---
-        # 确保 typed_config.database 实例存在 (AlcarusRootConfig 的 default_factory 应该保证了)
-        if typed_config.database is None: # 理论上 default_factory 会创建它
-            typed_config.database = DatabaseSettings() # 以防万一
-
-        db_settings = typed_config.database
-        
-        # 从 .env 中我们知道环境变量名是 ARANGODB_HOST 等
-        # DatabaseSettings 中的字段名是 host, database_name, username, password
-        
-        env_db_host = os.getenv("ARANGODB_HOST")
-        if env_db_host: 
-            db_settings.host = env_db_host
-            logger.debug(f"数据库 host 已从环境变量 ARANGODB_HOST 更新/设置。")
-        elif not db_settings.host: 
-            logger.warning("数据库 host 未在配置文件或环境变量 ARANGODB_HOST 中找到。")
-
-        env_db_name = os.getenv("ARANGODB_DATABASE")
-        if env_db_name: 
-            db_settings.database_name = env_db_name
-            logger.debug(f"数据库 database_name 已从环境变量 ARANGODB_DATABASE 更新/设置。")
-        elif not db_settings.database_name:
-            logger.warning("数据库 database_name 未在配置文件或环境变量 ARANGODB_DATABASE 中找到。")
-        
-        env_db_user = os.getenv("ARANGODB_USER")
-        if env_db_user: 
-            db_settings.username = env_db_user
-            logger.debug(f"数据库 username 已从环境变量 ARANGODB_USER 更新/设置。")
-        
-        env_db_pass = os.getenv("ARANGODB_PASSWORD")
-        if env_db_pass: 
-            db_settings.password = env_db_pass
-            logger.debug(f"数据库 password 已从环境变量 ARANGODB_PASSWORD 更新/设置。")
-        
-        # 检查最终结果，如果关键信息仍然缺失，可以再发警告
-        if not db_settings.host or not db_settings.database_name or not db_settings.username: # password 允许为空（某些场景）
-             logger.warning(
-                "重要警告：数据库连接的关键信息 (host, database_name, 或 username) "
-                "在所有配置源（TOML及环境变量）中均未完全配置！数据库功能可能受限。"
-            )
 
         _loaded_typed_settings = typed_config
-        logger.info("配置已成功加载并转换为类型化对象 (已强制从环境变量更新数据库配置)")
+        logger.info("配置已成功加载并转换为类型化对象。数据库配置将由相应模块从环境变量直接读取。")
         return typed_config
     except Exception as e:
         logger.error(f"将配置字典转换为类型化对象或从环境变量更新时失败: {e}", exc_info=True)

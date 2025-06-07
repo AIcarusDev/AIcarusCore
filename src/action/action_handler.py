@@ -2,7 +2,7 @@
 import asyncio
 import json
 import os
-from typing import Any, List, Dict # 确保导入了 List 和 Dict
+from typing import Any, List, Dict, Optional # 确保导入了 List 和 Dict
 from urllib.parse import urlparse
 
 from src.common.custom_logging.logger_manager import get_logger
@@ -90,20 +90,17 @@ class ActionHandler:
                 return None
 
             general_llm_settings_obj = config.llm_client_settings
-            proxy_settings_obj = config.proxy
             
-            final_proxy_host: str | None = None
-            final_proxy_port: int | None = None
-            if proxy_settings_obj.use_proxy and proxy_settings_obj.http_proxy_url:
-                try:
-                    parsed_url = urlparse(proxy_settings_obj.http_proxy_url)
-                    final_proxy_host = parsed_url.hostname
-                    final_proxy_port = parsed_url.port
-                    if not final_proxy_host or final_proxy_port is None:
-                        final_proxy_host, final_proxy_port = None, None
-                except Exception:
-                    self.logger.warning(f"解析代理URL '{proxy_settings_obj.http_proxy_url}' 失败。")
-                    final_proxy_host, final_proxy_port = None, None
+            final_proxy_host: Optional[str] = os.getenv("HTTP_PROXY_HOST")
+            final_proxy_port_str: Optional[str] = os.getenv("HTTP_PROXY_PORT")
+            final_proxy_port: Optional[int] = None
+            if final_proxy_port_str and final_proxy_port_str.isdigit():
+                final_proxy_port = int(final_proxy_port_str)
+
+            if final_proxy_host and final_proxy_port:
+                self.logger.info(f"ActionHandler LLM客户端将尝试使用环境变量中的代理: {final_proxy_host}:{final_proxy_port}")
+            else:
+                self.logger.info("ActionHandler LLM客户端未在环境变量中检测到完整代理配置，将不使用代理。")
 
             model_for_client_constructor = {"provider": actual_provider_name_str.upper(), "name": actual_model_name_str}
             
