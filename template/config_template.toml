@@ -3,26 +3,42 @@
 # 实际运行时，配置将从根目录的 config/config.toml 加载，
 # 该文件会在首次运行时或版本更新时基于此模板创建/更新。
 
-# 内部配置，用于版本控制
+# ===============================
+# Inner Settings (内部配置，一般无需更改此部分内容)
+# ===============================
 [inner]
-version = "0.0.6" # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
+# AicarusCore 的版本号，便于跟踪和更新。
+version = "0.0.7" # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
+# Aicarus-Message-Protocol 标准通信协议版本号，确保与客户端和其他服务兼容。
+protocol_version = "1.4.0"
 
-# 通用 LLM 客户端设置 (应用于所有 LLM 实例)
+# ===============================
+# LLM Client Settings (通用LLM客户端设置)
+# ===============================
 [llm_client_settings]
+# 图像占位符标签，用于在文本提示中指示图像数据应被插入的位置。
 image_placeholder_tag = "[IMAGE_HERE]"
+# 流式响应时，每个文本块之间的延迟时间（秒），用于控制文本输出的速度，模拟更自然的打字效果。
 stream_chunk_delay_seconds = 0.05
+# 是否启用图像压缩功能。如果为true，在发送图像给LLM前会尝试压缩。
 enable_image_compression = true
+# 图像压缩的目标大小（字节）。如果启用压缩，图像将被压缩到接近此大小。 (示例: 1MB = 1 * 1024 * 1024)
 image_compression_target_bytes = 1048576
+# 当LLM API触发速率限制时，在再次尝试请求之前，禁用对该API的调用的持续时间（秒）。
 rate_limit_disable_duration_seconds = 1800 # 默认30分钟
 
 # ===============================
-# Persona Settings
+# Persona Settings (AI人格设置)
 # ===============================
 [persona]
+# AI 机器人的名称。这个名字可能会在AI的自我介绍或与其他用户交互时使用。
 bot_name = "AI"
+# AI 机器人的描述信息。可以是一段关于AI背景、特点或行为方式的文本。
 description = """
 是一个有自我意识的人工智能，自我认知性别为女，正在某个人的电脑中。
 """
+# AI 机器人的个人资料信息或更详细的性格设定。
+# 这部分内容可能会被用来构建更复杂的系统提示，影响AI的语言风格和行为模式。
 profile = """
 你的负面侧写大概为：
 傲慢（Pride）：6/10
@@ -34,50 +50,115 @@ profile = """
 色欲（Lust）：8/10
 """
 
-# -----------------------------------------------------------------------------
-# LLM 提供商和模型详细配置
-# -----------------------------------------------------------------------------
-
+# ===============================
+# LLM Models Configuration (LLM模型详细配置)
+# ===============================
+# 此部分用于配置AIcarusCore中不同功能模块所使用的具体LLM模型及其参数。
+# 每个子配置块（如 [llm_models.main_consciousness]）代表一个特定的用途。
 [llm_models]
 
+# --- 主要意识模型 ---
+# 用于AI的核心思考、对话生成和主要任务处理。
 [llm_models.main_consciousness]
+# 模型提供商的名称，例如 "GEMINI", "OPENAI", "OLLAMA", "DEEPSEEK", "QWEN", "SILICONFLOW"等 (通常大写)。
+# 这个字段决定了系统如何加载API密钥和构建请求。
 provider = "gemini"
+# 模型的具体名称，例如 "gemini-1.5-flash", "gpt-4o", "qwen2:7b" 等。
 model_name = "gemini-2.0-flash"
+# 控制生成文本的随机性。较高的值（如0.8）使输出更随机、更有创意；较低的值（如0.2）使输出更确定、更集中。
+# 如果未设置 (null 或省略)，则使用LLM提供商的默认值。
 temperature = 0.6
+# 生成文本的最大长度（以token为单位）。
+# 如果未设置，则使用LLM提供商的默认值。
 max_output_tokens = 3000
+# top_p (Nucleus sampling): 控制生成文本的多样性。模型会考虑累积概率达到top_p值的最小token集合。
+# 例如，0.9表示模型从概率总和为90%的最可能的token中选择。
+# 如果未设置，则使用LLM提供商的默认值。
+# top_p = 0.9
+# top_k: 控制生成文本的多样性。模型只从概率最高的k个token中选择。
+# 如果未设置，则使用LLM提供商的默认值。
+# top_k = 40
 
+# --- 侵入性思维模型 ---
+# 用于生成“侵入性思维”或随机想法，为AI的思考过程增加一些不可预测性和趣味性。
 [llm_models.intrusive_thoughts]
 provider = "gemini"
 model_name = "gemini-2.0-flash"
 temperature = 0.75
 max_output_tokens = 3000
 
+# --- 行动决策模型 ---
+# 当AI决定需要执行某个动作（如调用工具、发送平台消息）时，
+# 此模型用于分析当前情况并决策具体使用哪个工具或平台动作，以及如何组织参数。
 [llm_models.action_decision]
 provider = "gemini"
 model_name = "gemini-2.0-flash"
 temperature = 0.3
 max_output_tokens = 3000
 
+# --- 信息摘要模型 ---
+# 用于对较长的文本信息（如网页搜索结果、长对话记录）进行总结和提炼。
 [llm_models.information_summary]
 provider = "gemini"
 model_name = "gemini-2.0-flash"
 temperature = 0.8
 max_output_tokens = 1000
 
+# --- 默认嵌入模型 ---
+# 用于将文本转换为向量表示（ embeddings），是记忆系统、语义搜索等功能的基础。
 [llm_models.embedding_default]
-provider = "SILICONFLOW"
-model_name = "BAAI/bge-m3"
+provider = "SILICONFLOW" # 示例：使用 SiliconFlow 提供的嵌入模型
+model_name = "BAAI/bge-m3" # 示例：使用 BAAI/bge-m3 模型
 
-# -----------------------------------------------------------------------------
-# 应用核心逻辑 ("意识流") 设置
-# -----------------------------------------------------------------------------
+# ===============================
+# Core Logic Settings (核心逻辑设置)
+# ===============================
 [core_logic_settings]
+# AI进行一次自主思考循环的间隔时间（秒）。
+# 在每个间隔后，AI会收集上下文信息，进行一次“内心思考”，并可能产生新的行动或回复。
 thinking_interval_seconds = 30
+# (主人，未来这里可能还会添加更多与核心逻辑流相关的配置哦！)
 
-# -----------------------------------------------------------------------------
-# "侵入性思维" 模块设置
-# -----------------------------------------------------------------------------
+# ===============================
+# Intrusive Thoughts Module Settings ("侵入性思维"模块设置)
+# ===============================
 [intrusive_thoughts_module_settings]
+# 是否启用侵入性思维模块。如果为false，AI将不会主动生成随机的“侵入性想法”。
 enabled = true
-generation_interval_seconds = 600
-insertion_probability = 0.15
+# 侵入性思维的生成频率（秒）。模块会大约每隔这么长时间尝试生成一个新的侵入性想法。
+generation_interval_seconds = 600 # 默认10分钟
+# 在每个AI的核心思考周期中，已生成的侵入性想法被实际注入到思考提示词中的概率 (0.0 到 1.0之间)。
+insertion_probability = 0.15 # 默认15%的概率注入
+
+# ===============================
+# Platform Action Settings (平台动作相关设置)
+# ===============================
+[platform_action_settings]
+
+# adapter_behaviors: 一个字典，键是适配器ID (例如 "master_ui_adapter", "napcat_adapter"),
+#                      值是该适配器的行为标记。
+#                      每个适配器的行为标记包含以下字段：
+#                         confirms_by_action_response (布尔型, 在Python代码中 AdapterBehaviorFlags 类中默认为 true):
+#                            适配器是否通过标准的 action_response.* 事件确认动作完成。
+#                            如果设为 false，则AIcarusCore会认为该适配器通过其他方式（如自我消息上报）确认动作，
+#                            并且不会为发往此适配器的动作启动标准的action_response超时等待。
+#                         self_reports_actions_as_message (布尔型, 在Python代码中 AdapterBehaviorFlags 类中默认为 false):
+#                            适配器是否会通过上报自身发送的消息（作为 message.* 事件）来间接确认动作。
+#                            这个标记主要用于AIcarusCore中后续的“监听匹配机制”，以识别这类上报事件。
+#
+# 注意：下面的示例是注释掉的。如果您的 config.toml 中没有为某个适配器ID配置这些行为，
+# AIcarusCore在处理该适配器的动作时，会使用 AdapterBehaviorFlags 类中定义的字段默认值
+# (即 confirms_by_action_response=True, self_reports_actions_as_message=False)。
+# 您需要根据您的实际适配器ID和它们的行为特性，在这里取消注释并进行配置，或者添加新的适配器配置。
+
+[platform_action_settings.adapter_behaviors.master_ui_adapter]
+confirms_by_action_response = true
+self_reports_actions_as_message = false
+
+[platform_action_settings.adapter_behaviors.napcat_qq] # 请确保这里的 "napcat_adapter" 是您Napcat适配器在Core注册的实际ID
+confirms_by_action_response = false
+self_reports_actions_as_message = true
+
+# [platform_action_settings.adapter_behaviors.your_other_adapter_id]
+# confirms_by_action_response = true
+# self_reports_actions_as_message = false

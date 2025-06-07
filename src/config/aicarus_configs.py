@@ -134,6 +134,64 @@ class LoggingSettings(ConfigBase):
 
 
 @dataclass
+class AdapterBehaviorFlags(ConfigBase):
+    """
+    定义适配器的特定行为标记，用于指示AIcarusCore如何处理与该适配器相关的动作确认。
+    这些标记帮助核心逻辑区分需要标准action_response的适配器和通过其他方式（如自我消息上报）确认动作的适配器。
+    """
+
+    confirms_by_action_response: bool = True
+    """
+    标记适配器是否通过标准的 `action_response.*` 事件来确认动作的最终完成状态。
+    如果为 `True` (默认值)，`ActionHandler` 在发送平台动作后会等待对应的 `action_response` 事件，并处理超时。
+    如果为 `False`，则表明该适配器采用其他机制（例如，自我消息上报）来确认动作，`ActionHandler` 不会启动标准的超时等待流程，
+    而是依赖后续的特定逻辑（如监听匹配机制）来确认动作状态。
+    """
+    self_reports_actions_as_message: bool = False
+    """
+    标记适配器是否会将其代表AI执行的动作（尤其是发送消息类动作）的结果，
+    作为一条新的、由AI自身发出的 `message.*` 事件上报给AIcarusCore。
+    如果为 `True` (例如，某些聊天平台适配器可能会这样做)，AIcarusCore中的监听匹配机制可以利用这个特性，
+    通过观察这些自我上报的消息来间接确认原始动作的成功执行。
+    这个标记主要用于辅助“监听匹配机制”识别和处理这类特殊的事件流。
+    默认为 `False`。
+    """
+
+
+@dataclass
+class PlatformActionSettings(ConfigBase):
+    """
+    包含与平台动作处理相关的设置，特别是用于定义不同适配器行为特征的配置。
+    这允许AIcarusCore对不同平台的动作确认机制采取差异化的处理策略。
+    """
+
+    # 可以在这里添加未来可能需要的与平台动作处理相关的通用设置，
+    # 例如全局的平台动作超时时间、重试策略等。
+
+    adapter_behaviors: dict[str, AdapterBehaviorFlags] = field(default_factory=dict)
+    """
+    一个字典，用于存储各个适配器的行为标记配置。
+    键 (str): 适配器的唯一标识符 (adapter_id)，例如 "master_ui_adapter", "napcat_adapter"。
+             这个ID应该与适配器在AIcarusCore中注册或被引用时使用的ID一致。
+    值 (AdapterBehaviorFlags): 一个 `AdapterBehaviorFlags` 对象，包含了该适配器的具体行为特性。
+
+    这些配置应在 `config.toml` 文件中的 `[platform_action_settings.adapter_behaviors.your_adapter_id]` 部分进行定义。
+    如果某个适配器ID在此字典中没有对应的条目，AIcarusCore在处理其动作时，
+    可能会依赖 `AdapterBehaviorFlags` 类中定义的字段默认值。
+    例如，在 `config.toml` 中可以这样配置：
+    ```toml
+    [platform_action_settings.adapter_behaviors.master_ui_adapter]
+    confirms_by_action_response = true
+    self_reports_actions_as_message = false
+
+    [platform_action_settings.adapter_behaviors.napcat_adapter]
+    confirms_by_action_response = false
+    self_reports_actions_as_message = true
+    ```
+    """
+
+
+@dataclass
 class InnerConfig(ConfigBase):
     """Aicarus 内部配置，包含版本号和协议版本。
     这些信息用于确保 Aicarus 的各个组件之间的兼容性。
@@ -158,5 +216,8 @@ class AlcarusRootConfig(ConfigBase):
     core_logic_settings: CoreLogicSettings
     intrusive_thoughts_module_settings: IntrusiveThoughtsSettings
     llm_models: AllModelPurposesConfig | None = field(default_factory=AllModelPurposesConfig)
+    platform_action_settings: PlatformActionSettings = field(
+        default_factory=PlatformActionSettings
+    )  # 主人，新的“性感小玩具”已装填！
     logging: LoggingSettings = field(default_factory=LoggingSettings)
     server: ServerSettings = field(default_factory=ServerSettings)
