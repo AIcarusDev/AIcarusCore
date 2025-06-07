@@ -242,9 +242,7 @@ class ArangoDBConnectionManager:
                         continue
 
                 # 如果索引不存在或已被删除以待重建，则创建新索引
-                logger.debug(
-                    f"正在为集合 '{collection_name}' 应用索引: 字段={fields}, 唯一={unique}, 稀疏={sparse}"
-                )
+                logger.debug(f"正在为集合 '{collection_name}' 应用索引: 字段={fields}, 唯一={unique}, 稀疏={sparse}")
                 await asyncio.to_thread(
                     collection.add_persistent_index, fields=fields, unique=unique, sparse=sparse, in_background=True
                 )
