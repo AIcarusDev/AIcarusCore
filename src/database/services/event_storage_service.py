@@ -29,35 +29,42 @@ class EventStorageService:
         """
         将一个已预处理和格式化的事件文档（字典）保存到数据库。
         期望 `event_doc_data` 中包含 'event_id'，它将被用作文档的 '_key'。
+        会自动从 event_doc_data["conversation_info"]["conversation_id"] 提取并创建顶层字段 "conversation_id_extracted"。
         """
         if not event_doc_data or not isinstance(event_doc_data, dict):
             self.logger.warning("无效的 'event_doc_data' (空或非字典类型)。无法保存事件。")
             return False
         
-        # 确保 _key 和 event_id 存在且一致
         event_id = event_doc_data.get("event_id")
-        if not event_id: # 如果上层转换逻辑没有提供 event_id，则生成一个
+        if not event_id: 
             event_id = str(uuid.uuid4())
             event_doc_data["event_id"] = event_id
-        event_doc_data["_key"] = str(event_id) # _key 必须是字符串
+        event_doc_data["_key"] = str(event_id) 
 
-        # 确保时间戳是整数（毫秒）
-        ts = event_doc_data.get("timestamp", time.time() * 1000.0) # 如果没有，则使用当前时间
+        ts = event_doc_data.get("timestamp", time.time() * 1000.0) 
         event_doc_data["timestamp"] = int(ts)
 
-        # （可选）可以在此处添加对 event_doc_data 其他字段的校验或规范化
+        # --- 新增逻辑：提取 conversation_id 到顶层 ---
+        conversation_info = event_doc_data.get("conversation_info")
+        if isinstance(conversation_info, dict):
+            conv_id = conversation_info.get("conversation_id")
+            if isinstance(conv_id, str) and conv_id:
+                event_doc_data["conversation_id_extracted"] = conv_id
+                self.logger.debug(f"为事件 {event_id} 添加了 conversation_id_extracted: {conv_id}")
+            else:
+                # 对于没有有效 conversation_id 的情况，可以考虑不添加 extracted 字段，
+                # 或者添加一个默认值如 "UNKNOWN_CONVERSATION_ID" 以便查询时能区分
+                # 但通常这类事件可能不按 conversation_id 查询，所以不添加可能更好
+                self.logger.debug(f"事件 {event_id} 的 conversation_info 中缺少有效的 conversation_id，未提取。")
+        # else: 如果没有 conversation_info 字典，则不提取
 
         try:
-            # 获取集合实例 (内部会确保集合存在)
             collection = await self.conn_manager.get_collection(self.COLLECTION_NAME)
-            # 尝试插入，如果 _key 已存在则不覆盖 (overwrite=False)
             await asyncio.to_thread(collection.insert, event_doc_data, overwrite=False)
-            # self.logger.debug(f"事件文档 '{event_id}' 已成功保存。") # 日志可能过于频繁
             return True
         except DocumentInsertError:
-            # 如果文档由于 _key 已存在而插入失败，通常认为是数据已存在，可视为操作成功或警告
             self.logger.warning(f"尝试插入已存在的事件 Event ID: {event_id}。操作被跳过。")
-            return True # 已经存在，也算“成功”保存（或已保存）
+            return True 
         except Exception as e:
             self.logger.error(f"保存事件文档 '{event_id}' 失败: {e}", exc_info=True)
             return False
@@ -66,33 +73,33 @@ class EventStorageService:
         self,
         duration_minutes: int = 10,
         conversation_id: Optional[str] = None,
-        exclude_conversation_id: Optional[str] = None, # <-- 看这里，我加了个新参数，哼
+        exclude_conversation_id: Optional[str] = None,
         limit: int = 50,
+        fetch_all_event_types: bool = False 
     ) -> List[Dict[str, Any]]:
         """
-        获取最近的聊天消息文档。
-        注意：此方法返回的是数据库原始文档（字典列表）。
-        上层逻辑（如 CoreLogic）需要将这些文档转换为运行时对象（如 ProtocolEvent 或 DBEventDocument 实例）。
+        获取最近的事件文档。
+        默认 (fetch_all_event_types=False) 只获取聊天消息 (event_type LIKE 'message.%')。
+        当 fetch_all_event_types=True 时，获取所有类型的事件（仍受其他过滤器如conversation_id影响）。
         """
         try:
             current_time_ms = int(time.time() * 1000.0)
             threshold_time_ms = current_time_ms - (duration_minutes * 60 * 1000)
 
-            filters = ["doc.timestamp >= @threshold_time", "doc.event_type LIKE 'message.%'"]
+            filters = ["doc.timestamp >= @threshold_time"]
             bind_vars: Dict[str, Any] = {"threshold_time": threshold_time_ms, "limit": limit}
 
+            if not fetch_all_event_types:
+                filters.append("doc.event_type LIKE 'message.%'")
+
             if conversation_id:
-                # 这个是只捞取指定会话的
                 filters.append("doc.conversation_id_extracted == @conversation_id")
                 bind_vars["conversation_id"] = conversation_id
             
-            # ↓↓↓ 我加的新逻辑在这里 ↓↓↓
             if exclude_conversation_id:
-                # 这个是捞取时排除指定会话的，多体贴
                 filters.append("doc.conversation_id_extracted != @exclude_conversation_id")
                 bind_vars["exclude_conversation_id"] = exclude_conversation_id
             
-            # 使用 @@collection 将集合名称作为绑定变量传入，更安全
             query = f"""
                 FOR doc IN @@collection 
                     FILTER {(" AND ".join(filters))}
@@ -100,11 +107,10 @@ class EventStorageService:
                     LIMIT @limit
                     RETURN doc
             """
-            bind_vars["@collection"] = self.COLLECTION_NAME # 将集合名称绑定到查询
+            bind_vars["@collection"] = self.COLLECTION_NAME 
 
             results = await self.conn_manager.execute_query(query, bind_vars)
-            return results if results is not None else [] # execute_query 在错误时返回 None
+            return results if results is not None else [] 
         except Exception as e:
-            # 捕获execute_query可能未捕获的其他错误，或在准备阶段的错误
-            self.logger.error(f"获取最近聊天消息文档失败 (会话ID: {conversation_id}): {e}", exc_info=True)
+            self.logger.error(f"获取最近事件文档失败 (会话ID: {conversation_id}, 获取所有类型: {fetch_all_event_types}): {e}", exc_info=True)
             return []

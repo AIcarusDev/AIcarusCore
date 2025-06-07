@@ -304,11 +304,18 @@ class CoreSystemInitializer:
                 raise RuntimeError("DefaultMessageProcessor 或其 'process_event' 方法无效。")            # 从配置中获取WebSocket服务器的host和port
             ws_host = config.server.host
             ws_port = config.server.port
+
+            # 在创建 CoreWebsocketServer 之前，确保 event_storage_service 已经成功初始化
+            if not self.event_storage_service:
+                logger.critical("EventStorageService 未初始化，无法创建 CoreWebsocketServer！这通常不应该发生。")
+                raise RuntimeError("EventStorageService 未初始化，无法创建 CoreWebsocketServer。")
+
             self.core_comm_layer = CoreWebsocketServer(
                 host=ws_host,
                 port=ws_port,
-                event_handler_callback=event_handler_for_ws, # 设置回调
-                db_instance=self.conn_manager.db if self.conn_manager else None # (可选)传递数据库实例给通信层
+                event_handler_callback=event_handler_for_ws, 
+                event_storage_service=self.event_storage_service, # 把“事件记录小心心”塞给它！
+                db_instance=self.conn_manager.db if self.conn_manager else None 
             )
             logger.info(f"核心 WebSocket 通信层 (CoreWebsocketServer) 准备在 ws://{ws_host}:{ws_port} 上监听。")
             
