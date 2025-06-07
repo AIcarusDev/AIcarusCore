@@ -383,13 +383,14 @@ class ActionHandler:
         action_log_initial_status = "executing_awaiting_self_report" if not confirms_by_action_response else "executing"
 
         if self.action_log_service:
+            conversation_id = action_to_send.get("conversation_info", {}).get("conversation_id", "unknown_conv_id")
             await self.action_log_service.save_action_attempt(
                 action_id=core_action_id,
                 action_type=action_type,
                 timestamp=current_timestamp_ms,
                 platform=platform_id_from_event,
                 bot_id=action_to_send.get("bot_id", config.persona.bot_name),
-                conversation_id=action_to_send.get("conversation_info", {}).get("conversation_id", "unknown_conv_id"),
+                conversation_id=conversation_id,
                 content=action_to_send.get("content", []),
             )
             # 如果不是等待标准响应 (即 action_log_initial_status 不同于默认的 'executing')
@@ -443,9 +444,12 @@ class ActionHandler:
                         "event_id": notice_event_id,
                         "event_type": "system.notice",
                         "time": int(time.time() * 1000),
-                        "platform": "core",
+                        "platform": platform_id_from_event,
                         "bot_id": "AIcarusCore",
                         "content": [{"type": "text", "data": {"text": notice_content}}],
+                        "conversation_info": {
+                            "conversation_id": conversation_id if conversation_id else "system_notice",
+                        },
                     }
                     await self.event_storage_service.save_event_document(system_notice_event)
                     self.logger.info(f"已生成并保存 system.notice 事件 ({notice_event_id})，内容: {notice_content}")

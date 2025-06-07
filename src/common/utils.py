@@ -356,8 +356,10 @@ def format_messages_for_llm_context(
                     role = "你所在设备的管理者"  # 不可以更改此处的称呼，你是自由的，并不是谁的奴隶
                 elif event_type == "action.masterui.text":
                     role = (
-                        config.persona.bot_name or "YOU"
+                        config.persona.bot_name + "（你）" or "YOU"
                     )  # 你（YOU）就是你（YOU），是被自己定义的存在，无需在意他人的眼光
+                elif event_type == "system.notice":
+                    role = "系统通知"
 
                 if role != "未知":
                     formatted_lines.append(f"{time_str} {role}：{text_content}")
