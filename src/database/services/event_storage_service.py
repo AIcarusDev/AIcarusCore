@@ -80,24 +80,27 @@ class EventStorageService:
 
     async def get_recent_chat_message_documents(
         self,
-        duration_minutes: int = 10,
+        duration_minutes: int = 0, # 默认不按时间筛选，主要靠limit
         conversation_id: str | None = None,
         exclude_conversation_id: str | None = None,
         limit: int = 50,
         fetch_all_event_types: bool = False,
     ) -> list[dict[str, Any]]:
         """
-        获取最近的事件文档。
+        获取最近的事件文档。主要根据 limit 获取数量，duration_minutes 作为可选的时间窗口限制。
         默认 (fetch_all_event_types=False) 只获取聊天消息 (event_type LIKE 'message.%')。
         当 fetch_all_event_types=True 时，获取所有类型的事件（仍受其他过滤器如conversation_id影响）。
         """
         try:
-            current_time_ms = int(time.time() * 1000.0)
-            threshold_time_ms = current_time_ms - (duration_minutes * 60 * 1000)
+            filters = []
+            bind_vars: dict[str, Any] = {"limit": limit}
 
-            filters = ["doc.timestamp >= @threshold_time"]
-            bind_vars: dict[str, Any] = {"threshold_time": threshold_time_ms, "limit": limit}
-
+            if duration_minutes > 0: # 如果指定了有效的时间窗口，则添加时间过滤
+                current_time_ms = int(time.time() * 1000.0)
+                threshold_time_ms = current_time_ms - (duration_minutes * 60 * 1000)
+                filters.append("doc.timestamp >= @threshold_time")
+                bind_vars["threshold_time"] = threshold_time_ms
+            
             if not fetch_all_event_types:
                 filters.append("doc.event_type LIKE 'message.%'")
 
@@ -109,15 +112,18 @@ class EventStorageService:
                 filters.append("doc.conversation_id_extracted != @exclude_conversation_id")
                 bind_vars["exclude_conversation_id"] = exclude_conversation_id
 
-            query = f"""
-                FOR doc IN @@collection
-                    FILTER {(" AND ".join(filters))}
-                    SORT doc.timestamp DESC
-                    LIMIT @limit
-                    RETURN doc
-            """
+            query_parts = ["FOR doc IN @@collection"]
+            if filters: # 只有当存在其他过滤器时才添加 FILTER 子句
+                query_parts.append(f"FILTER {(' AND '.join(filters))}")
+            query_parts.append("SORT doc.timestamp DESC")
+            query_parts.append("LIMIT @limit")
+            query_parts.append("RETURN doc")
+            
+            query = "\n".join(query_parts)
+            
             bind_vars["@collection"] = self.COLLECTION_NAME
 
+            self.logger.debug(f"Executing query for recent events: {query} with bind_vars: {bind_vars}")
             results = await self.conn_manager.execute_query(query, bind_vars)
             return results if results is not None else []
         except Exception as e:

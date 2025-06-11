@@ -320,11 +320,16 @@ class ActionHandler:
 
         if action_successful and self.event_storage_service:
             event_to_save_in_events = original_action_sent_dict.copy()
-            event_to_save_in_events["event_id"] = original_action_id
+            # 确保使用原始动作ID (original_action_id) 作为事件ID存入数据库
+            # original_action_id 应该是 QQChatSession 生成的 "sub_chat_reply_..."
+            event_to_save_in_events["event_id"] = original_action_id 
             event_to_save_in_events["timestamp"] = response_timestamp
+            
+            self.logger.info(f"准备将成功的动作作为事件存入数据库。original_action_id: {original_action_id}, event_type: {event_to_save_in_events.get('event_type')}, 将使用的event_id: {event_to_save_in_events['event_id']}")
+
             await self.event_storage_service.save_event_document(event_to_save_in_events)
             self.logger.info(
-                f"成功的平台动作 '{original_action_id}' (类型: {event_to_save_in_events.get('event_type')}) 已作为事件存入 events 表。"
+                f"成功的平台动作 '{original_action_id}' (类型: {event_to_save_in_events.get('event_type')}, 存入的event_id: {event_to_save_in_events['event_id']}) 已作为事件存入 events 表。"
             )
 
     async def _execute_platform_action(

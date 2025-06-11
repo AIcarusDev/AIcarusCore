@@ -174,10 +174,10 @@ self_reports_actions_as_message = false
 [platform_action_settings.adapter_behaviors.napcat_qq]
 # 如果您的 Napcat 适配器会发送标准的 action_response 事件来确认动作完成，请设为 true。
 # 如果它通过其他方式（如自我消息上报）确认，或者不需要Core等待其响应，请设为 false。
-# confirms_by_action_response = false
+confirms_by_action_response = true
 # 如果您的 Napcat 适配器会将其代表AI执行的动作（如发送消息）作为一条新的、由AI自身发出的 message.* 事件上报给Core，请设为 true。
-# self_reports_actions_as_message = true
+self_reports_actions_as_message = false
 
-# [platform_action_settings.adapter_behaviors.your_other_adapter_id]
-# confirms_by_action_response = true
-# self_reports_actions_as_message = false
+[platform_action_settings.adapter_behaviors.your_other_adapter_id]
+confirms_by_action_response = true
+self_reports_actions_as_message = false

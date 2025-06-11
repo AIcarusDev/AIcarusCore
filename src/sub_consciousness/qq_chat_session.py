@@ -22,6 +22,77 @@ from src.config import config
 
 logger = get_logger(__name__)
 
+# --- Prompt Templates ---
+SYSTEM_PROMPT_TEMPLATE = """
+当前时间：{current_time}
+你是{bot_name}；
+你的qq号是{bot_qq_id}；
+{optional_description}
+{optional_profile}
+你当前正在参与qq群聊
+"""
+
+USER_PROMPT_TEMPLATE = """
+<当前群聊信息>
+# CONTEXT
+## Group Info
+{group_info_block}
+
+## Users
+# 格式: ID: QQ [nick:昵称, card:群名片, title:头衔, perm:权限]
+{user_list_block}
+
+## Event Types
+[MSG]: 普通消息，在消息后的（id:xxx）为消息的id
+[SYS]: 系统通知
+[ACT]: 对应你的"motivation"，帮助你更好的了解自己的心路历程，它有两种出现形式：
+      1. 独立出现时 (无缩进): 代表你经过思考后，决定“保持沉默/观察”的完整行为。这是你在该时间点的主要动作。
+      2. 附属出现时 (在[MSG]下缩进): 代表你发出该条消息的“背后动机”或“原因”，是消息的附注说明。
+[IMG]: 图片消息
+[FILE]: 文件分享
+
+# CHAT HISTORY LOG
+{chat_history_log_block}
+</当前群聊信息>
+
+{previous_thoughts_block}
+
+<thinking_guidance>
+请仔细阅读当前聊天内容，分析讨论话题和群成员关系，分析你刚刚发言和别人对你的发言的反应，思考你要不要回复或发言。
+注意耐心：
+  -请特别关注对话的自然流转和对方的输入状态。如果感觉对方可能正在打字或思考，或者其发言明显未结束（比如话说到一半），请耐心等待，避免过早打断或急于追问。
+  -如果你发送消息后对方没有立即回应，请优先考虑对方是否正在忙碌或话题已自然结束，内心想法应倾向于“耐心等待”或“思考对方是否在忙”，而非立即追问，除非追问非常必要且不会打扰。
+思考并输出你真实的内心想法。
+</thinking_guidance>
+
+<output_requirements_for_inner_thought>
+1. 根据聊天内容生成你的内心想法，但是注意话题的推进，不要在一个话题上停留太久或揪着一个话题不放，除非你觉得真的有必要
+   - 如果你决定回复或发言，请在"reply_text"中填写你准备发送的消息的具体内容，应该非常简短自然，省略主语
+2. 不要分点、不要使用表情符号
+3. 避免多余符号(冒号、引号、括号等)
+4. 语言简洁自然，不要浮夸
+5. 不要把注意力放在别人发的表情包上，它们只是一种辅助表达方式
+6. 注意分辨群里谁在跟谁说话，你不一定是当前聊天的主角，消息中的“你”不一定指的是你，也可能是别人
+7. 默认使用中文
+</output_requirements_for_inner_thought>
+
+现在请你请输出你现在的心情，内心想法，是否要发言，发言的动机，和要发言的内容等等。
+请严格使用以下json格式输出内容，不需要输出markdown语句等多余内容，仅输出纯json内容：
+```json
+{{
+    "mood":"此处填写你现在的心情，与造成这个心情的原因",
+    "reasoning":"此处填写你此时的内心想法，衔接你刚才的想法继续思考，应该自然流畅",
+    "reply_willing":"此处决定是否发言，布尔值，true为发言，false为先不发言",
+    "motivation":"此处填写发言/不发言的动机，会保留在聊天记录中，帮助你更好的了解自己的心路历程",
+    "at_someone":"【可选】仅在reply_willing为True时有效，通常可能不需要，当目前群聊比较混乱，需要明确对某人说话的时使用，填写你想@的人的qq号，如果需要@多个人，请用逗号隔开，如果不需要则不输出此字段",
+    "quote_reply":"【可选】仅在reply_willing为True时有效，通常可能不需要，当需要明确回复某条消息时使用，填写你想具体回复的消息的message_id，只能回复一条，如果不需要则不输出此字段",
+    "reply_text":"此处填写你完整的发言内容，应该尽可能简短，自然，口语化，多简短都可以。若已经@某人或引用回复某条消息，则建议省略主语。若reply_willing为False，则不输出此字段",
+    "poke":"【可选】qq戳一戳功能，无太大实际意义，多半是娱乐作用，或是试图引起某人注意，填写目标qq号，如果不需要则不输出此字段",
+    "action_to_take": "【可选】描述你当前最想做的、需要与外界交互的具体动作，例如上网查询某信息，如果无，则不包含此字段", 
+    "action_motivation": "【可选】如果你有想做的动作，请说明其动机。如果action_to_take不输出，此字段也应不输出"
+}}
+```"""
+
 class QQChatSession:
     def __init__(
         self,
@@ -62,22 +133,22 @@ class QQChatSession:
             logger.info(f"[ChatSession][{self.conversation_id}] 已因不活跃而停用。")
 
     async def _build_prompt(self) -> Tuple[str, str]:
+        # --- Prepare data for System Prompt ---
         current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S") 
         persona_config = config.persona
-        
-        system_prompt_parts = [
-            f"当前时间：{current_time_str}",
-            f"你是{persona_config.bot_name}；",
-            f"你的qq号是{self.bot_qq_id}；", 
-        ]
-        if persona_config.description:
-            system_prompt_parts.append(persona_config.description)
-        if persona_config.profile:
-            system_prompt_parts.append(persona_config.profile)
-        system_prompt = "\n".join(system_prompt_parts)
+        bot_name_str = persona_config.bot_name or "AI"
+        bot_description_str = f"\n{persona_config.description}" if persona_config.description else ""
+        bot_profile_str = f"\n{persona_config.profile}" if persona_config.profile else ""
 
-        user_prompt_parts = ["<当前群聊信息>"]
-        
+        system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
+            current_time=current_time_str,
+            bot_name=bot_name_str,
+            bot_qq_id=self.bot_qq_id,
+            optional_description=bot_description_str,
+            optional_profile=bot_profile_str
+        )
+
+        # --- Prepare data for User Prompt ---
         event_dicts = await self.event_storage.get_recent_chat_message_documents(
             conversation_id=self.conversation_id, 
             limit=50, 
@@ -89,15 +160,11 @@ class QQChatSession:
             for event_dict in event_dicts:
                 try:
                     content_segs_data = event_dict.get('content', [])
-                    # Ensure s_data is a dict before trying to get 'type' and 'data'
                     content_segs = [Seg(type=s_data.get('type','unknown'), data=s_data.get('data',{})) for s_data in content_segs_data if isinstance(s_data, dict)]
-                    
                     user_info_dict = event_dict.get('user_info')
                     protocol_user_info = UserInfo(**user_info_dict) if user_info_dict and isinstance(user_info_dict, dict) else None
-                    
                     conv_info_dict = event_dict.get('conversation_info')
                     protocol_conv_info = ConversationInfo(**conv_info_dict) if conv_info_dict and isinstance(conv_info_dict, dict) else None
-
                     event_obj = Event(
                         event_id=str(event_dict.get('event_id', event_dict.get('_key', str(uuid.uuid4())))),
                         event_type=str(event_dict.get('event_type', 'unknown')),
@@ -116,7 +183,7 @@ class QQChatSession:
         user_map: Dict[str, Dict[str, Any]] = {} 
         qq_to_uid_str: Dict[str, str] = {}
         uid_counter = 0
-        group_name = "未知群聊" 
+        group_name_str = "未知群聊" 
 
         qq_to_uid_str[self.bot_qq_id] = "U0"
         user_map[self.bot_qq_id] = {
@@ -130,7 +197,7 @@ class QQChatSession:
         if raw_events and raw_events[0].conversation_info:
             conv_info = raw_events[0].conversation_info
             if conv_info.type == "group" and conv_info.name:
-                group_name = conv_info.name
+                group_name_str = conv_info.name
         
         for event_data in raw_events: 
             if event_data.user_info and event_data.user_info.user_id:
@@ -147,12 +214,9 @@ class QQChatSession:
                         "perm": event_data.user_info.permission_level or "成员"
                     }
         
-        user_prompt_parts.append("# CONTEXT")
-        user_prompt_parts.append("## Group Info")
-        user_prompt_parts.append(f"- group_name: \"{group_name}\"")
-        user_prompt_parts.append("\n## Users")
-        user_prompt_parts.append("# 格式: ID: QQ [nick:昵称, card:群名片, title:头衔, perm:权限]")
+        group_info_block_str = f"- group_name: \"{group_name_str}\""
         
+        user_list_lines = []
         sorted_users = sorted(user_map.values(), key=lambda u: int(u["uid_str"][1:]))
         for user_data_item in sorted_users:
             user_qq = ""
@@ -160,19 +224,11 @@ class QQChatSession:
                 if uid_s == user_data_item["uid_str"]:
                     user_qq = qq
                     break
-            user_line = f"{user_data_item['uid_str']}: {user_qq} [nick:{user_data_item['nick']}, card:{user_data_item['card']}, title:{user_data_item['title']}, perm:{user_data_item['perm']}]"
-            user_prompt_parts.append(user_line)
+            user_identity_suffix = "（你）" if user_data_item["uid_str"] == "U0" else ""
+            user_line = f"{user_data_item['uid_str']}: {user_qq}{user_identity_suffix} [nick:{user_data_item['nick']}, card:{user_data_item['card']}, title:{user_data_item['title']}, perm:{user_data_item['perm']}]"
+            user_list_lines.append(user_line)
+        user_list_block_str = "\n".join(user_list_lines)
 
-        user_prompt_parts.append("\n## Event Types")
-        user_prompt_parts.append("[MSG]: 普通消息，在消息后的（id:xxx）为消息的id")
-        user_prompt_parts.append("[SYS]: 系统通知")
-        user_prompt_parts.append("[ACT]: 对应你的\"motivation\"，帮助你更好的了解自己的心路历程，它有两种出现形式：")
-        user_prompt_parts.append("      1. 独立出现时 (无缩进): 代表你经过思考后，决定“保持沉默/观察”的完整行为。这是你在该时间点的主要动作。")
-        user_prompt_parts.append("      2. 附属出现时 (在[MSG]下缩进): 代表你发出该条消息的“背后动机”或“原因”，是消息的附注说明。")
-        user_prompt_parts.append("[IMG]: 图片消息")
-        user_prompt_parts.append("[FILE]: 文件分享")
-
-        user_prompt_parts.append("\n# CHAT HISTORY LOG")
         chat_log_lines: List[str] = []
         unread_section_started = False
         last_event_timestamp_for_read_marker = self.last_processed_timestamp
@@ -196,9 +252,25 @@ class QQChatSession:
                 user_id_str_log = qq_to_uid_str.get(event_data_log.user_info.user_id, f"UnknownUser({event_data_log.user_info.user_id[:4]})")
 
             log_line = ""
-            if event_data_log.event_type.startswith("message."):
+            msg_id = event_data_log.get_message_id() or event_data_log.event_id
+            is_bot_sent_msg_with_context = False
+            # 尝试用当前事件的 msg_id 在 sent_actions_context 中查找
+            if user_id_str_log == "U0" and msg_id in self.sent_actions_context:
+                is_bot_sent_msg_with_context = True
+            
+            # 修正标签问题：如果事件是机器人发送的 action.message.sent，也视为普通消息，并打[MSG]标签
+            # 但由于ID不匹配，is_bot_sent_msg_with_context 可能仍为False，导致无法附加ACT
+            is_bot_originated_message_event = event_data_log.event_type.startswith("message.") or \
+                                             (user_id_str_log == "U0" and event_data_log.event_type == "action.message.sent")
+
+            if is_bot_originated_message_event:
                 text_content = ""
-                for seg in event_data_log.content:
+                current_event_content = event_data_log.content
+                # 下面的 if 条件是针对 sent_actions_context 的，如果ID不匹配，is_bot_sent_msg_with_context 会是 False
+                # if is_bot_sent_msg_with_context and self.sent_actions_context[msg_id].get("reply_text_segs"):
+                #     pass # 暂时不处理用segs恢复文本的逻辑
+
+                for seg in current_event_content:
                     if seg.type == "text": text_content += seg.data.get("text", "")
                     elif seg.type == "image": 
                         img_src = seg.data.get('file_id') or seg.data.get('url', 'unknown_image')
@@ -210,7 +282,7 @@ class QQChatSession:
                             at_display_name = qq_to_uid_str[at_user_id]
                         elif not at_display_name: 
                             at_display_name = f"@{at_user_id}"
-                        text_content += f"@{at_display_name} "
+                        text_content += f"@{at_display_name} " 
                     elif seg.type == "face": 
                         face_id = seg.data.get("id", "未知表情")
                         text_content += f"[表情:{face_id}]"
@@ -218,10 +290,11 @@ class QQChatSession:
                         file_name = seg.data.get("name", "未知文件")
                         file_size = seg.data.get("size", 0)
                         text_content += f"[FILE:{file_name} ({file_size} bytes)]"
-                msg_id = event_data_log.get_message_id() or event_data_log.event_id
-                log_line = f"[{time_str}] {user_id_str_log} [MSG]: {text_content.strip()} (id:{msg_id})"
                 
-                if user_id_str_log == "U0" and msg_id in self.sent_actions_context:
+                log_line = f"[{time_str}] {user_id_str_log} [MSG]: {text_content.strip()} (id:{msg_id})" # 强制使用 [MSG]
+                
+                # 只有当ID能匹配上 sent_actions_context 时，才能附加ACT
+                if is_bot_sent_msg_with_context: 
                     action_context = self.sent_actions_context[msg_id]
                     motivation = action_context.get("motivation")
                     if motivation:
@@ -295,68 +368,70 @@ class QQChatSession:
                 log_line = f"[{time_str}] {user_id_str_log} [ACT]: {motivation_text}"
             else: 
                 log_line = f"[{time_str}] {user_id_str_log} [{event_data_log.event_type.split('.')[-1].upper()}]: {extract_text_from_content(event_data_log.content)[:30]}... (id:{event_data_log.event_id})"
-            if log_line: chat_log_lines.append(log_line)
-
+            
+            if log_line: # This if should be at the same indentation level as the preceding elif/else
+                chat_log_lines.append(log_line)
+        # This if block should be at the same indentation level as the for loop
         if not unread_section_started and chat_log_lines:
             read_marker_time_obj = datetime.fromtimestamp(last_event_timestamp_for_read_marker / 1000.0)
             read_marker_time_str = read_marker_time_obj.strftime("%H:%M:%S")
             chat_log_lines.append(f"--- 以上消息是你已经思考过的内容，已读 (标记时间: {read_marker_time_str}) ---")
         
-        chat_history_log_str = "\n".join(chat_log_lines)
-        if not chat_history_log_str: chat_history_log_str = "当前没有聊天记录。"
-        user_prompt_parts.append(chat_history_log_str)
+        chat_history_log_block_str = "\n".join(chat_log_lines)
+        if not chat_history_log_block_str: chat_history_log_block_str = "当前没有聊天记录。"
         
-        previous_thoughts_block = ""
+        previous_thoughts_block_str = ""
         if self.last_llm_decision:
             reasoning = self.last_llm_decision.get("reasoning", "")
             reply_text = self.last_llm_decision.get("reply_text")
-            motivation = self.last_llm_decision.get("motivation", "")
+            motivation = self.last_llm_decision.get("motivation", "") # LLM 返回的动机
             reply_willing = self.last_llm_decision.get("reply_willing", False)
-            action_desc = f"发言（发言内容为：{reply_text}）" if reply_willing and reply_text else motivation or "决定观察"
-            previous_thoughts_block = f"<previous_thoughts_and_actions>\n刚刚你的内心想法是：\"{reasoning}\""
-            if action_desc: previous_thoughts_block += f"\n出于这个想法，你刚才做了：{action_desc}"
-            if motivation: previous_thoughts_block += f"\n因为：{motivation}"
-            previous_thoughts_block += "\n</previous_thoughts_and_actions>"
-        user_prompt_parts.append(f"\n{previous_thoughts_block}\n")
+            poke_target = self.last_llm_decision.get("poke")
 
-        user_prompt_parts.append("<thinking_guidance>")
-        user_prompt_parts.append("请仔细阅读当前聊天内容，分析讨论话题和群成员关系，分析你刚刚发言和别人对你的发言的反应，思考你要不要回复或发言。然后思考你是否需要使用函数工具。")
-        user_prompt_parts.append("注意耐心：")
-        user_prompt_parts.append("  -请特别关注对话的自然流转和对方的输入状态。如果感觉对方可能正在打字或思考，或者其发言明显未结束（比如话说到一半），请耐心等待，避免过早打断或急于追问。")
-        user_prompt_parts.append("  -如果你发送消息后对方没有立即回应，请优先考虑对方是否正在忙碌或话题已自然结束，内心想法应倾向于“耐心等待”或“思考对方是否在忙”，而非立即追问，除非追问非常必要且不会打扰。")
-        user_prompt_parts.append("思考并输出你真实的内心想法。")
-        user_prompt_parts.append("</thinking_guidance>\n")
-        
-        user_prompt_parts.append("<output_requirements_for_inner_thought>")
-        user_prompt_parts.append("1. 根据聊天内容生成你的内心想法，但是注意话题的推进，不要在一个话题上停留太久或揪着一个话题不放，除非你觉得真的有必要")
-        user_prompt_parts.append("   - 如果你决定回复或发言，请在\"reply_text\"中填写你准备发送的消息的具体内容，应该非常简短自然，省略主语")
-        user_prompt_parts.append("2. 不要分点、不要使用表情符号")
-        user_prompt_parts.append("3. 避免多余符号(冒号、引号、括号等)")
-        user_prompt_parts.append("4. 语言简洁自然，不要浮夸")
-        user_prompt_parts.append("5. 不要把注意力放在别人发的表情包上，它们只是一种辅助表达方式")
-        user_prompt_parts.append("6. 注意分辨群里谁在跟谁说话，你不一定是当前聊天的主角，消息中的“你”不一定指的是你（枫），也可能是别人")
-        user_prompt_parts.append("7. 默认使用中文")
-        user_prompt_parts.append("</output_requirements_for_inner_thought>\n")
-        
-        user_prompt_parts.append("现在请你请输出你现在的心情，内心想法，是否要发言，发言的动机，和要发言的内容等等。")
-        user_prompt_parts.append("请严格使用以下json格式输出内容，不需要输出markdown语句等多余内容，仅输出纯json内容：")
-        user_prompt_parts.append("```json")
-        user_prompt_parts.append("{")
-        user_prompt_parts.append("    \"mood\":\"此处填写你现在的心情，与造成这个心情的原因\",")
-        user_prompt_parts.append("    \"reasoning\":\"此处填写你此时的内心想法，衔接你刚才的想法继续思考，应该自然流畅\",")
-        user_prompt_parts.append("    \"reply_willing\":\"此处决定是否发言，布尔值，true为发言，false为先不发言\",")
-        user_prompt_parts.append("    \"motivation\":\"此处填写发言/不发言的动机，会保留在聊天记录中，帮助你更好的了解自己的心路历程\",")
-        user_prompt_parts.append("    \"at_someone\":\"【可选】仅在reply_willing为True时有效，通常可能不需要，当目前群聊比较混乱，需要明确对某人说话的时使用，填写你想@的人的qq号，如果需要@多个人，请用逗号隔开，如果不需要则不输出此字段\",")
-        user_prompt_parts.append("    \"quote_reply\":\"【可选】仅在reply_willing为True时有效，通常可能不需要，当需要明确回复某条消息时使用，填写你想具体回复的消息的message_id，只能回复一条，如果不需要则不输出此字段\",")
-        user_prompt_parts.append("    \"reply_text\":\"此处填写你完整的发言内容，应该尽可能简短，自然，口语化，多简短都可以。若已经@某人或引用回复某条消息，则建议省略主语。若reply_willing为False，则不输出此字段\",")
-        user_prompt_parts.append("    \"poke\":\"【可选】qq戳一戳功能，无太大实际意义，多半是娱乐作用，或是试图引起某人注意，填写目标qq号，如果不需要则不输出此字段\",")
-        user_prompt_parts.append("    \"action_to_take\": \"【可选】描述你当前最想做的、需要与外界交互的具体动作，例如上网查询某信息，如果无，则不包含此字段\", ")
-        user_prompt_parts.append("    \"action_motivation\": \"【可选】如果你有想做的动作，请说明其动机。如果action_to_take不输出，此字段也应不输出\"")
-        user_prompt_parts.append("}")
-        user_prompt_parts.append("```")
+            action_desc = ""
+            if reply_willing and reply_text:
+                action_desc = f"发言（发言内容为：{reply_text}）"
+            elif reply_willing and not reply_text: # 决定发言但没给内容，不太可能，但做个保护
+                action_desc = "决定发言但未提供内容"
+            else: # reply_willing is False
+                if poke_target:
+                    # 尝试从 qq_to_uid_str 和 user_map 获取 poke_target 的显示名
+                    poked_user_display = poke_target # 默认为QQ号
+                    if poke_target in qq_to_uid_str:
+                        poked_user_uid = qq_to_uid_str[poke_target]
+                        poked_user_display = f"{poked_user_uid} ({poke_target})"
+                    elif poke_target in user_map: # 如果 poke_target 直接是 uid_str (不太可能，LLM应返回QQ)
+                         poked_user_display = f"{user_map[poke_target].get('nick', poke_target)} ({poke_target})"
 
-        final_user_prompt = "\n".join(user_prompt_parts)
-        return system_prompt, final_user_prompt
+                    action_desc = f"戳一戳 {poked_user_display}"
+                # elif self.last_llm_decision.get("action_to_take"): # 以后可以扩展
+                #     action_desc = f"执行内部动作：{self.last_llm_decision.get('action_to_take')}"
+                else:
+                    action_desc = "暂时不发言" # 默认不发言时的动作描述
+            
+            prev_parts = [f"<previous_thoughts_and_actions>\n刚刚你的内心想法是：\"{reasoning}\""]
+            if action_desc: 
+                prev_parts.append(f"出于这个想法，你刚才做了：{action_desc}")
+            
+            # 只有当 motivation 存在且与 action_desc 不同（或者 action_desc 是通用描述如“暂时不发言”）时，才显示“因为”
+            if motivation and (action_desc == "暂时不发言" or action_desc.startswith("戳一戳") or not motivation.startswith(action_desc)):
+                 if action_desc != motivation: # 避免重复，例如 action_desc 是 "决定观察"，motivation 也是 "决定观察"
+                    prev_parts.append(f"因为：{motivation}")
+            elif not reply_willing and not poke_target and motivation: # 如果是不发言，没有poke，但有motivation，则显示motivation作为原因
+                 prev_parts.append(f"因为：{motivation}")
+
+
+            prev_parts.append("</previous_thoughts_and_actions>")
+            previous_thoughts_block_str = "\n".join(prev_parts)
+
+        user_prompt = USER_PROMPT_TEMPLATE.format(
+            group_info_block=group_info_block_str,
+            user_list_block=user_list_block_str,
+            chat_history_log_block=chat_history_log_block_str,
+            previous_thoughts_block=previous_thoughts_block_str
+        )
+        
+        return system_prompt, user_prompt
 
     async def process_event(self, event: Event):
         if not self.is_active:
@@ -366,10 +441,10 @@ class QQChatSession:
             self.last_active_time = time.time()
             
             system_prompt, user_prompt = await self._build_prompt() 
-            logger.debug(f"构建的System Prompt (前200字符):\n{system_prompt[:200]}...")
-            logger.debug(f"构建的User Prompt (前300字符):\n{user_prompt[:300]}...")
+            logger.debug(f"构建的System Prompt:\n{system_prompt}")
+            logger.debug(f"构建的User Prompt:\n{user_prompt}")
             
-            llm_api_response = await self.llm_client.make_llm_request( # 修正方法名
+            llm_api_response = await self.llm_client.make_llm_request(
                 prompt=user_prompt, 
                 system_prompt=system_prompt, 
                 is_stream=False
@@ -424,21 +499,20 @@ class QQChatSession:
                             targets_to_at = [target.strip() for target in at_target_qq.split(',') if target.strip()]
                         elif isinstance(at_target_qq, list):
                             targets_to_at = [str(target).strip() for target in at_target_qq if str(target).strip()]
-                        elif at_target_qq: # Handle single non-string, non-list value if necessary
+                        elif at_target_qq: 
                             targets_to_at = [str(at_target_qq).strip()]
 
                         for target_qq_id in targets_to_at:
-                            if target_qq_id: # Ensure not empty string after strip
+                            if target_qq_id: 
                                 content_segs_payload.append(SegBuilder.at(user_id=target_qq_id, display_name="").to_dict())
                                 at_added_flag = True
                     
-                    if at_added_flag and reply_text_content: # 只有当有@并且有实际回复文本时才在它们之间加空格
+                    if at_added_flag and reply_text_content: 
                         content_segs_payload.append(SegBuilder.text(" ").to_dict())
                     
-                    if reply_text_content: # 确保回复文本总是被添加（如果存在）
+                    if reply_text_content: 
                         content_segs_payload.append(SegBuilder.text(reply_text_content).to_dict())
-                    elif at_added_flag and not reply_text_content: # 如果只有@没有文本，也确保末尾有个空格（QQ行为）
-                        # 检查最后一个元素是否已经是空格文本，如果不是，则添加
+                    elif at_added_flag and not reply_text_content: 
                         if not content_segs_payload or \
                            not (content_segs_payload[-1].get("type") == "text" and content_segs_payload[-1].get("data", {}).get("text") == " "):
                             content_segs_payload.append(SegBuilder.text(" ").to_dict())
@@ -459,7 +533,7 @@ class QQChatSession:
                     
                     success, msg = await self.action_handler.submit_constructed_action(
                         action_event_dict, 
-                        "发送子意识聊天回复" # 移除 associated_record_key，或显式传递 None
+                        "发送子意识聊天回复"
                     )
                     if success:
                         logger.info(f"[ChatSession][{self.conversation_id}] Action to send reply submitted successfully: {msg}")
