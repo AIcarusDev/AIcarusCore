@@ -1,4 +1,5 @@
 # src/message_processing/default_message_processor.py
+import asyncio # 新增导入 asyncio
 import time
 import uuid
 from typing import TYPE_CHECKING, Any, Optional
@@ -21,6 +22,7 @@ from src.database.services.event_storage_service import EventStorageService
 if TYPE_CHECKING:
     from src.core_communication.core_ws_server import CoreWebsocketServer
     from src.main import CoreSystemInitializer
+    from src.sub_consciousness.qq_chat_session_manager import QQChatSessionManager # 新增导入
 
 
 class DefaultMessageProcessor:
@@ -35,6 +37,7 @@ class DefaultMessageProcessor:
         event_service: EventStorageService,  # 依赖注入 EventStorageService
         conversation_service: ConversationStorageService,  # 依赖注入 ConversationStorageService
         core_websocket_server: Optional["CoreWebsocketServer"] = None,
+        qq_chat_session_manager: Optional["QQChatSessionManager"] = None, # 新增参数
     ) -> None:
         """
         初始化消息处理器。
@@ -48,6 +51,7 @@ class DefaultMessageProcessor:
         self.event_service: EventStorageService = event_service
         self.conversation_service: ConversationStorageService = conversation_service
         self.core_comm_layer: CoreWebsocketServer | None = core_websocket_server
+        self.qq_chat_session_manager = qq_chat_session_manager # 保存实例
         self.core_initializer_ref: CoreSystemInitializer | None = None
         self.logger.info("DefaultMessageProcessor 初始化完成，已配备新的存储服务。")
         if self.core_comm_layer:
@@ -211,8 +215,10 @@ class DefaultMessageProcessor:
                     return False  # 返回 False，表示这个消息已经被特殊处理，不需要走后面的逻辑了
                 else:
                     self.logger.warning("无法触发主思维，因为 MessageProcessor 缺少对核心触发器的引用。")
+                # 注意：如果上面返回了 False，这里的代码不会执行
 
             # "完整测试" 的硬编码命令逻辑 (示例)
+            # 这部分逻辑应该在分发给子意识之前
             if text_content == "完整测试":
                 self.logger.info(f"检测到硬编码命令 '完整测试'，来自事件 ID: {proto_event.event_id}")
 
@@ -309,8 +315,18 @@ class DefaultMessageProcessor:
                     self.logger.error("为 '完整测试' 的戳一戳动作发送失败。")
 
                 return False  # 表示此消息已被特殊处理，核心逻辑可以不必再为此生成通用回复
+            
+            # 将消息事件分发给子意识模块处理 (新加的逻辑)
+            # 这应该在所有可能导致提前返回False的特殊处理逻辑之后
+            if self.qq_chat_session_manager:
+                try:
+                    # 使用 asyncio.create_task 使其在后台运行，不阻塞主事件流
+                    asyncio.create_task(self.qq_chat_session_manager.handle_incoming_message(proto_event))
+                    self.logger.debug(f"事件 {proto_event.event_id} 已异步分发给 QQChatSessionManager。")
+                except Exception as e_dispatch:
+                    self.logger.error(f"分发事件 {proto_event.event_id} 到子意识模块时出错: {e_dispatch}", exc_info=True)
 
-            return True  # 消息未被特殊处理，应继续后续的通用处理流程 (例如，传递给AI主意识进行思考)
+            return True  # 消息未被特殊处理或已分发给子意识，主流程认为应继续
 
         except Exception as e:  # 捕获处理消息事件时可能发生的任何错误
             self.logger.error(f"处理消息事件 (ID: {proto_event.event_id}) 时发生错误: {e}", exc_info=True)

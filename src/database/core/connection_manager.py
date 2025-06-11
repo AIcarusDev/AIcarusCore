@@ -180,24 +180,56 @@ class ArangoDBConnectionManager:
         确保单个集合存在。如果提供了 `index_definitions`，则尝试应用这些索引。
         主要供 `ensure_core_infrastructure` 调用，也可被上层服务用于确保其操作的集合存在。
         """
-        collection: StandardCollection  # 类型提示
-        has_collection = await asyncio.to_thread(self.db.has_collection, collection_name)
+        if not self.db: # 新增数据库连接检查
+            logger.warning(f"数据库连接不可用，无法确保或获取集合 '{collection_name}'。")
+            # 在这种情况下，返回 None 或抛出异常是合理的。
+            # 为了与 get_collection 的期望行为（可能返回None）保持一致，这里返回None。
+            # 但这可能导致调用方出现 NoneType 错误，所以调用方也需要检查。
+            # 或者，更严格的做法是 raise ConnectionError("Database not available")
+            return None # type: ignore 
+            # type: ignore 是因为 StandardCollection 不期望是 None，但这是错误路径
 
-        if not has_collection:  # 如果集合不存在
+        collection: StandardCollection
+        
+        # 在每次实际使用 self.db 前都获取其当前状态
+        current_db_ref = self.db
+        if not current_db_ref:
+            logger.warning(f"数据库连接在尝试检查集合 '{collection_name}' 前已不可用。")
+            return None # type: ignore
+
+        has_collection = await asyncio.to_thread(current_db_ref.has_collection, collection_name)
+
+        if not has_collection:
             logger.info(f"集合 '{collection_name}' 不存在，正在创建...")
+            current_db_ref_for_create = self.db # 再次检查
+            if not current_db_ref_for_create:
+                logger.warning(f"数据库连接在尝试创建集合 '{collection_name}' 前已不可用。")
+                return None # type: ignore
             try:
-                collection = await asyncio.to_thread(self.db.create_collection, collection_name)
+                collection = await asyncio.to_thread(current_db_ref_for_create.create_collection, collection_name)
                 logger.info(f"集合 '{collection_name}' 创建成功。")
-            except CollectionCreateError as e:  # 捕获集合创建失败的特定异常
+            except CollectionCreateError as e:
                 logger.error(f"创建集合 '{collection_name}' 失败: {e}", exc_info=True)
-                raise  # 重新抛出异常，指示基础设施创建失败
-        else:  # 如果集合已存在
-            collection = await asyncio.to_thread(self.db.collection, collection_name)
+                raise
+        else:
+            current_db_ref_for_get = self.db # 再次检查
+            if not current_db_ref_for_get:
+                logger.warning(f"数据库连接在尝试获取已存在集合 '{collection_name}' 前已不可用。")
+                return None # type: ignore
+            collection = await asyncio.to_thread(current_db_ref_for_get.collection, collection_name)
 
-        if index_definitions:  # 如果为此集合定义了索引，则应用它们
+        # 只有当 collection 成功获取且 index_definitions 存在时才应用索引
+        if collection and index_definitions:
+            # _apply_indexes_to_collection 内部也会使用 self.db (间接通过 collection 对象)，
+            # 但 collection 对象一旦成功创建/获取，它内部应该持有了对数据库的有效引用，
+            # 或者其操作会因数据库关闭而自然失败。
+            # 如果 collection 本身是 None (例如上面返回了 None)，这里就不会执行。
             await self._apply_indexes_to_collection(collection, index_definitions)
+        elif not collection:
+             logger.warning(f"未能成功获取或创建集合 '{collection_name}'，无法应用索引。")
 
-        return collection  # 返回集合对象
+
+        return collection
 
     async def _apply_indexes_to_collection(
         self,

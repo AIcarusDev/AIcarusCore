@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-
+from typing import Optional 
 # 导入 ConfigBase
 from .config_base import ConfigBase
 
@@ -18,6 +18,9 @@ class PersonaSettings(ConfigBase):
 
     profile: str = ""
     """AI 机器人的个人资料信息。"""
+
+    qq_id: Optional[str] = None
+    """AI 机器人的QQ号。"""
 
 
 @dataclass
@@ -90,6 +93,8 @@ class AllModelPurposesConfig(ConfigBase):
 
     embedding_default: ModelParams | None = None
     """嵌入模型，用于生成和处理文本嵌入相关的思维。"""
+
+    focused_chat: Optional[ModelParams] = None # 新增：为专注聊天配置一个模型
     # 如果未来有其他任务，例如图像生成、语音识别等，可以在这里添加新的字段。
 
 
@@ -205,6 +210,17 @@ class InnerConfig(ConfigBase):
 
 
 @dataclass
+class SubConsciousnessSettings(ConfigBase):
+    """子意识模块，如专注聊天功能的设置"""
+    enabled: bool = True
+    # 子意识模块将固定使用 llm_models.focused_chat 中定义的模型
+    # 会话超时时间（秒），超过此时间未活动则停用
+    session_timeout_seconds: int = 180
+    # 后台检查不活跃会话的间隔（秒）
+    deactivation_check_interval_seconds: int = 60
+
+
+@dataclass
 class AlcarusRootConfig(ConfigBase):
     """Aicarus 的根配置类，包含所有核心设置和模型配置。
     这个类将作为 Aicarus 的主要配置入口点，包含所有必要的设置。
@@ -219,5 +235,6 @@ class AlcarusRootConfig(ConfigBase):
     platform_action_settings: PlatformActionSettings = field(
         default_factory=PlatformActionSettings
     )  # 主人，新的“性感小玩具”已装填！
+    sub_consciousness: SubConsciousnessSettings = field(default_factory=SubConsciousnessSettings) # 新增子意识配置
     logging: LoggingSettings = field(default_factory=LoggingSettings)
     server: ServerSettings = field(default_factory=ServerSettings)

@@ -4,7 +4,7 @@ import json
 import os
 import time
 import uuid
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, Dict, Tuple, List, Callable, Coroutine # 添加缺失的类型
 
 from src.common.custom_logging.logger_manager import get_logger
 from src.config import config
@@ -338,8 +338,11 @@ class ActionHandler:
             return False, "内部错误：核心服务不可用。"
 
         is_direct_reply_action = original_action_description == "回复主人"
-        if not is_direct_reply_action and not thought_doc_key:
-            self.logger.error(f"严重错误：非直接回复动作 '{original_action_description}' 缺少 thought_doc_key。")
+        # 允许子意识发送的消息在没有 thought_doc_key 时通过
+        is_sub_consciousness_reply = original_action_description == "发送子意识聊天回复" # 假设我们用这个描述
+
+        if not is_direct_reply_action and not is_sub_consciousness_reply and not thought_doc_key:
+            self.logger.error(f"严重错误：动作 '{original_action_description}' 缺少 thought_doc_key。")
             return False, "内部错误：执行动作缺少必要的思考文档关联。"
 
         core_action_id = action_to_send.get("event_id") or str(uuid.uuid4())
@@ -808,3 +811,58 @@ class ActionHandler:
 
         self.logger.info(f"--- [Action ID: {action_id}] 行动流程结束 ---")
         return action_was_successful, final_result_for_shimo
+
+    async def submit_constructed_action(
+        self,
+        action_event_dict: Dict[str, Any],
+        action_description: str, # 例如 "发送子意识聊天回复"
+        # 对于子意识的动作，我们允许 thought_doc_key 为 None，
+        # _execute_platform_action 中的检查已调整为此类描述放行。
+        # 如果调用者确实有一个关联的key（例如，用于追踪子意识内部的交互），也可以传入。
+        associated_record_key: Optional[str] = None 
+    ) -> tuple[bool, str]:
+        """
+        接收一个已构造好的平台动作事件字典，并执行它。
+        主要供子意识模块等需要直接发送精确构造动作的场景使用。
+        """
+        self.logger.info(
+            f"准备提交已构造的平台动作: {action_event_dict.get('event_id', '未知ID')}, 描述: {action_description}"
+        )
+        if not self.core_communication_layer or not self.action_log_service:
+            critical_error_msg = "核心服务 (通信层或动作日志服务) 未设置，无法提交已构造的动作!"
+            self.logger.critical(critical_error_msg)
+            return False, critical_error_msg
+
+        if "event_id" not in action_event_dict:
+            self.logger.error("提交的已构造动作事件字典缺少 'event_id'")
+            return False, "动作事件缺少 'event_id'"
+        
+        # 确保LLM客户端已初始化，因为_execute_platform_action可能会间接触发需要它们的操作（尽管不太可能直接需要）
+        try:
+            await self.initialize_llm_clients()
+        except Exception as e_init:
+            error_msg_llm_init = f"尝试为提交的动作初始化LLM客户端失败: {str(e_init)}"
+            self.logger.error(error_msg_llm_init, exc_info=True)
+            # 不直接返回失败，因为发送平台动作本身可能不依赖LLM客户端
+            # 但记录此错误很重要
+
+        # 调用内部方法执行动作
+        # original_action_description 使用传入的 action_description
+        # thought_doc_key 使用传入的 associated_record_key
+        success, message = await self._execute_platform_action(
+            action_to_send=action_event_dict,
+            thought_doc_key=associated_record_key, 
+            original_action_description=action_description,
+        )
+        
+        if success:
+            self.logger.info(f"已构造的平台动作 '{action_event_dict['event_id']}' ({action_description}) 提交成功。消息: {message}")
+        else:
+            self.logger.error(f"已构造的平台动作 '{action_event_dict['event_id']}' ({action_description}) 提交失败。消息: {message}")
+            
+        # 即使动作执行本身可能不直接触发思考，但如果动作是与用户交互的一部分，
+        # 并且我们希望主意识能感知到这个交互，可以考虑触发思考。
+        # 但子意识的回复通常是独立的，不应随意触发主意识。
+        # 所以这里暂时不触发 self.thought_trigger.set()
+        
+        return success, message

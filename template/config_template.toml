@@ -8,7 +8,7 @@
 # ===============================
 [inner]
 # AicarusCore 的版本号，便于跟踪和更新。
-version = "0.0.7" # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
+version = "0.0.8" # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
 # Aicarus-Message-Protocol 标准通信协议版本号，确保与客户端和其他服务兼容。
 protocol_version = "1.4.0"
 
@@ -50,6 +50,10 @@ profile = """
 色欲（Lust）：8/10
 """
 
+# AI 机器人的QQ号。这个QQ号会用于子意识模块构建System Prompt，以及在被@时识别自身。
+# 如果留空或未设置，依赖此QQ号的功能（如专注聊天子意识）可能无法正常工作。
+qq_id = "123456789" # 请替换为实际的机器人QQ号，如果需要启用相关功能
+
 # ===============================
 # LLM Models Configuration (LLM模型详细配置)
 # ===============================
@@ -60,24 +64,11 @@ profile = """
 # --- 主要意识模型 ---
 # 用于AI的核心思考、对话生成和主要任务处理。
 [llm_models.main_consciousness]
-# 模型提供商的名称，例如 "GEMINI", "OPENAI", "OLLAMA", "DEEPSEEK", "QWEN", "SILICONFLOW"等 (通常大写)。
-# 这个字段决定了系统如何加载API密钥和构建请求。
 provider = "gemini"
-# 模型的具体名称，例如 "gemini-1.5-flash", "gpt-4o", "qwen2:7b" 等。
 model_name = "gemini-2.0-flash"
-# 控制生成文本的随机性。较高的值（如0.8）使输出更随机、更有创意；较低的值（如0.2）使输出更确定、更集中。
-# 如果未设置 (null 或省略)，则使用LLM提供商的默认值。
 temperature = 0.6
-# 生成文本的最大长度（以token为单位）。
-# 如果未设置，则使用LLM提供商的默认值。
 max_output_tokens = 3000
-# top_p (Nucleus sampling): 控制生成文本的多样性。模型会考虑累积概率达到top_p值的最小token集合。
-# 例如，0.9表示模型从概率总和为90%的最可能的token中选择。
-# 如果未设置，则使用LLM提供商的默认值。
-# top_p = 0.9
-# top_k: 控制生成文本的多样性。模型只从概率最高的k个token中选择。
-# 如果未设置，则使用LLM提供商的默认值。
-# top_k = 40
+
 
 # --- 侵入性思维模型 ---
 # 用于生成“侵入性思维”或随机想法，为AI的思考过程增加一些不可预测性和趣味性。
@@ -109,6 +100,13 @@ max_output_tokens = 1000
 [llm_models.embedding_default]
 provider = "SILICONFLOW" # 示例：使用 SiliconFlow 提供的嵌入模型
 model_name = "BAAI/bge-m3" # 示例：使用 BAAI/bge-m3 模型
+
+# --- 专注聊天子意识模型 ---
+[llm_models.focused_chat]
+provider = "gemini"
+model_name = "gemini-2.0-flash"
+temperature = 0.7
+max_output_tokens = 3000
 
 # ===============================
 # Core Logic Settings (核心逻辑设置)
@@ -151,13 +149,34 @@ insertion_probability = 0.15 # 默认15%的概率注入
 # (即 confirms_by_action_response=True, self_reports_actions_as_message=False)。
 # 您需要根据您的实际适配器ID和它们的行为特性，在这里取消注释并进行配置，或者添加新的适配器配置。
 
+# ===============================
+# Sub-Consciousness Settings (子意识模块设置)
+# ===============================
+[sub_consciousness]
+# 是否启用专注聊天等子意识模块。
+enabled = true
+# 子意识模块将固定使用在 [llm_models.focused_chat] 中定义的模型。
+# (原 chat_llm_purpose_key 字段已移除)
+# 子意识聊天会话的超时时间（秒）。
+# 如果一个已激活的会话在此时间内没有任何机器人发言或收到新消息，该会话的子意识将自动停用。
+session_timeout_seconds = 180 # 默认3分钟
+# 子意识管理器后台检查不活跃会话并将其停用的时间间隔（秒）。
+deactivation_check_interval_seconds = 60 # 默认1分钟
+
+
 [platform_action_settings.adapter_behaviors.master_ui_adapter]
 confirms_by_action_response = true
 self_reports_actions_as_message = false
 
-[platform_action_settings.adapter_behaviors.napcat_qq] # 请确保这里的 "napcat_adapter" 是您Napcat适配器在Core注册的实际ID
-confirms_by_action_response = false
-self_reports_actions_as_message = true
+# 示例：为名为 "napcat_qq" 的适配器配置行为标记。
+# 您需要根据您的 Napcat 适配器实际注册到 Core 时使用的 platform_id (如果不是 "napcat_qq" 请修改键名)
+# 以及该适配器的具体行为来设置以下值。模板中提供的仅为示例。
+[platform_action_settings.adapter_behaviors.napcat_qq]
+# 如果您的 Napcat 适配器会发送标准的 action_response 事件来确认动作完成，请设为 true。
+# 如果它通过其他方式（如自我消息上报）确认，或者不需要Core等待其响应，请设为 false。
+# confirms_by_action_response = false
+# 如果您的 Napcat 适配器会将其代表AI执行的动作（如发送消息）作为一条新的、由AI自身发出的 message.* 事件上报给Core，请设为 true。
+# self_reports_actions_as_message = true
 
 # [platform_action_settings.adapter_behaviors.your_other_adapter_id]
 # confirms_by_action_response = true

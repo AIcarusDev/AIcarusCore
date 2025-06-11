@@ -33,6 +33,10 @@ class EventStorageService:
         期望 `event_doc_data` 中包含 'event_id'，它将被用作文档的 '_key'。
         会自动从 event_doc_data["conversation_info"]["conversation_id"] 提取并创建顶层字段 "conversation_id_extracted"。
         """
+        if not self.conn_manager or not self.conn_manager.db: # 新增数据库连接检查
+            self.logger.warning(f"数据库连接不可用，无法保存事件文档: {event_doc_data.get('event_id', '未知ID')}")
+            return False
+
         if not event_doc_data or not isinstance(event_doc_data, dict):
             self.logger.warning("无效的 'event_doc_data' (空或非字典类型)。无法保存事件。")
             return False
@@ -62,6 +66,9 @@ class EventStorageService:
 
         try:
             collection = await self.conn_manager.get_collection(self.COLLECTION_NAME)
+            if collection is None: # 新增对 collection 对象的检查
+                self.logger.error(f"无法获取到集合 '{self.COLLECTION_NAME}' (可能由于数据库连接问题)，无法保存事件文档: {event_id}")
+                return False
             await asyncio.to_thread(collection.insert, event_doc_data, overwrite=False)
             return True
         except DocumentInsertError:
