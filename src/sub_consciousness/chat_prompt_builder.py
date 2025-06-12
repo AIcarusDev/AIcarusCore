@@ -21,11 +21,11 @@ logger = get_logger(__name__)
 SYSTEM_PROMPT_TEMPLATE = """
 当前时间：{current_time}
 你是{bot_name}；
-你的ID是{bot_id}；
+你的qq号是{bot_id}；
 {optional_description}
 {optional_profile}
-你当前正在参与聊天
-""" # "qq群聊" changed to "聊天" for generality
+你当前正在参与qq群聊
+""" 
 
 USER_PROMPT_TEMPLATE = """
 <当前聊天信息>
@@ -34,14 +34,14 @@ USER_PROMPT_TEMPLATE = """
 {conversation_info_block}
 
 ## Users
-# 格式: ID: PlatformSpecificID [nick:昵称, card:群名片/备注, title:头衔, perm:权限]
+# 格式: ID: qq号 [nick:昵称, card:群名片/备注, title:头衔, perm:权限]
 {user_list_block}
 
 ## Event Types
 [MSG]: 普通消息，在消息后的（id:xxx）为消息的id
 [SYS]: 系统通知
-[REASON]: 对应你的"motivation"，帮助你更好的了解自己的心路历程，它有两种出现形式：
-      1. 独立出现时 (无缩进): 代表你经过思考后，决定“保持沉默/观察”的完整行为。这是你在该时间点的主要动作。
+[MOTIVE]: 对应你的"motivation"，帮助你更好的了解自己的心路历程，它有两种出现形式：
+      1. 独立出现时 (无缩进): 代表你经过思考后，决定“保持沉默/不发言”的原因。
       2. 附属出现时 (在[MSG]下缩进): 代表你发出该条消息的“背后动机”或“原因”，是消息的附注说明。
 [IMG]: 图片消息
 [FILE]: 文件分享
@@ -76,7 +76,7 @@ USER_PROMPT_TEMPLATE = """
 ```json
 {{
     "mood":"此处填写你现在的心情，与造成这个心情的原因",
-    "reasoning":"此处填写你此时的内心想法，衔接你刚才的想法继续思考，应该自然流畅",
+    "think":"此处填写你此时的内心想法，衔接你刚才的想法继续思考，应该自然流畅",
     "reply_willing":"此处决定是否发言，布尔值，true为发言，false为先不发言",
     "motivation":"此处填写发言/不发言的动机，会保留在聊天记录中，帮助你更好的了解自己的心路历程",
     "at_someone":"【可选】仅在reply_willing为True时有效，通常可能不需要，当目前群聊比较混乱，需要明确对某人说话的时使用，填写你想@的人的平台ID，如果需要@多个人，请用逗号隔开，如果不需要则不输出此字段",
@@ -317,7 +317,7 @@ class ChatPromptBuilder:
                     action_context = sent_actions_context[event_internal_id] # Use passed param
                     motivation = action_context.get("motivation")
                     if motivation:
-                        log_line += f"\n    - [REASON]: {motivation}"
+                        log_line += f"\n    - [MOTIVE]: {motivation}"
             # Simplified event type handling for brevity, assuming QQ-like structures for now
             elif event_data_log.event_type == "notice.group.increase":
                 op_id = event_data_log.content[0].data.get("operator_id") if event_data_log.content else None
@@ -328,7 +328,7 @@ class ChatPromptBuilder:
             # ... other notice types would be similarly formatted ...
             elif event_data_log.event_type == "internal.sub_consciousness.thought_log":
                 motivation_text = extract_text_from_content(event_data_log.content)
-                log_line = f"[{time_str}] {log_user_id_str} [REASON]: {motivation_text}"
+                log_line = f"[{time_str}] {log_user_id_str} [MOTIVE]: {motivation_text}"
             else:
                 log_line = f"[{time_str}] {log_user_id_str} [{event_data_log.event_type.split('.')[-1].upper()}]: {extract_text_from_content(event_data_log.content)[:30]}... (id:{event_data_log.event_id})"
             
@@ -348,7 +348,7 @@ class ChatPromptBuilder:
         
         previous_thoughts_block_str = ""
         if last_llm_decision: # Use passed param
-            reasoning = last_llm_decision.get("reasoning", "")
+            think_content = last_llm_decision.get("think", "") # Changed from "reasoning"
             reply_text = last_llm_decision.get("reply_text") # Already sanitized to None if "" by caller
             motivation = last_llm_decision.get("motivation", "")
             reply_willing = last_llm_decision.get("reply_willing", False)
@@ -366,7 +366,7 @@ class ChatPromptBuilder:
                 else:
                     action_desc = "暂时不发言"
             
-            prev_parts = [f"<previous_thoughts_and_actions>\n刚刚你的内心想法是：\"{reasoning}\""]
+            prev_parts = [f"<previous_thoughts_and_actions>\n刚刚你的内心想法是：\"{think_content}\""] # Changed from reasoning
             if action_desc:
                 prev_parts.append(f"出于这个想法，你刚才做了：{action_desc}")
             

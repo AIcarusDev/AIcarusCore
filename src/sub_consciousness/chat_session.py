@@ -102,7 +102,7 @@ class ChatSession: # Renamed class
             if not response_text or (llm_api_response and llm_api_response.get("error")):
                 error_msg = llm_api_response.get('message') if llm_api_response else '无响应'
                 logger.error(f"[ChatSession][{self.conversation_id}] LLM调用失败或返回空: {error_msg}")
-                self.last_llm_decision = {"reasoning": f"LLM调用失败: {error_msg}", "reply_willing": False, "motivation": "系统错误导致无法思考"}
+                self.last_llm_decision = {"think": f"LLM调用失败: {error_msg}", "reply_willing": False, "motivation": "系统错误导致无法思考"} # reasoning -> think
                 return
             
             try:
@@ -125,7 +125,7 @@ class ChatSession: # Renamed class
                 
                 if not parsed_response_data:
                     logger.error(f"[ChatSession][{self.conversation_id}] LLM响应最终解析失败或为空。")
-                    self.last_llm_decision = {"reasoning": "LLM响应解析失败或为空", "reply_willing": False, "motivation": "系统错误导致无法解析LLM的胡言乱语"}
+                    self.last_llm_decision = {"think": "LLM响应解析失败或为空", "reply_willing": False, "motivation": "系统错误导致无法解析LLM的胡言乱语"} # reasoning -> think
                     return
 
                 self.last_llm_decision = parsed_response_data
@@ -242,13 +242,13 @@ class ChatSession: # Renamed class
             
             except json.JSONDecodeError as e_json:
                 logger.error(f"[ChatSession][{self.conversation_id}] Error decoding LLM response JSON: {e_json}. Response text (first 200 chars): {response_text[:200]}...", exc_info=True)
-                self.last_llm_decision = {"reasoning": f"Error decoding LLM JSON: {e_json}", "reply_willing": False, "motivation": "System error processing LLM response"}
+                self.last_llm_decision = {"think": f"Error decoding LLM JSON: {e_json}", "reply_willing": False, "motivation": "System error processing LLM response"} # reasoning -> think
             except KeyError as e_key:
                 logger.error(f"[ChatSession][{self.conversation_id}] Missing key in LLM response: {e_key}. Parsed data: {parsed_response_data if 'parsed_response_data' in locals() else 'N/A'}", exc_info=True)
-                self.last_llm_decision = {"reasoning": f"Missing key in LLM response: {e_key}", "reply_willing": False, "motivation": "System error processing LLM response"}
+                self.last_llm_decision = {"think": f"Missing key in LLM response: {e_key}", "reply_willing": False, "motivation": "System error processing LLM response"} # reasoning -> think
             except AttributeError as e_attr:
                 logger.error(f"[ChatSession][{self.conversation_id}] Attribute error while processing LLM response: {e_attr}. Parsed data: {parsed_response_data if 'parsed_response_data' in locals() else 'N/A'}", exc_info=True)
-                self.last_llm_decision = {"reasoning": f"Attribute error processing LLM response: {e_attr}", "reply_willing": False, "motivation": "System error processing LLM response"}
+                self.last_llm_decision = {"think": f"Attribute error processing LLM response: {e_attr}", "reply_willing": False, "motivation": "System error processing LLM response"} # reasoning -> think
             except Exception as e_general: 
                 logger.error(f"[ChatSession][{self.conversation_id}] Unexpected error processing LLM response: {e_general}", exc_info=True)
-                self.last_llm_decision = {"reasoning": f"Unexpected error: {e_general}", "reply_willing": False, "motivation": "System error processing LLM response"}
+                self.last_llm_decision = {"think": f"Unexpected error: {e_general}", "reply_willing": False, "motivation": "System error processing LLM response"} # reasoning -> think
