@@ -11,13 +11,13 @@ from src.config.aicarus_configs import SubConsciousnessSettings
 from src.llmrequest.llm_processor import Client as LLMProcessorClient
 from src.database.services.event_storage_service import EventStorageService
 from src.action.action_handler import ActionHandler
-from .qq_chat_session import QQChatSession
+from .chat_session import ChatSession # Updated import
 
 logger = get_logger(__name__)
 
-class QQChatSessionManager:
+class ChatSessionManager: # Renamed class
     """
-    管理所有 QQChatSession 实例，处理消息分发和会话生命周期。
+    管理所有 ChatSession 实例，处理消息分发和会话生命周期。
     """
     def __init__(
         self,
@@ -34,11 +34,11 @@ class QQChatSessionManager:
         self.bot_id = bot_id
         self.logger = logger # 将模块级别的logger赋值给实例属性
 
-        self.sessions: Dict[str, QQChatSession] = {}
+        self.sessions: Dict[str, ChatSession] = {} # Updated type hint
         self.lock = asyncio.Lock()
         # self.active_session_context: Dict[str, Dict[str, str]] = {} # 用于存储会话的platform和type
 
-        self.logger.info("QQChatSessionManager 初始化完成。") # 使用 self.logger
+        self.logger.info("ChatSessionManager 初始化完成。") # Updated log message
 
     def _get_conversation_id(self, event: Event) -> str:
         # 从 Event 中提取唯一的会话ID (例如 group_id 或 user_id)
@@ -51,7 +51,7 @@ class QQChatSessionManager:
         conversation_id: str, 
         platform: Optional[str] = None, 
         conversation_type: Optional[str] = None
-    ) -> QQChatSession:
+    ) -> ChatSession: # Updated return type hint
         async with self.lock:
             if conversation_id not in self.sessions:
                 logger.info(f"[SessionManager] 为 '{conversation_id}' 创建新的会话实例。")
@@ -66,12 +66,12 @@ class QQChatSessionManager:
                     platform = platform or "unknown_platform"
                     conversation_type = conversation_type or "unknown_type"
 
-                self.sessions[conversation_id] = QQChatSession(
+                self.sessions[conversation_id] = ChatSession( # Instantiate ChatSession
                     conversation_id=conversation_id,
                     llm_client=self.llm_client,
                     event_storage=self.event_storage,
                     action_handler=self.action_handler,
-                    bot_qq_id=self.bot_id,
+                    bot_id=self.bot_id, # Pass bot_id
                     platform=platform,
                     conversation_type=conversation_type
                 )

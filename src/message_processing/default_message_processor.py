@@ -22,7 +22,7 @@ from src.database.services.event_storage_service import EventStorageService
 if TYPE_CHECKING:
     from src.core_communication.core_ws_server import CoreWebsocketServer
     from src.main import CoreSystemInitializer
-    from src.sub_consciousness.qq_chat_session_manager import QQChatSessionManager # 新增导入
+    from src.sub_consciousness.chat_session_manager import ChatSessionManager # Updated import
 
 
 class DefaultMessageProcessor:
@@ -37,7 +37,7 @@ class DefaultMessageProcessor:
         event_service: EventStorageService,  # 依赖注入 EventStorageService
         conversation_service: ConversationStorageService,  # 依赖注入 ConversationStorageService
         core_websocket_server: Optional["CoreWebsocketServer"] = None,
-        qq_chat_session_manager: Optional["QQChatSessionManager"] = None, # 新增参数
+        qq_chat_session_manager: Optional["ChatSessionManager"] = None, # Updated type hint
     ) -> None:
         """
         初始化消息处理器。
@@ -322,7 +322,7 @@ class DefaultMessageProcessor:
                 try:
                     # 使用 asyncio.create_task 使其在后台运行，不阻塞主事件流
                     asyncio.create_task(self.qq_chat_session_manager.handle_incoming_message(proto_event))
-                    self.logger.debug(f"事件 {proto_event.event_id} 已异步分发给 QQChatSessionManager。")
+                    self.logger.debug(f"事件 {proto_event.event_id} 已异步分发给 ChatSessionManager。") # Updated log message
                 except Exception as e_dispatch:
                     self.logger.error(f"分发事件 {proto_event.event_id} 到子意识模块时出错: {e_dispatch}", exc_info=True)
 

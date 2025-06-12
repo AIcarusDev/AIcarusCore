@@ -8,7 +8,7 @@ from typing import Any, Optional # 确保 Optional 被导入
 # 通信协议导入
 # 核心组件导入
 from src.action.action_handler import ActionHandler
-from src.sub_consciousness.qq_chat_session_manager import QQChatSessionManager
+from src.sub_consciousness.chat_session_manager import ChatSessionManager # Updated import
 from src.common.custom_logging.logger_manager import get_logger
 from src.config import config
 from src.core_communication.core_ws_server import AdapterEventCallback, CoreWebsocketServer
@@ -56,7 +56,7 @@ class CoreSystemInitializer:
         self.action_handler_instance: Optional[ActionHandler] = None
         self.intrusive_generator_instance: Optional[IntrusiveThoughtsGenerator] = None
         self.core_logic_instance: Optional[CoreLogicFlow] = None
-        self.qq_chat_session_manager: Optional[QQChatSessionManager] = None
+        self.qq_chat_session_manager: Optional[ChatSessionManager] = None # Updated type hint
 
         self.intrusive_thread: Optional[threading.Thread] = None
         self.stop_event: threading.Event = threading.Event()
@@ -294,16 +294,16 @@ class CoreSystemInitializer:
                     else:
                         # 此时 self.event_storage_service 和 self.action_handler_instance 应该都已初始化
                         if not self.event_storage_service or not self.action_handler_instance: # 再次检查以防万一
-                            raise RuntimeError("EventStorageService 或 ActionHandler 在尝试创建 QQChatSessionManager 时仍未初始化。")
+                            raise RuntimeError("EventStorageService 或 ActionHandler 在尝试创建 ChatSessionManager 时仍未初始化。")
                         
-                        self.qq_chat_session_manager = QQChatSessionManager(
+                        self.qq_chat_session_manager = ChatSessionManager( # Instantiate ChatSessionManager
                             config=config.sub_consciousness,
                             llm_client=focused_chat_client_instance,
                             event_storage=self.event_storage_service,
                             action_handler=self.action_handler_instance,
                             bot_id=bot_qq_id
                         )
-                        self.logger.info("专注聊天子意识模块 (QQChatSessionManager) 初始化完成。")
+                        self.logger.info("专注聊天子意识模块 (ChatSessionManager) 初始化完成。") # Updated log message
             else:
                 self.qq_chat_session_manager = None
                 self.logger.info("专注聊天子意识模块在配置中未启用，跳过其初始化。")
@@ -471,7 +471,7 @@ class CoreSystemInitializer:
                 self.logger.info("核心逻辑大脑的思考循环异步任务已启动。")
             
             if self.qq_chat_session_manager and config.sub_consciousness.enabled:
-                deactivation_task = asyncio.create_task(self.qq_chat_session_manager.run_periodic_deactivation_check(), name="QQChatDeactivationTask")
+                deactivation_task = asyncio.create_task(self.qq_chat_session_manager.run_periodic_deactivation_check(), name="ChatDeactivationTask") # Updated task name
                 all_tasks.append(deactivation_task)
                 self.logger.info("专注聊天子意识的后台不活跃检查任务已启动并加入任务列表。")
 
