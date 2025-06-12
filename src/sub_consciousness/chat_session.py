@@ -86,9 +86,11 @@ class ChatSession: # Renamed class
         async with self.processing_lock:
             self.last_active_time = time.time()
             
-            system_prompt, user_prompt = await self._build_prompt() 
+            # _build_prompt now returns a 3-tuple including the uid_str_to_platform_id_map
+            system_prompt, user_prompt, uid_str_to_platform_id_map = await self._build_prompt()
             logger.debug(f"构建的System Prompt:\n{system_prompt}")
             logger.debug(f"构建的User Prompt:\n{user_prompt}")
+            logger.debug(f"构建的 UID->PlatformID Map:\n{uid_str_to_platform_id_map}")
             
             llm_api_response = await self.llm_client.make_llm_request(
                 prompt=user_prompt, 
@@ -143,7 +145,7 @@ class ChatSession: # Renamed class
                 # Now use the (potentially sanitized) values from self.last_llm_decision for logic
                 if self.last_llm_decision.get("reply_willing") and self.last_llm_decision.get("reply_text"): # Check against sanitized reply_text
                     reply_text_content = self.last_llm_decision["reply_text"] # Known to be non-empty and not None if condition met
-                    at_target_qq = self.last_llm_decision.get("at_someone") # Will be None if originally null or ""
+                    at_target_values_raw = self.last_llm_decision.get("at_someone") # Will be None if originally null or ""
                     quote_msg_id = self.last_llm_decision.get("quote_reply") # Will be None if originally null or ""
 
                     content_segs_payload: List[Dict[str, Any]] = []
@@ -152,19 +154,29 @@ class ChatSession: # Renamed class
                         content_segs_payload.append(SegBuilder.reply(message_id=quote_msg_id).to_dict())
                     
                     at_added_flag = False
-                    if at_target_qq:
-                        targets_to_at = []
-                        if isinstance(at_target_qq, str):
-                            targets_to_at = [target.strip() for target in at_target_qq.split(',') if target.strip()]
-                        elif isinstance(at_target_qq, list):
-                            targets_to_at = [str(target).strip() for target in at_target_qq if str(target).strip()]
-                        elif at_target_qq: 
-                            targets_to_at = [str(at_target_qq).strip()]
+                    if at_target_values_raw:
+                        raw_targets = []
+                        if isinstance(at_target_values_raw, str):
+                            raw_targets = [target.strip() for target in at_target_values_raw.split(',') if target.strip()]
+                        elif isinstance(at_target_values_raw, list):
+                            raw_targets = [str(target).strip() for target in at_target_values_raw if str(target).strip()]
+                        elif at_target_values_raw: # Single non-string, non-list value (should be string as per prompt)
+                            raw_targets = [str(at_target_values_raw).strip()]
 
-                        for target_qq_id in targets_to_at:
-                            if target_qq_id: 
-                                content_segs_payload.append(SegBuilder.at(user_id=target_qq_id, display_name="").to_dict())
-                                at_added_flag = True
+                        actual_platform_ids_to_at: List[str] = []
+                        for raw_target_id in raw_targets:
+                            if raw_target_id.startswith("U") and raw_target_id in uid_str_to_platform_id_map:
+                                actual_id = uid_str_to_platform_id_map[raw_target_id]
+                                actual_platform_ids_to_at.append(actual_id)
+                                logger.info(f"[ChatSession][{self.conversation_id}] Converted at_target '{raw_target_id}' to platform ID '{actual_id}'.")
+                            elif re.match(r"^\d+$", raw_target_id): # If it's already a numeric ID (potential QQ)
+                                actual_platform_ids_to_at.append(raw_target_id)
+                            else:
+                                logger.warning(f"[ChatSession][{self.conversation_id}] Invalid or unmappable at_target_id '{raw_target_id}' from LLM. Skipping.")
+                        
+                        for platform_id_to_at in actual_platform_ids_to_at:
+                            content_segs_payload.append(SegBuilder.at(user_id=platform_id_to_at, display_name="").to_dict())
+                            at_added_flag = True
                     
                     if at_added_flag and reply_text_content: 
                         content_segs_payload.append(SegBuilder.text(" ").to_dict())

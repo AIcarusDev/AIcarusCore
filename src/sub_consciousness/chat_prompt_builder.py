@@ -109,7 +109,7 @@ class ChatPromptBuilder:
         last_processed_timestamp: float,
         last_llm_decision: Optional[Dict[str, Any]],
         sent_actions_context: OrderedDict[str, Dict[str, Any]]
-    ) -> Tuple[str, str]:
+    ) -> Tuple[str, str, Dict[str, str]]: # Added uid_str_to_platform_id_map to return tuple
         # --- Prepare data for System Prompt ---
         current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         persona_config = config.persona
@@ -386,4 +386,10 @@ class ChatPromptBuilder:
             previous_thoughts_block=previous_thoughts_block_str
         )
         
-        return system_prompt, user_prompt
+        # --- Construct uid_str_to_platform_id_map ---
+        uid_str_to_platform_id_map: Dict[str, str] = {
+            uid_str: p_id for p_id, uid_str in platform_id_to_uid_str.items()
+        }
+        logger.debug(f"[ChatPromptBuilder][{self.conversation_id}] Constructed uid_str_to_platform_id_map: {uid_str_to_platform_id_map}")
+        
+        return system_prompt, user_prompt, uid_str_to_platform_id_map
