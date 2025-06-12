@@ -252,24 +252,24 @@ class QQChatSession:
                 user_id_str_log = qq_to_uid_str.get(event_data_log.user_info.user_id, f"UnknownUser({event_data_log.user_info.user_id[:4]})")
 
             log_line = ""
-            msg_id = event_data_log.get_message_id() or event_data_log.event_id
+            msg_id_for_display = event_data_log.get_message_id() or event_data_log.event_id # 用于在日志中显示的ID (通常是平台消息ID)
+            event_internal_id = event_data_log.event_id # 用于内部逻辑匹配的ID (应该是Core生成的 sub_chat_reply_...)
+            
             is_bot_sent_msg_with_context = False
-            # 尝试用当前事件的 msg_id 在 sent_actions_context 中查找
-            if user_id_str_log == "U0" and msg_id in self.sent_actions_context:
+            # 使用 event_internal_id (即 event_data_log.event_id) 来匹配 sent_actions_context
+            if user_id_str_log == "U0" and event_internal_id in self.sent_actions_context:
                 is_bot_sent_msg_with_context = True
             
-            # 修正标签问题：如果事件是机器人发送的 action.message.sent，也视为普通消息，并打[MSG]标签
-            # 但由于ID不匹配，is_bot_sent_msg_with_context 可能仍为False，导致无法附加ACT
-            is_bot_originated_message_event = event_data_log.event_type.startswith("message.") or \
-                                             (user_id_str_log == "U0" and event_data_log.event_type == "action.message.sent")
+            # 判断是否为机器人自己发送的消息事件 (无论是普通消息类型还是Adapter上报的action.message.sent)
+            # 并且，如果是我方修改后的Adapter，它上报的应该是 message.*.normal 类型，event_id 是 sub_chat_reply_...
+            is_robot_message_to_display_as_msg = \
+                (user_id_str_log == "U0" and event_data_log.event_type.startswith("message.")) or \
+                (user_id_str_log == "U0" and event_data_log.event_type == "action.message.sent") # 兼容旧的适配器行为
 
-            if is_bot_originated_message_event:
+            if event_data_log.event_type.startswith("message.") or is_robot_message_to_display_as_msg:
                 text_content = ""
                 current_event_content = event_data_log.content
-                # 下面的 if 条件是针对 sent_actions_context 的，如果ID不匹配，is_bot_sent_msg_with_context 会是 False
-                # if is_bot_sent_msg_with_context and self.sent_actions_context[msg_id].get("reply_text_segs"):
-                #     pass # 暂时不处理用segs恢复文本的逻辑
-
+                
                 for seg in current_event_content:
                     if seg.type == "text": text_content += seg.data.get("text", "")
                     elif seg.type == "image": 
@@ -291,11 +291,12 @@ class QQChatSession:
                         file_size = seg.data.get("size", 0)
                         text_content += f"[FILE:{file_name} ({file_size} bytes)]"
                 
-                log_line = f"[{time_str}] {user_id_str_log} [MSG]: {text_content.strip()} (id:{msg_id})" # 强制使用 [MSG]
+                # 统一使用 [MSG] 标签，并使用平台消息ID (msg_id_for_display) 进行显示
+                log_line = f"[{time_str}] {user_id_str_log} [MSG]: {text_content.strip()} (id:{msg_id_for_display})"
                 
-                # 只有当ID能匹配上 sent_actions_context 时，才能附加ACT
+                # 使用 event_internal_id (即 event_data_log.event_id) 来从 sent_actions_context 获取动机
                 if is_bot_sent_msg_with_context: 
-                    action_context = self.sent_actions_context[msg_id]
+                    action_context = self.sent_actions_context[event_internal_id]
                     motivation = action_context.get("motivation")
                     if motivation:
                         log_line += f"\n    - [ACT]: {motivation}"
