@@ -538,7 +538,7 @@ class ActionHandler:
         action_motivation: str,
         current_thought_context: str,
         relevant_adapter_messages_context: str = "无相关外部消息或请求。",
-    ) -> tuple[bool, str]:
+    ) -> tuple[bool, str, Any]: # 修改返回类型，增加 Any 用于 action_result
         self.logger.info(
             f"--- [Action ID: {action_id}, DocKey: {doc_key_for_updates}] 开始处理行动流程 (JSON决策模式) ---"
         )
@@ -598,6 +598,7 @@ class ActionHandler:
         decision_response = await self.action_llm_client.make_llm_request(prompt=decision_prompt_text, is_stream=False)
         final_result_for_shimo: str = f"尝试执行动作 '{action_description}' 时出现未知的处理错误。"
         action_was_successful: bool = False
+        action_result_payload: Any = None # 新增变量，用于存储返回给调用者的具体结果
         tool_name_chosen: str | None = None
         tool_arguments: dict[str, Any] = {}
 
@@ -708,6 +709,8 @@ class ActionHandler:
                         original_action_description=action_description,
                     )
                     final_result_for_shimo = result_message
+                    # 对于平台动作，action_result_payload 暂时可以为 None 或一个状态消息
+                    action_result_payload = {"status": "platform_action_submitted", "message": result_message, "success": action_was_successful}
             else:  # Internal tool
                 internal_action_log_id = f"internal_{action_id}_{tool_name_chosen}_{str(uuid.uuid4())[:8]}"
                 tool_execution_successful = False
@@ -739,6 +742,27 @@ class ActionHandler:
                 except Exception as e_tool:
                     tool_error_message = f"执行工具 '{tool_name_chosen}' 错误: {e_tool}"
                     self.logger.error(tool_error_message, exc_info=True)
+                    # 如果工具执行本身就出错了，也应该尝试报告这个失败
+                    try:
+                        report_tool_name = "report_action_failure"
+                        report_args = {
+                            "failed_action_id": action_id, # 原始LLM意图的action_id
+                            "failure_reason": tool_error_message,
+                            "tool_name_that_failed": tool_name_chosen,
+                            "tool_arguments_used": tool_arguments,
+                            "intended_action_description": action_description, # 传递原始描述
+                            "intended_action_motivation": action_motivation    # 传递原始动机
+                        }
+                        self.logger.info(f"工具 '{tool_name_chosen}' 执行失败，尝试调用 '{report_tool_name}' 工具进行报告。参数: {report_args}")
+                        report_tool_func = get_tool_function(report_tool_name)
+                        if report_tool_func and asyncio.iscoroutinefunction(report_tool_func):
+                            await report_tool_func(**report_args)
+                            self.logger.info(f"'{report_tool_name}' 工具调用完成。")
+                        else:
+                            self.logger.error(f"无法找到或调用异步工具 '{report_tool_name}'。")
+                    except Exception as e_report:
+                        self.logger.error(f"调用 '{report_tool_name}' 工具报告失败时发生意外错误: {e_report}", exc_info=True)
+
 
                 if self.action_log_service:
                     await self.action_log_service.update_action_log_with_response(
@@ -756,16 +780,20 @@ class ActionHandler:
                         final_result_for_shimo = await self._summarize_tool_result_async(
                             tool_arguments.get("query", action_description), action_motivation, tool_result_data
                         )
+                        action_result_payload = final_result_for_shimo # 总结后的文本作为结果
                     elif tool_result_data is not None:
                         try:
                             final_result_for_shimo = f"工具 '{tool_name_chosen}' 成功: {json.dumps(tool_result_data, ensure_ascii=False, indent=2, default=str)}"
                         except TypeError:
                             final_result_for_shimo = f"工具 '{tool_name_chosen}' 成功: {str(tool_result_data)}"
+                        action_result_payload = tool_result_data # 原始工具结果
                     else:
                         final_result_for_shimo = f"工具 '{tool_name_chosen}' 执行成功，无返回数据。"
+                        action_result_payload = None # 无特定数据返回
                 else:
                     action_was_successful = False
                     final_result_for_shimo = tool_error_message or f"工具 '{tool_name_chosen}' 失败。"
+                    action_result_payload = {"error": final_result_for_shimo} # 返回错误信息
 
                 if self.thought_storage_service:
                     await self.thought_storage_service.update_action_status_in_thought_document(
@@ -815,7 +843,7 @@ class ActionHandler:
             self.logger.warning(f"行动流程处理完毕 (ID: {action_id})，但 thought_trigger 未设置，无法触发即时思考。")
 
         self.logger.info(f"--- [Action ID: {action_id}] 行动流程结束 ---")
-        return action_was_successful, final_result_for_shimo
+        return action_was_successful, final_result_for_shimo, action_result_payload
 
     async def submit_constructed_action(
         self,

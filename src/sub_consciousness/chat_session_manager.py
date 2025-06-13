@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import asyncio
 import time
-from typing import Dict,Optional
+from typing import Dict, Optional, Any, TYPE_CHECKING
 
 from aicarus_protocols.event import Event
 
@@ -12,6 +12,10 @@ from src.llmrequest.llm_processor import Client as LLMProcessorClient
 from src.database.services.event_storage_service import EventStorageService
 from src.action.action_handler import ActionHandler
 from .chat_session import ChatSession # Updated import
+
+if TYPE_CHECKING:
+    from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow # 用于类型提示
+    from src.core_logic.summarization_service import SummarizationService # 用于类型提示
 
 logger = get_logger(__name__)
 
@@ -25,20 +29,30 @@ class ChatSessionManager: # Renamed class
         llm_client: LLMProcessorClient,
         event_storage: EventStorageService,
         action_handler: ActionHandler,
-        bot_id: str
+        bot_id: str,
+        # 新增依赖，core_logic 稍后通过 setter 注入
+        summarization_service: 'SummarizationService',
+        core_logic: Optional['CoreLogicFlow'] = None 
     ):
         self.config = config
         self.llm_client = llm_client
         self.event_storage = event_storage
         self.action_handler = action_handler
         self.bot_id = bot_id
-        self.logger = logger # 将模块级别的logger赋值给实例属性
+        self.logger = logger 
+        
+        self.summarization_service = summarization_service # 新增
+        self.core_logic = core_logic # 新增，可能为 None
 
-        self.sessions: Dict[str, ChatSession] = {} # Updated type hint
+        self.sessions: Dict[str, ChatSession] = {} 
         self.lock = asyncio.Lock()
-        # self.active_session_context: Dict[str, Dict[str, str]] = {} # 用于存储会话的platform和type
+        
+        self.logger.info("ChatSessionManager 初始化完成。")
 
-        self.logger.info("ChatSessionManager 初始化完成。") # Updated log message
+    def set_core_logic(self, core_logic_instance: 'CoreLogicFlow'):
+        """延迟注入 CoreLogic 实例，解决循环依赖。"""
+        self.core_logic = core_logic_instance
+        self.logger.info("CoreLogic 实例已成功注入到 ChatSessionManager。")
 
     def _get_conversation_id(self, event: Event) -> str:
         # 从 Event 中提取唯一的会话ID (例如 group_id 或 user_id)
@@ -66,16 +80,25 @@ class ChatSessionManager: # Renamed class
                     platform = platform or "unknown_platform"
                     conversation_type = conversation_type or "unknown_type"
 
-                self.sessions[conversation_id] = ChatSession( # Instantiate ChatSession
+                if not self.core_logic:
+                    logger.error(f"[SessionManager] CoreLogic尚未注入到ChatSessionManager，无法创建ChatSession '{conversation_id}'。")
+                    raise RuntimeError("CoreLogic未注入，ChatSessionManager无法创建会话。")
+                if not self.summarization_service: # summarization_service 应该在 __init__ 时就提供
+                    logger.error(f"[SessionManager] SummarizationService未初始化，无法创建ChatSession '{conversation_id}'。")
+                    raise RuntimeError("SummarizationService未初始化，ChatSessionManager无法创建会话。")
+
+                self.sessions[conversation_id] = ChatSession(
                     conversation_id=conversation_id,
                     llm_client=self.llm_client,
                     event_storage=self.event_storage,
                     action_handler=self.action_handler,
-                    bot_id=self.bot_id, # Pass bot_id
+                    bot_id=self.bot_id,
                     platform=platform,
-                    conversation_type=conversation_type
+                    conversation_type=conversation_type,
+                    core_logic=self.core_logic, # 注入 CoreLogic
+                    chat_session_manager=self, # 注入自身
+                    summarization_service=self.summarization_service # 注入 SummarizationService
                 )
-                # self.active_session_context[conversation_id] = {"platform": platform, "type": conversation_type}
             
             # # 确保现有会话实例也有 platform 和 conversation_type (如果之前没有)
             # # 这部分逻辑可能不需要，因为这些属性应该在创建时就设置好
@@ -149,3 +172,45 @@ class ChatSessionManager: # Renamed class
                 
                 for session in inactive_sessions:
                     session.deactivate()
+
+    async def activate_session_by_id(self, conversation_id: str, core_last_think: str, platform: str, conversation_type: str) -> None:
+        """
+        根据会话ID激活一个专注会话，并传递主意识的最后想法以及会话的platform和type。
+        如果会话不存在，则会使用提供的platform和type创建它。
+        哼，这是大老板直接下达的命令，得赶紧办！
+        """
+        self.logger.info(
+            f"[SessionManager] 收到激活会话 '{conversation_id}' 的请求。"
+            f" Platform: {platform}, Type: {conversation_type}, 主意识想法: '{core_last_think[:50]}...'"
+        )
+        
+        # 现在 platform 和 conversation_type 是由调用者（CoreLogic）提供的，
+        # CoreLogic 应该从 UnreadInfoService 返回的结构化信息中获取这些。
+            
+        try:
+            session = await self.get_or_create_session(
+                conversation_id=conversation_id,
+                platform=platform, 
+                conversation_type=conversation_type
+            )
+            
+            if session:
+                session.activate(core_last_think=core_last_think) # 调用 ChatSession 的 activate 方法并传递想法
+                self.logger.info(f"[SessionManager] 会话 '{conversation_id}' 已成功激活，并传递了主意识的想法。")
+            else:
+                # get_or_create_session 内部如果因为 core_logic 未注入等原因创建失败会抛异常，理论上不会到这里
+                self.logger.error(f"[SessionManager] 激活会话 '{conversation_id}' 失败：未能获取或创建会话实例。")
+        except Exception as e:
+            self.logger.error(f"[SessionManager] 激活会话 '{conversation_id}' 时发生错误: {e}", exc_info=True)
+
+    def is_any_session_active(self) -> bool:
+        """
+        检查当前是否有任何会话处于激活状态。
+        哼，主意识那个家伙会用这个来看我是不是在忙！
+        """
+        # async with self.lock: # 读取操作，如果 sessions 的修改都在锁内，这里可能不需要锁，或者用更轻量级的读锁
+        # 简单遍历，不加锁以避免潜在的异步问题，假设读取是相对安全的
+        for session in self.sessions.values():
+            if session.is_active:
+                return True
+        return False

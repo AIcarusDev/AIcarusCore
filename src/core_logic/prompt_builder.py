@@ -2,9 +2,11 @@
 import json
 import re
 from typing import Any
+import asyncio # 确保导入 asyncio
 
 from src.common.custom_logging.logger_manager import get_logger
 from src.config import config
+from src.core_logic.unread_info_service import UnreadInfoService # 导入 UnreadInfoService
 
 logger = get_logger("AIcarusCore.PromptBuilder")
 
@@ -19,7 +21,7 @@ class ThoughtPromptBuilder:
 {action_result_info}
 {pending_action_status}
 
-{recent_contextual_information}
+{unread_summary}
 
 {master_chat_context}
 
@@ -47,37 +49,43 @@ class ThoughtPromptBuilder:
     "done": "", \\【可选】布尔值，如果该目标已完成、不再需要或你决定放弃，则设为true，会清空目前目标；如果目标未完成且需要继续，则为false。如果当前无目标，则不包含此字段或设为false
     "action_to_take": "", \\【可选】如果你有想做的动作，请在这里描述。可以是上网获取信息、获取qq群聊/好友列表等。如果没有明确的动作意图，则不包含此字段
     "action_motivation": "", \\【可选】如果你有明确的动作意图，请在这里描述为什么要这么做。如果没有明确的动作意图，则不包含此字段
+    "active_focus_on_conversation_id": null, \\ 【可选】如果你想要加入某个会话，请将该会话的ID填入此字段。其它情况下，保持其为null。
     "next_think": "下一步打算思考的方向"
 }}
 
 请输出你的思考 JSON：
 """
 
-    def __init__(self) -> None:
+    def __init__(self, unread_info_service: UnreadInfoService) -> None:
         """
         初始化 ThoughtPromptBuilder。
-        直接使用全局配置，不创建额外的实例变量。
         """
-        pass
+        self.unread_info_service = unread_info_service
 
     def build_system_prompt(self, current_time_str: str) -> str:
         """
         构建那个给LLM定人设的System Prompt。
         逻辑是从 CoreLogic._generate_thought_from_llm 搬来的。
+        现在增加了指挥中心的角色定位和能力说明。
         """
         system_prompt_parts = [
             f"当前时间：{current_time_str}",
             f"你是{config.persona.bot_name}；",
             config.persona.description or "",
             config.persona.profile or "",
+            # 新增指令
+            "{unread_summary}部分会向你展示所有未读消息的摘要。",
+            "在你输出的JSON中，有一个active_focus_on_conversation_id字段。如果你判断某个会话需要你立即介入处理，请将该会话的ID填入此字段。其它情况下，保持其为null。",
+            "你无法直接回复消息，只能通过激活专注模式来处理。"
         ]
         return "\\n".join(filter(None, system_prompt_parts))
 
-    def build_user_prompt(
+    async def build_user_prompt( # 改为异步方法
         self, current_state: dict[str, Any], master_chat_context_str: str, intrusive_thought_str: str
     ) -> str:
         """
         构建用户输入的Prompt，就是那个最长最臭的。
+        现在它会自己去获取未读消息摘要了，哼。
         """
         task_description = current_state.get("current_task_description", "没有什么具体目标")
         task_info = (
@@ -86,6 +94,12 @@ class ThoughtPromptBuilder:
             else "你当前没有什么特定的目标或任务。"
         )
 
+        # 调用 UnreadInfoService 获取未读消息摘要
+        unread_summary_text = await self.unread_info_service.generate_unread_summary_text()
+        if not unread_summary_text: # 如果返回空字符串或特定提示，则使用默认值
+            unread_summary_text = "所有消息均已处理。"
+
+
         prompt = self.PROMPT_TEMPLATE.format(
             current_task_info=task_info,
             mood=current_state.get("mood", "心情：平静。"),
@@ -93,7 +107,7 @@ class ThoughtPromptBuilder:
             thinking_guidance=current_state.get("thinking_guidance", "思考方向：随意。"),
             action_result_info=current_state.get("action_result_info", "无行动结果。"),
             pending_action_status=current_state.get("pending_action_status", ""),
-            recent_contextual_information=current_state.get("recent_contextual_information", "无最近信息。"),
+            unread_summary=unread_summary_text, # 使用新的 unread_summary 替换原来的 recent_contextual_information
             master_chat_context=master_chat_context_str,
             intrusive_thought=intrusive_thought_str,
         )
@@ -127,7 +141,28 @@ class ThoughtPromptBuilder:
 
         try:
             # 尝试解析提取出来的JSON字符串
-            return json.loads(json_str)
+            parsed_dict = json.loads(json_str)
+            
+            # 后处理：将特定字段的 "None" 或 "null" 字符串转换
+            fields_to_normalize_to_empty_string = [
+                "think", "emotion", "reply_to_master", "to_do",
+                "action_to_take", "action_motivation", "next_think"
+            ]
+            for field in fields_to_normalize_to_empty_string:
+                field_value = parsed_dict.get(field)
+                if isinstance(field_value, str) and field_value.lower() == "none":
+                    parsed_dict[field] = "" # 将 "None" (不区分大小写) 字符串转换为空字符串
+            
+            # 特殊处理 active_focus_on_conversation_id
+            # LLM 可能返回 null (JSON null), "null" (string), "None" (string)
+            # json.loads 会把 JSON null 转为 Python None
+            # 我们需要处理字符串 "null" 和 "None" (不区分大小写)
+            focus_id_val = parsed_dict.get("active_focus_on_conversation_id")
+            if isinstance(focus_id_val, str) and focus_id_val.lower() in ["none", "null"]:
+                parsed_dict["active_focus_on_conversation_id"] = None
+            
+            return parsed_dict
+            
         except json.JSONDecodeError as e:
             logger.error(f"解析提取出的JSON字符串时失败: {e}")
             logger.error(f"解析失败的字符串内容: {json_str}")

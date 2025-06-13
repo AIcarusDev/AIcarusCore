@@ -57,6 +57,7 @@ USER_PROMPT_TEMPLATE = """
 注意耐心：
   -请特别关注对话的自然流转和对方的输入状态。如果感觉对方可能正在打字或思考，或者其发言明显未结束（比如话说到一半），请耐心等待，避免过早打断或急于追问。
   -如果你发送消息后对方没有立即回应，请优先考虑对方是否正在忙碌或话题已自然结束，内心想法应倾向于“耐心等待”或“思考对方是否在忙”，而非立即追问，除非追问非常必要且不会打扰。
+当你觉得不想聊了，或对话已经告一段落时，请在"end_focused_chat"字段中填写true。
 思考并输出你真实的内心想法。
 </thinking_guidance>
 
@@ -83,8 +84,9 @@ USER_PROMPT_TEMPLATE = """
     "quote_reply":"【可选】仅在reply_willing为True时有效，通常可能不需要，当需要明确回复某条消息时使用，填写你想具体回复的消息的message_id，只能回复一条，如果不需要则不输出此字段",
     "reply_text":"此处填写你完整的发言内容，应该尽可能简短，自然，口语化，多简短都可以。若已经@某人或引用回复某条消息，则建议省略主语。若reply_willing为False，则不输出此字段",
     "poke":"【可选】平台特有的戳一戳功能，填写目标平台ID，如果不需要则不输出此字段",
-    "action_to_take": "【可选】描述你当前最想做的、需要与外界交互的具体动作，例如上网查询某信息，如果无，则不包含此字段", 
-    "action_motivation": "【可选】如果你有想做的动作，请说明其动机。如果action_to_take不输出，此字段也应不输出"
+    "action_to_take":"【可选】描述你当前最想做的、需要与外界交互的具体动作，例如上网查询某信息，如果无，则不包含此字段", 
+    "action_motivation":"【可选】如果你有想做的动作，请说明其动机。如果action_to_take不输出，此字段也应不输出",
+    "end_focused_chat":"【可选】布尔值。当你认为本次对话可以告一段落时，请将此字段设为true。其它情况下，保持其为false"
 }}
 ```"""
 
@@ -108,8 +110,10 @@ class ChatPromptBuilder:
         self,
         last_processed_timestamp: float,
         last_llm_decision: Optional[Dict[str, Any]],
-        sent_actions_context: OrderedDict[str, Dict[str, Any]]
-    ) -> Tuple[str, str, Dict[str, str]]: # Added uid_str_to_platform_id_map to return tuple
+        sent_actions_context: OrderedDict[str, Dict[str, Any]],
+        is_first_turn: bool, # 新增参数
+        last_think_from_core: Optional[str] = None # 新增参数
+    ) -> Tuple[str, str, Dict[str, str], List[str]]: # 修改返回类型，增加 List[str] for processed_event_ids
         # --- Prepare data for System Prompt ---
         current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         persona_config = config.persona
@@ -249,13 +253,15 @@ class ChatPromptBuilder:
         sorted_events = sorted(raw_events, key=lambda e: e.time)
 
         for event_data_log in sorted_events:
-            if event_data_log.time > current_last_processed_timestamp and not unread_section_started:
-                if chat_log_lines:
-                    read_marker_time_obj = datetime.fromtimestamp(current_last_processed_timestamp / 1000.0) # Use correct timestamp
-                    read_marker_time_str = read_marker_time_obj.strftime("%H:%M:%S")
-                    chat_log_lines.append(f"--- 以上消息是你已经思考过的内容，已读 (标记时间: {read_marker_time_str}) ---")
-                chat_log_lines.append("--- 请关注以下未读的新消息---")
-                unread_section_started = True
+            # 根据 is_first_turn 控制是否显示已读/未读分割线
+            if not is_first_turn:
+                if event_data_log.time > current_last_processed_timestamp and not unread_section_started:
+                    if chat_log_lines:
+                        read_marker_time_obj = datetime.fromtimestamp(current_last_processed_timestamp / 1000.0) # Use correct timestamp
+                        read_marker_time_str = read_marker_time_obj.strftime("%H:%M:%S")
+                        chat_log_lines.append(f"--- 以上消息是你已经思考过的内容，已读 (标记时间: {read_marker_time_str}) ---")
+                    chat_log_lines.append("--- 请关注以下未读的新消息---")
+                    unread_section_started = True
             # current_last_processed_timestamp should not be updated inside the loop for marking unread correctly for all events after it.
             # It's the reference point.
 
@@ -335,55 +341,67 @@ class ChatPromptBuilder:
             if log_line:
                 chat_log_lines.append(log_line)
         
-        if not unread_section_started and chat_log_lines: # If all messages were already processed
-            # Use the timestamp of the very last event in sorted_events as the marker time if available
-            # otherwise, use current_last_processed_timestamp
-            marker_ts_for_all_read = sorted_events[-1].time if sorted_events else current_last_processed_timestamp
-            read_marker_time_obj = datetime.fromtimestamp(marker_ts_for_all_read / 1000.0)
-            read_marker_time_str = read_marker_time_obj.strftime("%H:%M:%S")
-            chat_log_lines.append(f"--- 以上消息是你已经思考过的内容，已读 (标记时间: {read_marker_time_str}) ---")
+        # 根据 is_first_turn 控制是否显示“以上消息是你已经思考过的内容”的最终标记
+        if not is_first_turn:
+            if not unread_section_started and chat_log_lines: # If all messages were already processed
+                marker_ts_for_all_read = sorted_events[-1].time if sorted_events else current_last_processed_timestamp
+                read_marker_time_obj = datetime.fromtimestamp(marker_ts_for_all_read / 1000.0)
+                read_marker_time_str = read_marker_time_obj.strftime("%H:%M:%S")
+                chat_log_lines.append(f"--- 以上消息是你已经思考过的内容，已读 (标记时间: {read_marker_time_str}) ---")
 
         chat_history_log_block_str = "\n".join(chat_log_lines)
         if not chat_history_log_block_str: chat_history_log_block_str = "当前没有聊天记录。"
         
         previous_thoughts_block_str = ""
-        if last_llm_decision: # Use passed param
-            think_content = last_llm_decision.get("think", "") # Changed from "reasoning"
-            reply_text = last_llm_decision.get("reply_text") # Already sanitized to None if "" by caller
+        if is_first_turn:
+            if last_think_from_core:
+                # 使用 Markdown 加粗 **[指挥中心交接]**
+                previous_thoughts_block_str = f"<previous_thoughts_and_actions>\n**[指挥中心交接]** 你刚才的想法是：'{last_think_from_core}'。你现在开始处理此会话。\n</previous_thoughts_and_actions>"
+            else:
+                # 如果是第一次，但没有核心想法传来，可以为空或给个默认提示
+                previous_thoughts_block_str = "<previous_thoughts_and_actions>\n你已进入专注模式，开始处理此会话。\n</previous_thoughts_and_actions>"
+        elif last_llm_decision: # 不是第一次，且有上一轮子意识的思考 (last_llm_decision 来自 ChatSession)
+            think_content = last_llm_decision.get("think", "") 
+            reply_text = last_llm_decision.get("reply_text") 
             motivation = last_llm_decision.get("motivation", "")
             reply_willing = last_llm_decision.get("reply_willing", False)
-            poke_target_id = last_llm_decision.get("poke") # Platform specific ID
+            poke_target_id = last_llm_decision.get("poke")
 
             action_desc = ""
-            if reply_willing and reply_text: # reply_text is None if it was empty string
+            if reply_willing and reply_text: 
                 action_desc = f"发言（发言内容为：{reply_text}）"
             elif reply_willing and not reply_text:
                 action_desc = "决定发言但未提供内容"
-            else: # reply_willing is False
+            else: 
                 if poke_target_id:
-                    poked_user_display = platform_id_to_uid_str.get(poke_target_id, poke_target_id) # Display U_id or original
+                    poked_user_display = platform_id_to_uid_str.get(poke_target_id, poke_target_id) 
                     action_desc = f"戳一戳 {poked_user_display}"
                 else:
                     action_desc = "暂时不发言"
             
-            prev_parts = [f"<previous_thoughts_and_actions>\n刚刚你的内心想法是：\"{think_content}\""] # Changed from reasoning
+            prev_parts = [f"<previous_thoughts_and_actions>\n刚刚你的内心想法是：\"{think_content}\""]
             if action_desc:
                 prev_parts.append(f"出于这个想法，你刚才做了：{action_desc}")
             
             if motivation and (action_desc == "暂时不发言" or action_desc.startswith("戳一戳") or not motivation.startswith(action_desc)):
-                 if action_desc != motivation:
+                 if action_desc != motivation: # 避免重复显示动机
                     prev_parts.append(f"因为：{motivation}")
-            elif not reply_willing and not poke_target_id and motivation:
+            elif not reply_willing and not poke_target_id and motivation: # 如果没回复也没戳人，但有不发言的动机
                  prev_parts.append(f"因为：{motivation}")
 
             prev_parts.append("</previous_thoughts_and_actions>")
             previous_thoughts_block_str = "\n".join(prev_parts)
+        # 如果不是 is_first_turn 且没有 last_llm_decision，则 previous_thoughts_block_str 保持为空字符串
+        # 修正：确保即使 last_llm_decision 为 None，也有一个默认的 previous_thoughts_block
+        elif not last_llm_decision: # is_first_turn is False, but no last_llm_decision
+             previous_thoughts_block_str = "<previous_thoughts_and_actions>\n我正在处理当前会话，但上一轮的思考信息似乎丢失了。\n</previous_thoughts_and_actions>"
+
 
         user_prompt = USER_PROMPT_TEMPLATE.format(
             conversation_info_block=conversation_info_block_str,
             user_list_block=user_list_block_str,
             chat_history_log_block=chat_history_log_block_str,
-            previous_thoughts_block=previous_thoughts_block_str
+            previous_thoughts_block=previous_thoughts_block_str # 确保这个占位符在模板中
         )
         
         # --- Construct uid_str_to_platform_id_map ---
@@ -391,5 +409,16 @@ class ChatPromptBuilder:
             uid_str: p_id for p_id, uid_str in platform_id_to_uid_str.items()
         }
         logger.debug(f"[ChatPromptBuilder][{self.conversation_id}] Constructed uid_str_to_platform_id_map: {uid_str_to_platform_id_map}")
+
+        # --- Collect processed_event_ids ---
+        # 简单版本：收集所有在 last_processed_timestamp 之后，且类型为 message.* 的事件ID
+        # 注意：这可能需要更精确的逻辑，确保只包含真正被用于生成 prompt 的用户消息
+        processed_event_ids: List[str] = []
+        if sorted_events: # sorted_events 是从数据库获取并按时间排序的事件
+            for event_obj in sorted_events:
+                if event_obj.event_type.startswith("message.") and event_obj.time > last_processed_timestamp:
+                    processed_event_ids.append(event_obj.event_id)
         
-        return system_prompt, user_prompt, uid_str_to_platform_id_map
+        logger.debug(f"[ChatPromptBuilder][{self.conversation_id}] Collected processed_event_ids: {processed_event_ids}")
+
+        return system_prompt, user_prompt, uid_str_to_platform_id_map, processed_event_ids

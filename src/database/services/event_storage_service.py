@@ -64,6 +64,12 @@ class EventStorageService:
                 self.logger.debug(f"事件 {event_id} 的 conversation_info 中缺少有效的 conversation_id，未提取。")
         # else: 如果没有 conversation_info 字典，则不提取
 
+        # --- 新增逻辑：为消息类型事件添加 is_processed 字段 ---
+        if event_doc_data.get("event_type", "").startswith("message."):
+            event_doc_data["is_processed"] = False
+            self.logger.debug(f"为消息事件 {event_id} 添加了 is_processed=False")
+        # --- 结束新增逻辑 ---
+
         try:
             collection = await self.conn_manager.get_collection(self.COLLECTION_NAME)
             if collection is None: # 新增对 collection 对象的检查
@@ -184,3 +190,114 @@ class EventStorageService:
                 exc_info=True,
             )
             return None
+
+    async def get_unprocessed_message_events(
+        self, conversation_id: str | None = None, limit: int = 1000 # 默认获取大量未处理消息
+    ) -> list[dict[str, Any]]:
+        """
+        获取所有 is_processed = False 且 event_type LIKE 'message.%' 的事件。
+        可选按 conversation_id 筛选。
+        结果按时间戳升序排列 (旧消息在前)。
+        哼，这个方法是专门给 UnreadInfoService 那个小弟用的，别搞错了！
+        """
+        try:
+            filters = ["doc.event_type LIKE 'message.%'", "doc.is_processed == false"]
+            bind_vars: dict[str, Any] = {"limit": limit}
+
+            if conversation_id:
+                filters.append("doc.conversation_id_extracted == @conversation_id")
+                bind_vars["conversation_id"] = conversation_id
+            
+            query_parts = ["FOR doc IN @@collection"]
+            if filters:
+                query_parts.append(f"FILTER {(' AND '.join(filters))}")
+            query_parts.append("SORT doc.timestamp ASC") # 按时间升序
+            query_parts.append("LIMIT @limit")
+            query_parts.append("RETURN doc")
+            
+            query = "\n".join(query_parts)
+            bind_vars["@collection"] = self.COLLECTION_NAME
+
+            self.logger.debug(f"Executing query for unprocessed message events: {query} with bind_vars: {bind_vars}")
+            results = await self.conn_manager.execute_query(query, bind_vars)
+            return results if results is not None else []
+        except Exception as e:
+            self.logger.error(
+                f"获取未处理消息事件失败 (会话ID: {conversation_id}): {e}",
+                exc_info=True,
+            )
+            return []
+
+    async def mark_events_as_processed(
+        self, event_ids: list[str], processed_status: bool = True
+    ) -> bool:
+        """
+        批量更新指定 event_id 列表的事件的 is_processed 状态。
+        哼，ChatSession 那个小家伙会用这个来告诉我哪些消息它看过了！
+        """
+        if not event_ids:
+            self.logger.info("没有提供 event_ids，无需更新 is_processed 状态。")
+            return True # 认为操作成功，因为没有事情可做
+
+        if not self.conn_manager or not self.conn_manager.db:
+            self.logger.error("数据库连接不可用，无法更新事件的 is_processed 状态。")
+            return False
+        
+        # ArangoDB的批量更新通常使用 AQL FOR循环 + UPDATE/REPLACE
+        # 构建AQL查询
+        # 注意：直接在AQL字符串中插入 event_ids 列表可能不是最佳实践，
+        # 但对于 _key 的列表，通常可以接受。更好的方式是作为绑定参数，但AQL对数组IN操作符的绑定参数处理可能需要特定格式。
+        # 这里我们用一个简单的FOR循环来逐个更新，如果event_ids非常多，可能需要优化。
+        # 或者使用一个更复杂的AQL，如：
+        # FOR key_val IN @event_keys UPDATE key_val WITH { is_processed: @status } IN @@collection
+        # 但这要求 event_ids 列表中的是 _key 值。我们的 event_id 就是 _key。
+        
+        # 使用更安全的绑定参数方式
+        aql_query = """
+        FOR event_key IN @event_keys
+            UPDATE event_key WITH { is_processed: @status } IN @@collection
+            OPTIONS { ignoreErrors: true } // 如果某个key不存在，忽略错误继续执行
+        RETURN { updated: OLD._key, status: NEW.is_processed } 
+        """
+        # ignoreErrors: true 可以防止因某个 event_id 不存在而导致整个批量操作失败。
+        # RETURN 子句是可选的，但可以用来确认哪些文档被更新了。
+
+        bind_vars = {
+            "@collection": self.COLLECTION_NAME,
+            "event_keys": event_ids, # event_ids 列表应该包含文档的 _key 值
+            "status": processed_status
+        }
+
+        try:
+            self.logger.info(f"准备批量更新 {len(event_ids)} 个事件的 is_processed 状态为 {processed_status}。")
+            # ArangoDB Python驱动的 execute_query 通常用于读操作，
+            # 对于写操作，虽然也可以用，但更常见的是直接用 collection.update_many 或类似的。
+            # 然而，如果需要复杂的AQL，execute_query 也是可以的。
+            # 我们这里用 execute_query 来执行AQL。
+            
+            # collection = await self.conn_manager.get_collection(self.COLLECTION_NAME)
+            # if collection is None:
+            #     self.logger.error(f"无法获取到集合 '{self.COLLECTION_NAME}'，无法更新事件状态。")
+            #     return False
+            # # 驱动程序可能没有直接的 update_many_by_keys 方法，所以我们用AQL
+            
+            update_results = await self.conn_manager.execute_query(aql_query, bind_vars=bind_vars)
+            
+            if update_results is not None:
+                # update_results 会是一个列表，每个元素是 RETURN 子句返回的字典
+                updated_count = len(update_results)
+                self.logger.info(f"成功更新了 {updated_count} / {len(event_ids)} 个事件的 is_processed 状态。")
+                # 可以根据 updated_count 和 len(event_ids) 的比较来判断是否所有都成功了
+                # 但由于 ignoreErrors: true，即使有些key不存在，操作本身也算成功。
+                return True
+            else:
+                # 如果 execute_query 返回 None，通常表示查询执行层面有错误，而不是AQL逻辑错误
+                self.logger.error("批量更新 is_processed 状态时，数据库查询执行返回了 None。")
+                return False
+
+        except Exception as e:
+            self.logger.error(
+                f"批量更新事件的 is_processed 状态失败: {e}",
+                exc_info=True
+            )
+            return False

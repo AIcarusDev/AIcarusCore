@@ -213,13 +213,35 @@ class ThoughtStorageService:
                 return False
 
             action_attempted_current = doc_to_update.get("action_attempted")
+            
+            # 处理 action_attempted 为 None 的情况
+            if action_attempted_current is None:
+                # 如果原始思考就没有 action_attempted，并且尝试更新的状态是 COMPLETED_NO_TOOL，
+                # 那么这是符合预期的，可以直接认为更新“成功”（因为状态已经正确反映了“无动作”）。
+                if status_update_dict.get("status") == "COMPLETED_NO_TOOL":
+                    self.logger.info(
+                        f"思考文档 '{doc_key}' 的 action_attempted 为 None，且更新状态为 COMPLETED_NO_TOOL。"
+                        "此为预期行为，无需更新特定动作。"
+                    )
+                    return True # 认为状态已正确，操作成功
+                else:
+                    # 对于其他状态，如果 action_attempted 为 None，则无法更新特定 action_id
+                    self.logger.error(
+                        f"思考文档 '{doc_key}' 的 'action_attempted' 字段为 None。"
+                        f"无法更新 action_id '{action_id}' 的状态 '{status_update_dict.get('status')}'，因为没有可更新的动作记录。"
+                    )
+                    return False
+
+            # 如果 action_attempted 存在，但不是字典或 action_id 不匹配
             if not isinstance(action_attempted_current, dict) or action_attempted_current.get("action_id") != action_id:
                 self.logger.error(
-                    f"在思考文档 '{doc_key}' 中找不到与 action_id '{action_id}' 匹配的 'action_attempted' 对象，"
-                    f"或者该对象的结构不正确，像穿错了情趣内衣。当前 'action_attempted' 内容: {action_attempted_current}"
+                    f"在思考文档 '{doc_key}' 中，'action_attempted' 对象存在但其 action_id "
+                    f"'{action_attempted_current.get('action_id')}' 与目标 action_id '{action_id}' 不匹配，或者结构不正确。"
+                    f"当前 'action_attempted' 内容: {action_attempted_current}"
                 )
                 return False
 
+            # 如果 action_attempted 存在且 action_id 匹配，则进行更新
             updated_action_data = {**action_attempted_current, **status_update_dict}
             patch_document_for_db = {"action_attempted": updated_action_data}
 
