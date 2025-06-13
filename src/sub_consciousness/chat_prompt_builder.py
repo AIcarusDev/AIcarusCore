@@ -320,17 +320,12 @@ class ChatPromptBuilder:
                 
                 log_line = f"[{time_str}] {log_user_id_str} [MSG]: {text_content.strip()} (id:{msg_id_for_display})"
                 
-                # 直接从 event_data_log (ProtocolEvent 对象) 读取 motivation
-                # ProtocolEvent 现在应该有 motivation 属性了
                 event_motivation = getattr(event_data_log, 'motivation', None)
                 if log_user_id_str == "U0" and event_motivation and event_motivation.strip():
                     log_line += f"\n    - [MOTIVE]: {event_motivation}"
-                # elif is_bot_sent_msg_with_context: # 后备逻辑，如果 sent_actions_context 仍然需要被临时支持
-                    # action_context = sent_actions_context.get(event_data_log.event_id) 
-                    # if action_context:
-                    #     motivation_from_context = action_context.get("motivation")
-                    #     if motivation_from_context:
-                    #         log_line += f"\n    - [MOTIVE]: {motivation_from_context}"
+                
+                chat_log_lines.append(log_line)
+                log_line = "" # 清空log_line
             
             # Simplified event type handling for brevity, assuming QQ-like structures for now
             elif event_data_log.event_type == "notice.group.increase":
@@ -346,7 +341,7 @@ class ChatPromptBuilder:
             else:
                 log_line = f"[{time_str}] {log_user_id_str} [{event_data_log.event_type.split('.')[-1].upper()}]: {extract_text_from_content(event_data_log.content)[:30]}... (id:{event_data_log.event_id})"
             
-            if log_line:
+            if log_line: # 对于非MSG事件，或者没有motivation的MSG事件，这里仍然需要处理
                 chat_log_lines.append(log_line)
         
         # 根据 is_first_turn 控制是否显示“以上消息是你已经思考过的内容”的最终标记
@@ -363,10 +358,8 @@ class ChatPromptBuilder:
         previous_thoughts_block_str = ""
         if is_first_turn:
             if last_think_from_core:
-                # 使用 Markdown 加粗 **[指挥中心交接]**
-                previous_thoughts_block_str = f"<previous_thoughts_and_actions>\n**[指挥中心交接]** 你刚才的想法是：'{last_think_from_core}'。你现在开始处理此会话。\n</previous_thoughts_and_actions>"
+                previous_thoughts_block_str = f"<previous_thoughts_and_actions>\n你刚才的想法是：{last_think_from_core}\n\n现在你刚刚把注意力放到这个群聊中；\n\n原因是：你对当前聊天内容有点兴趣\n</previous_thoughts_and_actions>"
             else:
-                # 如果是第一次，但没有核心想法传来，可以为空或给个默认提示
                 previous_thoughts_block_str = "<previous_thoughts_and_actions>\n你已进入专注模式，开始处理此会话。\n</previous_thoughts_and_actions>"
         elif last_llm_decision: # 不是第一次，且有上一轮子意识的思考 (last_llm_decision 来自 ChatSession)
             think_content = last_llm_decision.get("think", "") 

@@ -72,18 +72,22 @@ class ThoughtPersistor:
                 # 就已经为 thought_json["action_id"] 赋好值了。
                 # 因此，这里我们只依赖 thought_json.get("action_id")
                 
-                action_id_for_db = thought_json.get("action_id")
-                if action_id_for_db: # 只有当 action_id 确实存在时才记录 action_attempted
-                    initiated_action_data_for_db = {
-                        "action_description": action_desc_from_llm,
-                        "action_motivation": action_motive_from_llm,
-                        "action_id": action_id_for_db,
-                        "status": "PENDING", # 初始状态
-                        "result_seen_by_shimo": False,
-                        "initiated_at": datetime.datetime.now(datetime.UTC).isoformat(),
-                    }
-                else:
-                    self.logger.warning(f"LLM指定了行动 '{action_desc_from_llm}' 但 thought_json 中缺少 action_id。将不记录 action_attempted。")
+        action_id_for_db = thought_json.get("action_id")
+        if not action_id_for_db and action_desc_from_llm and action_desc_from_llm.lower() != "null":
+            action_id_for_db = str(uuid.uuid4())
+            thought_json["action_id"] = action_id_for_db
+
+        if action_id_for_db: # 只有当 action_id 确实存在时才记录 action_attempted
+            initiated_action_data_for_db = {
+                "action_description": action_desc_from_llm,
+                "action_motivation": action_motive_from_llm,
+                "action_id": action_id_for_db,
+                "status": "PENDING", # 初始状态
+                "result_seen_by_shimo": False,
+                "initiated_at": datetime.datetime.now(datetime.UTC).isoformat(),
+            }
+        else:
+            self.logger.warning(f"LLM指定了行动 '{action_desc_from_llm}' 但 thought_json 中缺少 action_id。将不记录 action_attempted。")
 
 
         document_to_save = {

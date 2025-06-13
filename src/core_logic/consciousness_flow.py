@@ -62,8 +62,24 @@ class CoreLogic:
         self.immediate_thought_trigger = immediate_thought_trigger
         self.intrusive_generator_instance = intrusive_generator_instance
         
+        self.last_known_state: Dict[str, Any] = {} # 用于存储最新的状态
         self.thinking_loop_task: Optional[asyncio.Task] = None
         self.logger.info(f"{self.__class__.__name__} (拆分版) 已创建，小弟们已就位！")
+
+    def get_latest_thought(self) -> str:
+        """获取主意识最新的思考内容。"""
+        if not self.last_known_state:
+            return "主意识尚未完成第一次思考循环，暂无想法。"
+
+        previous_thinking_raw = self.last_known_state.get("previous_thinking", "")
+        
+        extracted_think = ""
+        if "你的上一轮思考是：" in previous_thinking_raw:
+            extracted_think = previous_thinking_raw.split("你的上一轮思考是：", 1)[-1].strip()
+            if extracted_think.endswith("；"):
+                extracted_think = extracted_think[:-1].strip()
+        
+        return extracted_think if extracted_think else "主意识在进入专注前没有留下明确的即时想法。"
 
     def trigger_immediate_thought_cycle(self, handover_summary: str | None = None, last_focus_think: str | None = None) -> None:
         self.logger.info(f"接收到立即思考触发信号。交接总结: {'有' if handover_summary else '无'}, 最后想法: {'有' if last_focus_think else '无'}")
@@ -161,6 +177,7 @@ class CoreLogic:
             current_state, action_id_to_mark_as_seen = await self.state_manager.get_current_state_for_prompt(
                 other_context_str 
             )
+            self.last_known_state = current_state # 保存最新状态
             
             structured_unread_conversations: list[dict[str, Any]] = []
             if hasattr(self.prompt_builder.unread_info_service, 'get_structured_unread_conversations'):

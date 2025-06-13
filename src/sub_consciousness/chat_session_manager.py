@@ -150,8 +150,10 @@ class ChatSessionManager: # Renamed class
         )
 
         # 激活逻辑：如果被@，则激活会话
-        if self._is_bot_mentioned(event):
-            session.activate()
+        if self._is_bot_mentioned(event) and not session.is_active:
+            # 从 CoreLogic 获取最新的思考
+            last_think = self.core_logic.get_latest_thought() if self.core_logic else None
+            session.activate(core_last_think=last_think)
 
         # 将事件交给会话处理 (会话内部会判断 is_active)
         await session.process_event(event)
