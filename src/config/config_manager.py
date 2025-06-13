@@ -31,7 +31,7 @@ def _perform_config_update_check(io_handler: ConfigIOHandler) -> bool:
     global _config_checked_this_session
     if _config_checked_this_session:
         return False
-    logger.info("开始检查和更新配置文件...")
+    logger.debug("开始检查和更新配置文件...") # INFO -> DEBUG
     _config_checked_this_session = True
     return perform_config_update_check(io_handler, _prompt_user_and_exit)
 
@@ -52,9 +52,9 @@ def load_settings() -> dict:
         # 这取决于环境变量的实际用途和哪个 .env 文件应该优先
         # 为保持 manager 的独立性，它尝试加载它期望位置的 .env
         load_dotenv(dotenv_path=dotenv_path_project_root, override=True, verbose=True)
-        logger.info(f"ConfigManager尝试从项目根目录加载 .env 文件: {dotenv_path_project_root}")
+        logger.debug(f"ConfigManager尝试从项目根目录加载 .env 文件: {dotenv_path_project_root}") # INFO -> DEBUG
     else:
-        logger.info(
+        logger.debug( # INFO -> DEBUG
             f"ConfigManager未在项目根目录找到 .env 文件: {dotenv_path_project_root}。将依赖已加载的环境变量或配置文件。"
         )
 
@@ -98,7 +98,7 @@ def get_typed_settings() -> AlcarusRootConfig:
         typed_config = AlcarusRootConfig.from_dict(config_dict)
 
         _loaded_typed_settings = typed_config
-        logger.info("配置已成功加载并转换为类型化对象。数据库配置将由相应模块从环境变量直接读取。")
+        logger.debug("配置已成功加载并转换为类型化对象。数据库配置将由相应模块从环境变量直接读取。") # INFO -> DEBUG
         return typed_config
     except Exception as e:
         logger.error(f"将配置字典转换为类型化对象或从环境变量更新时失败: {e}", exc_info=True)

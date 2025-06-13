@@ -168,7 +168,7 @@ def perform_config_update_check(io_handler: ConfigIOHandler, prompt_user_and_exi
     执行配置文件的核心检查和更新流程。我可是专业的！
     返回一个布尔值，告诉你配置是不是刚刚新鲜出炉或者焕然一新了。
     """
-    logger.info("开始仔细检查和更新配置文件，请稍等片刻...")
+    logger.debug("开始仔细检查和更新配置文件，请稍等片刻...") # INFO -> DEBUG
 
     config_was_created_or_updated: bool = False  # 先假设没有变化
 
@@ -180,10 +180,10 @@ def perform_config_update_check(io_handler: ConfigIOHandler, prompt_user_and_exi
 
     # 2. 看看运行时配置文件在不在，或者是不是坏掉了
     if not io_handler.runtime_config_exists():
-        logger.info(f"运行时配置文件 '{io_handler.runtime_path}' 好像还没出生，让我从模板创造一个吧！")
+        logger.debug(f"运行时配置文件 '{io_handler.runtime_path}' 好像还没出生，让我从模板创造一个吧！") # INFO -> DEBUG
         if io_handler.copy_template_to_runtime():
             config_was_created_or_updated = True  # 新鲜出炉！
-            logger.info("新的运行时配置文件已成功创建！撒花！✿✿ヽ(°▽°)ノ✿")
+            logger.debug("新的运行时配置文件已成功创建！撒花！✿✿ヽ(°▽°)ノ✿") # INFO -> DEBUG
         else:
             message = f"糟糕！从模板创建运行时配置文件 '{io_handler.runtime_path}' 失败了！快检查下权限和路径吧。"
             logger.critical(message)
@@ -199,7 +199,7 @@ def perform_config_update_check(io_handler: ConfigIOHandler, prompt_user_and_exi
         io_handler.backup_runtime_config(prefix="broken_")  # 备份这个坏掉的，万一还有用呢
         if io_handler.copy_template_to_runtime():  # 从模板重新创建一个好的
             config_was_created_or_updated = True  # 也算是更新过了
-            logger.info("已从模板重新创建了配置文件。你可能需要从那个标记为 'broken_' 的备份里找回你之前的设置哦。")
+            logger.debug("已从模板重新创建了配置文件。你可能需要从那个标记为 'broken_' 的备份里找回你之前的设置哦。") # INFO -> DEBUG
         else:
             message = f"雪上加霜！从模板重新创建损坏的配置文件 '{io_handler.runtime_path}' 也失败了！"
             logger.critical(message)
@@ -221,12 +221,12 @@ def perform_config_update_check(io_handler: ConfigIOHandler, prompt_user_and_exi
 
     # 4. 版本大比拼！
     if actual_runtime_version == current_template_version:
-        logger.info(
+        logger.debug( # INFO -> DEBUG
             f"版本一致！运行时配置 (v{actual_runtime_version}) 和模板 (v{current_template_version}) 是好朋友，不用更新啦。"
         )
         return False  # 版本相同，啥也不用干，返回 False
 
-    logger.info(
+    logger.debug( # INFO -> DEBUG
         f"版本不一致！运行时配置 (v{actual_runtime_version}) 和模板 (v{current_template_version}) 版本对不上。准备更新..."
     )
 
@@ -237,10 +237,10 @@ def perform_config_update_check(io_handler: ConfigIOHandler, prompt_user_and_exi
             # 加载这个新鲜出炉的配置 (其实就是当前模板的内容)
             new_config_base = io_handler.load_toml_file(io_handler.runtime_path)
             if new_config_base:
-                logger.info("开始施展魔法，把旧配置里的好东西合并到新模板结构中...")
+                logger.debug("开始施展魔法，把旧配置里的好东西合并到新模板结构中...") # INFO -> DEBUG
                 _merge_configs_recursive(new_config_base, actual_config)  # actual_config 是旧的、已加载的配置内容
                 if io_handler.save_toml_file(io_handler.runtime_path, new_config_base):
-                    logger.info(f"配置文件已成功更新并合并旧值到 '{io_handler.runtime_path}'！完美！")
+                    logger.debug(f"配置文件已成功更新并合并旧值到 '{io_handler.runtime_path}'！完美！") # INFO -> DEBUG
                     config_was_created_or_updated = True  # 更新成功！
                 else:
                     logger.error(

@@ -122,7 +122,7 @@ class CoreSystemInitializer:
     async def _initialize_database_and_services(self) -> None:
         self.conn_manager = await ArangoDBConnectionManager.create_from_config(object(), core_collection_configs=CoreDBCollections.get_all_core_collection_configs())
         if not self.conn_manager or not self.conn_manager.db: raise RuntimeError("数据库连接管理器初始化失败。")
-        logger.info(f"数据库连接管理器已为数据库 '{self.conn_manager.db.name}' 初始化。")
+        logger.debug(f"数据库连接管理器已为数据库 '{self.conn_manager.db.name}' 初始化。") # INFO -> DEBUG
 
         services_to_init = {
             "event_storage_service": EventStorageService,

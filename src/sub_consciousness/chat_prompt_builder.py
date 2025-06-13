@@ -155,7 +155,8 @@ class ChatPromptBuilder:
                         content=content_segs,
                         user_info=protocol_user_info,
                         conversation_info=protocol_conv_info,
-                        raw_data=event_dict.get('raw_data') if isinstance(event_dict.get('raw_data'), dict) else None
+                        raw_data=event_dict.get('raw_data') if isinstance(event_dict.get('raw_data'), dict) else None,
+                        motivation=event_dict.get('motivation') # 确保从数据库字典中获取 motivation
                     )
                     raw_events.append(event_obj)
                 except Exception as e_conv:
@@ -276,15 +277,15 @@ class ChatPromptBuilder:
 
             log_line = ""
             msg_id_for_display = event_data_log.get_message_id() or event_data_log.event_id
-            event_internal_id = event_data_log.event_id
+            # event_internal_id = event_data_log.event_id # 不再需要通过 sent_actions_context 查找
             
-            is_bot_sent_msg_with_context = False
-            if log_user_id_str == "U0" and event_internal_id in sent_actions_context: # Use passed param
-                is_bot_sent_msg_with_context = True
+            # is_bot_sent_msg_with_context = False # 不再需要这个标记
+            # if log_user_id_str == "U0" and event_internal_id in sent_actions_context: # Use passed param
+            #     is_bot_sent_msg_with_context = True
             
             is_robot_message_to_display_as_msg = \
                 (log_user_id_str == "U0" and event_data_log.event_type.startswith("message.")) or \
-                (log_user_id_str == "U0" and event_data_log.event_type == "action.message.sent")
+                (log_user_id_str == "U0" and event_data_log.event_type == "action.message.sent") # action.message.sent 是旧的，现在应该是 message.*
 
             # Display-level deduplication for messages based on platform message ID
             current_platform_msg_id = event_data_log.get_message_id()
@@ -319,11 +320,18 @@ class ChatPromptBuilder:
                 
                 log_line = f"[{time_str}] {log_user_id_str} [MSG]: {text_content.strip()} (id:{msg_id_for_display})"
                 
-                if is_bot_sent_msg_with_context:
-                    action_context = sent_actions_context[event_internal_id] # Use passed param
-                    motivation = action_context.get("motivation")
-                    if motivation:
-                        log_line += f"\n    - [MOTIVE]: {motivation}"
+                # 直接从 event_data_log (ProtocolEvent 对象) 读取 motivation
+                # ProtocolEvent 现在应该有 motivation 属性了
+                event_motivation = getattr(event_data_log, 'motivation', None)
+                if log_user_id_str == "U0" and event_motivation and event_motivation.strip():
+                    log_line += f"\n    - [MOTIVE]: {event_motivation}"
+                # elif is_bot_sent_msg_with_context: # 后备逻辑，如果 sent_actions_context 仍然需要被临时支持
+                    # action_context = sent_actions_context.get(event_data_log.event_id) 
+                    # if action_context:
+                    #     motivation_from_context = action_context.get("motivation")
+                    #     if motivation_from_context:
+                    #         log_line += f"\n    - [MOTIVE]: {motivation_from_context}"
+            
             # Simplified event type handling for brevity, assuming QQ-like structures for now
             elif event_data_log.event_type == "notice.group.increase":
                 op_id = event_data_log.content[0].data.get("operator_id") if event_data_log.content else None

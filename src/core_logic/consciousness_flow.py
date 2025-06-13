@@ -4,6 +4,7 @@ import contextlib
 import datetime
 import json
 import random
+import re # 哎呀，加个 re 模块进来
 import threading
 import time
 import uuid
@@ -254,7 +255,42 @@ class CoreLogic:
                 focus_conversation_id = generated_thought.get("active_focus_on_conversation_id")
                 if focus_conversation_id and isinstance(focus_conversation_id, str):
                     self.logger.info(f"LLM决策激活专注模式，目标会话ID: {focus_conversation_id}")
-                    last_think_for_focus = generated_thought.get("think", "主意识没有留下具体想法，直接转交控制权。")
+                    
+                    last_think_for_focus: Optional[str] = None 
+                    current_llm_think_raw = generated_thought.get("think")
+                    current_llm_think_str = str(current_llm_think_raw).strip() if current_llm_think_raw is not None else ""
+
+                    if current_llm_think_str and current_llm_think_str.lower() != "none":
+                        last_think_for_focus = current_llm_think_str
+                    else:
+                        previous_thinking_raw = current_state.get("previous_thinking", "")
+                        extracted_think = ""
+                        if "你的上一轮思考是：" in previous_thinking_raw:
+                            extracted_think = previous_thinking_raw.split("你的上一轮思考是：", 1)[-1].strip()
+                            if extracted_think.endswith("；"): extracted_think = extracted_think[:-1].strip()
+                            if extracted_think.endswith("。"): extracted_think = extracted_think[:-1].strip()
+                        elif "刚刚结束的专注会话留下的最后想法是：" in previous_thinking_raw:
+                            match_focus_think = re.search(r"刚刚结束的专注会话留下的最后想法是：'(.*?)'", previous_thinking_raw)
+                            if match_focus_think:
+                                extracted_think = match_focus_think.group(1).strip()
+                            else: 
+                                extracted_think = previous_thinking_raw.split("。")[0].strip() 
+                        
+                        if extracted_think and extracted_think.strip() and extracted_think.lower() != "none":
+                            last_think_for_focus = extracted_think
+                        
+                        # 如果到这里 last_think_for_focus 还是 None (因为 current_llm_think 和 extracted_think 都是无效的或未被赋值)
+                        # 那么就用一个最终的默认值
+                        if not last_think_for_focus: # Catches None or ""
+                            last_think_for_focus = "主意识在进入专注前没有留下明确的即时想法。"
+                        
+                        self.logger.info(f"当前LLM的think为空或为'None'，尝试使用上一轮思考/交接信息 '{last_think_for_focus[:80]}...' 作为交接想法。")
+                    
+                    # 再次确保，如果经过所有逻辑后 last_think_for_focus 仍然是空字符串或仅包含空格，则使用默认值
+                    if not last_think_for_focus or not last_think_for_focus.strip():
+                        last_think_for_focus = "主意识在进入专注前没有留下明确的即时想法。"
+
+
                     if hasattr(self.chat_session_manager, 'activate_session_by_id'):
                         target_conv_details = next((conv for conv in structured_unread_conversations if conv.get("conversation_id") == focus_conversation_id), None)
                         if target_conv_details:
@@ -264,7 +300,7 @@ class CoreLogic:
                                 try:
                                     await self.chat_session_manager.activate_session_by_id(
                                         conversation_id=focus_conversation_id, 
-                                        core_last_think=last_think_for_focus,
+                                        core_last_think=last_think_for_focus, # 这里传递的是确保有值的字符串
                                         platform=platform,
                                         conversation_type=conv_type
                                     )

@@ -56,7 +56,7 @@ class ArangoDBHandler:
         self.client: ArangoClient = client
         self.db: StandardDatabase = db
         self.logger = get_logger(f"AIcarusCore.database.{self.__class__.__name__}")
-        self.logger.info(f"ArangoDBHandler instance initialized with database '{db.name}'.")
+        self.logger.debug(f"ArangoDBHandler instance initialized with database '{db.name}'.") # INFO -> DEBUG
 
     async def create_from_config(
         self, database_config_obj: "DatabaseConfig"
@@ -107,15 +107,15 @@ class ArangoDBHandler:
                 client_instance.db, "_system", username=username, password=password
             )
             if not await asyncio.to_thread(sys_db.has_database, database_name):
-                module_logger.info(f"Database '{database_name}' does not exist. Attempting to create...")
+                module_logger.debug(f"Database '{database_name}' does not exist. Attempting to create...") # INFO -> DEBUG
                 await asyncio.to_thread(sys_db.create_database, database_name)
-                module_logger.info(f"Database '{database_name}' created successfully.")
+                module_logger.info(f"Database '{database_name}' created successfully.") # 这条创建成功的可以保留 INFO
 
             db_instance: StandardDatabase = await asyncio.to_thread(
                 client_instance.db, database_name, username=username, password=password
             )
             await asyncio.to_thread(db_instance.properties)  # Verify connection to the target database
-            module_logger.info(f"Successfully connected to ArangoDB! Host: {host}, Database: {database_name}")
+            module_logger.debug(f"Successfully connected to ArangoDB! Host: {host}, Database: {database_name}") # INFO -> DEBUG
 
             handler_instance = ArangoDBHandler(client_instance, db_instance)
             await handler_instance._ensure_core_collections_exist()

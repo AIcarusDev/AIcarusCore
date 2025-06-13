@@ -23,18 +23,20 @@ logger = get_logger("AIcarusCore.llm.utils")
 # --- 定义 TypedDict 用于 default_generation_config ---
 class GenerationParams(TypedDict, total=False):
     temperature: float
-    maxOutputTokens: int
-    top_p: float
-    top_k: int
-    stop_sequences: list[str]
-    candidate_count: int
+    maxOutputTokens: int  # Google & OpenAI (as max_tokens)
+    topP: float  # Google (top_p for OpenAI)
+    topK: int  # Google (top_k for OpenAI)
+    stopSequences: list[str]  # Google (stop for OpenAI)
+    candidateCount: int  # Google (n for OpenAI)
+    # OpenAI specific, but good to have for potential future mapping or if provider supports them
     presence_penalty: float
     frequency_penalty: float
     seed: int
-    user: str
-    response_mime_type: str
-    encoding_format: str
-    dimensions: int
+    user: str # OpenAI specific
+    response_mime_type: str # Google specific for function calling
+    # For embeddings
+    encoding_format: str # OpenAI specific
+    dimensions: int # OpenAI specific
 
 
 # --- 自定义 .env 加载器 ---
@@ -170,15 +172,15 @@ DEFAULT_NON_STREAMING_API_ENDPOINT_GOOGLE: str = ":generateContent"
 DEFAULT_EMBEDDING_ENDPOINT_GOOGLE: str = ":embedContent"
 DEFAULT_CHAT_COMPLETIONS_ENDPOINT_OPENAI: str = "/chat/completions"
 DEFAULT_EMBEDDINGS_ENDPOINT_OPENAI: str = "/embeddings"
-DEFAULT_IMAGE_PLACEHOLDER_TAG: str = "[IMAGE_HERE]"  # 图片占位符，需要和构造聊天记录处的占位符同步
-DEFAULT_STREAM_CHUNK_DELAY_SECONDS: float = 0.05  # 流式响应分块延迟 (秒)
-DEFAULT_PROXY_HOST: str | None = None  # 代理主机，建议提取到环境变量中
-DEFAULT_PROXY_PORT: int | None = None  # 代理端口，建议提取到环境变量中
-DEFAULT_IMAGE_COMPRESSION_TARGET_BYTES: int = 1 * 1024 * 1024  # 目标图片压缩大小 (字节)
-DEFAULT_IMAGE_COMPRESSION_QUALITY_JPEG: int = 85  # JPEG 图片压缩质量
-DEFAULT_IMAGE_COMPRESSION_SCALE_MIN: float = 0.2  # 最小图片压缩比例
-DEFAULT_RATE_LIMIT_DISABLE_SECONDS: int = 30 * 60  # 30 分钟
-INITIAL_RETRY_PASS_DELAY_SECONDS: float = 10.0  # 每轮重试之间的初始等待时间 (秒)
+DEFAULT_IMAGE_PLACEHOLDER_TAG: str = "[IMAGE_HERE]"
+DEFAULT_STREAM_CHUNK_DELAY_SECONDS: float = 0.05
+DEFAULT_PROXY_HOST: str | None = None
+DEFAULT_PROXY_PORT: int | None = None
+DEFAULT_IMAGE_COMPRESSION_TARGET_BYTES: int = 1 * 1024 * 1024
+DEFAULT_IMAGE_COMPRESSION_QUALITY_JPEG: int = 85
+DEFAULT_IMAGE_COMPRESSION_SCALE_MIN: float = 0.2
+DEFAULT_RATE_LIMIT_DISABLE_SECONDS: int = 30 * 60
+INITIAL_RETRY_PASS_DELAY_SECONDS: float = 10.0
 
 
 class LLMClient:
@@ -204,19 +206,9 @@ class LLMClient:
         if not isinstance(model, dict) or "provider" not in model or "name" not in model:
             raise ValueError("`model` 参数必须是一个包含 'provider' 和 'name' 键的字典。")
 
-        # ███ 小懒猫的关键修改在这里！ ███
-        # 1. 获取原始的 provider 名称，例如 "BAAI/bge-m3"
         original_provider_name: str = model["provider"]
-
-        # 2. 将原始 provider 名称转换为适合用作环境变量前缀的“安全”格式
-        #    - 转换为大写
-        #    - 将所有非字母、非数字、非下划线的字符都替换为下划线
-        #    - 示例: "BAAI/bge-m3" -> "BAAI_BGE_M3"
         self.env_provider_prefix = re.sub(r"[^A-Z0-9_]", "_", original_provider_name.upper())
-
-        # 3. self.provider 仍然存储原始的大写名称，用于API风格判断
         self.provider = original_provider_name.upper()
-
         self.model_name: str = model["name"]
         self.initial_stream_setting = model.get("stream", False)
         self.pri_in = model.get("pri_in", 0)
@@ -224,12 +216,10 @@ class LLMClient:
         self.rate_limit_disable_duration_seconds = rate_limit_disable_duration_seconds
         self._temporarily_disabled_keys_429: dict[str, float] = {}
 
-        # 4. 使用净化后的 self.env_provider_prefix 来构造要查找的环境变量名
         api_keys_env_var_name = f"{self.env_provider_prefix}_API_KEYS"
         api_keys_env_var_name_singular = f"{self.env_provider_prefix}_KEY"
         api_keys_env_var_name_direct = self.env_provider_prefix
 
-        # (后续的 os.getenv 调用将使用这些安全的环境变量名)
         raw_api_key_config = os.getenv(api_keys_env_var_name)
         if not raw_api_key_config:
             raw_api_key_config = os.getenv(api_keys_env_var_name_singular)
@@ -279,11 +269,8 @@ class LLMClient:
                 "加载任何有效的API密钥。"
             )
 
-        # 这部分处理 Base URL
-        self.base_url = os.getenv(f"{self.provider}_BASE_URL")  # <--- 将会使用这种固定模式 #
+        self.base_url = os.getenv(f"{self.env_provider_prefix}_BASE_URL")
         if not self.base_url:
-            # 兼容旧的 GEMINI_BASE_URL（如果 provider 是 GEMINI 但 GEMINI_BASE_URL 未设置）
-            # 这种情况其实不太可能，因为上面已经用了 self.provider
             if self.provider == "GEMINI" and os.getenv("GEMINI_BASE_URL"):
                 self.base_url = os.getenv("GEMINI_BASE_URL")
                 logger.debug(f"使用了旧的 GEMINI_BASE_URL 环境变量。推荐使用 {self.env_provider_prefix}_BASE_URL。")
@@ -302,7 +289,7 @@ class LLMClient:
             self.streaming_endpoint_path = DEFAULT_STREAMING_API_ENDPOINT_GOOGLE
             self.non_streaming_endpoint_path = DEFAULT_NON_STREAMING_API_ENDPOINT_GOOGLE
             self.embedding_endpoint_path = DEFAULT_EMBEDDING_ENDPOINT_GOOGLE
-        elif self.provider in ["OPENAI", "SILICONFLOW"] or ("openai" in self.base_url.lower()):
+        elif self.provider in ["OPENAI", "SILICONFLOW", "DEEPSEEK", "CHATANYWHERE"] or ("openai" in self.base_url.lower()): # Added DEEPSEEK and CHATANYWHERE
             self.api_endpoint_style = "openai"
             self.streaming_endpoint_path = DEFAULT_CHAT_COMPLETIONS_ENDPOINT_OPENAI
             self.non_streaming_endpoint_path = DEFAULT_CHAT_COMPLETIONS_ENDPOINT_OPENAI
@@ -311,10 +298,11 @@ class LLMClient:
             logger.warning(
                 f"无法根据Base URL '{self.base_url}' 或提供商 '{self.provider}' 自动确定API风格。默认为 'openai' 风格。"
             )
-            self.api_endpoint_style = "openai"
+            self.api_endpoint_style = "openai" # Default to OpenAI style
             self.streaming_endpoint_path = DEFAULT_CHAT_COMPLETIONS_ENDPOINT_OPENAI
             self.non_streaming_endpoint_path = DEFAULT_CHAT_COMPLETIONS_ENDPOINT_OPENAI
             self.embedding_endpoint_path = DEFAULT_EMBEDDINGS_ENDPOINT_OPENAI
+
 
         _abandoned_keys_list = abandoned_keys_config if abandoned_keys_config is not None else []
         self.abandoned_keys_config = {str(k) for k in _abandoned_keys_list if str(k)}
@@ -349,7 +337,7 @@ class LLMClient:
             f"LLMClient 为提供商 '{self.provider}' 初始化完成。"
             f"模型: {self.model_name}, API密钥数: {len(self.api_keys_config)}, "
             f"默认生成参数: {self.default_generation_config}"
-            f"429临时禁用时长: {self.rate_limit_disable_duration_seconds // 60} 分钟."  # <-- 新增日志信息 #
+            f"429临时禁用时长: {self.rate_limit_disable_duration_seconds // 60} 分钟."
         )
         if self.proxy_url:
             logger.info(f"代理: {self.proxy_url}")
@@ -366,81 +354,103 @@ class LLMClient:
         try:
             image_bytes = base64.b64decode(base64_data)
             current_size_bytes = len(image_bytes)
-            if current_size_bytes <= self.image_compression_target_bytes * 1.05:
+            if current_size_bytes <= self.image_compression_target_bytes * 1.05: # Add a small margin
                 return base64_data, original_mime_type
+            
             img = Image.open(io.BytesIO(image_bytes))
             img_format_from_pillow = img.format
             img_format_from_mime = (
                 original_mime_type.split("/")[-1].upper() if original_mime_type and "/" in original_mime_type else None
             )
+            # Prefer Pillow's detected format if available, otherwise use MIME type, fallback to JPEG
             img_format = img_format_from_pillow if img_format_from_pillow else img_format_from_mime or "JPEG"
+
             original_width, original_height = img.size
+            
+            # Calculate scale_factor to aim for target_bytes, but don't go below min_scale
             scale_factor = max(
-                DEFAULT_IMAGE_COMPRESSION_SCALE_MIN,
-                min(1.0, (self.image_compression_target_bytes / current_size_bytes) ** 0.5),
+                DEFAULT_IMAGE_COMPRESSION_SCALE_MIN, 
+                min(1.0, (self.image_compression_target_bytes / current_size_bytes)**0.5)
             )
+            
             new_width = max(1, int(original_width * scale_factor))
             new_height = max(1, int(original_height * scale_factor))
+
             output_buffer = io.BytesIO()
-            save_format = img_format
+            save_format = img_format # Default to original format
             save_params = {}
+
             if getattr(img, "is_animated", False) and img.n_frames > 1 and img_format == "GIF":
                 frames = []
                 durations = []
-                loop = img.info.get("loop", 0)
-                disposal = img.info.get("disposal", 2)
+                loop = img.info.get("loop", 0) 
+                disposal = img.info.get("disposal", 2) # Default to "restore to background"
+
                 for frame_idx in range(img.n_frames):
                     img.seek(frame_idx)
-                    durations.append(img.info.get("duration", 100))
+                    durations.append(img.info.get("duration", 100)) # Default duration 100ms
+                    # Resize each frame
                     resized_frame = img.convert("RGBA").resize((new_width, new_height), Image.Resampling.LANCZOS)
                     frames.append(resized_frame)
+                
                 if frames:
                     frames[0].save(
-                        output_buffer,
-                        format="GIF",
-                        save_all=True,
-                        append_images=frames[1:],
-                        optimize=False,
-                        duration=durations,
+                        output_buffer, 
+                        format="GIF", 
+                        save_all=True, 
+                        append_images=frames[1:], 
+                        optimize=False, # GIF optimization can be lossy or slow
+                        duration=durations, 
                         loop=loop,
                         disposal=disposal,
-                        transparency=img.info.get("transparency"),
-                        background=img.info.get("background"),
+                        transparency=img.info.get("transparency"), # Preserve transparency if present
+                        background=img.info.get("background") # Preserve background if present
                     )
-                    save_format = "GIF"
-                else:
+                    save_format = "GIF" # Explicitly set save format
+                else: # Should not happen if n_frames > 1
                     return base64_data, original_mime_type
-            else:
-                if img.mode == "P":
-                    img = img.convert("RGBA")
+            else: # Non-animated or non-GIF animated
+                # Handle transparency: if original has alpha, convert to RGBA before resize
+                if img.mode == "P": # Palette mode, often used for GIFs, check for transparency
+                    img = img.convert("RGBA") # Convert to RGBA to preserve transparency
                 elif img.mode == "CMYK":
-                    img = img.convert("RGB")
+                    img = img.convert("RGB") # Convert CMYK to RGB first
+
                 if img.mode in ("RGBA", "LA") or (isinstance(img.info, dict) and "transparency" in img.info):
+                    # Has alpha channel or transparency info, prefer PNG to preserve it
                     resized_img = img.convert("RGBA").resize((new_width, new_height), Image.Resampling.LANCZOS)
                     save_format = "PNG"
                     save_params = {"optimize": True}
                 else:
+                    # No alpha, can use JPEG if original was JPEG, otherwise PNG
                     resized_img = img.convert("RGB").resize((new_width, new_height), Image.Resampling.LANCZOS)
                     if img_format == "JPEG":
                         save_format = "JPEG"
                         save_params = {"quality": DEFAULT_IMAGE_COMPRESSION_QUALITY_JPEG, "optimize": True}
-                    else:
+                    else: # Fallback to PNG for other non-alpha formats
                         save_format = "PNG"
                         save_params = {"optimize": True}
+                
                 resized_img.save(output_buffer, format=save_format, **save_params)
+
             compressed_bytes = output_buffer.getvalue()
             new_size_bytes = len(compressed_bytes)
+
             logger.info(
                 f"图像压缩结果: {original_width}x{original_height} ({img_format}) -> "
                 f"{new_width}x{new_height} ({save_format}). "
                 f"大小: {current_size_bytes / 1024:.1f}KB -> {new_size_bytes / 1024:.1f}KB"
             )
+            
+            # Only return compressed if significantly smaller and non-empty
             if new_size_bytes < current_size_bytes * 0.98 and new_size_bytes > 0:
                 return base64.b64encode(compressed_bytes).decode("utf-8"), f"image/{save_format.lower()}"
-            return base64_data, original_mime_type
+            
+            return base64_data, original_mime_type # Return original if not significantly smaller
+
         except Exception as e:
             logger.error(f"图像压缩过程中发生错误: {e}", exc_info=True)
-            return base64_data, original_mime_type
+            return base64_data, original_mime_type # Fallback to original on error
 
     async def _process_single_image(
         self,
@@ -449,7 +459,6 @@ class LLMClient:
         mime_type_override: str | None,
         proxy_url_for_image: str | None,
     ) -> dict[str, str] | None:
-        # ... (content remains the same) ...
         base64_image_data = None
         determined_mime_type = mime_type_override
         try:
@@ -482,11 +491,21 @@ class LLMClient:
             else:
                 logger.error(f"Img not found: {image_path_or_url}")
                 return None
+
             if not base64_image_data:
                 return None
-            determined_mime_type = determined_mime_type or "image/jpeg"
-            if not determined_mime_type.startswith("image/"):
-                determined_mime_type = "image/jpeg"  # Fallback #
+
+            determined_mime_type = determined_mime_type or "image/jpeg" # Default if still None
+            if not determined_mime_type.startswith("image/"): # Ensure it's a valid image MIME
+                logger.warning(f"无效的MIME类型 '{determined_mime_type}'，将回退到 image/jpeg。")
+                determined_mime_type = "image/jpeg" 
+
+            # Perform compression if enabled
+            if self.enable_image_compression:
+                base64_image_data, determined_mime_type = await self._compress_base64_image(
+                    base64_image_data, determined_mime_type
+                )
+
             return {"b64_data": base64_image_data, "mime_type": determined_mime_type}
         except Exception as e:
             logger.exception(f"Img processing error {image_path_or_url}: {e}")
@@ -497,7 +516,6 @@ class LLMClient:
         image_sources: list[str] | None,
         mime_type_override: str | None,
     ) -> list[dict[str, str]]:
-        # ... (content remains the same) ...
         if not image_sources:
             return []
         processed_data: list[dict[str, str]] = []
@@ -516,13 +534,13 @@ class LLMClient:
         processed_images: list[dict[str, str]] | None = None,
         text_to_embed: str | None = None,
     ) -> str | list[dict[str, Any]] | dict[str, Any]:
-        # ... (content remains the same) ...
         if request_type == "embedding":
             if self.api_endpoint_style == "google":
                 return {"parts": [{"text": text_to_embed}]} if text_to_embed else {}
             elif self.api_endpoint_style == "openai":
                 return text_to_embed if text_to_embed else ""
             raise NotImplementedError(f"Embedding content for {self.api_endpoint_style} not implemented.")
+
         if self.api_endpoint_style == "google":
             api_request_elements: list[dict[str, Any]] = []
             text_segments = (
@@ -544,6 +562,7 @@ class LLMClient:
                         }
                     )
                     img_idx += 1
+            # Append any remaining images if placeholders were fewer than images
             while processed_images and img_idx < len(processed_images):
                 api_request_elements.append(
                     {
@@ -554,15 +573,22 @@ class LLMClient:
                     }
                 )
                 img_idx += 1
+            
+            # If no elements were added (e.g., empty prompt and no images), but prompt_text was provided (e.g. non-empty but no placeholders)
             if not api_request_elements and prompt_text and not processed_images:
-                api_request_elements.append({"text": prompt_text})
+                 api_request_elements.append({"text": prompt_text})
+            
             return api_request_elements
+
         elif self.api_endpoint_style == "openai":
-            if not processed_images or request_type == "chat":
+            if not processed_images or request_type == "chat": # For pure chat or text-only tool calls
                 return prompt_text or ""
+            
+            # For multimodal (vision) with OpenAI style
             content_list: list[dict[str, Any]] = []
-            if prompt_text:
+            if prompt_text: # Text part must come first for some models like gpt-4-vision-preview
                 content_list.append({"type": "text", "text": prompt_text})
+            
             for img_data in processed_images:
                 content_list.append(
                     {
@@ -571,10 +597,10 @@ class LLMClient:
                     }
                 )
             return content_list
+        
         raise NotImplementedError(f"Content building for {self.api_endpoint_style} not implemented for {request_type}.")
 
     def _get_endpoint_path(self, request_type: str, is_streaming: bool) -> str:
-        # ... (content remains the same) ...
         if request_type == "embedding":
             return self.embedding_endpoint_path
         return self.streaming_endpoint_path if is_streaming else self.non_streaming_endpoint_path
@@ -583,9 +609,7 @@ class LLMClient:
         self,
         request_type: str,
         prompt: str | None,
-        # ███ 小懒猫改动开始 ███
-        system_prompt: str | None,  # 新增 system_prompt 参数，这里才是真正干活的地方！
-        # ███ 小懒猫改动结束 ███
+        system_prompt: str | None,
         processed_images: list[dict[str, str]] | None,
         is_streaming: bool,
         final_generation_config: GenerationParams,
@@ -593,7 +617,6 @@ class LLMClient:
         tool_choice: str | dict | None = None,
         text_to_embed: str | None = None,
     ) -> tuple[str, dict[str, Any], dict[str, Any]]:
-        # ... (content remains the same) ...
         content = self._build_content_for_style(request_type, prompt, processed_images, text_to_embed)
         headers = {"Content-Type": "application/json"}
         payload: dict[str, Any] = {}
@@ -603,6 +626,46 @@ class LLMClient:
             if request_type == "embedding":
                 payload = {"model": f"models/{self.model_name}", "content": content}
             else:
+                # Make a copy to modify for vision-specific unsupported params
+                current_final_gen_config = final_generation_config.copy()
+                is_vision_request_for_google = (request_type == "vision" or (processed_images and len(processed_images) > 0))
+
+                if is_vision_request_for_google:
+                    # These are keys as they appear in the Google API JSON payload
+                    # GenerationParams TypedDict: temperature, maxOutputTokens, top_p, top_k, stop_sequences, candidate_count
+                    # Google API payload:        temperature, maxOutputTokens, topP, topK, stopSequences, candidateCount
+                    params_to_remove_from_payload = ["topP", "topK", "candidateCount", "stopSequences"]
+                    
+                    # We need to remove keys from current_final_gen_config which is TypedDict style
+                    # Map API payload keys to TypedDict keys
+                    api_to_typed_dict_map = {
+                        "topP": "topP", # Assuming TypedDict uses topP directly for Google
+                        "topK": "topK", # Assuming TypedDict uses topK directly for Google
+                        "candidateCount": "candidateCount", # Assuming TypedDict uses candidateCount
+                        "stopSequences": "stopSequences"  # Assuming TypedDict uses stopSequences
+                    }
+                    # Fallback for TypedDict keys if they differ (example, not strictly needed if above is correct)
+                    # api_to_typed_dict_map_alt = {
+                    #     "topP": "top_p", 
+                    #     "topK": "top_k",
+                    #     "candidateCount": "candidate_count",
+                    #     "stopSequences": "stop_sequences"
+                    # }
+
+                    keys_in_config_to_delete = []
+                    for api_param_name in params_to_remove_from_payload:
+                        # Check if the API param name itself is in current_final_gen_config (e.g. if TypedDict uses API names)
+                        if api_param_name in current_final_gen_config:
+                            keys_in_config_to_delete.append(api_param_name)
+                        # Also check if the mapped TypedDict key is present (if mapping is different)
+                        elif api_to_typed_dict_map.get(api_param_name) in current_final_gen_config:
+                             keys_in_config_to_delete.append(api_to_typed_dict_map[api_param_name])
+                    
+                    for key_to_del in set(keys_in_config_to_delete): # Use set to avoid deleting twice if mapping was redundant
+                        if key_to_del in current_final_gen_config:
+                            del current_final_gen_config[key_to_del] # type: ignore
+                            logger.debug(f"Google Vision: Removed unsupported parameter '{key_to_del}' from generationConfig.")
+                
                 payload = {
                     "contents": [{"parts": content if isinstance(content, list) else [{"text": str(content)}]}],
                     "safetySettings": [
@@ -614,57 +677,54 @@ class LLMClient:
                             "HARM_CATEGORY_DANGEROUS_CONTENT",
                         ]
                     ],
-                    "generationConfig": final_generation_config,
+                    "generationConfig": current_final_gen_config,
                 }
                 if request_type == "tool_call" and tools:
-                    payload["tools"] = tools  # Assuming Gemini tools are passed directly if structured correctly #
-
-                # ███ 小懒猫改动开始 ███
-                # 给 Google Gemini 添加 system_instruction，哼，总算到我了
+                    payload["tools"] = tools
+                
                 if system_prompt:
                     logger.debug(
                         f"为 Google API 添加 system_instruction: {system_prompt[:50]}{'...' if len(system_prompt) > 50 else ''}"
                     )
-                    payload["system_instruction"] = {  # 符合你给的格式，别说我没看仔细
+                    payload["system_instruction"] = {
                         "parts": [{"text": system_prompt}]
                     }
-                # ███ 小懒猫改动结束 ███
-
             url_path = f"/{self.model_name.strip('/')}{url_path}"
+
         elif self.api_endpoint_style == "openai":
             if request_type == "embedding":
                 payload = {"input": text_to_embed, "model": self.model_name}
-                if "encoding_format" in final_generation_config:
+                if "encoding_format" in final_generation_config: # TypedDict key
                     payload["encoding_format"] = final_generation_config["encoding_format"]
-                if "dimensions" in final_generation_config:
+                if "dimensions" in final_generation_config: # TypedDict key
                     payload["dimensions"] = final_generation_config["dimensions"]
             else:
-                # ███ 小懒猫改动开始 ███
-                # 给 OpenAI API 的 messages 列表添加 system 角色的消息
                 messages_list: list[dict[str, Any]] = []
                 if system_prompt:
                     logger.debug(
                         f"为 OpenAI API 添加 system message: {system_prompt[:50]}{'...' if len(system_prompt) > 50 else ''}"
                     )
-                    messages_list.append({"role": "system", "content": system_prompt})  # 加在最前面哦
-
-                # 原来的 user message
+                    messages_list.append({"role": "system", "content": system_prompt})
+                
+                # For OpenAI, content is either a string (for text-only) or a list of parts (for multimodal)
                 messages_list.append({"role": "user", "content": content})
-
                 payload = {"model": self.model_name, "messages": messages_list}
-                # ███ 小懒猫改动结束 ███
 
                 if is_streaming:
                     payload["stream"] = True
-                for k, v in final_generation_config.items():
-                    if k == "maxOutputTokens":
-                        payload["max_tokens"] = v
-                    elif k == "stop_sequences":
-                        payload["stop"] = v
-                    elif k == "candidate_count":
-                        payload["n"] = v
-                    else:
-                        payload[k] = v
+                
+                # Map GenerationParams (TypedDict keys) to OpenAI API payload keys
+                for key, value in final_generation_config.items():
+                    if key == "maxOutputTokens": payload["max_tokens"] = value
+                    elif key == "stopSequences": payload["stop"] = value
+                    elif key == "candidateCount": payload["n"] = value
+                    elif key == "topP": payload["top_p"] = value # OpenAI uses top_p
+                    elif key == "topK": pass # OpenAI doesn't typically use top_k with top_p, often one or the other.
+                                             # If top_k is critical, specific handling might be needed or ensure it's not set when top_p is.
+                    elif key in ["temperature", "presence_penalty", "frequency_penalty", "seed", "user"]: # Direct mapping
+                        payload[key] = value
+                    # else: other params in GenerationParams might not be directly applicable or need specific mapping
+
                 if request_type == "tool_call" and tools:
                     payload["tools"] = tools
                     if tool_choice:
@@ -677,7 +737,7 @@ class LLMClient:
         self,
         response: aiohttp.ClientResponse,
         request_type: str,
-        interruption_event: asyncio.Event | None = None,  # 新增参数 #
+        interruption_event: asyncio.Event | None = None,
     ) -> dict[str, Any]:
         full_streamed_text = ""
         chunk_count = 0
@@ -694,7 +754,7 @@ class LLMClient:
                     logger.info(f"'{self.api_endpoint_style}' streaming interrupted by event.")
                     interrupted_by_event = True
                     finish_reason_override = "INTERRUPTED"
-                    break  # 退出循环 #
+                    break 
 
                 line = line_bytes.decode("utf-8").strip()
                 if not line:
@@ -716,17 +776,16 @@ class LLMClient:
 
                         if self.api_endpoint_style == "google":
                             candidate = data_chunk.get("candidates", [{}])[0]
-                            if candidate:  # 确保 candidate 存在 #
+                            if candidate: 
                                 content = candidate.get("content", {})
-                                if content:  # 确保 content 存在 #
+                                if content: 
                                     parts = content.get("parts", [])
-                                    if parts:  # 确保 parts 存在 #
+                                    if parts: 
                                         for part in parts:
                                             if "text" in part:
                                                 current_chunk_text = part["text"]
                                                 if current_chunk_text is None:
                                                     current_chunk_text = ""
-                                # 可以在这里提取 Google 的 finishReason 如果需要
                                 if candidate.get("finishReason") and not finish_reason_override:
                                     finish_reason_override = candidate.get("finishReason")
 
@@ -765,7 +824,7 @@ class LLMClient:
                     except json.JSONDecodeError:
                         logger.warning(f"Unable to parse stream JSON: {data_json_str}")
 
-                elif line and self.api_endpoint_style == "google":  # Non-data event for Google #
+                elif line and self.api_endpoint_style == "google": 
                     logger.debug(f"Non-data Google stream event: {line}")
 
                 if current_chunk_text is not None:
@@ -774,21 +833,21 @@ class LLMClient:
                     logger.info(current_chunk_text, end="", flush=True)
                     full_streamed_text += current_chunk_text
 
-            if not interrupted_by_event:  # Only logger.info newline if not interrupted (already logged interruption) #
-                logger.info()  # Newline after stream completion #
+            if not interrupted_by_event: 
+                logger.info() 
                 logger.info(f"'{self.api_endpoint_style}' streaming complete ({chunk_count} data chunks).")
             else:
-                logger.info(" [STREAM INTERRUPTED]")  # Indicate interruption on the same line as logger.infoed chunks #
+                logger.info(" [STREAM INTERRUPTED]") 
 
             result = {
                 "streamed_text_summary": (
                     f"Stream {'interrupted' if interrupted_by_event else 'completed'}. Chunks: {chunk_count}."
                 ),
-                "full_text": full_streamed_text,  # This will be partial if interrupted #
+                "full_text": full_streamed_text, 
                 "raw_response_type": "STREAMED",
                 "interrupted": interrupted_by_event,
                 "finish_reason": finish_reason_override
-                or ("INTERRUPTED" if interrupted_by_event else "UNKNOWN"),  # Provide a finish reason #
+                or ("INTERRUPTED" if interrupted_by_event else "UNKNOWN"), 
             }
             if tool_calls_aggregated:
                 for tc in tool_calls_aggregated:
@@ -798,7 +857,7 @@ class LLMClient:
                         and isinstance(tc["function"]["arguments"], str)
                         and not tc["function"]["arguments"].strip()
                     ):
-                        tc["function"]["arguments"] = "{}"  # Ensure valid JSON for empty args #
+                        tc["function"]["arguments"] = "{}" 
                 result["tool_calls"] = tool_calls_aggregated
             return result
 
@@ -817,16 +876,16 @@ class LLMClient:
         response_json: dict[str, Any],
         request_type: str,
     ) -> dict[str, Any]:
-        # ... (content remains largely the same, ensure "interrupted" is False and add "finish_reason") ...
         parsed_result = {
             "text": None,
             "tool_calls": None,
-            "function_call": None,
+            "function_call": None, # For Google single tool call
             "embedding": None,
             "raw_response": response_json,
             "usage": None,
-            "interrupted": False,
+            "interrupted": False, # Non-streaming responses are not interrupted in this way
             "finish_reason": None,
+            "blocked_by_safety": False # Specific for safety filtering
         }
         if self.api_endpoint_style == "google":
             if request_type == "embedding":
@@ -834,32 +893,39 @@ class LLMClient:
                     parsed_result["embedding"] = response_json["embedding"]["value"]
             else:
                 candidate = response_json.get("candidates", [{}])[0]
-                if candidate:  # Check if candidate exists #
+                if candidate: 
                     content_parts = candidate.get("content", {}).get("parts", [])
                     text_parts = [part["text"] for part in content_parts if "text" in part]
                     if text_parts:
                         parsed_result["text"] = "".join(text_parts)
+                    
+                    # Google's tool_call (functionCall) is singular within parts
                     for part in content_parts:
                         if "functionCall" in part and request_type == "tool_call":
-                            parsed_result["function_call"] = part["functionCall"]
-                            break
+                            # Adapt to OpenAI's tool_calls list structure for consistency if possible,
+                            # or keep as function_call and handle upstream.
+                            # For now, storing as function_call.
+                            parsed_result["function_call"] = part["functionCall"] 
+                            break 
+                    
                     parsed_result["finish_reason"] = candidate.get("finishReason")
                     if (
                         not parsed_result["text"]
-                        and not parsed_result["function_call"]
+                        and not parsed_result["function_call"] 
                         and candidate.get("finishReason") == "SAFETY"
                     ):
                         parsed_result["text"] = "[内容因安全原因被过滤]"
                         parsed_result["blocked_by_safety"] = True
                 if "usageMetadata" in response_json:
                     parsed_result["usage"] = response_json["usageMetadata"]
+
         elif self.api_endpoint_style == "openai":
             if request_type == "embedding":
                 if "data" in response_json and response_json["data"] and "embedding" in response_json["data"][0]:
                     parsed_result["embedding"] = response_json["data"][0]["embedding"]
             else:
                 choice = response_json.get("choices", [{}])[0]
-                if choice:  # Check if choice exists #
+                if choice: 
                     message = choice.get("message", {})
                     parsed_result["text"] = message.get("content")
                     if message.get("tool_calls") and request_type == "tool_call":
@@ -880,24 +946,24 @@ class LLMClient:
         payload: dict[str, Any],
         is_streaming: bool,
         request_type: str,
-        interruption_event: asyncio.Event | None = None,  # 新增参数 #
+        interruption_event: asyncio.Event | None = None,
     ) -> dict[str, Any]:
         full_request_url = f"{self.base_url}{url_path}"
         request_params = {}
         final_headers = headers.copy()
+
         if self.api_endpoint_style == "google":
             request_params["key"] = api_key
         elif self.api_endpoint_style == "openai":
             final_headers["Authorization"] = f"Bearer {api_key}"
-
-        # ... (logging remains the same) ...
-        loggable_headers = {k: (v if k.lower() != "authorization" else "Bearer ***") for k, v in final_headers.items()}
+        
+        loggable_headers = {k: (v if k.lower() != "authorization" else "Bearer ***") for k,v in final_headers.items()}
         logger.debug(f"--- HTTP Request (Style: {self.api_endpoint_style}, Type: {request_type}) ---")
         logger.debug(
             f"URL: {full_request_url}, Params: {request_params}, "
             f"Headers: {loggable_headers}, Proxy: {self.proxy_url or 'No'}"
         )
-        # logger.debug(f"Payload: {json.dumps(payload, indent=2, ensure_ascii=False)}") # 慎用，可能包含敏感信息或过大
+        # logger.debug(f"Payload: {json.dumps(payload, indent=2, ensure_ascii=False)}")
 
         http_response: aiohttp.ClientResponse | None = None
         try:
@@ -907,16 +973,15 @@ class LLMClient:
                 json=payload,
                 params=request_params,
                 proxy=self.proxy_url,
-                timeout=120,
+                timeout=120, # Consider making timeout configurable
             )
             status_code = http_response.status
             logger.debug(f"Request sent. Actual URL: {http_response.url}. Status: {status_code}")
 
             if 200 <= status_code < 300:
                 if is_streaming:
-                    # 将 interruption_event 传递下去
                     return await self._handle_streaming_response_for_style(
-                        http_response,
+                        http_response, 
                         request_type,
                         interruption_event,
                     )
@@ -924,64 +989,63 @@ class LLMClient:
                     response_json = await http_response.json()
                     return self._parse_non_streaming_response_for_style(response_json, request_type)
             else:
-                # ... (error handling remains the same) ...
                 response_text = await http_response.text()
                 key_info = f"...{api_key[-4:]}" if api_key and len(api_key) > 4 else "INVALID_KEY_FORMAT"
                 if status_code == 413:
                     raise PayloadTooLargeError("请求体过大 (413)", status_code, response_text)
                 if status_code == 400:
-                    # 对于Google API，400可能也意味着API key问题（比如格式不符，或者system_instruction和contents角色冲突等）
-                    # 或者无效的请求结构
-                    # 例如 Gemini API: "ถ้าค่า `role` ใน `content` และ `system_instruction` ขัดแย้งกัน ระบบจะแสดงข้อผิดพลาด `HTTP 400`"
-                    # "If the `role` values in `content` and `system_instruction` conflict, the system will return an `HTTP 400` error."
                     logger.error(f"请求无效或参数错误 (400) - Key {key_info}. Response: {response_text[:500]}")
-                    raise PermissionDeniedError(
-                        f"请求无效或参数错误 (400) - Key {key_info}",
-                        status_code,
-                        response_text,
-                        key_identifier=api_key,
+                    raise PermissionDeniedError( # Re-classify as PermissionDeniedError for key marking
+                        f"请求无效或参数错误 (400) - Key {key_info}", 
+                        status_code, 
+                        response_text, 
+                        key_identifier=api_key
                     )
                 if status_code == 401:
                     raise PermissionDeniedError(
-                        f"认证失败 (401) - Key {key_info}",
-                        status_code,
-                        response_text,
-                        key_identifier=api_key,
+                        f"认证失败 (401) - Key {key_info}", 
+                        status_code, 
+                        response_text, 
+                        key_identifier=api_key
                     )
                 if status_code == 403:
                     raise PermissionDeniedError(
-                        f"权限被拒绝 (403) - Key {key_info}",
-                        status_code,
-                        response_text,
-                        key_identifier=api_key,
+                        f"权限被拒绝 (403) - Key {key_info}", 
+                        status_code, 
+                        response_text, 
+                        key_identifier=api_key
                     )
                 if status_code == 429:
                     raise RateLimitError(
-                        f"速率限制超出 (429) - Key {key_info}",
-                        status_code,
-                        response_text,
-                        key_identifier=api_key,
+                        f"速率限制超出 (429) - Key {key_info}", 
+                        status_code, 
+                        response_text, 
+                        key_identifier=api_key
                     )
                 raise APIResponseError(f"API错误 {status_code} - Key {key_info}", status_code, response_text)
-        # ... (exception handling remains the same, ensure http_response.release()) ...
+        
         except (RateLimitError, PermissionDeniedError, PayloadTooLargeError, APIResponseError):
-            raise
+            raise 
         except aiohttp.ClientProxyConnectionError as e:
             logger.error(f"代理连接错误: {e}")
             raise NetworkError(f"代理连接错误: {e}", original_exception=e) from e
         except (aiohttp.ClientConnectorError, aiohttp.ServerDisconnectedError, aiohttp.ClientOSError) as e:
             logger.error(f"网络连接错误: {e}")
             raise NetworkError(f"网络连接错误: {e}", original_exception=e) from e
-        except TimeoutError as e:
+        except TimeoutError as e: # Python's built-in TimeoutError
             logger.error("请求超时")
             raise NetworkError("请求超时", original_exception=e) from e
+        except asyncio.TimeoutError as e: # asyncio.TimeoutError
+            logger.error("请求超时 (asyncio)")
+            raise NetworkError("请求超时 (asyncio)", original_exception=e) from e
         except json.JSONDecodeError as e:
             response_text_for_error = "N/A"
             if http_response:
-                response_text_for_error = await http_response.text(errors="ignore")
+                try: response_text_for_error = await http_response.text(errors="ignore")
+                except Exception: pass # Ignore if text() itself fails
             logger.error(f"JSON解码错误: {e}. Response text: {response_text_for_error[:200]}")
             raise APIResponseError(f"无法解析API响应为JSON: {e}", response_text=response_text_for_error) from e
-        except aiohttp.ClientError as e:
+        except aiohttp.ClientError as e: # Catch other aiohttp client errors
             logger.exception(f"AIOHTTP客户端调用时发生意外错误: {e}")
             raise NetworkError(f"AIOHTTP客户端调用时发生意外错误: {e}", original_exception=e) from e
         except Exception as e:
@@ -991,14 +1055,13 @@ class LLMClient:
             if http_response:
                 http_response.release()
 
+
     async def _execute_request_with_retries(
         self,
         request_type: str,
         is_streaming: bool,
         prompt: str | None = None,
-        # ███ 小懒猫改动开始 ███
-        system_prompt: str | None = None,  # 新增 system_prompt 参数，我也是服了这参数传来传去的
-        # ███ 小懒猫改动结束 ███
+        system_prompt: str | None = None,
         enable_multimodal: bool = False,
         image_inputs: list[str] | None = None,
         image_mime_type_override: str | None = None,
@@ -1012,19 +1075,17 @@ class LLMClient:
         async with aiohttp.ClientSession() as session:
             all_initial_keys = self.api_keys_config[:]
             last_exception: Exception | None = None
-
-            # ... (图像处理和参数准备 - 这部分逻辑保持不变) ...
+            
             current_processed_images: list[dict[str, str]] = []
             if (request_type == "vision" or (request_type == "tool_call" and enable_multimodal)) and image_inputs:
                 current_processed_images = await self._process_images_input(image_inputs, image_mime_type_override)
 
             if (
                 request_type != "embedding"
-                and not prompt
-                and not current_processed_images
-                and not (isinstance(prompt, str) and not prompt.strip())
+                and not prompt 
+                and not current_processed_images 
+                and not (isinstance(prompt, str) and not prompt.strip()) # Allow empty string prompt if images are present
             ):
-                # 即使有system_prompt，如果user prompt和图片都为空，也可能不合理，但当前检查逻辑不考虑system_prompt
                 raise ValueError("提示和图像不能都为空 (对于非嵌入请求)。")
             if request_type == "embedding" and not text_to_embed:
                 raise ValueError("text_to_embed 不能为空 (对于嵌入请求)。")
@@ -1032,26 +1093,22 @@ class LLMClient:
             current_generation_config: GenerationParams = self.default_generation_config.copy()
             if generation_params_override:
                 current_generation_config.update(generation_params_override)
-
+            
             images_have_been_compression_attempted_this_call = False
-            allowed_temp_disable_resets = max(0, max_retries - 1)
+            allowed_temp_disable_resets = max(0, max_retries -1) 
             num_temp_disable_resets_done = 0
 
-            for attempt_pass in range(max_retries + 1):  # 外层循环，代表不同的“尝试轮次” #
+            for attempt_pass in range(max_retries + 1):
                 if interruption_event and interruption_event.is_set():
                     logger.info(f"请求执行在第 {attempt_pass + 1} 轮尝试前被中断信号中止。")
                     return {
-                        "error": False,
-                        "interrupted": True,
-                        "full_text": "",
+                        "error": False, "interrupted": True, "full_text": "", 
                         "streamed_text_summary": "Task interrupted before API call.",
                         "finish_reason": "INTERRUPTED_BEFORE_CALL",
-                        "message": "Task was interrupted before an API call could be made in this attempt.",
+                        "message": "Task was interrupted before an API call could be made in this attempt."
                     }
 
                 current_time = time.time()
-                # 1. 自动解禁到期的临时禁用密钥
-                # ... (这部分逻辑保持不变) ...
                 keys_to_reactivate = [
                     k for k, expiry_ts in self._temporarily_disabled_keys_429.items() if expiry_ts <= current_time
                 ]
@@ -1059,22 +1116,15 @@ class LLMClient:
                     del self._temporarily_disabled_keys_429[k_active]
                     logger.info(f"密钥 ...{k_active[-4:]} 的429临时禁用已到期并解除。")
 
-                # 2. 获取所有永久被弃用的密钥
                 all_abandoned_permanently = self.abandoned_keys_config.union(self._abandoned_keys_runtime)
-
-                # 3. 构建当前轮次可用的密钥池
-                # ... (这部分逻辑保持不变, 包括临时禁用重置逻辑) ...
+                
                 available_keys_this_pass = [
-                    key
-                    for key in all_initial_keys
+                    key for key in all_initial_keys 
                     if key not in all_abandoned_permanently and key not in self._temporarily_disabled_keys_429
                 ]
 
                 if not available_keys_this_pass:
-                    if (
-                        self._temporarily_disabled_keys_429
-                        and num_temp_disable_resets_done < allowed_temp_disable_resets
-                    ):
+                    if self._temporarily_disabled_keys_429 and num_temp_disable_resets_done < allowed_temp_disable_resets:
                         logger.warning(
                             f"在第 {attempt_pass + 1} 次尝试轮中，所有可用密钥当前均处于429临时禁用状态。 "
                             "将清除临时禁用列表并重试 "
@@ -1082,40 +1132,32 @@ class LLMClient:
                         )
                         self._temporarily_disabled_keys_429.clear()
                         num_temp_disable_resets_done += 1
-                        available_keys_this_pass = [
-                            key for key in all_initial_keys if key not in all_abandoned_permanently
-                        ]
+                        available_keys_this_pass = [key for key in all_initial_keys if key not in all_abandoned_permanently]
                         if not available_keys_this_pass:
                             logger.error("清除临时禁用列表后，仍无任何可用API密钥。")
-                            break
+                            break 
                     else:
                         logger.error(
                             f"在第 {attempt_pass + 1} 次尝试轮中，已无任何可用API密钥"
                             f"（包括永久禁用和无法再重置的临时禁用）。"
                         )
-                        break
-
+                        break 
+                
                 random.shuffle(available_keys_this_pass)
                 logger.info(
-                    f"开始第 {attempt_pass + 1}/{max_retries + 1} 次请求尝试轮。 "  # 注意这里max_retries的用法，之前是max_retries，现在是max_retries+1轮
+                    f"开始第 {attempt_pass + 1}/{max_retries + 1} 次请求尝试轮。 "
                     f"本轮可用密钥数 (排除永久和临时禁用): {len(available_keys_this_pass)}"
                 )
-
-                # 重置 last_exception 以反映当前轮次的最终状态
-                # 如果此轮成功，last_exception 不会被设置，函数会提前返回
-                # 如果此轮所有key都失败，last_exception 会记录此轮最后一个遇到的错误
+                
                 current_pass_last_exception: Exception | None = None
 
                 for key_idx, current_key in enumerate(available_keys_this_pass):
                     key_display = f"...{current_key[-4:]}" if current_key and len(current_key) > 4 else "INVALID_KEY"
                     try:
                         url_path, headers, payload = self._prepare_request_data_for_style(
-                            # ... (参数)
                             request_type=request_type,
                             prompt=prompt,
-                            # ███ 小懒猫改动开始 ███
-                            system_prompt=system_prompt,  # 烦死了，这个参数到哪都要带上！
-                            # ███ 小懒猫改动结束 ███
+                            system_prompt=system_prompt,
                             processed_images=current_processed_images,
                             is_streaming=is_streaming,
                             final_generation_config=current_generation_config,
@@ -1124,32 +1166,23 @@ class LLMClient:
                             text_to_embed=text_to_embed,
                         )
                         logger.info(
-                            f"尝试轮 {attempt_pass + 1}/{max_retries + 1}, "  # 注意这里max_retries的用法
+                            f"尝试轮 {attempt_pass + 1}/{max_retries + 1}, "
                             f"密钥 {key_idx + 1}/{len(available_keys_this_pass)} (ID: {key_display}): "
                             f"类型: {request_type}, {'流式' if is_streaming else '非流式'}, 模型: {self.model_name}"
                         )
-                        if system_prompt and request_type != "embedding":  # 嵌入不应该用system_prompt
+                        if system_prompt and request_type != "embedding":
                             logger.info(
                                 f"  使用 System Prompt (前50字符): {system_prompt[:50]}{'...' if len(system_prompt) > 50 else ''}"
                             )
-
+                        
                         result = await self._make_api_call_attempt(
-                            session,
-                            url_path,
-                            current_key,
-                            headers,
-                            payload,
-                            is_streaming,
-                            request_type,
-                            interruption_event,
+                            session, url_path, current_key, headers, payload, 
+                            is_streaming, request_type, interruption_event,
                         )
-
-                        # 新增：检查API调用是否被中断
                         if result.get("interrupted"):
                             logger.info(f"API调用在密钥 {key_display} 尝试期间被中断信号中止。将直接返回中断结果。")
-                            return result  # 直接返回中断结果，不进行后续重试或等待 #
-
-                        return result  # 成功，直接返回 #
+                            return result
+                        return result
 
                     except PermissionDeniedError as e_perm:
                         logger.error(
@@ -1160,9 +1193,8 @@ class LLMClient:
                             self._abandoned_keys_runtime.add(e_perm.key_identifier)
                             if e_perm.key_identifier in self._temporarily_disabled_keys_429:
                                 del self._temporarily_disabled_keys_429[e_perm.key_identifier]
-                        current_pass_last_exception = e_perm  # 记录本轮的错误 #
-                        # 继续尝试此轮中的下一个密钥
-
+                        current_pass_last_exception = e_perm
+                    
                     except RateLimitError as e_rate:
                         logger.warning(
                             f"密钥 {key_display} 达到速率限制 ({e_rate.status_code}). "
@@ -1172,115 +1204,84 @@ class LLMClient:
                             disable_until_ts = time.time() + self.rate_limit_disable_duration_seconds
                             self._temporarily_disabled_keys_429[e_rate.key_identifier] = disable_until_ts
                             logger.info(
-                                f"密钥 {key_display} 已被临时禁用直到 {
-                                    time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(disable_until_ts))
-                                }."
+                                f"密钥 {key_display} 已被临时禁用直到 {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(disable_until_ts))}."
                             )
-                        current_pass_last_exception = e_rate  # 记录本轮的错误 #
-                        # 继续尝试此轮中的下一个密钥
-
+                        current_pass_last_exception = e_rate
+                    
                     except PayloadTooLargeError as e_payload:
-                        current_pass_last_exception = e_payload  # 记录本轮的错误 #
+                        current_pass_last_exception = e_payload
                         if (
-                            (request_type == "vision" or (request_type == "tool_call" and enable_multimodal))
-                            and current_processed_images
-                            and not images_have_been_compression_attempted_this_call
+                            (request_type == "vision" or (request_type == "tool_call" and enable_multimodal)) 
+                            and current_processed_images 
+                            and not images_have_been_compression_attempted_this_call 
                             and self.enable_image_compression
                         ):
-                            # ... (PayloadTooLargeError 的图像压缩逻辑 - 保持不变) ...
                             logger.info("检测到 PayloadTooLargeError，尝试对当前图像集进行响应式压缩...")
                             temp_compressed_images_data = []
                             any_image_compressed_reactively = False
                             for img_data_val in current_processed_images:
                                 compressed_b64, new_mime = await self._compress_base64_image(
-                                    img_data_val["b64_data"],
-                                    img_data_val["mime_type"],
+                                    img_data_val["b64_data"], img_data_val["mime_type"]
                                 )
                                 if compressed_b64 != img_data_val["b64_data"]:
                                     any_image_compressed_reactively = True
                                 temp_compressed_images_data.append({"b64_data": compressed_b64, "mime_type": new_mime})
-
+                            
                             if any_image_compressed_reactively:
                                 current_processed_images = temp_compressed_images_data
-                                images_have_been_compression_attempted_this_call = True
-                                logger.info(
-                                    "响应式图像压缩已应用。将继续使用（可能）压缩后的图像尝试下一个（或相同的，如果适用）密钥。"
-                                )
+                                images_have_been_compression_attempted_this_call = True 
+                                logger.info("响应式图像压缩已应用。将继续使用（可能）压缩后的图像尝试下一个（或相同的，如果适用）密钥。")
                             else:
                                 logger.info("响应式图像压缩未改变图像数据或未启用。")
                         else:
                             logger.warning("遇到PayloadTooLargeError，但无法或不再尝试图像压缩。")
-                        # 继续尝试此轮中的下一个密钥（使用可能已压缩的图像）
-
+                    
                     except (NetworkError, APIResponseError, LLMClientError) as e_general:
                         logger.warning(
                             f"尝试轮 {attempt_pass + 1} (密钥 {key_display}) 失败，"
                             f"错误类型 {type(e_general).__name__}: {e_general!s}"
                         )
-                        current_pass_last_exception = e_general  # 记录本轮的错误 #
-                        # 继续尝试此轮中的下一个密钥
-
+                        current_pass_last_exception = e_general
+                    
                     except Exception as e_unexpected:
                         logger.error(
-                            f"在尝试轮 {attempt_pass + 1} (密钥 {key_display}) 期间发生意外错误: {e_unexpected!s}",
-                            exc_info=True,
+                            f"在尝试轮 {attempt_pass + 1} (密钥 {key_display}) 期间发生意外错误: {e_unexpected!s}", 
+                            exc_info=True
                         )
-                        current_pass_last_exception = e_unexpected  # 记录本轮的错误 #
-                        # 继续尝试此轮中的下一个密钥
-
+                        current_pass_last_exception = e_unexpected
+                    
                     if key_idx < len(available_keys_this_pass) - 1:
                         logger.info(f"密钥 {key_display} 尝试失败。将尝试本轮中的下一个可用密钥。")
                     else:
                         logger.info(f"密钥 {key_display} (本轮最后一个) 尝试失败。")
 
-                # --- 内层 for key_idx, current_key in enumerate(available_keys_this_pass) 循环结束 ---
-
-                # 如果此轮所有密钥都尝试失败，current_pass_last_exception 会被设置。
-                # 更新全局的 last_exception 以便在所有轮次结束后使用
                 if current_pass_last_exception:
                     last_exception = current_pass_last_exception
-
-                # 如果此函数到这里还没有返回（即当前轮次没有成功或被中断），并且还有下一轮尝试：
-                # 注意：原来的逻辑是 attempt_pass < max_retries - 1，这里因为循环是 range(max_retries + 1)
-                # 所以应该是 attempt_pass < max_retries
-                if (
-                    attempt_pass < max_retries
-                ):  # 应该是 max_retries 而不是 max_retries -1，因为循环是 max_retries + 1 次
-                    # 计算指数退避等待时间
-                    # 第一次等待 (attempt_pass=0 完成后): INITIAL_RETRY_PASS_DELAY_SECONDS * (2^0)
-                    # 第二次等待 (attempt_pass=1 完成后): INITIAL_RETRY_PASS_DELAY_SECONDS * (2^1)
-                    # ...
+                
+                if attempt_pass < max_retries:
                     wait_duration = INITIAL_RETRY_PASS_DELAY_SECONDS * (2**attempt_pass)
                     logger.info(
                         f"第 {attempt_pass + 1} 次请求尝试轮未成功。"
                         f"等待 {wait_duration:.2f} 秒后进行下一次尝试轮 (如果适用)。"
-                        f"本轮最后遇到的错误: {
-                            type(current_pass_last_exception).__name__
-                            if current_pass_last_exception
-                            else '未明确记录 (可能所有密钥均已尝试且失败)'
-                        }"
+                        f"本轮最后遇到的错误: {type(current_pass_last_exception).__name__ if current_pass_last_exception else '未明确记录'}"
                     )
                     await asyncio.sleep(wait_duration)
-                elif attempt_pass == max_retries:  # 这是最后一轮尝试 (因为是从0到max_retries)，且没有成功 #
+                elif attempt_pass == max_retries:
                     logger.error(
                         f"已达到最大请求尝试轮数 ({max_retries + 1})，且最后一轮未成功。"
                         f"最终错误: {type(last_exception).__name__ if last_exception else '未知或无可用密钥导致失败'}"
                     )
 
-            # --- 外层 for attempt_pass in range(max_retries + 1) 循环结束 ---
             if last_exception:
                 if isinstance(last_exception, (RateLimitError | PermissionDeniedError | PayloadTooLargeError)):
                     return {
-                        "error": True,
-                        "type": type(last_exception).__name__,
+                        "error": True, "type": type(last_exception).__name__,
                         "status_code": getattr(last_exception, "status_code", None),
                         "message": f"所有API请求尝试轮均失败。最终错误: {last_exception!s}",
-                        "details": getattr(last_exception, "response_text", str(last_exception)),
+                        "details": getattr(last_exception, "response_text", str(last_exception))
                     }
-                raise last_exception
-
-            # 如果因为没有可用密钥而跳出循环，last_exception 可能未设置
-            # 或者 max_retries=0 的情况
+                raise last_exception 
+            
             raise LLMClientError(
                 "所有API请求尝试轮均失败，或未能找到可用API密钥执行请求。"
                 f"最后记录的异常 (如果存在): {type(last_exception).__name__ if last_exception else '无'}"
@@ -1289,9 +1290,7 @@ class LLMClient:
     async def make_request(
         self,
         prompt: str,
-        # ███ 小懒猫改动开始 ███
-        system_prompt: str | None,  # 新增 system_prompt 参数，别忘了我！
-        # ███ 小懒猫改动结束 ███
+        system_prompt: str | None,
         is_stream: bool,
         is_multimodal: bool = False,
         image_inputs: list[str] | None = None,
@@ -1301,32 +1300,31 @@ class LLMClient:
         tool_choice: str | dict | None = None,
         image_mime_type_override: str | None = None,
         max_retries: int = 3,
-        interruption_event: asyncio.Event | None = None,  # 新增参数 #
-        **kwargs: Unpack[GenerationParams],  # 允许传递其他GenerationParams
+        interruption_event: asyncio.Event | None = None,
+        **kwargs: Unpack[GenerationParams],
     ) -> dict[str, Any]:
-        # ... (request_type logic remains the same) ...
         request_type = "chat"
         if tools:
             request_type = "tool_call"
         elif is_multimodal and image_inputs:
             request_type = "vision"
 
-        generation_params_override: GenerationParams = kwargs.copy()  # Correctly initialize with kwargs #
+        generation_params_override: GenerationParams = kwargs.copy()
         if temp is not None:
             generation_params_override["temperature"] = temp
         if max_tokens is not None:
+            # Google API uses maxOutputTokens, OpenAI uses max_tokens
+            # The TypedDict GenerationParams uses maxOutputTokens.
+            # _prepare_request_data_for_style handles mapping to provider-specific names.
             generation_params_override["maxOutputTokens"] = max_tokens
-        # kwargs are not explicitly passed here, but could be added if needed
-
+        
         actual_enable_multimodal = is_multimodal and bool(image_inputs)
 
         return await self._execute_request_with_retries(
             request_type=request_type,
             is_streaming=is_stream,
             prompt=prompt,
-            # ███ 小懒猫改动开始 ███
-            system_prompt=system_prompt,  # 累了，毁灭吧，赶紧的！
-            # ███ 小懒猫改动结束 ███
+            system_prompt=system_prompt,
             enable_multimodal=actual_enable_multimodal,
             image_inputs=image_inputs,
             image_mime_type_override=image_mime_type_override,
@@ -1334,20 +1332,18 @@ class LLMClient:
             tools=tools,
             tool_choice=tool_choice,
             max_retries=max_retries,
-            interruption_event=interruption_event,  # 传递 interruption_event #
+            interruption_event=interruption_event,
         )
 
     async def generate_text_completion(
         self,
         prompt: str,
         is_stream: bool,
-        # ███ 小懒猫改动开始 ███
-        system_prompt: str | None = None,  # 新增 system_prompt 参数，别问了，都是泪
-        # ███ 小懒猫改动结束 ███
+        system_prompt: str | None = None,
         temp: float | None = None,
         max_tokens: int | None = None,
         max_retries: int = 3,
-        interruption_event: asyncio.Event | None = None,  # 新增 #
+        interruption_event: asyncio.Event | None = None,
         **kwargs: Unpack[GenerationParams],
     ) -> dict[str, Any]:
         logger.info(f"generate_text_completion: {'流式' if is_stream else '非流式'}")
@@ -1355,28 +1351,17 @@ class LLMClient:
             logger.info(
                 f"  generate_text_completion 收到 System Prompt (前50字符): {system_prompt[:50]}{'...' if len(system_prompt) > 50 else ''}"
             )
-
-        # Combine kwargs with explicit params for generation_params_override
         gen_params = kwargs.copy()
-        # temp and max_tokens are passed directly to make_request now
-        # if temp is not None:
-        #     gen_params["temperature"] = temp
-        # if max_tokens is not None:
-        #     gen_params["maxOutputTokens"] = max_tokens
-
-        # Call make_request directly, it will handle _execute_request_with_retries
         return await self.make_request(
             prompt=prompt,
-            # ███ 小懒猫改动开始 ███
-            system_prompt=system_prompt,  # 我真的会谢！
-            # ███ 小懒猫改动结束 ███
+            system_prompt=system_prompt,
             is_stream=is_stream,
             is_multimodal=False,
-            temp=temp,  # Pass temp directly #
-            max_tokens=max_tokens,  # Pass max_tokens directly #
+            temp=temp, 
+            max_tokens=max_tokens, 
             max_retries=max_retries,
-            interruption_event=interruption_event,  # 传递 #
-            **gen_params,  # Pass remaining kwargs, make_request will handle merging them #
+            interruption_event=interruption_event,
+            **gen_params, 
         )
 
     async def generate_vision_completion(
@@ -1384,14 +1369,12 @@ class LLMClient:
         prompt: str,
         image_inputs: list[str],
         is_stream: bool,
-        # ███ 小懒猫改动开始 ███
-        system_prompt: str | None = None,  # 新增 system_prompt 参数，没完没了了是吧！
-        # ███ 小懒猫改动结束 ███
+        system_prompt: str | None = None,
         image_mime_type_override: str | None = None,
         temp: float | None = None,
         max_tokens: int | None = None,
         max_retries: int = 3,
-        interruption_event: asyncio.Event | None = None,  # 新增 #
+        interruption_event: asyncio.Event | None = None,
         **kwargs: Unpack[GenerationParams],
     ) -> dict[str, Any]:
         logger.info(f"generate_vision_completion: {'流式' if is_stream else '非流式'}, 图像数量: {len(image_inputs)}")
@@ -1403,25 +1386,17 @@ class LLMClient:
         if not image_inputs:
             raise ValueError("视觉补全请求必须包含图像输入。")
         gen_params = kwargs.copy()
-        # temp and max_tokens are passed directly to make_request now
-        # if temp is not None:
-        #     gen_params["temperature"] = temp
-        # if max_tokens is not None:
-        #     gen_params["maxOutputTokens"] = max_tokens
-
         return await self.make_request(
             prompt=prompt,
-            # ███ 小懒猫改动开始 ███
-            system_prompt=system_prompt,  # 我就知道还有！
-            # ███ 小懒猫改动结束 ███
+            system_prompt=system_prompt,
             is_stream=is_stream,
             is_multimodal=True,
             image_inputs=image_inputs,
             image_mime_type_override=image_mime_type_override,
-            temp=temp,  # Pass temp directly #
-            max_tokens=max_tokens,  # Pass max_tokens directly #
+            temp=temp, 
+            max_tokens=max_tokens, 
             max_retries=max_retries,
-            interruption_event=interruption_event,  # 传递 #
+            interruption_event=interruption_event,
             **gen_params,
         )
 
@@ -1430,16 +1405,14 @@ class LLMClient:
         prompt: str,
         tools: list[dict[str, Any]],
         is_stream: bool,
-        # ███ 小懒猫改动开始 ███
-        system_prompt: str | None = None,  # 新增 system_prompt 参数，啊啊啊，要疯了！
-        # ███ 小懒猫改动结束 ███
+        system_prompt: str | None = None,
         tool_choice: str | dict[str, Any] | None = None,
         image_inputs: list[str] | None = None,
         image_mime_type_override: str | None = None,
         temp: float | None = None,
         max_tokens: int | None = None,
         max_retries: int = 3,
-        interruption_event: asyncio.Event | None = None,  # 新增 #
+        interruption_event: asyncio.Event | None = None,
         **kwargs: Unpack[GenerationParams],
     ) -> dict[str, Any]:
         logger.info(f"generate_with_tools: {'流式' if is_stream else '非流式'}, 工具数量: {len(tools)}")
@@ -1451,27 +1424,19 @@ class LLMClient:
         if not tools:
             raise ValueError("工具调用请求必须包含工具定义。")
         gen_params = kwargs.copy()
-        # temp and max_tokens are passed directly to make_request now
-        # if temp is not None:
-        #     gen_params["temperature"] = temp
-        # if max_tokens is not None:
-        #     gen_params["maxOutputTokens"] = max_tokens
-
         return await self.make_request(
             prompt=prompt,
-            # ███ 小懒猫改动开始 ███
-            system_prompt=system_prompt,  # 最后了，真的最后了，在这个文件里！
-            # ███ 小懒猫改动结束 ███
+            system_prompt=system_prompt,
             is_stream=is_stream,
             is_multimodal=bool(image_inputs),
             image_inputs=image_inputs,
             tools=tools,
             tool_choice=tool_choice,
             image_mime_type_override=image_mime_type_override,
-            temp=temp,  # Pass temp directly #
-            max_tokens=max_tokens,  # Pass max_tokens directly #
+            temp=temp, 
+            max_tokens=max_tokens, 
             max_retries=max_retries,
-            interruption_event=interruption_event,  # 传递 #
+            interruption_event=interruption_event,
             **gen_params,
         )
 
@@ -1479,19 +1444,17 @@ class LLMClient:
         self,
         text_to_embed: str,
         generation_params_override: GenerationParams
-        | None = None,  # Embeddings usually don't stream or get interrupted #
+        | None = None, 
         max_retries: int = 3,
     ) -> dict[str, Any]:
         logger.info(f"嵌入请求: 文本长度 {len(text_to_embed)}")
         if not text_to_embed:
             raise ValueError("用于嵌入的文本不能为空。")
-        # Interruption event is not typically relevant for non-streaming embedding calls
-        # System prompt 也不适用于 embedding
         return await self._execute_request_with_retries(
             request_type="embedding",
             is_streaming=False,
             text_to_embed=text_to_embed,
-            system_prompt=None,  # 嵌入请求不使用 system_prompt，哼！
+            system_prompt=None, 
             generation_params_override=generation_params_override,
             max_retries=max_retries,
         )

@@ -71,7 +71,7 @@ class ConfigIOHandler:
             with open(file_path, encoding="utf-8") as f:
                 logger.debug(f"正在加载 TOML 文件: {file_path}")
                 data = tomlkit.load(f)
-                logger.info(f"TOML 文件 '{file_path}' 加载成功！")
+                logger.debug(f"TOML 文件 '{file_path}' 加载成功！") # INFO -> DEBUG
                 return data
         except tomlkit.exceptions.TOMLKitError as e:
             logger.error(f"哎呀！解析 TOML 文件 '{file_path}' 失败了: {e}")
@@ -88,7 +88,7 @@ class ConfigIOHandler:
         try:
             with open(file_path, "w", encoding="utf-8") as f:
                 tomlkit.dump(data, f)
-            logger.info(f"TOML 数据已成功保存到 '{file_path}'。")
+            logger.debug(f"TOML 数据已成功保存到 '{file_path}'。") # INFO -> DEBUG
             return True
         except Exception as e:
             logger.error(f"保存 TOML 文件 '{file_path}' 时失败了: {e}")
@@ -104,7 +104,7 @@ class ConfigIOHandler:
             return False
         try:
             shutil.copy2(self.template_path, self.runtime_path)
-            logger.info(f"已从模板 '{self.template_path}' 复制到运行时位置 '{self.runtime_path}'。")
+            logger.debug(f"已从模板 '{self.template_path}' 复制到运行时位置 '{self.runtime_path}'。") # INFO -> DEBUG
             return True
         except Exception as e:
             logger.error(f"复制模板文件时发生错误: {e}")
@@ -116,7 +116,7 @@ class ConfigIOHandler:
         给它加上时间戳和可选的前缀，让它在备份文件夹里独一无二。
         """
         if not self.runtime_config_exists():
-            logger.info(f"运行时配置文件 '{self.runtime_path}' 本来就不在，不用备份啦。")
+            logger.debug(f"运行时配置文件 '{self.runtime_path}' 本来就不在，不用备份啦。") # INFO -> DEBUG
             return None
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -127,7 +127,7 @@ class ConfigIOHandler:
 
         try:
             shutil.move(str(self.runtime_path), str(backup_file_path))  # str() 确保兼容性
-            logger.info(f"已将运行时配置文件 '{self.runtime_path}' 备份到 '{backup_file_path}'。")
+            logger.debug(f"已将运行时配置文件 '{self.runtime_path}' 备份到 '{backup_file_path}'。") # INFO -> DEBUG
             return backup_file_path
         except Exception as e:
             logger.error(f"备份运行时配置文件 '{self.runtime_path}' 失败: {e}")

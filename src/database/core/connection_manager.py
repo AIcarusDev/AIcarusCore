@@ -54,7 +54,7 @@ class ArangoDBConnectionManager:
         # 存储核心集合名称及其对应的索引配置
         self.core_collection_configs: dict[str, list[tuple[list[str], bool, bool]]] = core_collection_configs
         self.database_config_obj: DatabaseConfigProtocol = None  # 使用明确的协议定义数据库连接信息
-        logger.info(f"ArangoDBConnectionManager 已使用数据库 '{db.name}' 初始化。")
+        logger.debug(f"ArangoDBConnectionManager 已使用数据库 '{db.name}' 初始化。") # INFO -> DEBUG
 
     @classmethod
     async def create_from_config(
@@ -114,28 +114,28 @@ class ArangoDBConnectionManager:
             raise ValueError(message)
 
         try:
-            logger.info(f"正在尝试连接到 ArangoDB 主机: {host}")
+            logger.debug(f"正在尝试连接到 ArangoDB 主机: {host}") # INFO -> DEBUG
             # 在单独的线程中执行同步的 ArangoClient 初始化
             client_instance: ArangoClient = await asyncio.to_thread(ArangoClient, hosts=host)
 
-            logger.info(f"正在连接到 _system 数据库以管理目标数据库 '{database_name}' (用户: {username or '默认'})...")
+            logger.debug(f"正在连接到 _system 数据库以管理目标数据库 '{database_name}' (用户: {username or '默认'})...") # INFO -> DEBUG
             # 连接到 _system 数据库以检查或创建目标数据库
             sys_db: StandardDatabase = await asyncio.to_thread(
                 client_instance.db, "_system", username=username, password=password
             )
             # 如果目标数据库不存在，则创建它
             if not await asyncio.to_thread(sys_db.has_database, database_name):
-                logger.info(f"数据库 '{database_name}' 不存在。正在尝试创建...")
+                logger.debug(f"数据库 '{database_name}' 不存在。正在尝试创建...") # INFO -> DEBUG
                 await asyncio.to_thread(sys_db.create_database, database_name)
-                logger.info(f"数据库 '{database_name}' 创建成功。")
+                logger.debug(f"数据库 '{database_name}' 创建成功。") # INFO -> DEBUG (这条也改了)
 
-            logger.info(f"正在连接到目标数据库: '{database_name}' (用户: {username or '默认'})...")
+            logger.debug(f"正在连接到目标数据库: '{database_name}' (用户: {username or '默认'})...") # INFO -> DEBUG
             # 连接到目标数据库
             db_instance: StandardDatabase = await asyncio.to_thread(
                 client_instance.db, database_name, username=username, password=password
             )
             await asyncio.to_thread(db_instance.properties)  # 通过获取数据库属性来验证连接是否成功
-            logger.info(f"已成功连接到 ArangoDB！主机: {host}, 数据库: {database_name}")
+            logger.debug(f"已成功连接到 ArangoDB！主机: {host}, 数据库: {database_name}") # INFO -> DEBUG
 
             # 创建 ConnectionManager 实例并初始化核心数据库结构（集合和索引）
             manager_instance = cls(client_instance, db_instance, core_collection_configs)
@@ -162,14 +162,14 @@ class ArangoDBConnectionManager:
 
     async def ensure_core_infrastructure(self) -> None:
         """确保所有在 `core_collection_configs` 中定义的核心集合及其特定索引都存在。"""
-        logger.info("正在确保核心数据库基础设施 (集合和特定索引) 已按配置就绪...")
+        logger.debug("正在确保核心数据库基础设施 (集合和特定索引) 已按配置就绪...") # INFO -> DEBUG
         if not self.core_collection_configs:  # 如果没有提供核心集合配置，则记录警告并跳过
             logger.warning("未提供核心集合配置 (core_collection_configs)，跳过基础设施保障步骤。")
             return
         for collection_name, index_definitions in self.core_collection_configs.items():
             # 为每个配置的核心集合确保其存在并应用定义的索引
             await self.ensure_collection_with_indexes(collection_name, index_definitions)
-        logger.info("核心数据库基础设施已保障。")
+        logger.debug("核心数据库基础设施已保障。") # INFO -> DEBUG
 
     async def ensure_collection_with_indexes(
         self,
@@ -200,14 +200,14 @@ class ArangoDBConnectionManager:
         has_collection = await asyncio.to_thread(current_db_ref.has_collection, collection_name)
 
         if not has_collection:
-            logger.info(f"集合 '{collection_name}' 不存在，正在创建...")
+            logger.debug(f"集合 '{collection_name}' 不存在，正在创建...") # INFO -> DEBUG
             current_db_ref_for_create = self.db # 再次检查
             if not current_db_ref_for_create:
                 logger.warning(f"数据库连接在尝试创建集合 '{collection_name}' 前已不可用。")
                 return None # type: ignore
             try:
                 collection = await asyncio.to_thread(current_db_ref_for_create.create_collection, collection_name)
-                logger.info(f"集合 '{collection_name}' 创建成功。")
+                logger.debug(f"集合 '{collection_name}' 创建成功。") # INFO -> DEBUG
             except CollectionCreateError as e:
                 logger.error(f"创建集合 '{collection_name}' 失败: {e}", exc_info=True)
                 raise

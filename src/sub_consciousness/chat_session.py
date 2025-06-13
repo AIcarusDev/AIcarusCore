@@ -300,6 +300,8 @@ class ChatSession: # Renamed class
 
                     platform_for_action = event.platform 
                     conv_type_for_action = event.conversation_info.type if event.conversation_info else "unknown"
+                    
+                    current_motivation = parsed_response_data.get("motivation") # 获取动机
 
                     action_event_dict = {
                         "event_id": f"sub_chat_reply_{uuid.uuid4()}",
@@ -307,7 +309,9 @@ class ChatSession: # Renamed class
                         "platform": platform_for_action,
                         "bot_id": self.bot_id, # Use self.bot_id
                         "conversation_info": {"conversation_id": self.conversation_id, "type": conv_type_for_action},
-                        "content": content_segs_payload 
+                        "content": content_segs_payload,
+                        # 如果有动机，就把它加到要发送的动作事件里
+                        "motivation": current_motivation if current_motivation and current_motivation.strip() else None
                     }
                     
                     logger.info(f"[ChatSession][{self.conversation_id}] Decided to reply: {reply_text_content}")
@@ -319,14 +323,17 @@ class ChatSession: # Renamed class
                     if success:
                         logger.info(f"[ChatSession][{self.conversation_id}] Action to send reply submitted successfully: {msg}")
                         action_or_thought_recorded_successfully = True 
-                        if parsed_response_data.get("motivation"):
+                        # motivation 已经包含在 action_event_dict 中，sent_actions_context 仍然用于临时辅助显示，直到 prompt_builder 完全依赖事件本身
+                        if current_motivation: # current_motivation 是从 parsed_response_data.get("motivation") 获取的
                             action_event_id = action_event_dict['event_id']
                             self.sent_actions_context[action_event_id] = {
-                                "motivation": parsed_response_data.get("motivation"),
+                                "motivation": current_motivation,
                                 "reply_text": reply_text_content 
                             }
-                            if len(self.sent_actions_context) > 10: self.sent_actions_context.popitem(last=False) 
+                            if len(self.sent_actions_context) > 10: self.sent_actions_context.popitem(last=False)
+                        
                         # 将AI的回复事件也加入待总结列表
+                        # action_event_dict 现在可能包含 motivation
                         self.events_since_last_summary.append(action_event_dict)
                         self.message_count_since_last_summary +=1
                     else:
