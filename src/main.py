@@ -322,19 +322,30 @@ class CoreSystemInitializer:
     async def shutdown(self) -> None:
         logger.info("--- 正在执行 AIcarus Core 系统关闭流程 ---")
         self.stop_event.set()
-        if self.core_logic_instance: await self.core_logic_instance.stop()
+        if self.core_logic_instance:
+            await self.core_logic_instance.stop()
+        
         if self.intrusive_thread and self.intrusive_thread.is_alive():
             self.intrusive_thread.join(timeout=10.0)
-            if self.intrusive_thread.is_alive(): logger.warning("侵入性思维线程超时未结束。")
-        if self.core_comm_layer: await self.core_comm_layer.stop()
-        if self.conn_manager: await self.conn_manager.close_client()
-        
+            if self.intrusive_thread.is_alive():
+                logger.warning("侵入性思维线程超时未结束。")
+
+        # 确保在关闭数据库连接之前，处理完所有需要数据库的清理工作
+        if self.core_comm_layer:
+            await self.core_comm_layer.stop()
+
         llm_clients = [self.main_consciousness_llm_client, self.summary_llm_client, 
                        self.intrusive_thoughts_llm_client, self.focused_chat_llm_client]
         for client_wrapper in llm_clients:
             if client_wrapper and hasattr(client_wrapper.llm_client, "_close_session_if_any"):
-                try: await client_wrapper.llm_client._close_session_if_any()
-                except Exception as e: logger.warning(f"关闭LLM客户端会话时出错: {e}")
+                try:
+                    await client_wrapper.llm_client._close_session_if_any()
+                except Exception as e:
+                    logger.warning(f"关闭LLM客户端会话时出错: {e}")
+        
+        if self.conn_manager:
+            await self.conn_manager.close_client()
+            
         logger.info("AIcarus Core 系统关闭流程执行完毕。")
 
 async def start_core_system() -> None:

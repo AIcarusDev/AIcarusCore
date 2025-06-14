@@ -218,6 +218,16 @@ class SubConsciousnessSettings(ConfigBase):
     session_timeout_seconds: int = 180
     # 后台检查不活跃会话的间隔（秒）
     deactivation_check_interval_seconds: int = 60
+    # 是否启用颜文字保护
+    enable_kaomoji_protection: bool = True
+    # 是否启用文本分割器
+    enable_splitter: bool = True
+    # 文本分割器的最大长度
+    max_length: int = 200
+    # 文本分割器的最大句子数
+    max_sentence_num: int = 3
+    # 渐进式总结的触发消息间隔
+    summary_interval: int = 5
 
 
 @dataclass

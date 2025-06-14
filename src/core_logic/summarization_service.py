@@ -45,72 +45,63 @@ class SummarizationService:
                     conversation_texts.append(f"({user_nickname}的内心想法): {text_content.strip()}")
         return "\\n".join(conversation_texts)
 
-    async def _build_progressive_summarization_prompt(
+    async def _build_consolidation_prompt(
         self, previous_summary: Optional[str], recent_dialogue_text: str
     ) -> Tuple[str, str]:
         """
-        构建用于渐进式总结的 System Prompt 和 User Prompt。
+        构建用于整合摘要的 System Prompt 和 User Prompt。
+        这个Prompt的核心是确保在融入新内容时，不丢失旧摘要的全局上下文和关键信息。
         """
         persona_config = config.persona
         system_prompt_parts = [
-            f"你是{persona_config.bot_name}；",
+            f"你是{persona_config.bot_name}，正在以第一人称视角撰写一份持续更新的回忆录。",
             persona_config.description or "",
             persona_config.profile or "",
-            "你的任务是根据之前已有的对话摘要（如果有的话）和一段最新的对话内容，生成一个新的、更完整的对话摘要。",
-            "新的摘要应该整合之前摘要的核心信息，并融入最新对话的要点。",
-            "请从你的视角（第一人称：“我”）进行主观的回忆式总结，抓住对话的核心内容、重要转折、你的关键行动或决策。",
-            "总结应自然流畅，就像你在回忆刚刚发生过的事情一样。避免使用客观的、报告式的语气。",
-            "请确保总结内容的准确性，并尽量简洁明了。"
+            "你的核心任务是：将一段“最新的对话内容”无缝地整合进“已有的回忆录”中，生成一份更新后的、连贯的完整回忆录。",
+            "这非常重要：更新后的回忆录必须保留所有旧回忆录中的关键信息、情感转折和重要决策。不能因为有了新内容就忘记或丢弃旧的重点。",
+            "你要像一个小说家一样，将新的情节自然地融入到已有的故事线中，而不是简单地把新内容附加在末尾。",
+            "最终的成品应该是一份流畅、完整、独立的个人回忆，而不是一份摘要列表。",
+            "请确保输出的只是更新后的回忆录本身，不要包含任何额外的解释或标题。"
         ]
         system_prompt = "\\n".join(filter(None, system_prompt_parts))
 
         user_prompt_parts = []
         if previous_summary and previous_summary.strip():
-            user_prompt_parts.append(f"这是我们之前的聊天摘要：\n---\n{previous_summary}\n---")
+            user_prompt_parts.append(f"这是我已有的回忆录：\n---\n{previous_summary}\n---")
         
-        user_prompt_parts.append(f"这是最近的几条新消息：\n---\n{recent_dialogue_text}\n---")
-        user_prompt_parts.append("请结合之前的摘要（如果有）和最新的消息，给我一个新的、更完整的摘要。")
+        user_prompt_parts.append(f"这是刚刚发生的最新对话：\n---\n{recent_dialogue_text}\n---")
+        user_prompt_parts.append("请将最新的对话内容，整合进我已有的回忆录中，给我一份更新后的、完整的版本。")
         user_prompt = "\n\n".join(user_prompt_parts)
         
         return system_prompt, user_prompt
 
-    async def summarize_incrementally(
+    async def consolidate_summary(
         self, previous_summary: Optional[str], recent_events: List[Dict[str, Any]]
     ) -> str:
         """
-        对提供的最近事件列表进行渐进式总结，并结合之前的摘要。
+        对提供的最近事件列表进行总结，并将其整合进之前的摘要中，形成一个更全面的新摘要。
+        这个方法旨在通过高质量的prompt，实现“增量式”操作，但获得“全局性”的结果。
         :param previous_summary: 上一轮的总结摘要，如果是第一次总结则为 None。
         :param recent_events: 最近发生的事件列表。
         :return: 新的、更新后的第一人称总结文本。
         """
-        self.logger.debug(f"开始进行渐进式总结。之前摘要是否存在: {'是' if previous_summary else '否'}, 新事件数: {len(recent_events)}")
+        self.logger.debug(f"开始整合摘要。之前摘要是否存在: {'是' if previous_summary else '否'}, 新事件数: {len(recent_events)}")
 
-        if not recent_events and not previous_summary:
-            self.logger.info("没有新的事件且没有之前的摘要，无需总结。")
-            return previous_summary or "对话似乎没有开始，或者我没有什么特别的记忆。"
-        
-        if not recent_events and previous_summary:
+        if not recent_events:
             self.logger.info("没有新的事件，直接返回之前的摘要。")
             return previous_summary
 
         recent_dialogue_text = self._format_events_to_text(recent_events)
-        if not recent_dialogue_text.strip() and not previous_summary:
-            self.logger.info("最近事件未能提取出有效文本内容，且无先前摘要，不进行总结。")
-            return previous_summary or "我回顾了一下，但最近似乎没什么特别的对话内容。"
-        
-        if not recent_dialogue_text.strip() and previous_summary:
+        if not recent_dialogue_text.strip():
             self.logger.info("最近事件未能提取出有效文本内容，直接返回之前的摘要。")
             return previous_summary
 
-
-        # Token计数逻辑已根据用户指示移除
-
-        system_prompt, user_prompt = await self._build_progressive_summarization_prompt(
+        system_prompt, user_prompt = await self._build_consolidation_prompt(
             previous_summary, recent_dialogue_text
         )
 
         try:
-            self.logger.debug(f"调用LLM进行渐进式总结。System Prompt (部分): {system_prompt[:100]}... User Prompt (部分): {user_prompt[:200]}...")
+            self.logger.debug(f"调用LLM进行摘要整合。System Prompt (部分): {system_prompt[:100]}... User Prompt (部分): {user_prompt[:200]}...")
             response_data = await self.llm_client.make_llm_request(
                 prompt=user_prompt,
                 system_prompt=system_prompt,
@@ -120,18 +111,18 @@ class SummarizationService:
             if response_data and not response_data.get("error"):
                 new_summary_text = response_data.get("text", "").strip()
                 if new_summary_text:
-                    self.logger.info(f"成功生成渐进式总结 (部分): {new_summary_text[:100]}...")
+                    self.logger.info(f"成功生成整合后的摘要 (部分): {new_summary_text[:100]}...")
                     return new_summary_text
                 else:
-                    self.logger.warning("LLM为渐进式总结返回了空内容。将保留之前的摘要（如果存在）。")
-                    return previous_summary or "我努力回忆了一下，但脑子一片空白，什么也没想起来。" # 如果之前摘要也没有，返回默认
+                    self.logger.warning("LLM为摘要整合返回了空内容。将保留之前的摘要（如果存在）。")
+                    return previous_summary or "我努力回忆了一下，但脑子一片空白，什么也没想起来。"
             else:
                 error_msg = response_data.get("message", "未知错误") if response_data else "LLM无响应"
-                self.logger.error(f"调用LLM进行渐进式总结失败: {error_msg}。将保留之前的摘要（如果存在）。")
+                self.logger.error(f"调用LLM进行摘要整合失败: {error_msg}。将保留之前的摘要（如果存在）。")
                 return previous_summary or f"我试图更新我的回忆，但是失败了（错误: {error_msg}）。"
 
         except Exception as e:
-            self.logger.error(f"生成渐进式总结时发生意外错误: {e}", exc_info=True)
+            self.logger.error(f"生成整合摘要时发生意外错误: {e}", exc_info=True)
             return previous_summary or f"我在更新回忆时遇到了一个意想不到的问题（错误: {str(e)}）。"
 
 # 示例用法 (用于测试，实际由依赖注入提供)

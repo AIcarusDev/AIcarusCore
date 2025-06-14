@@ -4,6 +4,7 @@ import time
 import json
 import re 
 import uuid 
+import random
 from datetime import datetime
 from typing import Optional, Dict, Any, List ,Tuple, TYPE_CHECKING # 确保导入 TYPE_CHECKING
 from collections import OrderedDict
@@ -20,6 +21,7 @@ from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logger_manager import get_logger
 from src.config import config
 from .chat_prompt_builder import ChatPromptBuilder # Import the new builder
+from src.common.text_splitter import process_llm_response
 
 if TYPE_CHECKING:
     from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
@@ -189,39 +191,22 @@ class ChatSession: # Renamed class
                     self.last_llm_decision = {"think": "LLM响应解析失败或为空", "reply_willing": False, "motivation": "系统错误导致无法解析LLM的胡言乱语"} # reasoning -> think
                     return
 
+                if 'mood' not in parsed_response_data:
+                    parsed_response_data['mood'] = "平静" # 默认值
                 self.last_llm_decision = parsed_response_data
 
                 # 新增：检查是否需要结束专注模式
                 if parsed_response_data.get("end_focused_chat") is True:
                     logger.info(f"[ChatSession][{self.conversation_id}] LLM决策结束专注模式。")
-                    handover_summary = "未能生成交接总结。" # 默认值
-                    try:
-                        # 1. 调用总结服务
-                        # 获取当前会话的完整历史记录用于总结
-                        # 注意：limit 参数需要合理设置，或者 SummarizationService 内部处理超长历史
-                        # fetch_all_event_types=True 确保获取所有相关事件进行总结
-                        # 也可以考虑只传 message.* 类型的事件给总结服务
-                        conversation_history_events = await self.event_storage.get_recent_chat_message_documents(
-                            conversation_id=self.conversation_id, 
-                            limit=config.sub_consciousness.get("summary_history_limit", 200), # 从配置读取或使用默认值
-                            fetch_all_event_types=True 
-                        )
-                        logger.debug(f"[ChatSession][{self.conversation_id}] 获取到 {len(conversation_history_events)} 条事件用于总结。")
-
-                        if hasattr(self.summarization_service, 'summarize_conversation') and callable(getattr(self.summarization_service, 'summarize_conversation')):
-                            handover_summary = await self.summarization_service.summarize_conversation(conversation_history_events)
-                            logger.info(f"[ChatSession][{self.conversation_id}] 生成交接总结 (前100字符): {handover_summary[:100]}...")
-                        else:
-                            logger.error(f"[ChatSession][{self.conversation_id}] SummarizationService 没有 summarize_conversation 方法或该方法不可调用！")
-                            handover_summary = f"对会话 {self.conversation_id} 的专注交互已结束（总结服务异常）。"
-                    except Exception as e_summarize:
-                        logger.error(f"[ChatSession][{self.conversation_id}] 调用总结服务时发生错误: {e_summarize}", exc_info=True)
-                        handover_summary = f"对会话 {self.conversation_id} 的专注交互已结束（总结时发生错误）。"
                     
-                    # 2. 获取最后的思考
+                    # 重构后：直接使用最后一次更新的增量摘要作为交接总结
+                    handover_summary = self.current_handover_summary or "我结束了专注，但似乎没什么特别的总结可以交接。"
+                    logger.info(f"[ChatSession][{self.conversation_id}] 使用最终的整合摘要进行交接 (前100字符): {handover_summary[:100]}...")
+                    
+                    # 获取最后的思考
                     last_session_think = self.last_llm_decision.get("think", "专注会话结束，无特定最终想法。")
                     
-                    # 3. 触发主意识
+                    # 触发主意识
                     if hasattr(self.core_logic, 'trigger_immediate_thought_cycle'):
                         self.core_logic.trigger_immediate_thought_cycle(handover_summary, last_session_think)
                         logger.info(f"[ChatSession][{self.conversation_id}] 已触发主意识的trigger_immediate_thought_cycle。")
@@ -253,91 +238,85 @@ class ChatSession: # Renamed class
                 action_or_thought_recorded_successfully = False # 新增标志位，用于判断是否需要标记事件为已处理
 
                 # Now use the (potentially sanitized) values from self.last_llm_decision for logic
-                if self.last_llm_decision.get("reply_willing") and self.last_llm_decision.get("reply_text"): # Check against sanitized reply_text
-                    reply_text_content = self.last_llm_decision["reply_text"] # Known to be non-empty and not None if condition met
-                    at_target_values_raw = self.last_llm_decision.get("at_someone") # Will be None if originally null or ""
-                    quote_msg_id = self.last_llm_decision.get("quote_reply") # Will be None if originally null or ""
-
-                    content_segs_payload: List[Dict[str, Any]] = []
+                if self.last_llm_decision.get("reply_willing") and self.last_llm_decision.get("reply_text"):
+                    original_reply_text = self.last_llm_decision["reply_text"]
                     
-                    if quote_msg_id:
-                        content_segs_payload.append(SegBuilder.reply(message_id=quote_msg_id).to_dict())
-                    
-                    at_added_flag = False
-                    if at_target_values_raw:
-                        raw_targets = []
-                        if isinstance(at_target_values_raw, str):
-                            raw_targets = [target.strip() for target in at_target_values_raw.split(',') if target.strip()]
-                        elif isinstance(at_target_values_raw, list):
-                            raw_targets = [str(target).strip() for target in at_target_values_raw if str(target).strip()]
-                        elif at_target_values_raw: # Single non-string, non-list value (should be string as per prompt)
-                            raw_targets = [str(at_target_values_raw).strip()]
-
-                        actual_platform_ids_to_at: List[str] = []
-                        for raw_target_id in raw_targets:
-                            if raw_target_id.startswith("U") and raw_target_id in uid_str_to_platform_id_map:
-                                actual_id = uid_str_to_platform_id_map[raw_target_id]
-                                actual_platform_ids_to_at.append(actual_id)
-                                logger.info(f"[ChatSession][{self.conversation_id}] Converted at_target '{raw_target_id}' to platform ID '{actual_id}'.")
-                            elif re.match(r"^\d+$", raw_target_id): # If it's already a numeric ID (potential QQ)
-                                actual_platform_ids_to_at.append(raw_target_id)
-                            else:
-                                logger.warning(f"[ChatSession][{self.conversation_id}] Invalid or unmappable at_target_id '{raw_target_id}' from LLM. Skipping.")
-                        
-                        for platform_id_to_at in actual_platform_ids_to_at:
-                            content_segs_payload.append(SegBuilder.at(user_id=platform_id_to_at, display_name="").to_dict())
-                            at_added_flag = True
-                    
-                    if at_added_flag and reply_text_content: 
-                        content_segs_payload.append(SegBuilder.text(" ").to_dict())
-                    
-                    if reply_text_content: 
-                        content_segs_payload.append(SegBuilder.text(reply_text_content).to_dict())
-                    elif at_added_flag and not reply_text_content: 
-                        if not content_segs_payload or \
-                           not (content_segs_payload[-1].get("type") == "text" and content_segs_payload[-1].get("data", {}).get("text") == " "):
-                            content_segs_payload.append(SegBuilder.text(" ").to_dict())
-
-                    platform_for_action = event.platform 
-                    conv_type_for_action = event.conversation_info.type if event.conversation_info else "unknown"
-                    
-                    current_motivation = parsed_response_data.get("motivation") # 获取动机
-
-                    action_event_dict = {
-                        "event_id": f"sub_chat_reply_{uuid.uuid4()}",
-                        "event_type": "action.message.send", 
-                        "platform": platform_for_action,
-                        "bot_id": self.bot_id, # Use self.bot_id
-                        "conversation_info": {"conversation_id": self.conversation_id, "type": conv_type_for_action},
-                        "content": content_segs_payload,
-                        # 如果有动机，就把它加到要发送的动作事件里
-                        "motivation": current_motivation if current_motivation and current_motivation.strip() else None
-                    }
-                    
-                    logger.info(f"[ChatSession][{self.conversation_id}] Decided to reply: {reply_text_content}")
-                    
-                    success, msg = await self.action_handler.submit_constructed_action(
-                        action_event_dict, 
-                        "发送子意识聊天回复"
+                    # 使用新的文本分割器处理回复
+                    split_sentences = process_llm_response(
+                        text=original_reply_text,
+                        enable_kaomoji_protection=config.sub_consciousness.enable_kaomoji_protection,
+                        enable_splitter=config.sub_consciousness.enable_splitter,
+                        max_length=config.sub_consciousness.max_length,
+                        max_sentence_num=config.sub_consciousness.max_sentence_num
                     )
-                    if success:
-                        logger.info(f"[ChatSession][{self.conversation_id}] Action to send reply submitted successfully: {msg}")
-                        action_or_thought_recorded_successfully = True 
-                        # motivation 已经包含在 action_event_dict 中，sent_actions_context 仍然用于临时辅助显示，直到 prompt_builder 完全依赖事件本身
-                        if current_motivation: # current_motivation 是从 parsed_response_data.get("motivation") 获取的
-                            action_event_id = action_event_dict['event_id']
-                            self.sent_actions_context[action_event_id] = {
-                                "motivation": current_motivation,
-                                "reply_text": reply_text_content 
-                            }
-                            if len(self.sent_actions_context) > 10: self.sent_actions_context.popitem(last=False)
+                    
+                    logger.info(f"[ChatSession][{self.conversation_id}] Original reply: '{original_reply_text}'. Split into {len(split_sentences)} sentences: {split_sentences}")
+
+                    at_target_values_raw = self.last_llm_decision.get("at_someone")
+                    quote_msg_id = self.last_llm_decision.get("quote_reply")
+                    current_motivation = parsed_response_data.get("motivation")
+
+                    # 循环发送分割后的句子
+                    for i, sentence_text in enumerate(split_sentences):
+                        content_segs_payload: List[Dict[str, Any]] = []
                         
-                        # 将AI的回复事件也加入待总结列表
-                        # action_event_dict 现在可能包含 motivation
-                        self.events_since_last_summary.append(action_event_dict)
-                        self.message_count_since_last_summary +=1
-                    else:
-                        logger.error(f"[ChatSession][{self.conversation_id}] Failed to submit action to send reply: {msg}")
+                        # 只在第一条消息中添加引用和@
+                        if i == 0:
+                            if quote_msg_id:
+                                content_segs_payload.append(SegBuilder.reply(message_id=quote_msg_id).to_dict())
+                            
+                            if at_target_values_raw:
+                                raw_targets = []
+                                if isinstance(at_target_values_raw, str):
+                                    raw_targets = [target.strip() for target in at_target_values_raw.split(',') if target.strip()]
+                                elif isinstance(at_target_values_raw, list):
+                                    raw_targets = [str(target).strip() for target in at_target_values_raw if str(target).strip()]
+                                else:
+                                    raw_targets = [str(at_target_values_raw).strip()]
+
+                                actual_platform_ids_to_at: List[str] = []
+                                for raw_target_id in raw_targets:
+                                    if raw_target_id.startswith("U") and raw_target_id in uid_str_to_platform_id_map:
+                                        actual_platform_ids_to_at.append(uid_str_to_platform_id_map[raw_target_id])
+                                    else:
+                                        actual_platform_ids_to_at.append(raw_target_id)
+                                
+                                for platform_id_to_at in actual_platform_ids_to_at:
+                                    content_segs_payload.append(SegBuilder.at(user_id=platform_id_to_at, display_name="").to_dict())
+                                if actual_platform_ids_to_at:
+                                    content_segs_payload.append(SegBuilder.text(" ").to_dict())
+
+                        content_segs_payload.append(SegBuilder.text(sentence_text).to_dict())
+
+                        action_event_dict = {
+                            "event_id": f"sub_chat_reply_{uuid.uuid4()}",
+                            "event_type": "action.message.send",
+                            "platform": event.platform,
+                            "bot_id": self.bot_id,
+                            "conversation_info": {"conversation_id": self.conversation_id, "type": event.conversation_info.type if event.conversation_info else "unknown"},
+                            "content": content_segs_payload,
+                            "motivation": current_motivation if i == 0 and current_motivation and current_motivation.strip() else None
+                        }
+                        
+                        # 描述必须固定，以匹配 ActionHandler 中的特例，从而绕过 thought_doc_key 检查
+                        success, msg = await self.action_handler.submit_constructed_action(
+                            action_event_dict, 
+                            "发送子意识聊天回复"
+                        )
+
+                        if success:
+                            logger.info(f"[ChatSession][{self.conversation_id}] Action to send reply segment {i+1} submitted successfully: {msg}")
+                            action_or_thought_recorded_successfully = True
+                            self.events_since_last_summary.append(action_event_dict)
+                            self.message_count_since_last_summary += 1
+                        else:
+                            logger.error(f"[ChatSession][{self.conversation_id}] Failed to submit action to send reply segment {i+1}: {msg}")
+                            break # 如果一条失败了，后续的就不发了
+                        
+                        # 在发送多条消息之间稍微停顿一下，模拟打字
+                        if len(split_sentences) > 1 and i < len(split_sentences) - 1:
+                            await asyncio.sleep(random.uniform(0.5, 1.5))
+
                 else: 
                     motivation = parsed_response_data.get("motivation")
                     if motivation: 
@@ -380,23 +359,24 @@ class ChatSession: # Renamed class
                         except Exception as e_mark_processed:
                             logger.error(f"[ChatSession][{self.conversation_id}] Error marking events as processed: {e_mark_processed}", exc_info=True)
 
-                    # 检查是否需要进行微总结
+                    # 检查是否需要进行摘要整合
                     if self.message_count_since_last_summary >= self.SUMMARY_INTERVAL:
-                        logger.info(f"[ChatSession][{self.conversation_id}] Reached summary interval ({self.message_count_since_last_summary}/{self.SUMMARY_INTERVAL}). Triggering incremental summary.")
+                        logger.info(f"[ChatSession][{self.conversation_id}] Reached summary interval ({self.message_count_since_last_summary}/{self.SUMMARY_INTERVAL}). Triggering summary consolidation.")
                         try:
-                            if hasattr(self.summarization_service, 'summarize_incrementally') and callable(getattr(self.summarization_service, 'summarize_incrementally')):
-                                new_summary = await self.summarization_service.summarize_incrementally(
+                            # 调用重构后的 consolidate_summary 方法
+                            if hasattr(self.summarization_service, 'consolidate_summary') and callable(getattr(self.summarization_service, 'consolidate_summary')):
+                                new_summary = await self.summarization_service.consolidate_summary(
                                     self.current_handover_summary, 
                                     self.events_since_last_summary
                                 )
                                 self.current_handover_summary = new_summary
                                 self.events_since_last_summary = []
                                 self.message_count_since_last_summary = 0
-                                logger.info(f"[ChatSession][{self.conversation_id}] Incremental summary updated. New summary (first 50 chars): {new_summary[:50]}...")
+                                logger.info(f"[ChatSession][{self.conversation_id}] Summary consolidated. New summary (first 50 chars): {new_summary[:50]}...")
                             else:
-                                logger.error(f"[ChatSession][{self.conversation_id}] SummarizationService does not have summarize_incrementally method.")
-                        except Exception as e_inc_summary:
-                            logger.error(f"[ChatSession][{self.conversation_id}] Error during incremental summarization: {e_inc_summary}", exc_info=True)
+                                logger.error(f"[ChatSession][{self.conversation_id}] SummarizationService does not have consolidate_summary method.")
+                        except Exception as e_consolidate_summary:
+                            logger.error(f"[ChatSession][{self.conversation_id}] Error during summary consolidation: {e_consolidate_summary}", exc_info=True)
                 
                 if self.is_first_turn_for_session:
                     self.is_first_turn_for_session = False
@@ -425,7 +405,11 @@ class ChatSession: # Renamed class
                     logger.debug(f"[ChatSession][{self.conversation_id}] is_first_turn_for_session 设置为 False (KeyError后)。")
                 if event: self.last_processed_timestamp = event.time
             except AttributeError as e_attr: # This was the original error point for the KeyError: 'mood'
-                logger.error(f"[ChatSession][{self.conversation_id}] Attribute error while processing LLM response: {e_attr}. Parsed data: {parsed_response_data if 'parsed_response_data' in locals() else 'N/A'}", exc_info=True)
+                logger.error("[ChatSession][{conversation_id}] Attribute error while processing LLM response: {e_attr}. Parsed data: {parsed_data}",
+                             conversation_id=self.conversation_id,
+                             e_attr=e_attr,
+                             parsed_data=parsed_response_data if 'parsed_response_data' in locals() else 'N/A',
+                             exc_info=True)
                 self.last_llm_decision = {"think": f"Attribute error processing LLM response: {e_attr}", "reply_willing": False, "motivation": "System error processing LLM response"}
                 if self.is_first_turn_for_session:
                     self.is_first_turn_for_session = False
