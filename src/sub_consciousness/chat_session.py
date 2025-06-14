@@ -215,8 +215,8 @@ class ChatSession: # Renamed class
                     
                     # 4. 停用并销毁自己
                     if hasattr(self.chat_session_manager, 'deactivate_session'):
-                        # deactivate_session 应该是同步的，它只是从管理器中移除并调用 session.deactivate()
-                        self.chat_session_manager.deactivate_session(self.conversation_id) 
+                        # deactivate_session 是异步的，需要等待
+                        await self.chat_session_manager.deactivate_session(self.conversation_id) 
                         logger.info(f"[ChatSession][{self.conversation_id}] 已请求 ChatSessionManager 停用本会话。")
                     else:
                         logger.error(f"[ChatSession][{self.conversation_id}] chat_session_manager 对象没有 deactivate_session 方法！")

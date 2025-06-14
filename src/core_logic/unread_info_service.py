@@ -6,9 +6,23 @@ from typing import List, Dict, Any, Optional, Tuple
 from src.database.services.event_storage_service import EventStorageService
 from src.database.services.conversation_storage_service import ConversationStorageService
 from src.common.custom_logging.logger_manager import get_logger
-from aicarus_protocols.common import extract_text_from_content
 
 logger = get_logger("AIcarusCore.CoreLogic.UnreadInfoService")
+
+def _extract_text_from_dict_content(content: List[Dict[str, Any]]) -> str:
+    """
+    从 content (Seg 字典列表) 中安全地提取所有文本内容。
+    """
+    text_parts = []
+    if not isinstance(content, list):
+        return ""
+    for seg in content:
+        if isinstance(seg, dict) and seg.get("type") == "text":
+            data = seg.get("data", {})
+            if isinstance(data, dict) and "text" in data:
+                text_parts.append(str(data["text"])) # 确保是字符串
+    return "".join(text_parts)
+
 
 class UnreadInfoService:
     def __init__(self, event_storage: EventStorageService, conversation_storage: ConversationStorageService):
@@ -54,7 +68,7 @@ class UnreadInfoService:
             unread_count = len(events_in_conv)
             
             raw_content_segs = latest_event.get("content", [])
-            latest_message_preview = extract_text_from_content(raw_content_segs)
+            latest_message_preview = _extract_text_from_dict_content(raw_content_segs)
             if not latest_message_preview:
                 if any(isinstance(seg, dict) and seg.get("type") == "image" for seg in raw_content_segs): latest_message_preview = "[图片]"
                 elif any(isinstance(seg, dict) and seg.get("type") == "face" for seg in raw_content_segs): latest_message_preview = "[表情]"
@@ -145,7 +159,7 @@ class UnreadInfoService:
             
             unread_count = len(events_in_conv)
             raw_content_segs = latest_event.get("content", [])
-            latest_message_preview = extract_text_from_content(raw_content_segs)
+            latest_message_preview = _extract_text_from_dict_content(raw_content_segs)
             if not latest_message_preview:
                 if any(isinstance(seg, dict) and seg.get("type") == "image" for seg in raw_content_segs): latest_message_preview = "[图片]"
                 elif any(isinstance(seg, dict) and seg.get("type") == "face" for seg in raw_content_segs): latest_message_preview = "[表情]"

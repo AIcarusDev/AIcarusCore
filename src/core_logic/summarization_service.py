@@ -5,12 +5,26 @@ from typing import List, Dict, Any, Optional, Tuple #确保Tuple被导入
 from src.llmrequest.llm_processor import Client as LLMProcessorClient # 假设LLM客户端路径
 from src.common.custom_logging.logger_manager import get_logger
 from src.config import config # 假设用于获取AI人设
-from aicarus_protocols.common import extract_text_from_content # 导入文本提取工具
 
 # logger 定义移到文件顶部，确保在任何使用前都已定义
 logger = get_logger("AIcarusCore.CoreLogic.SummarizationService")
 
 # tiktoken 相关的导入和逻辑已根据用户指示移除，因为渐进式总结不再依赖精确Token计数
+
+def _extract_text_from_dict_content(content: List[Dict[str, Any]]) -> str:
+    """
+    从 content (Seg 字典列表) 中安全地提取所有文本内容。
+    """
+    text_parts = []
+    if not isinstance(content, list):
+        return ""
+    for seg in content:
+        if isinstance(seg, dict) and seg.get("type") == "text":
+            data = seg.get("data", {})
+            if isinstance(data, dict) and "text" in data:
+                text_parts.append(str(data["text"])) # 确保是字符串
+    return "".join(text_parts)
+
 
 class SummarizationService:
     """
@@ -27,22 +41,40 @@ class SummarizationService:
         conversation_texts: List[str] = []
         for event_doc in events: # 假设 events 是按时间顺序排列的
             event_type = event_doc.get("event_type", "")
+            
+            # 跳过非字典类型的事件，增加健壮性
+            if not isinstance(event_doc, dict):
+                self.logger.warning(f"发现一个非字典类型的事件，已跳过: {type(event_doc)}")
+                continue
+
             if event_type.startswith("message."):
                 user_nickname = event_doc.get("user_info", {}).get("user_nickname", "未知用户")
                 raw_content_segs = event_doc.get("content", [])
-                text_content = extract_text_from_content(raw_content_segs)
+                text_content = _extract_text_from_dict_content(raw_content_segs)
                 if not text_content:
-                    if any(seg.get("type") == "image" for seg in raw_content_segs): text_content = "[图片]"
-                    elif any(seg.get("type") == "face" for seg in raw_content_segs): text_content = "[表情]"
-                    elif any(seg.get("type") == "file" for seg in raw_content_segs): text_content = "[文件]"
+                    # 确保 raw_content_segs 是列表才进行迭代
+                    if isinstance(raw_content_segs, list):
+                        if any(isinstance(seg, dict) and seg.get("type") == "image" for seg in raw_content_segs): text_content = "[图片]"
+                        elif any(isinstance(seg, dict) and seg.get("type") == "face" for seg in raw_content_segs): text_content = "[表情]"
+                        elif any(isinstance(seg, dict) and seg.get("type") == "file" for seg in raw_content_segs): text_content = "[文件]"
                 if text_content:
                     conversation_texts.append(f"{user_nickname}: {text_content.strip()}")
+            
             elif event_type == "internal.sub_consciousness.thought_log":
                 user_nickname = event_doc.get("user_info", {}).get("user_nickname", config.persona.bot_name or "我")
                 raw_content_segs = event_doc.get("content", [])
-                text_content = extract_text_from_content(raw_content_segs)
+                text_content = _extract_text_from_dict_content(raw_content_segs)
                 if text_content:
                     conversation_texts.append(f"({user_nickname}的内心想法): {text_content.strip()}")
+            
+            elif event_type == "action.message.send":
+                # 让AI自己发送的消息也能被总结，这样上下文更完整
+                user_nickname = config.persona.bot_name or "我"
+                raw_content_segs = event_doc.get("content", [])
+                text_content = _extract_text_from_dict_content(raw_content_segs)
+                if text_content:
+                    conversation_texts.append(f"{user_nickname}: {text_content.strip()}")
+
         return "\\n".join(conversation_texts)
 
     async def _build_consolidation_prompt(

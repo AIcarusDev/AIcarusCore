@@ -113,6 +113,20 @@ class ChatSessionManager: # Renamed class
 
 
             return self.sessions[conversation_id]
+
+    async def deactivate_session(self, conversation_id: str):
+        """
+        根据会话ID停用并移除一个会话。
+        这通常由会话自身决定结束时调用。
+        哼，不想玩了就直说嘛，我帮你收拾烂摊子。
+        """
+        async with self.lock:
+            if conversation_id in self.sessions:
+                session = self.sessions.pop(conversation_id) # 使用 pop 原子地移除并获取
+                session.deactivate() # 调用会话自己的停用方法
+                self.logger.info(f"[SessionManager] 会话 '{conversation_id}' 已被停用并从管理器中移除。")
+            else:
+                self.logger.warning(f"[SessionManager] 尝试停用一个不存在或已被移除的会话 '{conversation_id}'。")
     
     def _is_bot_mentioned(self, event: Event) -> bool:
         # 检查消息中是否 @ 了机器人
