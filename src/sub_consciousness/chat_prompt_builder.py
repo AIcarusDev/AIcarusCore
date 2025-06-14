@@ -146,6 +146,7 @@ class ChatPromptBuilder:
                     protocol_user_info = UserInfo(**user_info_dict) if user_info_dict and isinstance(user_info_dict, dict) else None
                     conv_info_dict = event_dict.get('conversation_info')
                     protocol_conv_info = ConversationInfo(**conv_info_dict) if conv_info_dict and isinstance(conv_info_dict, dict) else None
+                    motivation = event_dict.pop('motivation', None) # 从字典中取出motivation，避免传入Event构造函数
                     event_obj = Event(
                         event_id=str(event_dict.get('event_id', event_dict.get('_key', str(uuid.uuid4())))),
                         event_type=str(event_dict.get('event_type', 'unknown')),
@@ -155,12 +156,14 @@ class ChatPromptBuilder:
                         content=content_segs,
                         user_info=protocol_user_info,
                         conversation_info=protocol_conv_info,
-                        raw_data=event_dict.get('raw_data') if isinstance(event_dict.get('raw_data'), dict) else None,
-                        motivation=event_dict.get('motivation') # 确保从数据库字典中获取 motivation
+                        raw_data=event_dict.get('raw_data') if isinstance(event_dict.get('raw_data'), dict) else None
                     )
+                    if motivation:
+                        setattr(event_obj, 'motivation', motivation) # 将motivation作为属性添加到对象上
                     raw_events.append(event_obj)
                 except Exception as e_conv:
-                    logger.error(f"将数据库事件字典转换为Event对象时出错: {e_conv}, dict: {event_dict}", exc_info=True)
+                    # 使用bind来安全地记录结构化数据，避免f-string格式化问题
+                    logger.bind(event_dict=event_dict).error(f"将数据库事件字典转换为Event对象时出错: {e_conv}", exc_info=True)
         
         # --- Deduplicate raw_events ---
         # Priority for deduplication:
