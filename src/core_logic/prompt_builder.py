@@ -78,7 +78,7 @@ class ThoughtPromptBuilder:
             "在你输出的JSON中，有一个active_focus_on_conversation_id字段。如果你判断某个会话需要你立即介入处理，请将该会话的ID填入此字段。其它情况下，保持其为null。",
             "你无法直接回复消息，只能通过激活专注模式来处理。"
         ]
-        return "\\n".join(filter(None, system_prompt_parts))
+        return "\n".join(filter(None, system_prompt_parts))
 
     async def build_user_prompt( # 改为异步方法
         self, current_state: dict[str, Any], master_chat_context_str: str, intrusive_thought_str: str
@@ -107,7 +107,7 @@ class ThoughtPromptBuilder:
             thinking_guidance=current_state.get("thinking_guidance", "思考方向：随意。"),
             action_result_info=current_state.get("action_result_info", "无行动结果。"),
             pending_action_status=current_state.get("pending_action_status", ""),
-            unread_summary=unread_summary_text, # 使用新的 unread_summary 替换原来的 recent_contextual_information
+            unread_summary=unread_summary_text,
             master_chat_context=master_chat_context_str,
             intrusive_thought=intrusive_thought_str,
         )

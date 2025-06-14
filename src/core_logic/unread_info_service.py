@@ -191,9 +191,23 @@ class UnreadInfoService:
                     elif platform_from_ci is not None: self.logger.warning(f"Event {event_id_for_log} conv_info platform 不是字符串: {platform_from_ci}")
                     
                     type_from_ci = conv_info.get("type")
-                    if isinstance(type_from_ci, str) and type_from_ci: conversation_type = type_from_ci
-                    elif type_from_ci is not None: self.logger.warning(f"Event {event_id_for_log} conv_info type 不是字符串: {type_from_ci}")
-                elif conv_info is not None: self.logger.warning(f"Event {event_id_for_log} conversation_info 不是字典: {conv_info}")
+                    if isinstance(type_from_ci, str) and type_from_ci:
+                        conversation_type = type_from_ci
+                    elif type_from_ci is not None:
+                        self.logger.warning(f"Event {event_id_for_log} conv_info type 不是字符串: {type_from_ci}")
+                elif conv_info is not None:
+                    self.logger.warning(f"Event {event_id_for_log} conversation_info 不是字典: {conv_info}")
+                
+                if not conversation_type or conversation_type == "unknown":
+                    event_type_str = latest_event.get("event_type")
+                    if isinstance(event_type_str, str):
+                        event_type_parts = event_type_str.split('.')
+                        if len(event_type_parts) > 1:
+                            conversation_type = event_type_parts[1]
+            
+            if not conversation_type or conversation_type == "unknown":
+                conversation_type = "private" # 最终回退到 private
+                self.logger.warning(f"conv_id '{conv_id}' 的 conversation_type 在所有检查后仍未知，最终回退到 'private'")
 
             user_info_dict = latest_event.get("user_info", {})
             sender_nickname_val = user_info_dict.get("user_nickname") if isinstance(user_info_dict, dict) else None
