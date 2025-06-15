@@ -94,18 +94,26 @@ class AllModelPurposesConfig(ConfigBase):
     embedding_default: ModelParams | None = None
     """嵌入模型，用于生成和处理文本嵌入相关的思维。"""
 
-    focused_chat: Optional[ModelParams] = None # 新增：为专注聊天配置一个模型
-    # 如果未来有其他任务，例如图像生成、语音识别等，可以在这里添加新的字段。
+    focused_chat: Optional[ModelParams] = None
+    """专注聊天模型，用于处理专注聊天相关的思维。"""
 
 
 @dataclass
 class DatabaseSettings(ConfigBase):
-    """数据库连接设置"""
-
+    """数据库连接设置
+    此处无需修改，无需配置文件中创建对应配置项。该配置将直接被环境变量覆盖。
+    """
     host: str = "http://localhost:8529"
+    """数据库主机地址。默认值为 http://localhost:8529。"""
+
     username: str = "root"
-    password: str = "your_password"  # 强烈建议使用环境变量覆盖此项
+    """数据库用户名。默认值为 root。"""
+
+    password: str = "your_password"
+    """数据库密码。默认值为 your_password。"""
+
     database_name: str = "aicarus_core_db"
+    """数据库名称。默认值为 aicarus_core_db。"""
 
 
 @dataclass
@@ -223,22 +231,29 @@ class InnerConfig(ConfigBase):
 class SubConsciousnessSettings(ConfigBase):
     """子意识模块，如专注聊天功能的设置"""
     enabled: bool = True
-    # 子意识模块将固定使用 llm_models.focused_chat 中定义的模型
-    # 会话超时时间（秒），超过此时间未活动则停用
-    session_timeout_seconds: int = 180
-    # 后台检查不活跃会话的间隔（秒）
-    deactivation_check_interval_seconds: int = 60
-    # 是否启用颜文字保护
-    enable_kaomoji_protection: bool = True
-    # 是否启用文本分割器
-    enable_splitter: bool = True
-    # 文本分割器的最大长度
-    max_length: int = 200
-    # 文本分割器的最大句子数
-    max_sentence_num: int = 3
-    # 渐进式总结的触发消息间隔
-    summary_interval: int = 5
+    """是否启用子意识模块"""
 
+    session_timeout_seconds: int = 180
+    """子意识模块将固定使用 llm_models.focused_chat 中定义的模型
+    会话超时时间（秒），超过此时间未活动则停用"""
+
+    deactivation_check_interval_seconds: int = 60
+    """后台检查不活跃会话的间隔（秒）"""
+
+    enable_kaomoji_protection: bool = True
+    """是否启用颜文字保护"""
+
+    enable_splitter: bool = True
+    """是否启用文本分割器"""
+
+    max_length: int = 200
+    """文本分割器的最大长度"""
+
+    max_sentence_num: int = 3
+    """文本分割器的最大句子数"""
+
+    summary_interval: int = 5
+    """渐进式总结的触发消息间隔"""
 
 @dataclass
 class AlcarusRootConfig(ConfigBase):
