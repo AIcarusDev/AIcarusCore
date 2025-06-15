@@ -240,26 +240,39 @@ class ActionHandler:
                 self.logger.info(f"直接回复动作 '{action_id}' 超时，仅更新ActionLog。")
 
     async def handle_action_response(self, response_event_data: dict[str, Any]) -> None:
-        # ... (此方法无需修改)
-        self.logger.info(f"收到一个 action_response 事件: {response_event_data.get('event_id')}")
-        original_action_id = response_event_data.get("event_id")
+        """现在我学会读心术了，我会看情书的内容，而不是信封！这才是最完美的体位！"""
+        self.logger.debug(f"动作处理器: 收到一个 action_response 事件: {response_event_data}")
+
+        # --- 这就是最关键的修正！ ---
+        # 我们要从 content 中解析出原始的动作ID，而不是用响应事件自己的ID！
+        original_action_id: Optional[str] = None
+        response_content_list = response_event_data.get("content", [])
+        
+        # 做足安全检查，防止身体被玩坏~
+        if response_content_list and isinstance(response_content_list, list) and len(response_content_list) > 0:
+            first_seg = response_content_list[0]
+            if isinstance(first_seg, dict) and "data" in first_seg:
+                # original_event_id 在 data 字段里哦~
+                original_action_id = first_seg.get("data", {}).get("original_event_id")
+
         if not original_action_id:
-            self.logger.error("收到的 action_response 事件缺少 'event_id' (原始 action_id)，无法处理！")
+            response_event_id = response_event_data.get("event_id", "未知响应ID")
+            self.logger.error(f"动作处理器: 收到的 action_response (ID: {response_event_id}) 内容里没有找到 'original_event_id'，无法处理！")
             return
 
         if original_action_id not in self._pending_actions:
             self.logger.warning(
-                f"收到一个未知的或已处理/超时的 action_response，对应的 action_id: {original_action_id}。可能已经超时或重复响应。"
+                f"动作处理器: 收到一个未知的或已处理/超时的 action_response，其指向的原始动作ID: {original_action_id}。"
             )
             return
-
+        
+        # 从这里开始，后面的逻辑都是对的，因为我们现在用的是正确的ID了！
         pending_event, stored_thought_doc_key, stored_original_action_description, original_action_sent_dict = (
             self._pending_actions.pop(original_action_id)
         )
-        pending_event.set()
-        self.logger.info(f"已匹配到等待中的动作 '{original_action_id}' ({stored_original_action_description})。")
+        pending_event.set() # 唤醒那个正在焦急等待的 _execute_platform_action 先生
+        self.logger.info(f"动作处理器: 已匹配到等待中的动作 '{original_action_id}' ({stored_original_action_description})。")
 
-        is_direct_reply_action_for_response = stored_original_action_description == "回复主人"
         action_successful = False
         response_status_str = "unknown"
         error_message_from_response = ""
@@ -269,33 +282,33 @@ class ActionHandler:
         action_sent_timestamp = original_action_sent_dict.get("timestamp", response_timestamp)
         response_time_ms = response_timestamp - action_sent_timestamp
 
-        content_list = response_event_data.get("content")
-        if content_list and isinstance(content_list, list) and len(content_list) > 0:
-            first_segment = content_list[0]
-            if isinstance(first_segment, dict) and first_segment.get("type") == "action_status":
+        # 重新从 content 中解析详细结果
+        if response_content_list: 
+            first_segment = response_content_list[0]
+            seg_type = first_segment.get("type", "")
+            
+            # 我们现在检查类型是不是以 action_response. 开头，这就很灵活了~
+            if isinstance(first_segment, dict) and seg_type.startswith("action_response."):
                 response_data = first_segment.get("data", {})
-                response_status_str = response_data.get("status", "unknown").lower()
-                result_details_from_response = response_data.get("result_details")
+                # 直接从类型本身获取 success 或 failure
+                response_status_str = seg_type.split('.')[-1]
+                result_details_from_response = response_data.get("data") # 额外数据
+                
                 if response_status_str == "success":
                     action_successful = True
                     final_result_for_thought = f"动作 '{stored_original_action_description}' 已成功执行。"
                     if result_details_from_response:
-                        final_result_for_thought += (
-                            f" 详情: {json.dumps(result_details_from_response, ensure_ascii=False)}"
-                        )
-                else:
-                    action_successful = False
-                    error_message_from_response = response_data.get("error_info", "适配器报告未知错误")
-                    final_result_for_thought = (
-                        f"动作 '{stored_original_action_description}' 执行失败: {error_message_from_response}"
-                    )
+                        final_result_for_thought += f" 详情: {json.dumps(result_details_from_response, ensure_ascii=False)}"
+                else: # failure
+                    error_message_from_response = response_data.get("message", "适配器报告未知错误")
+                    final_result_for_thought = f"动作 '{stored_original_action_description}' 执行失败: {error_message_from_response}"
+                
             else:
-                self.logger.warning(
-                    f"Action_response for '{original_action_id}' 的 content[0] 不是预期的 'action_status' 类型。Content: {first_segment}"
-                )
+                 self.logger.warning(f"动作处理器: Action_response for '{original_action_id}' 的 content[0] 不是预期的 'action_response.*' 类型。收到的类型: {seg_type}")
         else:
-            self.logger.warning(f"Action_response for '{original_action_id}' 缺少有效的 content 列表。")
-
+            self.logger.warning(f"动作处理器: Action_response for '{original_action_id}' 缺少有效的 content 列表。")
+        
+        # 更新 ActionLog
         if self.action_log_service:
             await self.action_log_service.update_action_log_with_response(
                 action_id=original_action_id,
@@ -305,11 +318,9 @@ class ActionHandler:
                 error_info=error_message_from_response if not action_successful else None,
                 result_details=result_details_from_response,
             )
-        else:
-            self.logger.error(
-                f"收到动作 '{original_action_id}' 的响应，但 action_log_service 未设置，无法更新 ActionLog！"
-            )
-
+        
+        # 更新思考文档
+        is_direct_reply_action_for_response = stored_original_action_description == "回复主人" # 假设这是不需要更新思考的特殊标记
         if not is_direct_reply_action_for_response and stored_thought_doc_key and self.thought_storage_service:
             update_payload_thought = {
                 "status": "COMPLETED_SUCCESS" if action_successful else "COMPLETED_FAILURE",
@@ -323,18 +334,20 @@ class ActionHandler:
             self.logger.info(
                 f"已更新思考文档 '{stored_thought_doc_key}' 中动作 '{original_action_id}' 的状态为: {'成功' if action_successful else '失败'}。"
             )
-        elif is_direct_reply_action_for_response:
-            self.logger.info(f"直接回复动作 '{original_action_id}' 收到响应，仅更新ActionLog。")
-        elif not stored_thought_doc_key:
-            self.logger.info(
-                f"动作 '{original_action_id}' ({stored_original_action_description}) 收到响应，但没有关联的 thought_doc_key，跳过更新思考文档。"
-            )
-
+        # 如果动作成功，将其作为“既成事实”存入 events 表
         if action_successful and self.event_storage_service:
             event_to_save_in_events = original_action_sent_dict.copy()
             event_to_save_in_events["event_id"] = original_action_id 
             event_to_save_in_events["timestamp"] = response_timestamp
-            
+            action_message_id = await self.get_sent_message_id_safe(response_event_data)
+            action_metadata = [{"type": "message_metadata", "data": {"message_id": action_message_id}}]
+            event_to_save_in_events["content"] = action_metadata + event_to_save_in_events["content"]
+            event_to_save_in_events["user_info"] = {
+                "platform": response_event_data.get("platform", "unknown_platform"),
+                "user_id": response_event_data.get("bot_id", "unknown_user_id"),
+                "user_nickname": config.persona.bot_name
+            }
+
             self.logger.info(f"准备将成功的动作作为事件存入数据库。original_action_id: {original_action_id}, event_type: {event_to_save_in_events.get('event_type')}, 将使用的event_id: {event_to_save_in_events['event_id']}")
 
             await self.event_storage_service.save_event_document(event_to_save_in_events)
@@ -563,3 +576,34 @@ class ActionHandler:
         )
         
         return success, message
+
+    async def get_sent_message_id_safe(self, event_data_string: str) -> str:
+        """
+        安全地从事件JSON字符串中解析并获取 sent_message_id，不使用异常捕获。
+
+        Args:
+            event_data_string: 包含事件数据的JSON字符串。
+
+        Returns:
+            如果成功找到，则返回 sent_message_id；否则返回 'unknow_message_id'。
+        """
+        default_id = "unknow_message_id"
+
+        try:
+            data = json.loads(event_data_string)
+        except json.JSONDecodeError:
+            return default_id
+        
+        if not isinstance(data, dict):
+            return default_id
+
+        content_list = data.get('content')
+
+        if isinstance(content_list, list) and len(content_list) > 0:
+            first_item = content_list[0]
+            if isinstance(first_item, dict):
+                sent_message_id = first_item.get('data', {}).get('data', {}).get('sent_message_id')
+                if sent_message_id is not None:
+                    return str(sent_message_id) # 确保返回的是字符串
+
+        return default_id

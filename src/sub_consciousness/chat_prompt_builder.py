@@ -207,7 +207,7 @@ class ChatPromptBuilder:
             "uid_str": "U0",
             "nick": persona_config.bot_name or "机器人",
             "card": persona_config.bot_name or "机器人",
-            "title": getattr(persona_config, 'title', None) or "数字生命体",
+            "title": getattr(persona_config, 'title', None) or "",
             "perm": "成员"
         }
         
