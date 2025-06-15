@@ -148,8 +148,6 @@ class DefaultMessageProcessor:
                     return  # 如果消息被特殊处理，则提前返回
             elif proto_event.event_type.startswith("request."):
                 await self._handle_request_event(proto_event, websocket)
-            elif proto_event.event_type.startswith("action_response."):
-                await self._handle_action_response_event(proto_event, websocket)
             else:
                 self.logger.debug(
                     f"未针对事件类型 '{proto_event.event_type}' 设置特定的后续处理程序。"
@@ -409,60 +407,3 @@ class DefaultMessageProcessor:
 
         except Exception as e:  # 捕获处理请求事件时可能发生的任何错误
             self.logger.error(f"处理请求事件 (ID: {proto_event.event_id}) 时发生错误: {e}", exc_info=True)
-
-    async def _handle_action_response_event(
-        self, proto_event: ProtocolEvent, websocket: WebSocketServerProtocol
-    ) -> None:
-        """处理来自适配器的动作响应事件。"""
-        try:
-            # 动作响应事件的内容通常包含原始动作的ID、执行状态、结果数据或错误信息
-            # 假设这些信息在 proto_event.content[0].data 中
-            original_action_id_from_response = "未知原始动作ID"
-            if proto_event.content and isinstance(proto_event.content[0], Seg) and proto_event.content[0].data:
-                action_response_data: dict = proto_event.content[0].data
-                original_action_id_from_response = action_response_data.get(
-                    "original_event_id", original_action_id_from_response
-                )
-                status_code = action_response_data.get("status_code", "未知状态码")
-                message = action_response_data.get("message", "无消息")
-                data_payload = action_response_data.get("data")  # 成功时可能返回的数据
-
-                self.logger.info(
-                    f"收到对动作 '{original_action_id_from_response}' 的响应: 状态码={status_code}, 消息='{message}'"
-                )
-                if data_payload:
-                    self.logger.debug(f"  响应数据载荷 (部分): {str(data_payload)[:100]}...")
-
-                # TODO: 此处可以将动作执行结果更新到数据库中的 ActionLog (如果使用)
-                # 或更重要的是，更新到触发此动作的那个主意识思考文档 (Thought Document) 中的
-                # action_attempted 字段，以便AI在下一轮思考时知道动作的结果。
-                # 这通常需要通过 original_action_id_from_response 来找到对应的思考文档或动作记录。
-
-                # 示例逻辑 (需要 ThoughtStorageService 的支持):
-                # if original_action_id_from_response and self.thought_service: # 假设 thought_service 已注入
-                #     success_flag = status_code == 200 or str(status_code).lower() == 'ok' # 简化的成功判断
-                #     update_payload_for_thought = {
-                #         "status": "COMPLETED_SUCCESS" if success_flag else "COMPLETED_FAILURE",
-                #         "final_result_for_shimo": message if data_payload is None else str(data_payload), # 简化结果
-                #         "response_code_from_adapter": status_code,
-                #         "completed_at_timestamp": int(time.time() * 1000.0)
-                #     }
-                #     # 需要一个方法能根据 action_id 找到对应的 thought_doc_key
-                #     # thought_doc_key = await self.thought_service.find_thought_key_by_action_id(original_action_id_from_response)
-                #     # if thought_doc_key:
-                #     #    await self.thought_service.update_action_status_in_thought_document(
-                #     #        thought_doc_key, original_action_id_from_response, update_payload_for_thought
-                #     #    )
-                #     # else:
-                #     #    self.logger.warning(f"未找到与动作响应 {original_action_id_from_response} 关联的思考文档。")
-                self.logger.info(
-                    f"动作响应 '{original_action_id_from_response}' 的后续处理逻辑 (如更新思考文档) 待实现。"
-                )
-
-            else:
-                self.logger.warning(
-                    f"收到的动作响应事件 {proto_event.event_id} (类型: {proto_event.event_type}) 内容格式不正确或为空。"
-                )
-
-        except Exception as e:  # 捕获处理动作响应事件时可能发生的任何错误
-            self.logger.error(f"处理动作响应事件 (ID: {proto_event.event_id}) 时发生错误: {e}", exc_info=True)

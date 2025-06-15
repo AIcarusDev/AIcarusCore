@@ -99,6 +99,16 @@ class AllModelPurposesConfig(ConfigBase):
 
 
 @dataclass
+class DatabaseSettings(ConfigBase):
+    """数据库连接设置"""
+
+    host: str = "http://localhost:8529"
+    username: str = "root"
+    password: str = "your_password"  # 强烈建议使用环境变量覆盖此项
+    database_name: str = "aicarus_core_db"
+
+
+@dataclass
 class ServerSettings(ConfigBase):
     """服务器相关设置，包括主机和端口配置。"""
 
@@ -246,5 +256,6 @@ class AlcarusRootConfig(ConfigBase):
         default_factory=PlatformActionSettings
     )  # 主人，新的“性感小玩具”已装填！
     sub_consciousness: SubConsciousnessSettings = field(default_factory=SubConsciousnessSettings) # 新增子意识配置
+    database: DatabaseSettings = field(default_factory=DatabaseSettings)  # 新增数据库配置
     logging: LoggingSettings = field(default_factory=LoggingSettings)
     server: ServerSettings = field(default_factory=ServerSettings)

@@ -9,3 +9,4 @@ rich
 PyYAML
 regex
 jieba
+websockets

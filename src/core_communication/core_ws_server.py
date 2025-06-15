@@ -1,32 +1,32 @@
 # src/core_communication/core_ws_server.py
 import asyncio
 import json
-import time  # 用于时间戳
-import uuid  # 用于生成事件ID
-from collections.abc import Awaitable, Callable
+import time
+import uuid
 from contextlib import suppress
-from typing import TYPE_CHECKING, Any, Optional  # 确保 List 也导入了
+from typing import Any, Dict
 
-import websockets  # type: ignore
+import websockets
 from aicarus_protocols import ConversationInfo, SegBuilder
 from aicarus_protocols import Event as ProtocolEvent
-from arango.database import StandardDatabase
 from websockets.exceptions import ConnectionClosed, ConnectionClosedError, ConnectionClosedOK
 from websockets.server import WebSocketServerProtocol
 
 from src.common.custom_logging.logger_manager import get_logger
 from src.config import config
+from src.core_communication.action_sender import ActionSender
+from src.core_communication.event_receiver import EventReceiver
 from src.database.services.event_storage_service import EventStorageService
-
-if TYPE_CHECKING:
-    from src.action.action_handler import ActionHandler
 
 logger = get_logger("AIcarusCore.ws_server")
 
-AdapterEventCallback = Callable[[ProtocolEvent, WebSocketServerProtocol, bool], Awaitable[None]]
-
 
 class CoreWebsocketServer:
+    """
+    纯粹的WebSocket服务器，负责管理服务器生命周期和底层连接。
+    它将事件处理和动作发送的职责委托给 EventReceiver 和 ActionSender。
+    """
+
     HEARTBEAT_CLIENT_INTERVAL_SECONDS = 30
     HEARTBEAT_SERVER_TIMEOUT_SECONDS = 90
     HEARTBEAT_SERVER_CHECK_INTERVAL_SECONDS = 15
@@ -35,28 +35,28 @@ class CoreWebsocketServer:
         self,
         host: str,
         port: int,
-        event_handler_callback: AdapterEventCallback,
+        event_receiver: EventReceiver,
+        action_sender: ActionSender,
         event_storage_service: EventStorageService,
-        action_handler_instance: Optional["ActionHandler"] = None,
-        db_instance: StandardDatabase | None = None,
     ) -> None:
         self.host: str = host
         self.port: int = port
-        self.server: websockets.WebSocketServer | None = None  # 明确 Optional 类型
+        self.server: websockets.WebSocketServer | None = None
         self.event_storage_service = event_storage_service
-        self.action_handler: ActionHandler | None = action_handler_instance
+        self.event_receiver = event_receiver
+        self.action_sender = action_sender
 
-        self.connected_adapters: dict[str, WebSocketServerProtocol] = {}
-        self.adapter_clients_info: dict[str, dict[str, Any]] = {}
-        self._event_handler_callback: AdapterEventCallback = event_handler_callback
+        # 连接状态信息由 CoreWebsocketServer 统一管理
+        self.adapter_clients_info: Dict[str, Dict[str, Any]] = {}
+        self._websocket_to_adapter_id: Dict[WebSocketServerProtocol, str] = {}
+
         self._stop_event: asyncio.Event = asyncio.Event()
-        self.db_instance: StandardDatabase | None = db_instance  # 明确 Optional 类型
-        self._websocket_to_adapter_id: dict[WebSocketServerProtocol, str] = {}
         self._heartbeat_check_task: asyncio.Task | None = None
 
     async def _generate_and_store_system_event(
         self, adapter_id: str, display_name: str, event_type: str, reason: str = ""
     ) -> None:
+        """生成并存储系统生命周期事件。"""
         current_timestamp = time.time()
         event_content_text = ""
         if event_type == "meta.lifecycle.adapter_connected":
@@ -86,35 +86,32 @@ class CoreWebsocketServer:
         else:
             logger.warning(f"EventStorageService 未初始化，无法存储系统事件 for '{adapter_id}'.")
 
-    def _needs_persistence(self, event: ProtocolEvent) -> bool:
-        non_persistent_types = ["meta.lifecycle.connect", "meta.lifecycle.disconnect"]
-        if event.event_type.startswith("action_response."):
-            return True
-        return event.event_type not in non_persistent_types
-
     async def _register_adapter(self, adapter_id: str, display_name: str, websocket: WebSocketServerProtocol) -> None:
+        """注册一个新的适配器，并通知 ActionSender。"""
         current_timestamp = time.time()
-        self.connected_adapters[adapter_id] = websocket
         self._websocket_to_adapter_id[websocket] = adapter_id
         self.adapter_clients_info[adapter_id] = {
             "websocket": websocket,
             "last_heartbeat": current_timestamp,
             "display_name": display_name,
         }
+        # 通知 ActionSender
+        self.action_sender.register_adapter(adapter_id, display_name, websocket)
         logger.info(
-            f"适配器 '{display_name}({adapter_id})' 已连接: {websocket.remote_address}. 当前连接数: {len(self.connected_adapters)}"
+            f"适配器 '{display_name}({adapter_id})' 已连接: {websocket.remote_address}. 当前连接数: {len(self.adapter_clients_info)}"
         )
         await self._generate_and_store_system_event(adapter_id, display_name, "meta.lifecycle.adapter_connected")
 
     async def _unregister_adapter(self, websocket: WebSocketServerProtocol, reason: str = "连接关闭") -> None:
+        """注销一个适配器，并通知 ActionSender。"""
         adapter_id = self._websocket_to_adapter_id.pop(websocket, None)
         if adapter_id:
-            if adapter_id in self.connected_adapters:
-                del self.connected_adapters[adapter_id]
-            adapter_info = self.adapter_clients_info.pop(adapter_id, None)
-            display_name = adapter_info.get("display_name", adapter_id) if adapter_info else adapter_id
+            self.adapter_clients_info.pop(adapter_id, None)
+            # 通知 ActionSender
+            self.action_sender.unregister_adapter(websocket)
+            display_name = self.action_sender.adapter_clients_info.get(adapter_id, {}).get("display_name", adapter_id)
             logger.info(
-                f"适配器 '{display_name}({adapter_id})' 已断开 ({reason}): {websocket.remote_address}. 当前连接数: {len(self.connected_adapters)}"
+                f"适配器 '{display_name}({adapter_id})' 已断开 ({reason}): {websocket.remote_address}. 当前连接数: {len(self.adapter_clients_info)}"
             )
             await self._generate_and_store_system_event(
                 adapter_id, display_name, "meta.lifecycle.adapter_disconnected", reason
@@ -123,6 +120,7 @@ class CoreWebsocketServer:
             logger.debug(f"尝试注销一个未在ID映射中找到或已被注销的适配器连接 ({reason}): {websocket.remote_address}")
 
     async def _handle_registration(self, websocket: WebSocketServerProtocol) -> tuple[str, str] | None:
+        """处理新连接的注册流程。"""
         try:
             registration_message_str = await asyncio.wait_for(websocket.recv(), timeout=10.0)
             logger.debug(f"收到来自 {websocket.remote_address} 的连接/注册尝试消息: {registration_message_str[:200]}")
@@ -147,9 +145,9 @@ class CoreWebsocketServer:
                                 elif adapter_id_found:
                                     display_name_found = adapter_id_found
             if adapter_id_found and display_name_found:
-                if adapter_id_found in self.connected_adapters:
+                if adapter_id_found in self.action_sender.connected_adapters:
                     logger.warning(f"适配器 '{adapter_id_found}' 尝试重复注册。旧连接将被新连接取代。")
-                    old_websocket = self.connected_adapters.get(adapter_id_found)
+                    old_websocket = self.action_sender.connected_adapters.get(adapter_id_found)
                     if old_websocket and old_websocket != websocket:
                         await self._unregister_adapter(old_websocket, reason="被新连接取代")
                         with suppress(Exception):
@@ -172,74 +170,25 @@ class CoreWebsocketServer:
         return None
 
     async def _connection_handler(self, websocket: WebSocketServerProtocol, path: str) -> None:
-        adapter_id_for_handler: str | None = None
-        display_name_for_handler: str | None = None
+        """处理单个WebSocket连接的整个生命周期。"""
         registration_info = await self._handle_registration(websocket)
         if not registration_info:
             return
         adapter_id, display_name = registration_info
-        adapter_id_for_handler = adapter_id
-        display_name_for_handler = display_name
         await self._register_adapter(adapter_id, display_name, websocket)
         try:
             async for message_str in websocket:
                 if self._stop_event.is_set():
                     break
-                logger.debug(
-                    f"核心 WebSocket 服务器收到来自适配器 '{display_name}({adapter_id})' 的原始消息: {message_str[:200]}..."
-                )
-                try:
-                    message_dict = json.loads(message_str)
-                    msg_event_type = message_dict.get("event_type")
-                    if message_dict.get("type") == "heartbeat":
-                        hb_adapter_id = message_dict.get("adapter_id")
-                        if hb_adapter_id == adapter_id and adapter_id in self.adapter_clients_info:
-                            self.adapter_clients_info[adapter_id]["last_heartbeat"] = time.time()
-                            logger.debug(f"收到来自 '{display_name}({adapter_id})' 的心跳包.")
-                        else:
-                            logger.warning(
-                                f"收到来自 {websocket.remote_address} 的无效或不匹配的心跳包: {message_dict}"
-                            )
-                        continue
-                    elif msg_event_type == "meta.lifecycle.disconnect":
-                        logger.info(f"收到来自适配器 '{display_name}({adapter_id})' 的主动断开通知。")
-                        # ... (disconnect logic as before)
-                        await self._unregister_adapter(websocket, reason="适配器主动下线")
-                        with suppress(Exception):
-                            await websocket.close(code=1000)
-                        break
-                    elif msg_event_type == "meta.lifecycle.connect":
-                        logger.warning(f"适配器 '{display_name}({adapter_id})' 重复发送 connect，已忽略。")
-                        continue
-                    elif msg_event_type and msg_event_type.startswith("action_response."):
-                        if self.action_handler:
-                            await self.action_handler.handle_action_response(message_dict)
-                        else:
-                            logger.error("收到 action_response 但 ActionHandler 未初始化！")
-                        continue
-                    elif "event_id" in message_dict and msg_event_type and "content" in message_dict:
-                        try:
-                            aicarus_event = ProtocolEvent.from_dict(message_dict)
-                            await self._event_handler_callback(
-                                aicarus_event, websocket, self._needs_persistence(aicarus_event)
-                            )
-                        except Exception as e_parse:
-                            logger.error(f"解析或处理 Event 时出错: {e_parse}. 数据: {message_dict}", exc_info=True)
-                    else:
-                        logger.warning(f"收到的消息结构不像 Event. 数据: {message_dict}")
-                except json.JSONDecodeError:
-                    logger.error(
-                        f"从适配器 '{display_name}({adapter_id})' 解码 JSON 失败. 原始消息: {message_str[:200]}"
-                    )
-                except Exception as e:
-                    logger.error(f"处理来自适配器 '{display_name}({adapter_id})' 的消息时发生错误: {e}", exc_info=True)
+                # 将消息处理委托给 EventReceiver
+                await self.event_receiver.handle_message(message_str, websocket, adapter_id, display_name)
         except (ConnectionClosedOK, ConnectionClosedError, ConnectionClosed) as e_closed:
             reason_closed = f"连接关闭 (Code: {e_closed.code}, Reason: {e_closed.reason})"
-            logger.info(f"适配器 '{display_name_for_handler or adapter_id_for_handler or '未知'}' {reason_closed}")
+            logger.info(f"适配器 '{display_name or adapter_id or '未知'}' {reason_closed}")
             await self._unregister_adapter(websocket, reason=reason_closed)
         except Exception as e:
             logger.error(
-                f"连接处理器错误 (适配器 '{display_name_for_handler or adapter_id_for_handler or '未知'}'): {e}",
+                f"连接处理器错误 (适配器 '{display_name or adapter_id or '未知'}'): {e}",
                 exc_info=True,
             )
             await self._unregister_adapter(websocket, reason="未知错误导致断开")
@@ -248,12 +197,14 @@ class CoreWebsocketServer:
                 await self._unregister_adapter(websocket, reason="连接处理结束")
 
     async def _check_heartbeat_timeouts(self) -> None:
+        """定期检查所有连接的适配器心跳是否超时。"""
         logger.info("心跳超时检查任务已启动。")
         while not self._stop_event.is_set():
             await asyncio.sleep(self.HEARTBEAT_SERVER_CHECK_INTERVAL_SECONDS)
             if self._stop_event.is_set():
                 break
             current_time = time.time()
+            # 遍历 self.adapter_clients_info 的副本以允许在循环中修改
             for adapter_id, info in list(self.adapter_clients_info.items()):
                 if current_time - info.get("last_heartbeat", 0) > self.HEARTBEAT_SERVER_TIMEOUT_SECONDS:
                     display_name = info.get("display_name", adapter_id)
@@ -266,9 +217,9 @@ class CoreWebsocketServer:
                         except Exception as e_close:
                             logger.error(f"关闭适配器 '{display_name}({adapter_id})' 超时连接时出错: {e_close}")
                     else:
+                        # 如果没有websocket对象，也要清理
                         self.adapter_clients_info.pop(adapter_id, None)
-                        if adapter_id in self.connected_adapters:
-                            del self.connected_adapters[adapter_id]
+                        self.action_sender.connected_adapters.pop(adapter_id, None)
                         await self._generate_and_store_system_event(
                             adapter_id,
                             display_name,
@@ -278,6 +229,7 @@ class CoreWebsocketServer:
         logger.info("心跳超时检查任务已停止。")
 
     async def start(self) -> None:
+        """启动WebSocket服务器。"""
         if self.server is not None:
             logger.warning("服务器已在运行中.")
             return
@@ -297,7 +249,8 @@ class CoreWebsocketServer:
         finally:
             if self._heartbeat_check_task and not self._heartbeat_check_task.done():
                 self._heartbeat_check_task.cancel()
-                await asyncio.gather(self._heartbeat_check_task, return_exceptions=True)
+                with suppress(asyncio.CancelledError):
+                    await self._heartbeat_check_task
             if self.server and self.server.is_serving():
                 self.server.close()
                 await self.server.wait_closed()
@@ -305,6 +258,7 @@ class CoreWebsocketServer:
             self.server = None
 
     async def stop(self) -> None:
+        """停止WebSocket服务器。"""
         if self._stop_event.is_set():
             logger.info("服务器已在停止中.")
             return
@@ -312,8 +266,11 @@ class CoreWebsocketServer:
         self._stop_event.set()
         if self._heartbeat_check_task and not self._heartbeat_check_task.done():
             self._heartbeat_check_task.cancel()
-            await asyncio.gather(self._heartbeat_check_task, return_exceptions=True)
-        active_connections_ws_list = list(self.connected_adapters.values())
+            with suppress(asyncio.CancelledError):
+                await self._heartbeat_check_task
+        
+        # 使用 action_sender 中维护的连接列表来关闭
+        active_connections_ws_list = list(self.action_sender.connected_adapters.values())
         if active_connections_ws_list:
             logger.info(f"正在关闭 {len(active_connections_ws_list)} 个活动的适配器连接...")
             await asyncio.gather(
@@ -324,57 +281,3 @@ class CoreWebsocketServer:
             self.server.close()
             await self.server.wait_closed()
         logger.info("AIcarus 核心 WebSocket 服务器已停止。")
-
-    async def broadcast_action_to_adapters(self, action_event: dict[str, Any]) -> bool:
-        if not self.connected_adapters:
-            logger.warning("没有连接的适配器，无法广播动作")
-            return False
-        try:
-            action_json = json.dumps(action_event, ensure_ascii=False)  # action_event is already a dict
-            results = await asyncio.gather(
-                *(ws.send(action_json) for ws in self.connected_adapters.values()), return_exceptions=True
-            )
-            success_count = sum(1 for res in results if not isinstance(res, Exception))
-            for i, res in enumerate(results):
-                if isinstance(res, Exception):
-                    adapter_id = list(self.connected_adapters.keys())[
-                        i
-                    ]  # Not perfectly safe if dict changes during gather
-                    logger.error(f"向适配器 '{adapter_id}' 发送广播失败: {res}")
-            logger.info(f"动作广播完成: {success_count}/{len(self.connected_adapters)} 个适配器尝试发送")
-            return success_count > 0
-        except Exception as e:
-            logger.error(f"广播动作时发生错误: {e}", exc_info=True)
-            return False
-
-    async def send_action_to_specific_adapter(
-        self, websocket: WebSocketServerProtocol, action_event: dict[str, Any]
-    ) -> bool:
-        adapter_id = self._websocket_to_adapter_id.get(websocket)
-        display_name = self.adapter_clients_info.get(adapter_id, {}).get("display_name", adapter_id or "未知")
-        if not adapter_id or self.connected_adapters.get(adapter_id) is not websocket:
-            logger.warning(
-                f"尝试向一个未注册、ID不匹配或已断开的适配器 '{display_name}' 发送动作: {websocket.remote_address}"
-            )
-            return False
-        try:
-            message_json = json.dumps(action_event, ensure_ascii=False)  # action_event is already a dict
-        except Exception as e_json:
-            logger.error(f"序列化单个动作事件为 JSON 时出错 (目标: '{display_name}'): {e_json}", exc_info=True)
-            return False
-        try:
-            await websocket.send(message_json)
-            return True
-        except ConnectionClosed:
-            logger.warning(f"向特定适配器 '{display_name}' 发送动作失败: 连接已关闭.")
-            return False
-        except Exception as e:
-            logger.error(f"向特定适配器 '{display_name}' 发送动作时发生错误: {e}")
-            return False
-
-    async def send_action_to_adapter_by_id(self, adapter_id: str, action_event: dict[str, Any]) -> bool:
-        websocket = self.connected_adapters.get(adapter_id)
-        if not websocket:
-            logger.warning(f"主人～ 没找到ID为 '{adapter_id}' 的适配器，它可能害羞跑掉了。")
-            return False
-        return await self.send_action_to_specific_adapter(websocket, action_event)

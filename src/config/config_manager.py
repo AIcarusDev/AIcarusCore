@@ -83,6 +83,8 @@ def get_settings() -> dict:
     return _loaded_settings_dict
 
 
+import os
+
 def get_typed_settings() -> AlcarusRootConfig:
     """获取类型化的配置对象，让IDE知道我们在做什么"""
     global _loaded_typed_settings
@@ -97,8 +99,29 @@ def get_typed_settings() -> AlcarusRootConfig:
         # 并使用 dataclass 的 default_factory 创建默认实例。
         typed_config = AlcarusRootConfig.from_dict(config_dict)
 
+        # --- 从环境变量覆盖数据库配置 ---
+        db_settings = typed_config.database
+        db_host = os.getenv("ARANGODB_HOST")
+        db_user = os.getenv("ARANGODB_USER")
+        db_password = os.getenv("ARANGODB_PASSWORD")
+        db_name = os.getenv("ARANGODB_DATABASE")
+
+        if db_host:
+            db_settings.host = db_host
+            logger.debug("已从环境变量 ARANGODB_HOST 更新数据库主机。")
+        if db_user:
+            db_settings.username = db_user
+            logger.debug("已从环境变量 ARANGODB_USER 更新数据库用户名。")
+        if db_password:
+            db_settings.password = db_password
+            logger.debug("已从环境变量 ARANGODB_PASSWORD 更新数据库密码。")
+        if db_name:
+            db_settings.database_name = db_name
+            logger.debug("已从环境变量 ARANGODB_DATABASE 更新数据库名称。")
+        # --- 环境变量覆盖结束 ---
+
         _loaded_typed_settings = typed_config
-        logger.debug("配置已成功加载并转换为类型化对象。数据库配置将由相应模块从环境变量直接读取。") # INFO -> DEBUG
+        logger.debug("配置已成功加载并转换为类型化对象。")
         return typed_config
     except Exception as e:
         logger.error(f"将配置字典转换为类型化对象或从环境变量更新时失败: {e}", exc_info=True)

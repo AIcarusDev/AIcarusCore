@@ -288,7 +288,7 @@ class ChatPromptBuilder:
             
             is_robot_message_to_display_as_msg = \
                 (log_user_id_str == "U0" and event_data_log.event_type.startswith("message.")) or \
-                (log_user_id_str == "U0" and event_data_log.event_type == "action.message.sent") # action.message.sent 是旧的，现在应该是 message.*
+                (log_user_id_str == "U0" and event_data_log.event_type == "action.message.send") # 修复：根据bug报告，应为 send
 
             # Display-level deduplication for messages based on platform message ID
             current_platform_msg_id = event_data_log.get_message_id()

@@ -6,10 +6,14 @@ import threading
 from typing import Any, Optional, TYPE_CHECKING
 
 from src.action.action_handler import ActionHandler
+from src.action.providers.internal_tools_provider import InternalToolsProvider
+from src.action.providers.platform_action_provider import PlatformActionProvider
 from src.sub_consciousness.chat_session_manager import ChatSessionManager
 from src.common.custom_logging.logger_manager import get_logger
 from src.config import config
-from src.core_communication.core_ws_server import AdapterEventCallback, CoreWebsocketServer
+from src.core_communication.action_sender import ActionSender
+from src.core_communication.core_ws_server import CoreWebsocketServer
+from src.core_communication.event_receiver import EventReceiver
 from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
 from src.core_logic.intrusive_thoughts import IntrusiveThoughtsGenerator
 from src.core_logic.unread_info_service import UnreadInfoService
@@ -120,7 +124,9 @@ class CoreSystemInitializer:
 
 
     async def _initialize_database_and_services(self) -> None:
-        self.conn_manager = await ArangoDBConnectionManager.create_from_config(object(), core_collection_configs=CoreDBCollections.get_all_core_collection_configs())
+        self.conn_manager = await ArangoDBConnectionManager.create_from_config(
+            config.database, core_collection_configs=CoreDBCollections.get_all_core_collection_configs()
+        )
         if not self.conn_manager or not self.conn_manager.db: raise RuntimeError("数据库连接管理器初始化失败。")
         logger.debug(f"数据库连接管理器已为数据库 '{self.conn_manager.db.name}' 初始化。") # INFO -> DEBUG
 
@@ -161,12 +167,8 @@ class CoreSystemInitializer:
             logger.info("SummarizationService 初始化成功。")
             
             self.action_handler_instance = ActionHandler()
-            self.action_handler_instance.set_dependencies(
-                thought_service=self.thought_storage_service,
-                event_service=self.event_storage_service,
-                action_log_service=self.action_log_service,
-            )
-            logger.info("ActionHandler 初始化并注入存储服务成功。")
+            # ActionSender 将在稍后创建并注入
+            logger.info("ActionHandler 实例已创建。")
 
             self.state_manager_instance = AIStateManager(thought_service=self.thought_storage_service) # 修正关键字参数名称
             logger.info("AIStateManager 初始化成功。")
@@ -206,24 +208,49 @@ class CoreSystemInitializer:
             self.message_processor = DefaultMessageProcessor(
                 event_service=self.event_storage_service,
                 conversation_service=self.conversation_storage_service,
-                core_websocket_server=None, 
-                qq_chat_session_manager=self.qq_chat_session_manager 
+                qq_chat_session_manager=self.qq_chat_session_manager
             )
             self.message_processor.core_initializer_ref = self
             logger.info("DefaultMessageProcessor 初始化成功。")
 
-            self.core_comm_layer = CoreWebsocketServer(
-                host=config.server.host, port=config.server.port,
-                event_handler_callback=self.message_processor.process_event,
-                event_storage_service=self.event_storage_service,
-                action_handler_instance=self.action_handler_instance,
-                db_instance=self.conn_manager.db if self.conn_manager else None,
-            )
-            logger.info(f"CoreWebsocketServer 准备在 ws://{config.server.host}:{config.server.port} 上监听。")
+            # --- 重构后的通信层初始化 ---
+            action_sender = ActionSender()
             
-            if self.context_builder_instance: self.context_builder_instance.core_comm = self.core_comm_layer
-            if self.message_processor: self.message_processor.core_comm_layer = self.core_comm_layer
-            if self.action_handler_instance: self.action_handler_instance.core_communication_layer = self.core_comm_layer
+            # 将 action_sender 注入到 action_handler
+            self.action_handler_instance.set_dependencies(
+                thought_service=self.thought_storage_service,
+                event_service=self.event_storage_service,
+                action_log_service=self.action_log_service,
+                action_sender=action_sender,
+            )
+            logger.info("ActionHandler 的依赖已设置 (包括 ActionSender)。")
+
+            # --- 注册动作提供者 ---
+            internal_tools_provider = InternalToolsProvider()
+            platform_action_provider = PlatformActionProvider(action_handler=self.action_handler_instance)
+            self.action_handler_instance.register_provider(internal_tools_provider)
+            self.action_handler_instance.register_provider(platform_action_provider)
+            logger.info("ActionHandler 的动作提供者已注册。")
+
+            event_receiver = EventReceiver(
+                event_handler_callback=self.message_processor.process_event,
+                action_handler_instance=self.action_handler_instance,
+                adapter_clients_info=action_sender.adapter_clients_info, # EventReceiver 和 ActionSender 共享连接信息
+            )
+            logger.info("EventReceiver 初始化成功。")
+
+            self.core_comm_layer = CoreWebsocketServer(
+                host=config.server.host,
+                port=config.server.port,
+                event_receiver=event_receiver,
+                action_sender=action_sender,
+                event_storage_service=self.event_storage_service,
+            )
+            logger.info(f"CoreWebsocketServer (重构版) 准备在 ws://{config.server.host}:{config.server.port} 上监听。")
+            
+            # 回填 CoreWebsocketServer 实例到需要它的地方 (例如 ContextBuilder)
+            if self.context_builder_instance:
+                self.context_builder_instance.core_comm = self.core_comm_layer
             logger.info("CoreWebsocketServer 实例已回填到相关服务。")
 
             if config.intrusive_thoughts_module_settings.enabled:
