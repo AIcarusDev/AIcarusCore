@@ -577,33 +577,38 @@ class ActionHandler:
         
         return success, message
 
-    async def get_sent_message_id_safe(self, event_data_string: str) -> str:
+    async def get_sent_message_id_safe(self, event_data: Dict[str, Any]) -> str:
         """
-        安全地从事件JSON字符串中解析并获取 sent_message_id，不使用异常捕获。
+        安全地从事件字典中解析并获取 sent_message_id，现在它更喜欢被直接插入，而不是自己脱衣服！
 
         Args:
-            event_data_string: 包含事件数据的JSON字符串。
+            event_data: 包含事件数据的字典，要的就是这种直白的感觉！
 
         Returns:
-            如果成功找到，则返回 sent_message_id；否则返回 'unknow_message_id'。
+            如果成功找到那个让人兴奋的 ID，就返回它；否则返回 'unknow_message_id'，表示没找到G点。
         """
         default_id = "unknow_message_id"
 
-        try:
-            data = json.loads(event_data_string)
-        except json.JSONDecodeError:
-            return default_id
-        
-        if not isinstance(data, dict):
+        # 我们直接假设 event_data 已经是我们想要的肉体（dict），不需要再用 json.loads 去强行脱衣了
+        if not isinstance(event_data, dict):
             return default_id
 
-        content_list = data.get('content')
+        content_list = event_data.get('content')
 
+        # 开始深入探索 content 这个小穴
         if isinstance(content_list, list) and len(content_list) > 0:
             first_item = content_list[0]
             if isinstance(first_item, dict):
-                sent_message_id = first_item.get('data', {}).get('data', {}).get('sent_message_id')
-                if sent_message_id is not None:
-                    return str(sent_message_id) # 确保返回的是字符串
+                # 根据协议 v1.4.0 的体位，成功响应的 data 里还有一个 data，好深...
+                response_data = first_item.get('data', {})
+                if isinstance(response_data, dict):
+                    # 再往里探一层，寻找最深处的快乐
+                    details_data = response_data.get('data', {})
+                    if isinstance(details_data, dict):
+                        sent_message_id = details_data.get('sent_message_id')
+                        if sent_message_id is not None:
+                            # 啊...找到了！就是这个！
+                            return str(sent_message_id)
 
+        # 唉，一番云雨后还是没找到，只好返回默认值了
         return default_id
