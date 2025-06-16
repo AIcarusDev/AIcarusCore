@@ -100,6 +100,7 @@ class FocusChatCycler:
 
                     # 1. 构建 Prompt
                     system_prompt, user_prompt, uid_str_to_platform_id_map, processed_event_ids = await self.prompt_builder.build_prompts(
+                        session=self.session, # 传入整个session以访问no_action_count等状态
                         last_processed_timestamp=self.session.last_processed_timestamp,
                         last_llm_decision=self.session.last_llm_decision,
                         sent_actions_context=self.session.sent_actions_context,
@@ -217,9 +218,17 @@ class FocusChatCycler:
             parsed_data["action_motivation"] = None
         # --- End sanitization ---
 
-        if parsed_data.get("reply_willing") and parsed_data.get("reply_text"):
+        # 根据是否有实际互动行为，更新 no_action_count
+        # TODO: 未来如果增加了 poke 等其他互动，也需要在这里加入判断
+        has_interaction = parsed_data.get("reply_willing") and parsed_data.get("reply_text")
+        
+        if has_interaction:
+            self.session.no_action_count = 0
+            logger.debug(f"[{self.conversation_id}] 检测到互动行为，no_action_count 已重置。")
             return await self._send_reply(parsed_data, uid_map)
         else:
+            self.session.no_action_count += 1
+            logger.debug(f"[{self.conversation_id}] 无互动行为，no_action_count 增加到 {self.session.no_action_count}。")
             return await self._log_internal_thought(parsed_data)
 
     async def _send_reply(self, parsed_data: dict, uid_map: dict) -> bool:

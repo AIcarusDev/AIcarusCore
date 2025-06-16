@@ -76,6 +76,9 @@ class ChatSession:  # Renamed class
         self.message_count_since_last_summary: int = 0
         self.SUMMARY_INTERVAL: int = getattr(config.sub_consciousness, "summary_interval", 5)  # 从配置读取或默认5条消息
 
+        # 新增：用于引导LLM在无互动时主动退出的计数器
+        self.no_action_count: int = 0
+
         # Instantiate the prompt builder
         # Passing self.bot_id to the builder
         self.prompt_builder = ChatPromptBuilder(

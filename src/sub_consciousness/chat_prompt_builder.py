@@ -1,7 +1,7 @@
 import uuid
 from collections import OrderedDict
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from aicarus_protocols.common import extract_text_from_content
 from aicarus_protocols.conversation_info import ConversationInfo
@@ -12,6 +12,9 @@ from aicarus_protocols.user_info import UserInfo
 from src.common.custom_logging.logger_manager import get_logger
 from src.config import config
 from src.database.services.event_storage_service import EventStorageService
+
+if TYPE_CHECKING:
+    from .chat_session import ChatSession
 
 logger = get_logger(__name__)
 
@@ -26,6 +29,7 @@ SYSTEM_PROMPT_TEMPLATE = """
 {optional_description}
 {optional_profile}
 你当前正在参与qq群聊
+{no_action_guidance}
 """
 
 USER_PROMPT_TEMPLATE = """
@@ -110,6 +114,7 @@ class ChatPromptBuilder:
 
     async def build_prompts(
         self,
+        session: "ChatSession",
         last_processed_timestamp: float,
         last_llm_decision: dict[str, Any] | None,
         sent_actions_context: OrderedDict[str, dict[str, Any]],
@@ -123,12 +128,19 @@ class ChatPromptBuilder:
         bot_description_str = f"\n{persona_config.description}" if persona_config.description else ""
         bot_profile_str = f"\n{persona_config.profile}" if persona_config.profile else ""
 
+        # 根据无动作计数器，准备引导提示
+        no_action_guidance_str = ""
+        if session.no_action_count >= 3:
+            no_action_guidance_str = f"\n你已经决定连续不发言/没有互动 {session.no_action_count} 次了，观察一下目前群内话题是不是已经告一段落了，如果是，可以考虑暂时先不专注于群聊的消息了。"
+            logger.info(f"[{self.conversation_id}] 添加无互动提示到System Prompt, count: {session.no_action_count}")
+
         system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
             current_time=current_time_str,
             bot_name=bot_name_str,
             bot_id=self.bot_id,  # Use generalized bot_id
             optional_description=bot_description_str,
             optional_profile=bot_profile_str,
+            no_action_guidance=no_action_guidance_str, # 使用占位符
         )
 
         # --- Prepare data for User Prompt ---
