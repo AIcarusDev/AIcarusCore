@@ -161,19 +161,13 @@ max_sentence_num = 7
 # 专注聊天期间，进行一次增量式微总结的消息数量间隔。
 summary_interval = 5
 
-
+# 不要动下面的配置，未来会硬编码
 [platform_action_settings.adapter_behaviors.master_ui_adapter]
 confirms_by_action_response = true
 self_reports_actions_as_message = false
 
-# 示例：为名为 "napcat_qq" 的适配器配置行为标记。
-# 您需要根据您的 Napcat 适配器实际注册到 Core 时使用的 platform_id (如果不是 "napcat_qq" 请修改键名)
-# 以及该适配器的具体行为来设置以下值。模板中提供的仅为示例。
 [platform_action_settings.adapter_behaviors.napcat_qq]
-# 如果您的 Napcat 适配器会发送标准的 action_response 事件来确认动作完成，请设为 true。
-# 如果它通过其他方式（如自我消息上报）确认，或者不需要Core等待其响应，请设为 false。
 confirms_by_action_response = true
-# 如果您的 Napcat 适配器会将其代表AI执行的动作（如发送消息）作为一条新的、由AI自身发出的 message.* 事件上报给Core，请设为 true。
 self_reports_actions_as_message = false
 
 [platform_action_settings.adapter_behaviors.your_other_adapter_id]

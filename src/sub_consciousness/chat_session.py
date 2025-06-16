@@ -341,6 +341,13 @@ class ChatSession:  # Renamed class
                         )
 
                         if success:
+                            # 即使通信成功，也要检查消息内容判断动作是否真的执行成功
+                            if "执行失败" in msg:
+                                logger.error(
+                                    f"[ChatSession][{self.conversation_id}] Action to send reply segment {i + 1} failed to execute: {msg}"
+                                )
+                                break # 动作执行失败，中断发送
+                            
                             logger.info(
                                 f"[ChatSession][{self.conversation_id}] Action to send reply segment {i + 1} submitted successfully: {msg}"
                             )
@@ -348,6 +355,7 @@ class ChatSession:  # Renamed class
                             self.events_since_last_summary.append(action_event_dict)
                             self.message_count_since_last_summary += 1
                         else:
+                            # 通信层面就失败了
                             logger.error(
                                 f"[ChatSession][{self.conversation_id}] Failed to submit action to send reply segment {i + 1}: {msg}"
                             )
