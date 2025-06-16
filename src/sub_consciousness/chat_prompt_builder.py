@@ -16,6 +16,8 @@ from src.database.services.event_storage_service import EventStorageService
 logger = get_logger(__name__)
 
 # --- Prompt Templates ---
+# ACT相关逻辑等待星织大人的细化与规范，当前暂时移除此prompt，把所有文本消息定义为[MSG]
+# [ACT]: 行为消息，通常是你主动做出的动作，如果是消息则消息后的（id:xxx）为消息的id
 # Note: bot_qq_id in SYSTEM_PROMPT_TEMPLATE is changed to bot_id for generality
 SYSTEM_PROMPT_TEMPLATE = """
 当前时间：{current_time}
@@ -38,7 +40,6 @@ USER_PROMPT_TEMPLATE = """
 
 ## Event Types
 [MSG]: 普通消息，在消息后的（id:xxx）为消息的id
-[ACT]: 行为消息，通常是你主动做出的动作，如果是消息则消息后的（id:xxx）为消息的id
 [SYS]: 系统通知
 [MOTIVE]: 对应你的"motivation"，帮助你更好的了解自己的心路历程，它有两种出现形式：
       1. 独立出现时 (无缩进): 代表你经过思考后，决定“保持沉默/不发言”的原因。
@@ -351,10 +352,9 @@ class ChatPromptBuilder:
                         file_size = seg.data.get("size", 0)
                         text_content += f"[FILE:{file_name} ({file_size} bytes)]"
 
-                if log_user_id_str == "U0":
-                    log_line = f"[{time_str}] {log_user_id_str} [ACT]: {text_content.strip()} (id:{msg_id_for_display})"
-                else:
-                    log_line = f"[{time_str}] {log_user_id_str} [MSG]: {text_content.strip()} (id:{msg_id_for_display})"
+                # 修正：机器人的普通消息也应标记为[MSG]。
+                # 在这个if块中，所有事件都应被视为消息。
+                log_line = f"[{time_str}] {log_user_id_str} [MSG]: {text_content.strip()} (id:{msg_id_for_display})"
 
                 event_motivation = getattr(event_data_log, "motivation", None)
                 if log_user_id_str == "U0" and event_motivation and event_motivation.strip():
