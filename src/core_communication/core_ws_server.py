@@ -4,7 +4,7 @@ import json
 import time
 import uuid
 from contextlib import suppress
-from typing import Any, Dict
+from typing import Any
 
 import websockets
 from aicarus_protocols import ConversationInfo, SegBuilder
@@ -47,8 +47,8 @@ class CoreWebsocketServer:
         self.action_sender = action_sender
 
         # 连接状态信息由 CoreWebsocketServer 统一管理
-        self.adapter_clients_info: Dict[str, Dict[str, Any]] = {}
-        self._websocket_to_adapter_id: Dict[WebSocketServerProtocol, str] = {}
+        self.adapter_clients_info: dict[str, dict[str, Any]] = {}
+        self._websocket_to_adapter_id: dict[WebSocketServerProtocol, str] = {}
 
         self._stop_event: asyncio.Event = asyncio.Event()
         self._heartbeat_check_task: asyncio.Task | None = None
@@ -268,7 +268,7 @@ class CoreWebsocketServer:
             self._heartbeat_check_task.cancel()
             with suppress(asyncio.CancelledError):
                 await self._heartbeat_check_task
-        
+
         # 使用 action_sender 中维护的连接列表来关闭
         active_connections_ws_list = list(self.action_sender.connected_adapters.values())
         if active_connections_ws_list:

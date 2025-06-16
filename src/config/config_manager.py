@@ -1,4 +1,5 @@
 # config_manager.py - 配置总指挥
+import os
 import sys
 import traceback
 
@@ -31,7 +32,7 @@ def _perform_config_update_check(io_handler: ConfigIOHandler) -> bool:
     global _config_checked_this_session
     if _config_checked_this_session:
         return False
-    logger.debug("开始检查和更新配置文件...") # INFO -> DEBUG
+    logger.debug("开始检查和更新配置文件...")  # INFO -> DEBUG
     _config_checked_this_session = True
     return perform_config_update_check(io_handler, _prompt_user_and_exit)
 
@@ -52,9 +53,9 @@ def load_settings() -> dict:
         # 这取决于环境变量的实际用途和哪个 .env 文件应该优先
         # 为保持 manager 的独立性，它尝试加载它期望位置的 .env
         load_dotenv(dotenv_path=dotenv_path_project_root, override=True, verbose=True)
-        logger.debug(f"ConfigManager尝试从项目根目录加载 .env 文件: {dotenv_path_project_root}") # INFO -> DEBUG
+        logger.debug(f"ConfigManager尝试从项目根目录加载 .env 文件: {dotenv_path_project_root}")  # INFO -> DEBUG
     else:
-        logger.debug( # INFO -> DEBUG
+        logger.debug(  # INFO -> DEBUG
             f"ConfigManager未在项目根目录找到 .env 文件: {dotenv_path_project_root}。将依赖已加载的环境变量或配置文件。"
         )
 
@@ -82,8 +83,6 @@ def get_settings() -> dict:
         return load_settings()
     return _loaded_settings_dict
 
-
-import os
 
 def get_typed_settings() -> AlcarusRootConfig:
     """获取类型化的配置对象，让IDE知道我们在做什么"""

@@ -1,8 +1,9 @@
 # src/action/providers/internal_tools_provider.py
-from typing import Any, Callable, Coroutine, Dict
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 from src.action.action_provider import ActionProvider
-from src.tools.tool_registry import get_all_tools, get_tool_function
+from src.tools.tool_registry import get_all_tools
 
 
 class InternalToolsProvider(ActionProvider):
@@ -15,7 +16,7 @@ class InternalToolsProvider(ActionProvider):
     def name(self) -> str:
         return "internal"
 
-    def get_actions(self) -> Dict[str, Callable[..., Coroutine[Any, Any, Any]]]:
+    def get_actions(self) -> dict[str, Callable[..., Coroutine[Any, Any, Any]]]:
         """
         返回所有已注册的内部工具。
         """
@@ -25,5 +26,5 @@ class InternalToolsProvider(ActionProvider):
         # get_all_tools 的函数来一次性获取所有工具。我们先假设有这样一个函数。
         # 如果没有，我们就直接从 tool_registry.py 导入那个工具字典。
         # 看了下 tool_registry.py，它有一个 get_all_tools 函数。
-        
+
         return get_all_tools()

@@ -1,43 +1,41 @@
 # src/core_logic/context_builder.py
-from typing import Any, List, Tuple, TYPE_CHECKING
-import json # 确保导入 json
+import json  # 确保导入 json
+from typing import TYPE_CHECKING, Any
 
 from src.common.custom_logging.logger_manager import get_logger
 from src.common.utils import format_messages_for_llm_context, format_platform_status_summary
 from src.config import config
 
 if TYPE_CHECKING:
-    from src.database.services.event_storage_service import EventStorageService
     from src.core_communication.core_ws_server import CoreWebsocketServer
     from src.core_logic.state_manager import AIStateManager
+    from src.database.services.event_storage_service import EventStorageService
 
 logger = get_logger("AIcarusCore.CoreLogic.ContextBuilder")
 
+
 class ContextBuilder:
     def __init__(
-        self,
-        event_storage: 'EventStorageService',
-        core_comm: 'CoreWebsocketServer',
-        state_manager: 'AIStateManager'
-    ):
+        self, event_storage: "EventStorageService", core_comm: "CoreWebsocketServer", state_manager: "AIStateManager"
+    ) -> None:
         self.event_storage = event_storage
         self.core_comm = core_comm
         self.state_manager = state_manager
         self.logger = logger
         self.logger.info("ContextBuilder 已初始化。")
 
-    async def gather_context_for_core_thought(self) -> Tuple[str, str, List[str]]:
+    async def gather_context_for_core_thought(self) -> tuple[str, str, list[str]]:
         """
         从各种来源收集上下文信息，并格式化以供核心思考循环使用。
         """
         # 用户提示 master 功能在此分支不处理，所以 master_chat_history_str 设为固定值
         master_chat_history_str: str = "与主人的聊天功能在此分支中已移除或正在重构。"
-        
+
         initial_empty_context_info: str = self.state_manager.INITIAL_STATE.get(
             "recent_contextual_information", "无最近信息。"
         )
-        image_list_for_llm_from_history: List[str] = []
-        
+        image_list_for_llm_from_history: list[str] = []
+
         chat_history_duration_minutes: int = getattr(
             config.core_logic_settings, "chat_history_context_duration_minutes", 10
         )
@@ -63,7 +61,7 @@ class ContextBuilder:
             all_other_events_excluding_master: list[dict[str, Any]] = (
                 await self.event_storage.get_recent_chat_message_documents(
                     duration_minutes=chat_history_duration_minutes,
-                    exclude_conversation_id="master_chat", # 排除与主人的聊天
+                    exclude_conversation_id="master_chat",  # 排除与主人的聊天
                     fetch_all_event_types=False,
                 )
                 or []
@@ -134,6 +132,5 @@ class ContextBuilder:
             self.logger.error(f"收集上下文信息时出错: {e}", exc_info=True)
             # 即使出错，也返回默认值，避免主循环中断
             formatted_recent_contextual_info = initial_empty_context_info
-
 
         return master_chat_history_str, formatted_recent_contextual_info, image_list_for_llm_from_history

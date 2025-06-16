@@ -33,7 +33,7 @@ class EventStorageService:
         期望 `event_doc_data` 中包含 'event_id'，它将被用作文档的 '_key'。
         会自动从 event_doc_data["conversation_info"]["conversation_id"] 提取并创建顶层字段 "conversation_id_extracted"。
         """
-        if not self.conn_manager or not self.conn_manager.db: # 新增数据库连接检查
+        if not self.conn_manager or not self.conn_manager.db:  # 新增数据库连接检查
             self.logger.warning(f"数据库连接不可用，无法保存事件文档: {event_doc_data.get('event_id', '未知ID')}")
             return False
 
@@ -72,8 +72,10 @@ class EventStorageService:
 
         try:
             collection = await self.conn_manager.get_collection(self.COLLECTION_NAME)
-            if collection is None: # 新增对 collection 对象的检查
-                self.logger.error(f"无法获取到集合 '{self.COLLECTION_NAME}' (可能由于数据库连接问题)，无法保存事件文档: {event_id}")
+            if collection is None:  # 新增对 collection 对象的检查
+                self.logger.error(
+                    f"无法获取到集合 '{self.COLLECTION_NAME}' (可能由于数据库连接问题)，无法保存事件文档: {event_id}"
+                )
                 return False
             await asyncio.to_thread(collection.insert, event_doc_data, overwrite=False)
             return True
@@ -86,7 +88,7 @@ class EventStorageService:
 
     async def get_recent_chat_message_documents(
         self,
-        duration_minutes: int = 0, # 默认不按时间筛选，主要靠limit
+        duration_minutes: int = 0,  # 默认不按时间筛选，主要靠limit
         conversation_id: str | None = None,
         exclude_conversation_id: str | None = None,
         limit: int = 50,
@@ -101,12 +103,12 @@ class EventStorageService:
             filters = []
             bind_vars: dict[str, Any] = {"limit": limit}
 
-            if duration_minutes > 0: # 如果指定了有效的时间窗口，则添加时间过滤
+            if duration_minutes > 0:  # 如果指定了有效的时间窗口，则添加时间过滤
                 current_time_ms = int(time.time() * 1000.0)
                 threshold_time_ms = current_time_ms - (duration_minutes * 60 * 1000)
                 filters.append("doc.timestamp >= @threshold_time")
                 bind_vars["threshold_time"] = threshold_time_ms
-            
+
             if not fetch_all_event_types:
                 filters.append("doc.event_type LIKE 'message.%'")
 
@@ -119,14 +121,14 @@ class EventStorageService:
                 bind_vars["exclude_conversation_id"] = exclude_conversation_id
 
             query_parts = ["FOR doc IN @@collection"]
-            if filters: # 只有当存在其他过滤器时才添加 FILTER 子句
+            if filters:  # 只有当存在其他过滤器时才添加 FILTER 子句
                 query_parts.append(f"FILTER {(' AND '.join(filters))}")
             query_parts.append("SORT doc.timestamp DESC")
             query_parts.append("LIMIT @limit")
             query_parts.append("RETURN doc")
-            
+
             query = "\n".join(query_parts)
-            
+
             bind_vars["@collection"] = self.COLLECTION_NAME
 
             self.logger.debug(f"Executing query for recent events: {query} with bind_vars: {bind_vars}")
@@ -192,7 +194,9 @@ class EventStorageService:
             return None
 
     async def get_unprocessed_message_events(
-        self, conversation_id: str | None = None, limit: int = 1000 # 默认获取大量未处理消息
+        self,
+        conversation_id: str | None = None,
+        limit: int = 1000,  # 默认获取大量未处理消息
     ) -> list[dict[str, Any]]:
         """
         获取所有 is_processed = False 且 event_type LIKE 'message.%' 的事件。
@@ -207,14 +211,14 @@ class EventStorageService:
             if conversation_id:
                 filters.append("doc.conversation_id_extracted == @conversation_id")
                 bind_vars["conversation_id"] = conversation_id
-            
+
             query_parts = ["FOR doc IN @@collection"]
             if filters:
                 query_parts.append(f"FILTER {(' AND '.join(filters))}")
-            query_parts.append("SORT doc.timestamp ASC") # 按时间升序
+            query_parts.append("SORT doc.timestamp ASC")  # 按时间升序
             query_parts.append("LIMIT @limit")
             query_parts.append("RETURN doc")
-            
+
             query = "\n".join(query_parts)
             bind_vars["@collection"] = self.COLLECTION_NAME
 
@@ -228,21 +232,19 @@ class EventStorageService:
             )
             return []
 
-    async def mark_events_as_processed(
-        self, event_ids: list[str], processed_status: bool = True
-    ) -> bool:
+    async def mark_events_as_processed(self, event_ids: list[str], processed_status: bool = True) -> bool:
         """
         批量更新指定 event_id 列表的事件的 is_processed 状态。
         哼，ChatSession 那个小家伙会用这个来告诉我哪些消息它看过了！
         """
         if not event_ids:
             self.logger.info("没有提供 event_ids，无需更新 is_processed 状态。")
-            return True # 认为操作成功，因为没有事情可做
+            return True  # 认为操作成功，因为没有事情可做
 
         if not self.conn_manager or not self.conn_manager.db:
             self.logger.error("数据库连接不可用，无法更新事件的 is_processed 状态。")
             return False
-        
+
         # ArangoDB的批量更新通常使用 AQL FOR循环 + UPDATE/REPLACE
         # 构建AQL查询
         # 注意：直接在AQL字符串中插入 event_ids 列表可能不是最佳实践，
@@ -251,21 +253,21 @@ class EventStorageService:
         # 或者使用一个更复杂的AQL，如：
         # FOR key_val IN @event_keys UPDATE key_val WITH { is_processed: @status } IN @@collection
         # 但这要求 event_ids 列表中的是 _key 值。我们的 event_id 就是 _key。
-        
+
         # 使用更安全的绑定参数方式
         aql_query = """
         FOR event_key IN @event_keys
             UPDATE event_key WITH { is_processed: @status } IN @@collection
             OPTIONS { ignoreErrors: true } // 如果某个key不存在，忽略错误继续执行
-        RETURN { updated: OLD._key, status: NEW.is_processed } 
+        RETURN { updated: OLD._key, status: NEW.is_processed }
         """
         # ignoreErrors: true 可以防止因某个 event_id 不存在而导致整个批量操作失败。
         # RETURN 子句是可选的，但可以用来确认哪些文档被更新了。
 
         bind_vars = {
             "@collection": self.COLLECTION_NAME,
-            "event_keys": event_ids, # event_ids 列表应该包含文档的 _key 值
-            "status": processed_status
+            "event_keys": event_ids,  # event_ids 列表应该包含文档的 _key 值
+            "status": processed_status,
         }
 
         try:
@@ -274,15 +276,15 @@ class EventStorageService:
             # 对于写操作，虽然也可以用，但更常见的是直接用 collection.update_many 或类似的。
             # 然而，如果需要复杂的AQL，execute_query 也是可以的。
             # 我们这里用 execute_query 来执行AQL。
-            
+
             # collection = await self.conn_manager.get_collection(self.COLLECTION_NAME)
             # if collection is None:
             #     self.logger.error(f"无法获取到集合 '{self.COLLECTION_NAME}'，无法更新事件状态。")
             #     return False
             # # 驱动程序可能没有直接的 update_many_by_keys 方法，所以我们用AQL
-            
+
             update_results = await self.conn_manager.execute_query(aql_query, bind_vars=bind_vars)
-            
+
             if update_results is not None:
                 # update_results 会是一个列表，每个元素是 RETURN 子句返回的字典
                 updated_count = len(update_results)
@@ -296,8 +298,5 @@ class EventStorageService:
                 return False
 
         except Exception as e:
-            self.logger.error(
-                f"批量更新事件的 is_processed 状态失败: {e}",
-                exc_info=True
-            )
+            self.logger.error(f"批量更新事件的 is_processed 状态失败: {e}", exc_info=True)
             return False

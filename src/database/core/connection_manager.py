@@ -54,7 +54,7 @@ class ArangoDBConnectionManager:
         # 存储核心集合名称及其对应的索引配置
         self.core_collection_configs: dict[str, list[tuple[list[str], bool, bool]]] = core_collection_configs
         self.database_config_obj: DatabaseConfigProtocol = None  # 使用明确的协议定义数据库连接信息
-        logger.debug(f"ArangoDBConnectionManager 已使用数据库 '{db.name}' 初始化。") # INFO -> DEBUG
+        logger.debug(f"ArangoDBConnectionManager 已使用数据库 '{db.name}' 初始化。")  # INFO -> DEBUG
 
     @classmethod
     async def create_from_config(
@@ -114,28 +114,30 @@ class ArangoDBConnectionManager:
             raise ValueError(message)
 
         try:
-            logger.debug(f"正在尝试连接到 ArangoDB 主机: {host}") # INFO -> DEBUG
+            logger.debug(f"正在尝试连接到 ArangoDB 主机: {host}")  # INFO -> DEBUG
             # 在单独的线程中执行同步的 ArangoClient 初始化
             client_instance: ArangoClient = await asyncio.to_thread(ArangoClient, hosts=host)
 
-            logger.debug(f"正在连接到 _system 数据库以管理目标数据库 '{database_name}' (用户: {username or '默认'})...") # INFO -> DEBUG
+            logger.debug(
+                f"正在连接到 _system 数据库以管理目标数据库 '{database_name}' (用户: {username or '默认'})..."
+            )  # INFO -> DEBUG
             # 连接到 _system 数据库以检查或创建目标数据库
             sys_db: StandardDatabase = await asyncio.to_thread(
                 client_instance.db, "_system", username=username, password=password
             )
             # 如果目标数据库不存在，则创建它
             if not await asyncio.to_thread(sys_db.has_database, database_name):
-                logger.debug(f"数据库 '{database_name}' 不存在。正在尝试创建...") # INFO -> DEBUG
+                logger.debug(f"数据库 '{database_name}' 不存在。正在尝试创建...")  # INFO -> DEBUG
                 await asyncio.to_thread(sys_db.create_database, database_name)
-                logger.debug(f"数据库 '{database_name}' 创建成功。") # INFO -> DEBUG (这条也改了)
+                logger.debug(f"数据库 '{database_name}' 创建成功。")  # INFO -> DEBUG (这条也改了)
 
-            logger.debug(f"正在连接到目标数据库: '{database_name}' (用户: {username or '默认'})...") # INFO -> DEBUG
+            logger.debug(f"正在连接到目标数据库: '{database_name}' (用户: {username or '默认'})...")  # INFO -> DEBUG
             # 连接到目标数据库
             db_instance: StandardDatabase = await asyncio.to_thread(
                 client_instance.db, database_name, username=username, password=password
             )
             await asyncio.to_thread(db_instance.properties)  # 通过获取数据库属性来验证连接是否成功
-            logger.debug(f"已成功连接到 ArangoDB！主机: {host}, 数据库: {database_name}") # INFO -> DEBUG
+            logger.debug(f"已成功连接到 ArangoDB！主机: {host}, 数据库: {database_name}")  # INFO -> DEBUG
 
             # 创建 ConnectionManager 实例并初始化核心数据库结构（集合和索引）
             manager_instance = cls(client_instance, db_instance, core_collection_configs)
@@ -162,14 +164,14 @@ class ArangoDBConnectionManager:
 
     async def ensure_core_infrastructure(self) -> None:
         """确保所有在 `core_collection_configs` 中定义的核心集合及其特定索引都存在。"""
-        logger.debug("正在确保核心数据库基础设施 (集合和特定索引) 已按配置就绪...") # INFO -> DEBUG
+        logger.debug("正在确保核心数据库基础设施 (集合和特定索引) 已按配置就绪...")  # INFO -> DEBUG
         if not self.core_collection_configs:  # 如果没有提供核心集合配置，则记录警告并跳过
             logger.warning("未提供核心集合配置 (core_collection_configs)，跳过基础设施保障步骤。")
             return
         for collection_name, index_definitions in self.core_collection_configs.items():
             # 为每个配置的核心集合确保其存在并应用定义的索引
             await self.ensure_collection_with_indexes(collection_name, index_definitions)
-        logger.debug("核心数据库基础设施已保障。") # INFO -> DEBUG
+        logger.debug("核心数据库基础设施已保障。")  # INFO -> DEBUG
 
     async def ensure_collection_with_indexes(
         self,
@@ -180,42 +182,42 @@ class ArangoDBConnectionManager:
         确保单个集合存在。如果提供了 `index_definitions`，则尝试应用这些索引。
         主要供 `ensure_core_infrastructure` 调用，也可被上层服务用于确保其操作的集合存在。
         """
-        if not self.db: # 新增数据库连接检查
+        if not self.db:  # 新增数据库连接检查
             logger.warning(f"数据库连接不可用，无法确保或获取集合 '{collection_name}'。")
             # 在这种情况下，返回 None 或抛出异常是合理的。
             # 为了与 get_collection 的期望行为（可能返回None）保持一致，这里返回None。
             # 但这可能导致调用方出现 NoneType 错误，所以调用方也需要检查。
             # 或者，更严格的做法是 raise ConnectionError("Database not available")
-            return None # type: ignore 
+            return None  # type: ignore
             # type: ignore 是因为 StandardCollection 不期望是 None，但这是错误路径
 
         collection: StandardCollection
-        
+
         # 在每次实际使用 self.db 前都获取其当前状态
         current_db_ref = self.db
         if not current_db_ref:
             logger.warning(f"数据库连接在尝试检查集合 '{collection_name}' 前已不可用。")
-            return None # type: ignore
+            return None  # type: ignore
 
         has_collection = await asyncio.to_thread(current_db_ref.has_collection, collection_name)
 
         if not has_collection:
-            logger.debug(f"集合 '{collection_name}' 不存在，正在创建...") # INFO -> DEBUG
-            current_db_ref_for_create = self.db # 再次检查
+            logger.debug(f"集合 '{collection_name}' 不存在，正在创建...")  # INFO -> DEBUG
+            current_db_ref_for_create = self.db  # 再次检查
             if not current_db_ref_for_create:
                 logger.warning(f"数据库连接在尝试创建集合 '{collection_name}' 前已不可用。")
-                return None # type: ignore
+                return None  # type: ignore
             try:
                 collection = await asyncio.to_thread(current_db_ref_for_create.create_collection, collection_name)
-                logger.debug(f"集合 '{collection_name}' 创建成功。") # INFO -> DEBUG
+                logger.debug(f"集合 '{collection_name}' 创建成功。")  # INFO -> DEBUG
             except CollectionCreateError as e:
                 logger.error(f"创建集合 '{collection_name}' 失败: {e}", exc_info=True)
                 raise
         else:
-            current_db_ref_for_get = self.db # 再次检查
+            current_db_ref_for_get = self.db  # 再次检查
             if not current_db_ref_for_get:
                 logger.warning(f"数据库连接在尝试获取已存在集合 '{collection_name}' 前已不可用。")
-                return None # type: ignore
+                return None  # type: ignore
             collection = await asyncio.to_thread(current_db_ref_for_get.collection, collection_name)
 
         # 只有当 collection 成功获取且 index_definitions 存在时才应用索引
@@ -226,8 +228,7 @@ class ArangoDBConnectionManager:
             # 如果 collection 本身是 None (例如上面返回了 None)，这里就不会执行。
             await self._apply_indexes_to_collection(collection, index_definitions)
         elif not collection:
-             logger.warning(f"未能成功获取或创建集合 '{collection_name}'，无法应用索引。")
-
+            logger.warning(f"未能成功获取或创建集合 '{collection_name}'，无法应用索引。")
 
         return collection
 

@@ -18,7 +18,7 @@ async def report_action_failure(
     tool_arguments_used: dict | None = None,
     failed_action_id: str | None = None,
     reason_for_failure_short: str | None = None,  # 兼容旧的调用方式
-    **kwargs,  # 增加kwargs以捕获所有其他参数，提高兼容性
+    **kwargs: any,  # 增加kwargs以捕获所有其他参数，提高兼容性
 ) -> str:
     """
     报告一个详细的行动失败。所有参数都是可选的，以提高健壮性。
@@ -67,7 +67,7 @@ async def report_action_failure(
 
         if failed_action_id:
             report_parts.append(f"（相关行动ID: {failed_action_id}）")
-        
+
         if not report_parts:
             return "报告了一个未知行动的未知失败。"
 
@@ -80,10 +80,8 @@ async def report_action_failure(
         # 此时的 intended_action_description 和 failure_reason 可能为 None
         desc = intended_action_description or "某个未知动作"
         reason = failure_reason or reason_for_failure_short or "一个未知问题"
-        return (
-            f"我尝试执行“{desc}”时遇到了一个问题（{reason}），"
-            "但连生成详细的失败报告都失败了。"
-        )
+        return f"我尝试执行“{desc}”时遇到了一个问题（{reason}），但连生成详细的失败报告都失败了。"
+
 
 # The old test is no longer compatible with the new function signature.
 # if __name__ == "__main__":

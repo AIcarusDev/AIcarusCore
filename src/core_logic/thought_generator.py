@@ -1,28 +1,24 @@
 # src/core_logic/thought_generator.py
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
-import json # 确保导入 json
+from typing import TYPE_CHECKING, Any
 
 from src.common.custom_logging.logger_manager import get_logger
 
 if TYPE_CHECKING:
     from src.llmrequest.llm_processor import Client as ProcessorClient
-    from src.core_logic.prompt_builder import ThoughtPromptBuilder
 
 logger = get_logger("AIcarusCore.CoreLogic.ThoughtGenerator")
 
+
 class ThoughtGenerator:
-    def __init__(
-        self,
-        llm_client: 'ProcessorClient'
-    ):
+    def __init__(self, llm_client: "ProcessorClient") -> None:
         self.llm_client = llm_client
         # self.prompt_builder = prompt_builder # 不再需要保存实例
         self.logger = logger
         self.logger.info("ThoughtGenerator 已初始化。")
 
     async def generate_thought(
-        self, system_prompt: str, user_prompt: str, image_inputs: List[str]
-    ) -> Optional[Dict[str, Any]]:
+        self, system_prompt: str, user_prompt: str, image_inputs: list[str]
+    ) -> dict[str, Any] | None:
         """
         调用LLM生成思考结果，并解析响应。
         """
@@ -46,7 +42,8 @@ class ThoughtGenerator:
 
             # 使用 ThoughtPromptBuilder 的静态方法来解析响应
             # 需要从 .prompt_builder 导入 ThoughtPromptBuilder 类本身
-            from .prompt_builder import ThoughtPromptBuilder # 局部导入或在文件顶部导入
+            from .prompt_builder import ThoughtPromptBuilder  # 局部导入或在文件顶部导入
+
             parsed_json = ThoughtPromptBuilder.parse_llm_response(raw_text)
 
             if parsed_json is None:

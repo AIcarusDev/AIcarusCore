@@ -213,7 +213,7 @@ class ThoughtStorageService:
                 return False
 
             action_attempted_current = doc_to_update.get("action_attempted")
-            
+
             # 处理 action_attempted 为 None 的情况
             if action_attempted_current is None:
                 # 如果原始思考就没有 action_attempted，并且尝试更新的状态是 COMPLETED_NO_TOOL，
@@ -223,7 +223,7 @@ class ThoughtStorageService:
                         f"思考文档 '{doc_key}' 的 action_attempted 为 None，且更新状态为 COMPLETED_NO_TOOL。"
                         "此为预期行为，无需更新特定动作。"
                     )
-                    return True # 认为状态已正确，操作成功
+                    return True  # 认为状态已正确，操作成功
                 else:
                     # 对于其他状态，如果 action_attempted 为 None，则无法更新特定 action_id
                     self.logger.error(

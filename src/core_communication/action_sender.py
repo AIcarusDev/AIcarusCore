@@ -1,7 +1,7 @@
 # src/core_communication/action_sender.py
 import asyncio
 import json
-from typing import Any, Dict
+from typing import Any
 
 from websockets.exceptions import ConnectionClosed
 from websockets.server import WebSocketServerProtocol
@@ -19,9 +19,9 @@ class ActionSender:
 
     def __init__(self) -> None:
         # 这两个字典将由外部（新的 ConnectionManager 或 CoreWebsocketServer）在适配器注册/注销时更新
-        self.connected_adapters: Dict[str, WebSocketServerProtocol] = {}
-        self.adapter_clients_info: Dict[str, Dict[str, Any]] = {}
-        self._websocket_to_adapter_id: Dict[WebSocketServerProtocol, str] = {}
+        self.connected_adapters: dict[str, WebSocketServerProtocol] = {}
+        self.adapter_clients_info: dict[str, dict[str, Any]] = {}
+        self._websocket_to_adapter_id: dict[WebSocketServerProtocol, str] = {}
         logger.info("ActionSender 初始化完成。")
 
     def register_adapter(self, adapter_id: str, display_name: str, websocket: WebSocketServerProtocol) -> None:
@@ -45,7 +45,7 @@ class ActionSender:
             logger.debug(f"ActionSender: 适配器 '{adapter_id}' 已注销。")
         return adapter_id
 
-    async def broadcast_action_to_adapters(self, action_event: Dict[str, Any]) -> bool:
+    async def broadcast_action_to_adapters(self, action_event: dict[str, Any]) -> bool:
         """向所有连接的适配器广播一个动作。"""
         if not self.connected_adapters:
             logger.warning("没有连接的适配器，无法广播动作")
@@ -68,7 +68,7 @@ class ActionSender:
             return False
 
     async def send_action_to_specific_adapter(
-        self, websocket: WebSocketServerProtocol, action_event: Dict[str, Any]
+        self, websocket: WebSocketServerProtocol, action_event: dict[str, Any]
     ) -> bool:
         """向指定的WebSocket连接发送一个动作。"""
         adapter_id = self._websocket_to_adapter_id.get(websocket)
@@ -93,7 +93,7 @@ class ActionSender:
             logger.error(f"向特定适配器 '{display_name}' 发送动作时发生错误: {e}")
             return False
 
-    async def send_action_to_adapter_by_id(self, adapter_id: str, action_event: Dict[str, Any]) -> bool:
+    async def send_action_to_adapter_by_id(self, adapter_id: str, action_event: dict[str, Any]) -> bool:
         """通过适配器ID向其发送一个动作。"""
         websocket = self.connected_adapters.get(adapter_id)
         if not websocket:

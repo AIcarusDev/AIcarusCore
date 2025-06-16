@@ -1,6 +1,7 @@
 # src/action/action_provider.py
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Coroutine, Dict
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 
 class ActionProvider(ABC):
@@ -20,12 +21,12 @@ class ActionProvider(ABC):
         pass
 
     @abstractmethod
-    def get_actions(self) -> Dict[str, Callable[..., Coroutine[Any, Any, Any]]]:
+    def get_actions(self) -> dict[str, Callable[..., Coroutine[Any, Any, Any]]]:
         """
         返回一个字典，其中包含了该提供者支持的所有动作。
         - key (str): 动作的名称 (例如 'send_message', 'search')。
         - value (Callable): 一个异步函数，用于执行该动作。
-        
+
         完整的动作名称将由 Provider.name 和这里的 key 组合而成，
         例如 'platform.qq.send_message'。
         """

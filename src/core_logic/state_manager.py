@@ -79,7 +79,7 @@ class AIStateManager:
                 if prev_think_db and prev_think_db.strip()
                 else state_from_initial["previous_thinking"]
             )
-            
+
             # 检查是否有来自专注模式的交接信息，并用它覆盖/补充上一轮思考
             if self._next_last_focus_think or self._next_handover_summary:
                 handover_parts = []
@@ -87,16 +87,15 @@ class AIStateManager:
                     handover_parts.append(f"刚刚结束的专注会话留下的最后想法是：'{self._next_last_focus_think}'")
                 if self._next_handover_summary:
                     handover_parts.append(f"该专注会话的总结纪要如下：\n---\n{self._next_handover_summary}\n---")
-                
+
                 if handover_parts:
                     previous_thinking_for_prompt = "。\n".join(handover_parts)
-                    logger.info(f"已将专注模式的交接信息整合到 'previous_thinking' 中。")
-                
+                    logger.info("已将专注模式的交接信息整合到 'previous_thinking' 中。")
+
                 # 清理交接信息，确保只用一次
                 self._next_handover_summary = None
                 self._next_last_focus_think = None
                 logger.debug("已清理AIStateManager中的交接信息。")
-
 
             guidance_db = latest_thought_document.get(
                 "next_think_output",

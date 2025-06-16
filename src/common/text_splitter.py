@@ -1,11 +1,7 @@
 import random
 import re
-import regex
-import time
-from collections import Counter
 
-import jieba
-import numpy as np
+import regex
 
 # --- 全局常量和预编译正则表达式 ---
 # \p{L} 匹配任何语言中的任何种类的字母字符。
@@ -23,16 +19,75 @@ ELLIPSIS_PLACEHOLDER_PREFIX = "__ELLIPSIS_"
 SEPARATORS = {"。", "，", ",", " ", ";", "\xa0", "\n", ".", "—", "！", "？"}
 # 已知的以点号结尾的英文缩写词，用于避免错误地将缩写词中的点号作为句子结束符。
 KNOWN_ABBREVIATIONS_ENDING_WITH_DOT = {
-    "Mr.", "Mrs.", "Ms.", "Dr.", "Prof.", "St.", "Messrs.", "Mmes.", "Capt.", "Gov.",
-    "Inc.", "Ltd.", "Corp.", "Co.", "PLC", "vs.", "etc.", "i.e.", "e.g.", "viz.",
-    "al.", "et al.", "ca.", "cf.", "No.", "Vol.", "pp.", "fig.", "figs.", "ed.",
-    "Ph.D.", "M.D.", "B.A.", "M.A.", "Jan.", "Feb.", "Mar.", "Apr.", "Jun.", "Jul.",
-    "Aug.", "Sep.", "Oct.", "Nov.", "Dec.", "Mon.", "Tue.", "Wed.", "Thu.", "Fri.",
-    "Sat.", "Sun.", "U.S.", "U.K.", "E.U.", "U.S.A.", "U.S.S.R.", "Ave.", "Blvd.",
-    "Rd.", "Ln.", "approx.", "dept.", "appt.", "श्री.", # 印地语中的 Shri.
+    "Mr.",
+    "Mrs.",
+    "Ms.",
+    "Dr.",
+    "Prof.",
+    "St.",
+    "Messrs.",
+    "Mmes.",
+    "Capt.",
+    "Gov.",
+    "Inc.",
+    "Ltd.",
+    "Corp.",
+    "Co.",
+    "PLC",
+    "vs.",
+    "etc.",
+    "i.e.",
+    "e.g.",
+    "viz.",
+    "al.",
+    "et al.",
+    "ca.",
+    "cf.",
+    "No.",
+    "Vol.",
+    "pp.",
+    "fig.",
+    "figs.",
+    "ed.",
+    "Ph.D.",
+    "M.D.",
+    "B.A.",
+    "M.A.",
+    "Jan.",
+    "Feb.",
+    "Mar.",
+    "Apr.",
+    "Jun.",
+    "Jul.",
+    "Aug.",
+    "Sep.",
+    "Oct.",
+    "Nov.",
+    "Dec.",
+    "Mon.",
+    "Tue.",
+    "Wed.",
+    "Thu.",
+    "Fri.",
+    "Sat.",
+    "Sun.",
+    "U.S.",
+    "U.K.",
+    "E.U.",
+    "U.S.A.",
+    "U.S.S.R.",
+    "Ave.",
+    "Blvd.",
+    "Rd.",
+    "Ln.",
+    "approx.",
+    "dept.",
+    "appt.",
+    "श्री.",  # 印地语中的 Shri.
 }
 
 # --- 辅助函数 ---
+
 
 def is_letter_not_han(char_str: str) -> bool:
     """
@@ -47,16 +102,16 @@ def is_letter_not_han(char_str: str) -> bool:
         bool: 如果字符是字母且非汉字则为True，否则为False。
     """
     if not isinstance(char_str, str) or len(char_str) != 1:
-        return False 
+        return False
     is_letter = _L_REGEX.fullmatch(char_str) is not None
     if not is_letter:
-        return False 
+        return False
     is_han = _HAN_CHAR_REGEX.fullmatch(char_str) is not None
     return not is_han
 
 
 def is_han_character(char_str: str) -> bool:
-    """
+    r"""
     检查单个字符是否为汉字 (使用 Unicode \p{Han} 属性)。
 
     Args:
@@ -103,9 +158,7 @@ def is_relevant_word_char(char_str: str) -> bool:
         return False
     if _L_REGEX.fullmatch(char_str):
         return not _HAN_CHAR_REGEX.fullmatch(char_str)
-    if _Nd_REGEX.fullmatch(char_str):
-        return True
-    return False
+    return bool(_Nd_REGEX.fullmatch(char_str))
 
 
 def is_english_letter(char: str) -> bool:
@@ -135,15 +188,16 @@ def protect_book_titles(text: str) -> tuple[str, dict[str, str]]:
             - book_title_mapping (dict): 占位符到原始书名号内容（含书名号本身）的映射。
     """
     book_title_mapping = {}
-    book_title_pattern = re.compile(r"《(.*?)》") 
+    book_title_pattern = re.compile(r"《(.*?)》")
 
-    def replace_func(match):
+    def replace_func(match: re.Match) -> str:
         placeholder = f"{BOOK_TITLE_PLACEHOLDER_PREFIX}{len(book_title_mapping)}__"
-        book_title_mapping[placeholder] = match.group(0) 
+        book_title_mapping[placeholder] = match.group(0)
         return placeholder
 
     protected_text = book_title_pattern.sub(replace_func, text)
     return protected_text, book_title_mapping
+
 
 def recover_book_titles(sentences: list[str], book_title_mapping: dict[str, str]) -> list[str]:
     """
@@ -160,13 +214,14 @@ def recover_book_titles(sentences: list[str], book_title_mapping: dict[str, str]
     if not sentences:
         return []
     for sentence in sentences:
-        if not isinstance(sentence, str): 
-            recovered_sentences.append(sentence) 
+        if not isinstance(sentence, str):
+            recovered_sentences.append(sentence)
             continue
         for placeholder, original_content in book_title_mapping.items():
             sentence = sentence.replace(placeholder, original_content)
         recovered_sentences.append(sentence)
     return recovered_sentences
+
 
 def protect_ellipsis(text: str) -> tuple[str, dict[str, str]]:
     """
@@ -185,13 +240,14 @@ def protect_ellipsis(text: str) -> tuple[str, dict[str, str]]:
     ellipsis_mapping = {}
     ellipsis_pattern = re.compile(r"(\.{3,}|\u2026)")
 
-    def replace_func(match):
+    def replace_func(match: re.Match) -> str:
         placeholder = f"{ELLIPSIS_PLACEHOLDER_PREFIX}{len(ellipsis_mapping)}__"
         ellipsis_mapping[placeholder] = match.group(0)
         return placeholder
 
     protected_text = ellipsis_pattern.sub(replace_func, text)
     return protected_text, ellipsis_mapping
+
 
 def recover_ellipsis(sentences: list[str], ellipsis_mapping: dict[str, str]) -> list[str]:
     """
@@ -216,6 +272,7 @@ def recover_ellipsis(sentences: list[str], ellipsis_mapping: dict[str, str]) -> 
         recovered_sentences.append(sentence)
     return recovered_sentences
 
+
 def split_into_sentences_w_remove_punctuation(original_text: str) -> list[str]:
     """
     将输入文本分割成句子列表。
@@ -239,13 +296,13 @@ def split_into_sentences_w_remove_punctuation(original_text: str) -> list[str]:
     text, local_book_title_mapping = protect_book_titles(original_text)
     text, local_ellipsis_mapping = protect_ellipsis(text)
 
-    perform_book_title_recovery_here = True 
-    
+    perform_book_title_recovery_here = True
+
     text = regex.sub(r"\n\s*\n+", "\n", text)
     text = regex.sub(r"\n\s*([—。.,，;\s\xa0！？])", r"\1", text)
     text = regex.sub(r"([—。.,，;\s\xa0！？])\s*\n", r"\1", text)
 
-    def replace_han_newline(match):
+    def replace_han_newline(match: re.Match) -> str:
         char1 = match.group(1)
         char2 = match.group(2)
         if is_han_character(char1) and is_han_character(char2):
@@ -254,8 +311,8 @@ def split_into_sentences_w_remove_punctuation(original_text: str) -> list[str]:
 
     text = regex.sub(r"(.)\n(.)", replace_han_newline, text)
 
-    len_text = len(text) 
-    
+    len_text = len(text)
+
     is_only_placeholder = False
     if local_book_title_mapping and text in local_book_title_mapping:
         is_only_placeholder = True
@@ -271,43 +328,49 @@ def split_into_sentences_w_remove_punctuation(original_text: str) -> list[str]:
         return [stripped_text]
 
     segments = []
-    current_segment = "" 
+    current_segment = ""
     i = 0
     while i < len(text):
-        char = text[i] 
-        if char in SEPARATORS: 
-            can_split_current_char = True 
+        char = text[i]
+        if char in SEPARATORS:
+            can_split_current_char = True
 
-            if char == ".": 
-                can_split_this_dot = True 
-                if 0 < i < len_text - 1 and is_digit(text[i - 1]) and is_digit(text[i + 1]):
-                    can_split_this_dot = False
-                elif 0 < i < len_text - 1 and is_letter_not_han(text[i - 1]) and is_letter_not_han(text[i + 1]):
+            if char == ".":
+                can_split_this_dot = True
+                if (
+                    0 < i < len_text - 1
+                    and is_digit(text[i - 1])
+                    and is_digit(text[i + 1])
+                    or 0 < i < len_text - 1
+                    and is_letter_not_han(text[i - 1])
+                    and is_letter_not_han(text[i + 1])
+                ):
                     can_split_this_dot = False
                 else:
-                    potential_abbreviation_word = current_segment + char 
+                    potential_abbreviation_word = current_segment + char
                     is_followed_by_space = i + 1 < len_text and text[i + 1] == " "
                     is_at_end_of_text = i + 1 == len_text
-                    if potential_abbreviation_word in KNOWN_ABBREVIATIONS_ENDING_WITH_DOT and \
-                       (is_followed_by_space or is_at_end_of_text):
+                    if potential_abbreviation_word in KNOWN_ABBREVIATIONS_ENDING_WITH_DOT and (
+                        is_followed_by_space or is_at_end_of_text
+                    ):
                         can_split_this_dot = False
                 can_split_current_char = can_split_this_dot
             elif char == " " or char == "\xa0":
-                if 0 < i < len_text - 1: 
+                if 0 < i < len_text - 1:
                     prev_char = text[i - 1]
                     next_char = text[i + 1]
                     if is_relevant_word_char(prev_char) and is_relevant_word_char(next_char):
                         can_split_current_char = False
-            
-            if can_split_current_char: 
-                if current_segment: 
+
+            if can_split_current_char:
+                if current_segment:
                     segments.append((current_segment, char))
                 elif char not in [" ", "\xa0"] or char == "\n":
-                    segments.append(("", char)) 
+                    segments.append(("", char))
                 current_segment = ""
-            else: 
+            else:
                 current_segment += char
-        else: 
+        else:
             current_segment += char
         i += 1
 
@@ -316,79 +379,86 @@ def split_into_sentences_w_remove_punctuation(original_text: str) -> list[str]:
 
     filtered_segments = []
     for content, sep in segments:
-        stripped_content = content.strip() 
-        if stripped_content: 
+        stripped_content = content.strip()
+        if stripped_content:
             filtered_segments.append((stripped_content, sep))
         elif sep and (sep not in [" ", "\xa0"] or sep == "\n"):
-            filtered_segments.append(("", sep)) 
-    segments = filtered_segments 
+            filtered_segments.append(("", sep))
+    segments = filtered_segments
 
     preliminary_final_sentences = []
-    current_sentence_build = "" 
+    current_sentence_build = ""
     num_segments = len(segments)
-    for k, (content, sep) in enumerate(segments): 
+    for k, (content, sep) in enumerate(segments):
         current_sentence_build += content
 
-        is_strong_terminator = sep in {"，","。", ".", "！", "？", "\n", "—"} 
-        is_space_separator = sep in [" ", "\xa0"] 
-        
-        append_sep_to_current = is_strong_terminator 
-        should_split_now = False 
+        is_strong_terminator = sep in {"，", "。", ".", "！", "？", "\n", "—"}
+        is_space_separator = sep in [" ", "\xa0"]
 
-        if is_strong_terminator: 
+        append_sep_to_current = is_strong_terminator
+        should_split_now = False
+
+        if is_strong_terminator:
             should_split_now = True
         elif is_space_separator:
-            if current_sentence_build: 
-                last_char_of_build_stripped = current_sentence_build.strip() 
-                if last_char_of_build_stripped and is_han_character(last_char_of_build_stripped[-1]):
-                    if k + 1 < num_segments:
-                        next_content_tuple = segments[k+1]
-                        if next_content_tuple: 
-                            next_content = next_content_tuple[0] 
-                            if next_content and is_han_character(next_content[0]):
-                                should_split_now = True 
-                                append_sep_to_current = False
-            
-            if not should_split_now: 
-                 if current_sentence_build and not current_sentence_build.endswith(" ") and not current_sentence_build.endswith("\xa0"):
-                     current_sentence_build += " "
-                 append_sep_to_current = False 
-        
-        if should_split_now: 
-            if append_sep_to_current and sep: 
+            if current_sentence_build:
+                last_char_of_build_stripped = current_sentence_build.strip()
+                if (
+                    last_char_of_build_stripped
+                    and is_han_character(last_char_of_build_stripped[-1])
+                    and k + 1 < num_segments
+                ):
+                    next_content_tuple = segments[k + 1]
+                    if next_content_tuple:
+                        next_content = next_content_tuple[0]
+                        if next_content and is_han_character(next_content[0]):
+                            should_split_now = True
+                            append_sep_to_current = False
+
+            if not should_split_now:
+                if (
+                    current_sentence_build
+                    and not current_sentence_build.endswith(" ")
+                    and not current_sentence_build.endswith("\xa0")
+                ):
+                    current_sentence_build += " "
+                append_sep_to_current = False
+
+        if should_split_now:
+            if append_sep_to_current and sep:
                 current_sentence_build += sep
-            
-            stripped_sentence = current_sentence_build.strip() 
-            if stripped_sentence: 
+
+            stripped_sentence = current_sentence_build.strip()
+            if stripped_sentence:
                 preliminary_final_sentences.append(stripped_sentence)
-            current_sentence_build = "" 
+            current_sentence_build = ""
         elif sep and not is_space_separator:
             current_sentence_build += sep
             if k == num_segments - 1 and current_sentence_build.strip():
                 preliminary_final_sentences.append(current_sentence_build.strip())
                 current_sentence_build = ""
-    
-    if current_sentence_build.strip(): 
+
+    if current_sentence_build.strip():
         preliminary_final_sentences.append(current_sentence_build.strip())
-    
+
     preliminary_final_sentences = [s for s in preliminary_final_sentences if s.strip()]
 
-    intermediate_sentences_placeholders = [] 
+    intermediate_sentences_placeholders = []
 
     if not preliminary_final_sentences:
         if is_only_placeholder:
-             intermediate_sentences_placeholders = [text]
-            
+            intermediate_sentences_placeholders = [text]
+
     elif len(preliminary_final_sentences) == 1:
-        s = preliminary_final_sentences[0].strip() 
-        if s: 
-             s = random_remove_punctuation(s) 
+        s = preliminary_final_sentences[0].strip()
+        if s:
+            s = random_remove_punctuation(s)
         intermediate_sentences_placeholders = [s] if s else []
-    
-    else: 
+
+    else:
         final_sentences_merged = []
-        original_len_for_strength = len(original_text) 
-        split_strength = 0.5 
+        original_len_for_strength = len(original_text)
+        split_strength = 0.5
         if original_len_for_strength < 12:
             split_strength = 0.5
         elif original_len_for_strength < 32:
@@ -396,53 +466,58 @@ def split_into_sentences_w_remove_punctuation(original_text: str) -> list[str]:
         else:
             split_strength = 0.9
         actual_merge_probability = 1.0 - split_strength
-        
-        temp_sentence = "" 
-        if preliminary_final_sentences: 
-            temp_sentence = preliminary_final_sentences[0] 
-            for i_merge in range(1, len(preliminary_final_sentences)): 
+
+        temp_sentence = ""
+        if preliminary_final_sentences:
+            temp_sentence = preliminary_final_sentences[0]
+            for i_merge in range(1, len(preliminary_final_sentences)):
                 current_sentence_to_merge = preliminary_final_sentences[i_merge]
-                should_merge_based_on_punctuation = True 
-                if temp_sentence and \
-                   (temp_sentence.endswith("。") or temp_sentence.endswith(".") or \
-                    temp_sentence.endswith("!") or temp_sentence.endswith("?") or \
-                    temp_sentence.endswith("—")):
+                should_merge_based_on_punctuation = True
+                if temp_sentence and (
+                    temp_sentence.endswith("。")
+                    or temp_sentence.endswith(".")
+                    or temp_sentence.endswith("!")
+                    or temp_sentence.endswith("?")
+                    or temp_sentence.endswith("—")
+                ):
                     should_merge_based_on_punctuation = False
-                
+
                 if random.random() < actual_merge_probability and temp_sentence and should_merge_based_on_punctuation:
                     if not temp_sentence.endswith(" ") and not current_sentence_to_merge.startswith(" "):
-                        temp_sentence += " " 
+                        temp_sentence += " "
                     temp_sentence += current_sentence_to_merge
-                else: 
+                else:
                     if temp_sentence:
                         final_sentences_merged.append(temp_sentence)
                     temp_sentence = current_sentence_to_merge
-            if temp_sentence: 
+            if temp_sentence:
                 final_sentences_merged.append(temp_sentence)
-        
+
         processed_temp = []
         for sentence_val in final_sentences_merged:
             s_loop = sentence_val.strip()
             if s_loop.endswith(",") or s_loop.endswith("，"):
                 s_loop = s_loop[:-1].strip()
-            if s_loop: 
-                s_loop = random_remove_punctuation(s_loop) 
-            if s_loop: 
+            if s_loop:
+                s_loop = random_remove_punctuation(s_loop)
+            if s_loop:
                 processed_temp.append(s_loop)
         intermediate_sentences_placeholders = processed_temp
 
     sentences_after_book_title_recovery = []
     if perform_book_title_recovery_here and local_book_title_mapping:
-        sentences_after_book_title_recovery = recover_book_titles(intermediate_sentences_placeholders, local_book_title_mapping)
+        sentences_after_book_title_recovery = recover_book_titles(
+            intermediate_sentences_placeholders, local_book_title_mapping
+        )
     else:
         sentences_after_book_title_recovery = intermediate_sentences_placeholders
-    
+
     final_sentences_recovered = []
     if local_ellipsis_mapping:
         final_sentences_recovered = recover_ellipsis(sentences_after_book_title_recovery, local_ellipsis_mapping)
     else:
         final_sentences_recovered = sentences_after_book_title_recovery
-    
+
     return [s for s in final_sentences_recovered if s.strip()]
 
 
@@ -459,13 +534,13 @@ def random_remove_punctuation(text: str) -> str:
     text_len = len(text)
 
     for i, char in enumerate(text):
-        if char == "。" and i == text_len - 1:
-            if random.random() > 0.1:
-                continue
+        if char == "。" and i == text_len - 1 and random.random() > 0.1:
+            continue
         result += char
     return result
 
-def protect_kaomoji(sentence):
+
+def protect_kaomoji(sentence: str) -> tuple[str, dict[str, str]]:
     """ "
     识别并保护句子中的颜文字（含括号与无括号），将其替换为占位符，
     并返回替换后的句子和占位符到颜文字的映射表。
@@ -499,7 +574,7 @@ def protect_kaomoji(sentence):
     return sentence, placeholder_to_kaomoji
 
 
-def recover_kaomoji(sentences, placeholder_to_kaomoji):
+def recover_kaomoji(sentences: list[str], placeholder_to_kaomoji: dict[str, str]) -> list[str]:
     """
     根据映射表恢复句子中的颜文字。
     Args:
@@ -516,7 +591,7 @@ def recover_kaomoji(sentences, placeholder_to_kaomoji):
     return recovered_sentences
 
 
-def get_western_ratio(paragraph):
+def get_western_ratio(paragraph: str) -> float:
     """计算段落中字母数字字符的西文比例
     原理：检查段落中字母数字字符的西文比例
     通过is_english_letter函数判断每个字符是否为西文
@@ -534,6 +609,7 @@ def get_western_ratio(paragraph):
 
     western_count = sum(1 for char in alnum_chars if is_english_letter(char))
     return western_count / len(alnum_chars)
+
 
 def process_llm_response(
     text: str,
@@ -571,20 +647,16 @@ def process_llm_response(
         return ["..."]
 
     # 对主要为中文的文本进行长度检查
-    if get_western_ratio(cleaned_text) < 0.1:
-        if len(cleaned_text) > max_length:
-            # 如果文本过长，返回一个表示“不想说太多”的简洁回复
-            return ["话太多了，不想说。"]
+    if get_western_ratio(cleaned_text) < 0.1 and len(cleaned_text) > max_length:
+        # 如果文本过长，返回一个表示“不想说太多”的简洁回复
+        return ["话太多了，不想说。"]
 
     # 根据配置决定是否分割句子
-    if enable_splitter:
-        sentences = split_into_sentences_w_remove_punctuation(cleaned_text)
-    else:
-        sentences = [cleaned_text]
+    sentences = split_into_sentences_w_remove_punctuation(cleaned_text) if enable_splitter else [cleaned_text]
 
     # 检查分割后的句子数量是否超限
     if len(sentences) > max_sentence_num:
-        return [f"一次说太多了，我脑子处理不过来啦..."]
+        return ["一次说太多了，我脑子处理不过来啦..."]
 
     # 恢复颜文字（如果之前保护了的话）
     if enable_kaomoji_protection:

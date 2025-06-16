@@ -1,7 +1,8 @@
 # src/core_communication/event_receiver.py
 import json
 import time
-from typing import TYPE_CHECKING, Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING, Any
 
 from aicarus_protocols import Event as ProtocolEvent
 from websockets.server import WebSocketServerProtocol
@@ -28,7 +29,7 @@ class EventReceiver:
         action_handler_instance: "ActionHandler",
         # adapter_clients_info 将由外部传入和管理，EventReceiver 只读取它
         adapter_clients_info: dict[str, dict[str, Any]],
-    ):
+    ) -> None:
         self._event_handler_callback = event_handler_callback
         self.action_handler = action_handler_instance
         self.adapter_clients_info = adapter_clients_info
@@ -91,9 +92,7 @@ class EventReceiver:
                 try:
                     aicarus_event = ProtocolEvent.from_dict(message_dict)
                     # 调用注册的回调函数（即 DefaultMessageProcessor.process_event）
-                    await self._event_handler_callback(
-                        aicarus_event, websocket, self._needs_persistence(aicarus_event)
-                    )
+                    await self._event_handler_callback(aicarus_event, websocket, self._needs_persistence(aicarus_event))
                 except Exception as e_parse:
                     logger.error(f"解析或处理 Event 时出错: {e_parse}. 数据: {message_dict}", exc_info=True)
             else:

@@ -255,7 +255,7 @@ class DBEventDocument:
     # 为便于数据库查询而从 user_info 和 conversation_info 中提取的关键ID
     user_id_extracted: str | None = None  # 提取出的用户ID
     conversation_id_extracted: str | None = None  # 提取出的会话ID
-    motivation: Optional[str] = None # 新增：用于存储事件的动机，特别是机器人发出的消息事件
+    motivation: str | None = None  # 新增：用于存储事件的动机，特别是机器人发出的消息事件
 
     @classmethod
     def from_protocol(cls, proto_event: ProtocolEvent) -> "DBEventDocument":
@@ -339,7 +339,7 @@ class DBEventDocument:
             protocol_version=getattr(proto_event, "protocol_version", "1.4.0"),  # 安全获取，万一协议对象没有此字段
             user_id_extracted=uid_ext,
             conversation_id_extracted=cid_ext,
-            motivation=getattr(proto_event, 'motivation', None) # 新增：安全获取motivation
+            motivation=getattr(proto_event, "motivation", None),  # 新增：安全获取motivation
         )
 
     def to_dict(self) -> dict[str, Any]:

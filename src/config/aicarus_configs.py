@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional 
+
 # 导入 ConfigBase
 from .config_base import ConfigBase
 
@@ -19,7 +19,7 @@ class PersonaSettings(ConfigBase):
     profile: str = ""
     """AI 机器人的个人资料信息。"""
 
-    qq_id: Optional[str] = None
+    qq_id: str | None = None
     """AI 机器人的QQ号。"""
 
 
@@ -94,7 +94,7 @@ class AllModelPurposesConfig(ConfigBase):
     embedding_default: ModelParams | None = None
     """嵌入模型，用于生成和处理文本嵌入相关的思维。"""
 
-    focused_chat: Optional[ModelParams] = None
+    focused_chat: ModelParams | None = None
     """专注聊天模型，用于处理专注聊天相关的思维。"""
 
 
@@ -103,6 +103,7 @@ class DatabaseSettings(ConfigBase):
     """数据库连接设置
     此处无需修改，无需配置文件中创建对应配置项。该配置将直接被环境变量覆盖。
     """
+
     host: str = "http://localhost:8529"
     """数据库主机地址。默认值为 http://localhost:8529。"""
 
@@ -230,6 +231,7 @@ class InnerConfig(ConfigBase):
 @dataclass
 class SubConsciousnessSettings(ConfigBase):
     """子意识模块，如专注聊天功能的设置"""
+
     enabled: bool = True
     """是否启用子意识模块"""
 
@@ -255,6 +257,7 @@ class SubConsciousnessSettings(ConfigBase):
     summary_interval: int = 5
     """渐进式总结的触发消息间隔"""
 
+
 @dataclass
 class AlcarusRootConfig(ConfigBase):
     """Aicarus 的根配置类，包含所有核心设置和模型配置。
@@ -270,7 +273,7 @@ class AlcarusRootConfig(ConfigBase):
     platform_action_settings: PlatformActionSettings = field(
         default_factory=PlatformActionSettings
     )  # 主人，新的“性感小玩具”已装填！
-    sub_consciousness: SubConsciousnessSettings = field(default_factory=SubConsciousnessSettings) # 新增子意识配置
+    sub_consciousness: SubConsciousnessSettings = field(default_factory=SubConsciousnessSettings)  # 新增子意识配置
     database: DatabaseSettings = field(default_factory=DatabaseSettings)  # 新增数据库配置
     logging: LoggingSettings = field(default_factory=LoggingSettings)
     server: ServerSettings = field(default_factory=ServerSettings)

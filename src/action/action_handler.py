@@ -4,7 +4,8 @@ import json
 import os
 import time
 import uuid
-from typing import TYPE_CHECKING, Any, Callable, Coroutine, Dict, List, Optional
+from collections.abc import Callable, Coroutine
+from typing import TYPE_CHECKING, Any
 
 from src.action.action_provider import ActionProvider
 from src.common.custom_logging.logger_manager import get_logger
@@ -42,7 +43,7 @@ class ActionHandler:
         self.action_log_service: ActionLogStorageService | None = None
         self.thought_trigger: asyncio.Event | None = None
         self._pending_actions: dict[str, tuple[asyncio.Event, str | None, str, dict[str, Any]]] = {}
-        self._action_registry: Dict[str, Callable[..., Coroutine[Any, Any, Any]]] = {}
+        self._action_registry: dict[str, Callable[..., Coroutine[Any, Any, Any]]] = {}
         self.logger.info(f"{self.__class__.__name__} instance created.")
 
     def set_dependencies(
@@ -50,7 +51,7 @@ class ActionHandler:
         thought_service: ThoughtStorageService | None = None,
         event_service: EventStorageService | None = None,
         action_log_service: ActionLogStorageService | None = None,
-        action_sender: Optional[ActionSender] = None,
+        action_sender: ActionSender | None = None,
     ) -> None:
         self.thought_storage_service = thought_service
         self.event_storage_service = event_service
@@ -62,10 +63,7 @@ class ActionHandler:
         """注册一个动作提供者。"""
         actions = provider.get_actions()
         for action_name, action_func in actions.items():
-            if provider.name == "platform":
-                full_action_name = action_name
-            else:
-                full_action_name = f"{provider.name}.{action_name}"
+            full_action_name = action_name if provider.name == "platform" else f"{provider.name}.{action_name}"
 
             if full_action_name in self._action_registry:
                 self.logger.warning(f"动作 '{full_action_name}' 已存在，将被新的提供者覆盖。")
@@ -245,9 +243,9 @@ class ActionHandler:
 
         # --- 这就是最关键的修正！ ---
         # 我们要从 content 中解析出原始的动作ID，而不是用响应事件自己的ID！
-        original_action_id: Optional[str] = None
+        original_action_id: str | None = None
         response_content_list = response_event_data.get("content", [])
-        
+
         # 做足安全检查，防止身体被玩坏~
         if response_content_list and isinstance(response_content_list, list) and len(response_content_list) > 0:
             first_seg = response_content_list[0]
@@ -257,7 +255,9 @@ class ActionHandler:
 
         if not original_action_id:
             response_event_id = response_event_data.get("event_id", "未知响应ID")
-            self.logger.error(f"动作处理器: 收到的 action_response (ID: {response_event_id}) 内容里没有找到 'original_event_id'，无法处理！")
+            self.logger.error(
+                f"动作处理器: 收到的 action_response (ID: {response_event_id}) 内容里没有找到 'original_event_id'，无法处理！"
+            )
             return
 
         if original_action_id not in self._pending_actions:
@@ -265,13 +265,15 @@ class ActionHandler:
                 f"动作处理器: 收到一个未知的或已处理/超时的 action_response，其指向的原始动作ID: {original_action_id}。"
             )
             return
-        
+
         # 从这里开始，后面的逻辑都是对的，因为我们现在用的是正确的ID了！
         pending_event, stored_thought_doc_key, stored_original_action_description, original_action_sent_dict = (
             self._pending_actions.pop(original_action_id)
         )
-        pending_event.set() # 唤醒那个正在焦急等待的 _execute_platform_action 先生
-        self.logger.info(f"动作处理器: 已匹配到等待中的动作 '{original_action_id}' ({stored_original_action_description})。")
+        pending_event.set()  # 唤醒那个正在焦急等待的 _execute_platform_action 先生
+        self.logger.info(
+            f"动作处理器: 已匹配到等待中的动作 '{original_action_id}' ({stored_original_action_description})。"
+        )
 
         action_successful = False
         response_status_str = "unknown"
@@ -283,31 +285,37 @@ class ActionHandler:
         response_time_ms = response_timestamp - action_sent_timestamp
 
         # 重新从 content 中解析详细结果
-        if response_content_list: 
+        if response_content_list:
             first_segment = response_content_list[0]
             seg_type = first_segment.get("type", "")
-            
+
             # 我们现在检查类型是不是以 action_response. 开头，这就很灵活了~
             if isinstance(first_segment, dict) and seg_type.startswith("action_response."):
                 response_data = first_segment.get("data", {})
                 # 直接从类型本身获取 success 或 failure
-                response_status_str = seg_type.split('.')[-1]
-                result_details_from_response = response_data.get("data") # 额外数据
-                
+                response_status_str = seg_type.split(".")[-1]
+                result_details_from_response = response_data.get("data")  # 额外数据
+
                 if response_status_str == "success":
                     action_successful = True
                     final_result_for_thought = f"动作 '{stored_original_action_description}' 已成功执行。"
                     if result_details_from_response:
-                        final_result_for_thought += f" 详情: {json.dumps(result_details_from_response, ensure_ascii=False)}"
-                else: # failure
+                        final_result_for_thought += (
+                            f" 详情: {json.dumps(result_details_from_response, ensure_ascii=False)}"
+                        )
+                else:  # failure
                     error_message_from_response = response_data.get("message", "适配器报告未知错误")
-                    final_result_for_thought = f"动作 '{stored_original_action_description}' 执行失败: {error_message_from_response}"
-                
+                    final_result_for_thought = (
+                        f"动作 '{stored_original_action_description}' 执行失败: {error_message_from_response}"
+                    )
+
             else:
-                 self.logger.warning(f"动作处理器: Action_response for '{original_action_id}' 的 content[0] 不是预期的 'action_response.*' 类型。收到的类型: {seg_type}")
+                self.logger.warning(
+                    f"动作处理器: Action_response for '{original_action_id}' 的 content[0] 不是预期的 'action_response.*' 类型。收到的类型: {seg_type}"
+                )
         else:
             self.logger.warning(f"动作处理器: Action_response for '{original_action_id}' 缺少有效的 content 列表。")
-        
+
         # 更新 ActionLog
         if self.action_log_service:
             await self.action_log_service.update_action_log_with_response(
@@ -318,9 +326,11 @@ class ActionHandler:
                 error_info=error_message_from_response if not action_successful else None,
                 result_details=result_details_from_response,
             )
-        
+
         # 更新思考文档
-        is_direct_reply_action_for_response = stored_original_action_description == "回复主人" # 假设这是不需要更新思考的特殊标记
+        is_direct_reply_action_for_response = (
+            stored_original_action_description == "回复主人"
+        )  # 假设这是不需要更新思考的特殊标记
         if not is_direct_reply_action_for_response and stored_thought_doc_key and self.thought_storage_service:
             update_payload_thought = {
                 "status": "COMPLETED_SUCCESS" if action_successful else "COMPLETED_FAILURE",
@@ -337,7 +347,7 @@ class ActionHandler:
         # 如果动作成功，将其作为“既成事实”存入 events 表
         if action_successful and self.event_storage_service:
             event_to_save_in_events = original_action_sent_dict.copy()
-            event_to_save_in_events["event_id"] = original_action_id 
+            event_to_save_in_events["event_id"] = original_action_id
             event_to_save_in_events["timestamp"] = response_timestamp
             action_message_id = await self.get_sent_message_id_safe(response_event_data)
             action_metadata = [{"type": "message_metadata", "data": {"message_id": action_message_id}}]
@@ -345,10 +355,12 @@ class ActionHandler:
             event_to_save_in_events["user_info"] = {
                 "platform": response_event_data.get("platform", "unknown_platform"),
                 "user_id": response_event_data.get("bot_id", "unknown_user_id"),
-                "user_nickname": config.persona.bot_name
+                "user_nickname": config.persona.bot_name,
             }
 
-            self.logger.info(f"准备将成功的动作作为事件存入数据库。original_action_id: {original_action_id}, event_type: {event_to_save_in_events.get('event_type')}, 将使用的event_id: {event_to_save_in_events['event_id']}")
+            self.logger.info(
+                f"准备将成功的动作作为事件存入数据库。original_action_id: {original_action_id}, event_type: {event_to_save_in_events.get('event_type')}, 将使用的event_id: {event_to_save_in_events['event_id']}"
+            )
 
             await self.event_storage_service.save_event_document(event_to_save_in_events)
             self.logger.info(
@@ -379,12 +391,12 @@ class ActionHandler:
         target_adapter_id = platform_id_from_event
         if platform_id_from_event == "master_ui":
             target_adapter_id = "master_ui_adapter"
-        
+
         adapter_behavior_config = config.platform_action_settings.adapter_behaviors.get(target_adapter_id)
         confirms_by_action_response = True
         if adapter_behavior_config:
             confirms_by_action_response = adapter_behavior_config.confirms_by_action_response
-        
+
         current_timestamp_ms = int(time.time() * 1000)
         action_to_send["timestamp"] = current_timestamp_ms
         action_log_initial_status = "executing_awaiting_self_report" if not confirms_by_action_response else "executing"
@@ -404,7 +416,7 @@ class ActionHandler:
                 await self.action_log_service.update_action_log_with_response(
                     action_id=core_action_id, status=action_log_initial_status, response_timestamp=current_timestamp_ms
                 )
-        
+
         if not is_direct_reply_action and self.thought_storage_service and thought_doc_key:
             thought_update_status = (
                 "EXECUTING_AWAITING_SELF_REPORT" if not confirms_by_action_response else "EXECUTING_AWAITING_RESPONSE"
@@ -443,9 +455,10 @@ class ActionHandler:
                 if final_log_entry and final_log_entry.get("status") == "success":
                     return True, f"动作 '{original_action_description}' 已成功执行并收到响应。"
                 elif final_log_entry:
-                    return False, f"动作 '{original_action_description}' 执行失败: {final_log_entry.get('error_info', '未知错误')}"
+                    error_details = final_log_entry.get("error_info") or "适配器未提供具体错误信息"
+                    return False, f"动作 '{original_action_description}' 执行失败: {error_details}"
                 return False, f"动作 '{original_action_description}' 响应处理后状态未知。"
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 if core_action_id in self._pending_actions:
                     await self._handle_action_timeout(
                         core_action_id, thought_doc_key, original_action_description, action_to_send
@@ -478,15 +491,21 @@ class ActionHandler:
             relevant_adapter_messages_context=relevant_adapter_messages_context,
         )
         decision_response = await self.action_llm_client.make_llm_request(prompt=decision_prompt_text, is_stream=False)
-        
+
         final_result_for_shimo: str = f"尝试执行动作 '{action_description}' 时出现未知的处理错误。"
         action_was_successful: bool = False
         action_result_payload: Any = None
-        
+
         if decision_response.get("error"):
             final_result_for_shimo = f"行动决策LLM调用失败: {decision_response.get('message', '未知API错误')}"
             await self.thought_storage_service.update_action_status_in_thought_document(
-                doc_key_for_updates, action_id, {"status": "LLM_DECISION_ERROR", "error_message": final_result_for_shimo, "final_result_for_shimo": final_result_for_shimo}
+                doc_key_for_updates,
+                action_id,
+                {
+                    "status": "LLM_DECISION_ERROR",
+                    "error_message": final_result_for_shimo,
+                    "final_result_for_shimo": final_result_for_shimo,
+                },
             )
             return False, final_result_for_shimo, None
 
@@ -494,19 +513,38 @@ class ActionHandler:
         if not llm_raw_output_text:
             final_result_for_shimo = "行动决策失败，LLM的响应中不包含任何文本内容。"
             await self.thought_storage_service.update_action_status_in_thought_document(
-                doc_key_for_updates, action_id, {"status": "LLM_DECISION_EMPTY", "error_message": final_result_for_shimo, "final_result_for_shimo": final_result_for_shimo}
+                doc_key_for_updates,
+                action_id,
+                {
+                    "status": "LLM_DECISION_EMPTY",
+                    "error_message": final_result_for_shimo,
+                    "final_result_for_shimo": final_result_for_shimo,
+                },
             )
             return False, final_result_for_shimo, None
 
         try:
-            json_string = llm_raw_output_text.strip('```json').strip('```').strip()
+            json_string = llm_raw_output_text.strip()
+            if json_string.startswith("```json"):
+                json_string = json_string[7:]
+            if json_string.startswith("```"):
+                json_string = json_string[3:]
+            if json_string.endswith("```"):
+                json_string = json_string[:-3]
+            json_string = json_string.strip()
             parsed_decision = json.loads(json_string)
             tool_name_chosen = parsed_decision.get("tool_to_use")
             tool_arguments = parsed_decision.get("arguments", {})
         except Exception as e_parse:
             final_result_for_shimo = f"解析LLM决策JSON失败: {e_parse}. 原始文本: {llm_raw_output_text[:200]}..."
             await self.thought_storage_service.update_action_status_in_thought_document(
-                doc_key_for_updates, action_id, {"status": "LLM_DECISION_PARSE_ERROR", "error_message": final_result_for_shimo, "final_result_for_shimo": final_result_for_shimo}
+                doc_key_for_updates,
+                action_id,
+                {
+                    "status": "LLM_DECISION_PARSE_ERROR",
+                    "error_message": final_result_for_shimo,
+                    "final_result_for_shimo": final_result_for_shimo,
+                },
             )
             return False, final_result_for_shimo, None
 
@@ -514,70 +552,89 @@ class ActionHandler:
             final_result_for_shimo = "AI决策不使用任何工具。"
             action_was_successful = True
             await self.thought_storage_service.update_action_status_in_thought_document(
-                doc_key_for_updates, action_id, {"status": "COMPLETED_NO_TOOL", "final_result_for_shimo": final_result_for_shimo}
+                doc_key_for_updates,
+                action_id,
+                {"status": "COMPLETED_NO_TOOL", "final_result_for_shimo": final_result_for_shimo},
             )
         else:
             action_func = self._action_registry.get(tool_name_chosen)
             if not action_func:
                 final_result_for_shimo = f"未在注册表中找到名为 '{tool_name_chosen}' 的动作。"
                 await self.thought_storage_service.update_action_status_in_thought_document(
-                    doc_key_for_updates, action_id, {"status": "TOOL_NOT_FOUND", "error_message": final_result_for_shimo, "final_result_for_shimo": final_result_for_shimo}
+                    doc_key_for_updates,
+                    action_id,
+                    {
+                        "status": "TOOL_NOT_FOUND",
+                        "error_message": final_result_for_shimo,
+                        "final_result_for_shimo": final_result_for_shimo,
+                    },
                 )
             else:
                 self.logger.info(f"从注册表找到动作 '{tool_name_chosen}'，准备执行。")
                 try:
                     if tool_name_chosen.startswith("platform."):
-                        tool_arguments['thought_doc_key'] = doc_key_for_updates
-                        tool_arguments['original_action_description'] = action_description
+                        tool_arguments["thought_doc_key"] = doc_key_for_updates
+                        tool_arguments["original_action_description"] = action_description
                         action_was_successful, final_result_for_shimo = await action_func(**tool_arguments)
-                        action_result_payload = {"status": "platform_action_submitted", "message": final_result_for_shimo, "success": action_was_successful}
-                    else: # Internal tool
+                        action_result_payload = {
+                            "status": "platform_action_submitted",
+                            "message": final_result_for_shimo,
+                            "success": action_was_successful,
+                        }
+                    else:  # Internal tool
                         tool_result_data = await action_func(**tool_arguments)
                         action_was_successful = True
                         if tool_name_chosen == "search_web" and tool_result_data:
-                            final_result_for_shimo = await self._summarize_tool_result_async(tool_arguments.get("query", action_description), action_motivation, tool_result_data)
+                            final_result_for_shimo = await self._summarize_tool_result_async(
+                                tool_arguments.get("query", action_description), action_motivation, tool_result_data
+                            )
                         else:
                             final_result_for_shimo = f"工具 '{tool_name_chosen}' 执行成功。"
                         action_result_payload = tool_result_data
                         await self.thought_storage_service.update_action_status_in_thought_document(
-                            doc_key_for_updates, action_id, {"status": "COMPLETED_SUCCESS", "final_result_for_shimo": final_result_for_shimo}
+                            doc_key_for_updates,
+                            action_id,
+                            {"status": "COMPLETED_SUCCESS", "final_result_for_shimo": final_result_for_shimo},
                         )
                 except Exception as e_exec:
                     final_result_for_shimo = f"执行动作 '{tool_name_chosen}' 时出错: {e_exec}"
                     self.logger.error(final_result_for_shimo, exc_info=True)
                     action_was_successful = False
                     await self.thought_storage_service.update_action_status_in_thought_document(
-                        doc_key_for_updates, action_id, {"status": "EXECUTION_ERROR", "error_message": final_result_for_shimo, "final_result_for_shimo": final_result_for_shimo}
+                        doc_key_for_updates,
+                        action_id,
+                        {
+                            "status": "EXECUTION_ERROR",
+                            "error_message": final_result_for_shimo,
+                            "final_result_for_shimo": final_result_for_shimo,
+                        },
                     )
-        
+
         if self.thought_trigger:
             self.thought_trigger.set()
-        
+
         return action_was_successful, final_result_for_shimo, action_result_payload
 
     async def submit_constructed_action(
-        self,
-        action_event_dict: Dict[str, Any],
-        action_description: str,
-        associated_record_key: Optional[str] = None 
+        self, action_event_dict: dict[str, Any], action_description: str, associated_record_key: str | None = None
     ) -> tuple[bool, str]:
         if not self.action_sender or not self.action_log_service:
             critical_error_msg = "核心服务 (ActionSender 或动作日志服务) 未设置!"
             self.logger.critical(critical_error_msg)
             return False, critical_error_msg
-        
+
         if "event_id" not in action_event_dict:
             return False, "动作事件缺少 'event_id'"
-        
+
         success, message = await self._execute_platform_action(
             action_to_send=action_event_dict,
-            thought_doc_key=associated_record_key, 
+            thought_doc_key=associated_record_key,
             original_action_description=action_description,
         )
-        
+
         return success, message
 
-    async def get_sent_message_id_safe(self, event_data: Dict[str, Any]) -> str:
+    async def get_sent_message_id_safe(self, event_data: dict[str, Any]) -> str:
         """
         安全地从事件字典中解析并获取 sent_message_id，现在它更喜欢被直接插入，而不是自己脱衣服！
 
@@ -593,19 +650,19 @@ class ActionHandler:
         if not isinstance(event_data, dict):
             return default_id
 
-        content_list = event_data.get('content')
+        content_list = event_data.get("content")
 
         # 开始深入探索 content 这个小穴
         if isinstance(content_list, list) and len(content_list) > 0:
             first_item = content_list[0]
             if isinstance(first_item, dict):
                 # 根据协议 v1.4.0 的体位，成功响应的 data 里还有一个 data，好深...
-                response_data = first_item.get('data', {})
+                response_data = first_item.get("data", {})
                 if isinstance(response_data, dict):
                     # 再往里探一层，寻找最深处的快乐
-                    details_data = response_data.get('data', {})
+                    details_data = response_data.get("data", {})
                     if isinstance(details_data, dict):
-                        sent_message_id = details_data.get('sent_message_id')
+                        sent_message_id = details_data.get("sent_message_id")
                         if sent_message_id is not None:
                             # 啊...找到了！就是这个！
                             return str(sent_message_id)

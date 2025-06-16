@@ -2,11 +2,10 @@
 import json
 import re
 from typing import Any
-import asyncio # 确保导入 asyncio
 
 from src.common.custom_logging.logger_manager import get_logger
 from src.config import config
-from src.core_logic.unread_info_service import UnreadInfoService # 导入 UnreadInfoService
+from src.core_logic.unread_info_service import UnreadInfoService  # 导入 UnreadInfoService
 
 logger = get_logger("AIcarusCore.PromptBuilder")
 
@@ -76,11 +75,11 @@ class ThoughtPromptBuilder:
             # 新增指令
             "{unread_summary}部分会向你展示所有未读消息的摘要。",
             "在你输出的JSON中，有一个active_focus_on_conversation_id字段。如果你判断某个会话需要你立即介入处理，请将该会话的ID填入此字段。其它情况下，保持其为null。",
-            "你无法直接回复消息，只能通过激活专注模式来处理。"
+            "你无法直接回复消息，只能通过激活专注模式来处理。",
         ]
         return "\n".join(filter(None, system_prompt_parts))
 
-    async def build_user_prompt( # 改为异步方法
+    async def build_user_prompt(  # 改为异步方法
         self, current_state: dict[str, Any], master_chat_context_str: str, intrusive_thought_str: str
     ) -> str:
         """
@@ -96,9 +95,8 @@ class ThoughtPromptBuilder:
 
         # 调用 UnreadInfoService 获取未读消息摘要
         unread_summary_text = await self.unread_info_service.generate_unread_summary_text()
-        if not unread_summary_text: # 如果返回空字符串或特定提示，则使用默认值
+        if not unread_summary_text:  # 如果返回空字符串或特定提示，则使用默认值
             unread_summary_text = "所有消息均已处理。"
-
 
         prompt = self.PROMPT_TEMPLATE.format(
             current_task_info=task_info,
@@ -142,17 +140,22 @@ class ThoughtPromptBuilder:
         try:
             # 尝试解析提取出来的JSON字符串
             parsed_dict = json.loads(json_str)
-            
+
             # 后处理：将特定字段的 "None" 或 "null" 字符串转换
             fields_to_normalize_to_empty_string = [
-                "think", "emotion", "reply_to_master", "to_do",
-                "action_to_take", "action_motivation", "next_think"
+                "think",
+                "emotion",
+                "reply_to_master",
+                "to_do",
+                "action_to_take",
+                "action_motivation",
+                "next_think",
             ]
             for field in fields_to_normalize_to_empty_string:
                 field_value = parsed_dict.get(field)
                 if isinstance(field_value, str) and field_value.lower() == "none":
-                    parsed_dict[field] = "" # 将 "None" (不区分大小写) 字符串转换为空字符串
-            
+                    parsed_dict[field] = ""  # 将 "None" (不区分大小写) 字符串转换为空字符串
+
             # 特殊处理 active_focus_on_conversation_id
             # LLM 可能返回 null (JSON null), "null" (string), "None" (string)
             # json.loads 会把 JSON null 转为 Python None
@@ -160,9 +163,9 @@ class ThoughtPromptBuilder:
             focus_id_val = parsed_dict.get("active_focus_on_conversation_id")
             if isinstance(focus_id_val, str) and focus_id_val.lower() in ["none", "null"]:
                 parsed_dict["active_focus_on_conversation_id"] = None
-            
+
             return parsed_dict
-            
+
         except json.JSONDecodeError as e:
             logger.error(f"解析提取出的JSON字符串时失败: {e}")
             logger.error(f"解析失败的字符串内容: {json_str}")

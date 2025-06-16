@@ -1,7 +1,7 @@
 # src/core_logic/thought_persistor.py
-from typing import Any, Dict, Optional, TYPE_CHECKING
 import datetime
-import uuid # 确保导入 uuid
+import uuid  # 确保导入 uuid
+from typing import TYPE_CHECKING, Any
 
 from src.common.custom_logging.logger_manager import get_logger
 
@@ -10,21 +10,26 @@ if TYPE_CHECKING:
 
 logger = get_logger("AIcarusCore.CoreLogic.ThoughtPersistor")
 
+
 class ThoughtPersistor:
-    def __init__(self, thought_storage: 'ThoughtStorageService'):
+    def __init__(self, thought_storage: "ThoughtStorageService") -> None:
         self.thought_storage = thought_storage
         self.logger = logger
         self.logger.info("ThoughtPersistor 已初始化。")
 
     async def store_thought(
-        self, thought_json: Dict[str, Any], prompts: Dict[str, Any], context: Dict[str, Any]
-    ) -> Optional[str]:
+        self, thought_json: dict[str, Any], prompts: dict[str, Any], context: dict[str, Any]
+    ) -> str | None:
         """
         处理并存储思考结果到数据库。
         """
         # --- DEBUG LOG START ---
-        self.logger.info(f"[ThoughtPersistor DEBUG] store_thought received thought_json with action_id: {thought_json.get('action_id')}")
-        self.logger.info(f"[ThoughtPersistor DEBUG] store_thought received thought_json with action_to_take: {thought_json.get('action_to_take')}")
+        self.logger.info(
+            f"[ThoughtPersistor DEBUG] store_thought received thought_json with action_id: {thought_json.get('action_id')}"
+        )
+        self.logger.info(
+            f"[ThoughtPersistor DEBUG] store_thought received thought_json with action_to_take: {thought_json.get('action_to_take')}"
+        )
         # --- DEBUG LOG END ---
         action_desc_from_llm = thought_json.get("action_to_take", "").strip()
         action_motive_from_llm = thought_json.get("action_motivation", "").strip()
@@ -39,9 +44,9 @@ class ThoughtPersistor:
             # 我们在这里检查 thought_json 中是否已有 action_id，如果没有，则不主动生成，
             # 因为原逻辑中 action_id 的生成和 initiated_action_data_for_db 的构建是耦合的。
             # 修正：原逻辑是如果 action_desc_from_llm 有效，就生成 action_id 并构建 initiated_action_data_for_db
-            
-            action_id_this_cycle = thought_json.get("action_id") # 尝试获取已有的
-            if not action_id_this_cycle: # 如果LLM的原始输出没有action_id，但有action_to_take
+
+            action_id_this_cycle = thought_json.get("action_id")  # 尝试获取已有的
+            if not action_id_this_cycle:  # 如果LLM的原始输出没有action_id，但有action_to_take
                 action_id_this_cycle = str(uuid.uuid4())
                 # 这个 action_id 需要被回传或更新到 thought_json，以便后续 _dispatch_action 使用
                 # 但这个方法只负责存储，不应该修改 thought_json 的原始结构给调用者
@@ -71,28 +76,29 @@ class ThoughtPersistor:
                 # 所以，如果 thought_json["action_to_take"] 存在，CoreLogic 应该在调用 store_thought 之前
                 # 就已经为 thought_json["action_id"] 赋好值了。
                 # 因此，这里我们只依赖 thought_json.get("action_id")
-                
+
         action_id_for_db = thought_json.get("action_id")
         if not action_id_for_db and action_desc_from_llm and action_desc_from_llm.lower() != "null":
             action_id_for_db = str(uuid.uuid4())
             thought_json["action_id"] = action_id_for_db
 
-        if action_id_for_db: # 只有当 action_id 确实存在时才记录 action_attempted
+        if action_id_for_db:  # 只有当 action_id 确实存在时才记录 action_attempted
             initiated_action_data_for_db = {
                 "action_description": action_desc_from_llm,
                 "action_motivation": action_motive_from_llm,
                 "action_id": action_id_for_db,
-                "status": "PENDING", # 初始状态
+                "status": "PENDING",  # 初始状态
                 "result_seen_by_shimo": False,
                 "initiated_at": datetime.datetime.now(datetime.UTC).isoformat(),
             }
         else:
-            self.logger.warning(f"LLM指定了行动 '{action_desc_from_llm}' 但 thought_json 中缺少 action_id。将不记录 action_attempted。")
-
+            self.logger.warning(
+                f"LLM指定了行动 '{action_desc_from_llm}' 但 thought_json 中缺少 action_id。将不记录 action_attempted。"
+            )
 
         document_to_save = {
             "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
-            "time_injected_to_prompt": prompts.get("current_time"), # 从 prompts 字典获取
+            "time_injected_to_prompt": prompts.get("current_time"),  # 从 prompts 字典获取
             "system_prompt_sent": prompts.get("system"),
             "full_user_prompt_sent": prompts.get("user"),
             "intrusive_thought_injected": context.get("intrusive_thought"),
@@ -102,16 +108,18 @@ class ThoughtPersistor:
             "next_think_output": thought_json.get("next_think"),
             "to_do_output": thought_json.get("to_do", ""),
             "done_output": thought_json.get("done", False),
-            "action_to_take_output": thought_json.get("action_to_take", ""), # 记录LLM原始的action_to_take
-            "action_motivation_output": thought_json.get("action_motivation", ""), # 记录LLM原始的action_motivation
-            "action_attempted": initiated_action_data_for_db, # 这个可能为 None
+            "action_to_take_output": thought_json.get("action_to_take", ""),  # 记录LLM原始的action_to_take
+            "action_motivation_output": thought_json.get("action_motivation", ""),  # 记录LLM原始的action_motivation
+            "action_attempted": initiated_action_data_for_db,  # 这个可能为 None
             "image_inputs_count": len(context.get("images", [])),
             "image_inputs_preview": [img[:100] for img in context.get("images", [])[:3]],
             "_llm_usage_info": thought_json.get("_llm_usage_info"),
         }
 
         # --- DEBUG LOG START for action_attempted before saving ---
-        self.logger.info(f"[ThoughtPersistor DEBUG] Document to save, action_attempted: {document_to_save.get('action_attempted')}")
+        self.logger.info(
+            f"[ThoughtPersistor DEBUG] Document to save, action_attempted: {document_to_save.get('action_attempted')}"
+        )
         # --- DEBUG LOG END ---
 
         try:

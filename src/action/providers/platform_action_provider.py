@@ -1,7 +1,8 @@
 # src/action/providers/platform_action_provider.py
 import uuid
+from collections.abc import Callable, Coroutine
 from functools import partial
-from typing import TYPE_CHECKING, Any, Callable, Coroutine, Dict, List
+from typing import TYPE_CHECKING, Any
 
 from src.action.action_provider import ActionProvider
 from src.config import config
@@ -17,7 +18,7 @@ class PlatformActionProvider(ActionProvider):
     然后调用 ActionHandler 中通用的平台动作执行方法来处理。
     """
 
-    def __init__(self, action_handler: "ActionHandler"):
+    def __init__(self, action_handler: "ActionHandler") -> None:
         self._action_handler = action_handler
         # 假设支持的平台和动作是固定的，或者可以从配置中读取
         self._supported_actions = {
@@ -32,11 +33,11 @@ class PlatformActionProvider(ActionProvider):
         # 所以它的 name 属性其实不会被直接用到
         return "platform"
 
-    def get_actions(self) -> Dict[str, Callable[..., Coroutine[Any, Any, Any]]]:
+    def get_actions(self) -> dict[str, Callable[..., Coroutine[Any, Any, Any]]]:
         """
         动态生成所有平台动作的包装函数。
         """
-        actions: Dict[str, Callable[..., Coroutine[Any, Any, Any]]] = {}
+        actions: dict[str, Callable[..., Coroutine[Any, Any, Any]]] = {}
         for platform, action_names in self._supported_actions.items():
             for action_name in action_names:
                 full_action_name = f"platform.{platform}.{action_name}"
@@ -48,7 +49,12 @@ class PlatformActionProvider(ActionProvider):
         return actions
 
     async def _platform_action_wrapper(
-        self, platform: str, action_name: str, thought_doc_key: str, original_action_description: str, **kwargs: Any
+        self,
+        platform: str,
+        action_name: str,
+        thought_doc_key: str,
+        original_action_description: str,
+        **kwargs: dict[str, Any],
     ) -> tuple[bool, str]:
         """
         一个通用的包装器，用于构造平台动作事件并调用 ActionHandler 的执行方法。
