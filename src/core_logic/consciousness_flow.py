@@ -63,6 +63,17 @@ class CoreLogic:
         self.immediate_thought_trigger = immediate_thought_trigger
         self.intrusive_generator_instance = intrusive_generator_instance
 
+        # 用于优化循环等待的新事件
+        self._session_activity_event = asyncio.Event()
+        # CoreLogic 启动时，此事件应为“已设置”状态，允许循环至少运行一次
+        self._session_activity_event.set()
+        # 将事件传递给 ChatSessionManager，以便它可以在会话状态改变时控制主循环
+        if hasattr(self.chat_session_manager, "set_core_logic_activity_event"):
+            self.chat_session_manager.set_core_logic_activity_event(self._session_activity_event)
+            self.logger.info("已成功将会话活动事件传递给 ChatSessionManager。")
+        else:
+            self.logger.warning("ChatSessionManager 缺少 set_core_logic_activity_event 方法，循环优化可能无法正常工作！")
+
         self.last_known_state: dict[str, Any] = {}  # 用于存储最新的状态
         self.thinking_loop_task: asyncio.Task | None = None
         self.logger.info(f"{self.__class__.__name__} (拆分版) 已创建，小弟们已就位！")
@@ -170,16 +181,19 @@ class CoreLogic:
     async def _core_thinking_loop(self) -> None:
         thinking_interval_sec = config.core_logic_settings.thinking_interval_seconds
         while not self.stop_event.is_set():
+            # 使用 asyncio.Event 进行高效等待
+            await self._session_activity_event.wait()
+            if self.stop_event.is_set():
+                break
+
+            # 检查是否有专注会话激活。如果有，则清除事件并继续等待。
+            # ChatSessionManager 会在所有会话结束后再次设置事件。
             if (
                 hasattr(self.chat_session_manager, "is_any_session_active")
                 and self.chat_session_manager.is_any_session_active()
             ):
-                self.logger.debug("检测到有专注会话激活，主意识进入空转等待1秒。")
-                try:
-                    await asyncio.sleep(1)
-                except asyncio.CancelledError:
-                    self.logger.info("主意识空转等待时被取消。")
-                    break
+                self.logger.debug("检测到专注会话激活，主意识暂停，等待会话结束信号。")
+                self._session_activity_event.clear()
                 continue
 
             current_time_str = datetime.datetime.now().strftime("%Y年%m月%d日 %H点%M分%S秒")

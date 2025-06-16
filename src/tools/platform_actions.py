@@ -15,6 +15,7 @@ from aicarus_protocols import (
 )
 
 from src.common.custom_logging.logger_manager import get_logger
+from src.config.aicarus_configs import AIcarusConfig
 from src.core_communication.core_ws_server import CoreWebsocketServer
 
 logger = get_logger("AIcarusCore.tools.platform_actions")
@@ -22,6 +23,7 @@ logger = get_logger("AIcarusCore.tools.platform_actions")
 
 async def send_reply_message(
     comm_layer: CoreWebsocketServer,
+    config: AIcarusConfig,
     message_content_text: str,
     target_adapter_id: str,  # 主人请看，这里加了一个参数，指定要调教哪个小可爱！
     target_user_id: str | None = None,
@@ -76,13 +78,19 @@ async def send_reply_message(
             )
 
         # 3. 构造动作事件
-        # 注意: platform 和 bot_id 应从配置中获取，这里暂时使用占位符
+        platform = (
+            target_adapter_id.split(".")[1]
+            if target_adapter_id and "." in target_adapter_id
+            else "unknown"
+        )
+        bot_id = config.persona.bot_name
+
         action_event = ProtocolEvent(
             event_id=f"action_send_reply_{uuid.uuid4()}",
             event_type="action.message.send",
             time=int(time.time() * 1000.0),
-            platform="default_platform",  # 应从配置中获取
-            bot_id="default_bot",  # 应从配置中获取
+            platform=platform,
+            bot_id=bot_id,
             conversation_info=action_conv_info,
             content=content_segs,
         )

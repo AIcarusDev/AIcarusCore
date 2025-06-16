@@ -1,5 +1,6 @@
 # src/action/action_handler.py
 import asyncio
+import inspect
 import json
 import os
 import time
@@ -45,6 +46,50 @@ class ActionHandler:
         self._pending_actions: dict[str, tuple[asyncio.Event, str | None, str, dict[str, Any]]] = {}
         self._action_registry: dict[str, Callable[..., Coroutine[Any, Any, Any]]] = {}
         self.logger.info(f"{self.__class__.__name__} instance created.")
+
+    def _generate_tools_list_string(self) -> str:
+        """
+        Dynamically generates a formatted string of available tools for the LLM prompt.
+        """
+        tool_strings = []
+        # Sort the registry by key for consistent ordering
+        sorted_registry = sorted(self._action_registry.items())
+
+        for i, (tool_name, tool_func) in enumerate(sorted_registry, 1):
+            try:
+                docstring = inspect.getdoc(tool_func)
+                description = docstring.split("\n")[0] if docstring else "No description available."
+
+                sig = inspect.signature(tool_func)
+                params_list = []
+                for param in sig.parameters.values():
+                    # Skip self/cls and context-injected parameters
+                    if param.name in ("self", "cls", "comm_layer", "config"):
+                        continue
+
+                    param_type_repr = str(param.annotation) if param.annotation != inspect.Parameter.empty else "Any"
+                    # Clean up the type representation
+                    param_type_repr = param_type_repr.replace("typing.", "").replace("None |", "").replace("| None", "")
+
+                    if param.default == inspect.Parameter.empty:
+                        param_info = f'"{param.name}" ({param_type_repr}, 必需)'
+                    else:
+                        default_val = f'"{param.default}"' if isinstance(param.default, str) else param.default
+                        param_info = f'"{param.name}" ({param_type_repr}, 可选, 默认 {default_val})'
+                    params_list.append(param_info)
+
+                if params_list:
+                    params_str = "\n        ".join(params_list)
+                    tool_str = f'{i}."{tool_name}": {description}\n    参数:\n        {params_str}'
+                else:
+                    tool_str = f'{i}."{tool_name}": {description}\n    参数: 无'
+
+                tool_strings.append(tool_str)
+            except (TypeError, ValueError) as e:
+                self.logger.error(f"无法为工具 '{tool_name}' 生成描述: {e}")
+                continue  # Skip problematic tools
+
+        return "\n\n".join(tool_strings) if tool_strings else "当前没有可用的工具。"
 
     def set_dependencies(
         self,
@@ -484,7 +529,10 @@ class ActionHandler:
             # ... (处理核心服务未初始化)
             return False, "核心服务未初始化", None
 
+        tools_list_str = self._generate_tools_list_string()
+
         decision_prompt_text = ACTION_DECISION_PROMPT_TEMPLATE.format(
+            tools_list=tools_list_str,
             current_thought_context=current_thought_context,
             action_description=action_description,
             action_motivation=action_motivation,
