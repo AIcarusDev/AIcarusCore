@@ -178,8 +178,10 @@ class ChatSessionManager:  # Renamed class
             last_think = self.core_logic.get_latest_thought() if self.core_logic else None
             session.activate(core_last_think=last_think)
 
-        # 将事件交给会话处理 (会话内部会判断 is_active)
-        await session.process_event(event)
+        # 在新的主动循环模型中，管理器不再直接将事件推给会话。
+        # 会话的循环 (`FocusChatCycler`) 会自己从数据库拉取最新的事件。
+        # `handle_incoming_message` 的主要职责是确保在需要时（如被@）激活会话。
+        # （可选优化：此处可以设置一个 event 或 condition 来唤醒可能正在等待的循环，以提高响应速度）
 
     async def run_periodic_deactivation_check(self) -> None:
         """
