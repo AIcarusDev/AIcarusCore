@@ -49,7 +49,6 @@ class ChatSessionManager:  # Renamed class
 
         self.sessions: dict[str, ChatSession] = {}
         self.lock = asyncio.Lock()
-        self._core_logic_activity_event: Optional[asyncio.Event] = None  # 用于唤醒主循环
 
         self.logger.info("ChatSessionManager 初始化完成。")
 
@@ -57,11 +56,6 @@ class ChatSessionManager:  # Renamed class
         """延迟注入 CoreLogic 实例，解决循环依赖。"""
         self.core_logic = core_logic_instance
         self.logger.info("CoreLogic 实例已成功注入到 ChatSessionManager。")
-
-    def set_core_logic_activity_event(self, event: asyncio.Event) -> None:
-        """从 CoreLogic 接收用于控制其主循环的事件。"""
-        self._core_logic_activity_event = event
-        self.logger.info("已从 CoreLogic 接收到活动事件。")
 
     def _get_conversation_id(self, event: Event) -> str:
         # 从 Event 中提取唯一的会话ID (例如 group_id 或 user_id)
@@ -133,17 +127,9 @@ class ChatSessionManager:  # Renamed class
         """
         async with self.lock:
             if conversation_id in self.sessions:
-                session = self.sessions.pop(conversation_id)
-                session.deactivate()
+                session = self.sessions.pop(conversation_id)  # 使用 pop 原子地移除并获取
+                session.deactivate()  # 调用会话自己的停用方法
                 self.logger.info(f"[SessionManager] 会话 '{conversation_id}' 已被停用并从管理器中移除。")
-
-                # 检查是否所有会话都已结束
-                if not self.is_any_session_active():
-                    if self._core_logic_activity_event:
-                        self.logger.info("所有专注会话已结束，正在设置事件以唤醒主意识循环。")
-                        self._core_logic_activity_event.set()
-                    else:
-                        self.logger.warning("所有专注会话已结束，但未设置核心逻辑活动事件，无法唤醒主意识。")
             else:
                 self.logger.warning(f"[SessionManager] 尝试停用一个不存在或已被移除的会话 '{conversation_id}'。")
 

@@ -156,44 +156,52 @@ class MessageContentProcessor:
 # --- 平台状态摘要格式化 ---
 def parse_system_event_details(event_dict: dict[str, Any]) -> dict[str, Any] | None:
     """
-    从系统事件字典中直接读取结构化数据，而不是解析文本。
-    这更健壮，不易因文本格式变化而失败。
+    从系统事件字典中严格解析出 adapter_id, display_name, status, reason。
+    仅当事件文本格式完全符合预期时才返回解析结果，否则返回 None。
     """
+    details: dict[str, Any] = {}
     event_type = event_dict.get("event_type")
-    event_id_str = event_dict.get("event_id", "unknown_event_id")
+    event_id_str = event_dict.get("event_id", "unknown_event_id")  # 用于日志
 
-    if event_type not in ("meta.lifecycle.adapter_connected", "meta.lifecycle.adapter_disconnected"):
-        logger.debug(f"事件 (type: {event_type}, id: {event_id_str}) 不是预期的系统状态事件。")
-        return None
-
+    text_content = ""
     content_list = event_dict.get("content")
-    if not (isinstance(content_list, list) and len(content_list) > 0):
-        logger.warning(f"系统事件 (id: {event_id_str}) 缺少 content 列表。")
+    if isinstance(content_list, list) and len(content_list) > 0:
+        first_seg = content_list[0]
+        if isinstance(first_seg, dict) and first_seg.get("type") == "text":
+            text_content = first_seg.get("data", {}).get("text", "")
+
+    if not text_content:
+        logger.debug(f"系统事件 (type: {event_type}, id: {event_id_str}) 无文本内容可供解析。")
         return None
 
-    # 系统事件的详细信息应该在第一个 segment 的 data 字段中
-    first_seg = content_list[0]
-    if not (isinstance(first_seg, dict) and "data" in first_seg and isinstance(first_seg["data"], dict)):
-        logger.warning(f"系统事件 (id: {event_id_str}) 的第一个 content segment 格式不正确或缺少 data 字典。")
-        return None
+    if event_type == "meta.lifecycle.adapter_connected":
+        # Regex: [状态] DisplayName(AdapterID)连接成功
+        match = re.fullmatch(r"\[状态\]\s*(.+?)\s*\((.*?)\)\s*连接成功", text_content)  # 使用 fullmatch确保完全匹配
+        if match:
+            details["display_name"] = match.group(1).strip()
+            details["adapter_id"] = match.group(2).strip()
+            details["status"] = "connected"
+            details["reason"] = "连接成功"
+            return details
+        else:
+            logger.warning(f"无法从连接事件文本严格解析详细信息 (id: {event_id_str}): '{text_content}'")
+            return None
 
-    event_data = first_seg["data"]
-    adapter_id = event_data.get("adapter_id")
-    display_name = event_data.get("display_name")
-    status = event_data.get("status")
-    reason = event_data.get("reason")
+    elif event_type == "meta.lifecycle.adapter_disconnected":
+        # Regex: [状态] DisplayName(AdapterID)断开(Reason)
+        match = re.fullmatch(r"\[状态\]\s*(.+?)\s*\((.*?)\)\s*断开\s*\((.*?)\)", text_content)  # 使用 fullmatch
+        if match:
+            details["display_name"] = match.group(1).strip()
+            details["adapter_id"] = match.group(2).strip()
+            details["status"] = "disconnected"
+            details["reason"] = match.group(3).strip()
+            return details
+        else:
+            logger.warning(f"无法从断开事件文本严格解析详细信息 (id: {event_id_str}): '{text_content}'")
+            return None
 
-    # 确保关键信息存在
-    if not all([adapter_id, display_name, status, reason]):
-        logger.warning(f"系统事件 (id: {event_id_str}) 的 data 字典中缺少必要的字段 (adapter_id, display_name, status, reason)。")
-        return None
-
-    return {
-        "adapter_id": str(adapter_id),
-        "display_name": str(display_name),
-        "status": str(status),
-        "reason": str(reason),
-    }
+    logger.debug(f"事件 (type: {event_type}, id: {event_id_str}) 不是预期的系统状态事件或其文本格式不符。")
+    return None
 
 
 def format_platform_status_summary(
