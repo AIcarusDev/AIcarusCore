@@ -80,7 +80,7 @@ class ActionHandler:
             self.logger.info("ActionHandler 的主思维触发器已成功设置。")
 
     def _create_llm_client_from_config(self, purpose_key: str) -> ProcessorClient | None:
-        # ... (此方法无需修改)
+    """Create Action_LLM from config for Action_handler.py"""
         try:
             if not config.llm_models:
                 self.logger.error("配置错误：AlcarusRootConfig 中缺少 'llm_models' 配置段。")
