@@ -974,10 +974,18 @@ def get_module_logger(
     current_config = config.config if config else DEFAULT_CONFIG
 
     # 清理旧处理器
-    if module_name in _handler_registry:
-        for handler_id in _handler_registry[module_name]:
-            logger.remove(handler_id)
-        del _handler_registry[module_name]
+    # 使用 pop 原子地移除并获取旧 handler ID 列表，避免并发问题
+    old_handler_ids = _handler_registry.pop(module_name, None)
+    if old_handler_ids:
+        for handler_id in old_handler_ids:
+            try:
+                logger.remove(handler_id)
+            except ValueError:
+                # 当 handler_id 无效或已被移除时，loguru 会抛出 ValueError
+                # 我们在此处捕获并记录，避免程序崩溃
+                logger.debug(
+                    f"尝试移除模块 '{module_name}' 的旧 handler ID {handler_id} 失败，可能已被移除或无效。将继续。"
+                )
 
     handler_ids = []
 

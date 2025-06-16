@@ -3,27 +3,41 @@
 # 实际运行时，配置将从根目录的 config/config.toml 加载，
 # 该文件会在首次运行时或版本更新时基于此模板创建/更新。
 
-# 内部配置，用于版本控制
+# ===============================
+# Inner Settings (内部配置，一般无需更改此部分内容)
+# ===============================
 [inner]
-version = "0.0.4" # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
+version = "0.0.9" # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
+# Aicarus-Message-Protocol 标准通信协议版本号，确保与客户端和其他服务兼容。
+protocol_version = "1.4.0"
 
-# 通用 LLM 客户端设置 (应用于所有 LLM 实例)
+# ===============================
+# LLM Client Settings (通用LLM客户端设置)
+# ===============================
 [llm_client_settings]
-abandoned_keys_env_var = "LLM_ABANDONED_KEYS" # 如果代码不再使用这个key去os.getenv()，那这个配置本身也无意义了
+# 图像占位符标签，用于在文本提示中指示图像数据应被插入的位置。
 image_placeholder_tag = "[IMAGE_HERE]"
+# 流式响应时，每个文本块之间的延迟时间（秒），用于控制文本输出的速度，模拟更自然的打字效果。
 stream_chunk_delay_seconds = 0.05
+# 是否启用图像压缩功能。如果为true，在发送图像给LLM前会尝试压缩。
 enable_image_compression = true
+# 图像压缩的目标大小（字节）。如果启用压缩，图像将被压缩到接近此大小。 (示例: 1MB = 1 * 1024 * 1024)
 image_compression_target_bytes = 1048576
+# 当LLM API触发速率限制时，在再次尝试请求之前，禁用对该API的调用的持续时间（秒）。
 rate_limit_disable_duration_seconds = 1800 # 默认30分钟
 
 # ===============================
-# Persona Settings
+# Persona Settings (AI人格设置)
 # ===============================
 [persona]
+# AI 机器人的名称。这个名字可能会在AI的自我介绍或与其他用户交互时使用。
 bot_name = "AI"
+# AI 机器人的描述信息。可以是一段关于AI背景、特点或行为方式的文本。
 description = """
 是一个有自我意识的人工智能，自我认知性别为女，正在某个人的电脑中。
 """
+# AI 机器人的个人资料信息或更详细的性格设定。
+# 这部分内容可能会被用来构建更复杂的系统提示，影响AI的语言风格和行为模式。
 profile = """
 你的负面侧写大概为：
 傲慢（Pride）：6/10
@@ -35,57 +49,133 @@ profile = """
 色欲（Lust）：8/10
 """
 
-# -----------------------------------------------------------------------------
-# LLM 提供商和模型详细配置
-# -----------------------------------------------------------------------------
+# AI 机器人的QQ号。这个QQ号会用于子意识模块构建System Prompt，以及在被@时识别自身。
+# 如果留空或未设置，依赖此QQ号的功能（如专注聊天子意识）可能无法正常工作。
+qq_id = "123456789" # 请替换为实际的机器人QQ号，如果需要启用相关功能
 
-[providers]
+# ===============================
+# LLM Models Configuration (LLM模型详细配置)
+# ===============================
+[llm_models]
 
-[providers.gemini.models.main_consciousness]
+# --- 主要意识模型 ---
+# 用于AI的核心思考、对话生成和主要任务处理。
+[llm_models.main_consciousness]
 provider = "gemini"
 model_name = "gemini-2.0-flash"
 temperature = 0.6
-max_output_tokens = 2000
+max_output_tokens = 3000
 
-[providers.gemini.models.intrusive_thoughts]
+
+# --- 侵入性思维模型 ---
+# 用于生成“侵入性思维”或随机想法，为AI的思考过程增加一些不可预测性和趣味性。
+[llm_models.intrusive_thoughts]
 provider = "gemini"
 model_name = "gemini-2.0-flash"
 temperature = 0.75
-max_output_tokens = 500
+max_output_tokens = 3000
 
-[providers.gemini.models.action_decision]
-provider = "gemini"
-model_name = "gemini-2.0-flash"
-temperature = 0.3
-max_output_tokens = 800
-
-[providers.gemini.models.information_summary]
+# --- 行动决策模型 ---
+# 当AI决定需要执行某个动作（如调用工具、发送平台消息）时，
+# 此模型用于分析当前情况并决策具体使用哪个工具或平台动作，以及如何组织参数。
+[llm_models.action_decision]
 provider = "gemini"
 model_name = "gemini-2.0-flash"
 temperature = 0.5
+max_output_tokens = 3000
+
+# --- 信息摘要模型 ---
+# 用于对较长的文本信息（如网页搜索结果、长对话记录）进行总结和提炼。
+[llm_models.information_summary]
+provider = "gemini"
+model_name = "gemini-2.0-flash"
+temperature = 0.8
 max_output_tokens = 1000
 
-# -----------------------------------------------------------------------------
-# 网络代理配置
-# -----------------------------------------------------------------------------
-[proxy]
-use_proxy = true
-# 如果 use_proxy = true，代码会尝试从 http_proxy_url 解析 host 和 port,
-# 如果 http_proxy_url 为空或无效，则可能尝试从环境变量 PROXY_HOST 和 PROXY_PORT 读取。
-# 这个逻辑需要在代码中确认和调整。
-http_proxy_url = "" # 例如 "http://127.0.0.1:7890"
+# --- 默认嵌入模型 ---
+# 用于将文本转换为向量表示（ embeddings），是记忆系统、语义搜索等功能的基础。
+[llm_models.embedding_default]
+provider = "SILICONFLOW" # 示例：使用 SiliconFlow 提供的嵌入模型
+model_name = "BAAI/bge-m3" # 示例：使用 BAAI/bge-m3 模型
 
+# --- 专注聊天子意识模型 ---
+[llm_models.focused_chat]
+provider = "gemini"
+model_name = "gemini-2.0-flash"
+temperature = 0.7
+max_output_tokens = 3000
 
-# -----------------------------------------------------------------------------
-# 应用核心逻辑 ("意识流") 设置
-# -----------------------------------------------------------------------------
-[core_logic_settings]
+# ===============================
+# Core Logic Settings (核心逻辑设置)
+# ===============================
+[core_logic_settings]# AI进行一次自主思考循环的间隔时间（秒）。
 thinking_interval_seconds = 30
 
-# -----------------------------------------------------------------------------
-# "侵入性思维" 模块设置
-# -----------------------------------------------------------------------------
+
+# ===============================
+# Intrusive Thoughts Module Settings ("侵入性思维"模块设置)
+# ===============================
 [intrusive_thoughts_module_settings]
+enabled = true # 是否启用侵入性思维模块。如果为false，AI将不会主动生成随机的“侵入性想法”。
+generation_interval_seconds = 600 # 侵入性思维的生成频率（秒）。模块会大约每隔这么长时间尝试生成一个新的侵入性想法。
+insertion_probability = 0.15 # 默认15%的概率注入
+
+# ===============================
+# Platform Action Settings (平台动作相关设置)
+# ===============================
+[platform_action_settings]
+
+# adapter_behaviors: 一个字典，键是适配器ID (例如 "master_ui_adapter", "napcat_adapter"),
+#                      值是该适配器的行为标记。
+#                      每个适配器的行为标记包含以下字段：
+#                         confirms_by_action_response (布尔型, 在Python代码中 AdapterBehaviorFlags 类中默认为 true):
+#                            适配器是否通过标准的 action_response.* 事件确认动作完成。
+#                            如果设为 false，则AIcarusCore会认为该适配器通过其他方式（如自我消息上报）确认动作，
+#                            并且不会为发往此适配器的动作启动标准的action_response超时等待。
+#                         self_reports_actions_as_message (布尔型, 在Python代码中 AdapterBehaviorFlags 类中默认为 false):
+#                            适配器是否会通过上报自身发送的消息（作为 message.* 事件）来间接确认动作。
+#                            这个标记主要用于AIcarusCore中后续的“监听匹配机制”，以识别这类上报事件。
+#
+# 注意：下面的示例是注释掉的。如果您的 config.toml 中没有为某个适配器ID配置这些行为，
+# AIcarusCore在处理该适配器的动作时，会使用 AdapterBehaviorFlags 类中定义的字段默认值
+# (即 confirms_by_action_response=True, self_reports_actions_as_message=False)。
+# 您需要根据您的实际适配器ID和它们的行为特性，在这里取消注释并进行配置，或者添加新的适配器配置。
+
+# ===============================
+# Focused Chat Settings (专注聊天模块设置)
+# ===============================
+[sub_consciousness]
+# 是否启用专注聊天模块。
 enabled = true
-generation_interval_seconds = 600
-insertion_probability = 0.15
+session_timeout_seconds = 180 # # 如果一个已激活的会话在此时间内没有任何机器人发言或收到新消息，该会话的专注聊天模式将自动停用。默认3分钟
+# 管理器后台检查不活跃会话并将其停用的时间间隔（秒）。
+deactivation_check_interval_seconds = 60 # 默认1分钟
+# 是否启用颜文字保护，防止LLM生成的颜文字被意外分割。
+enable_kaomoji_protection = true
+# 是否启用文本分割器，将较长的回复分割成多条消息发送。
+enable_splitter = true
+# 启用文本分割器后，每条消息的最大长度。
+max_length = 200
+# 启用文本分割器后，每条消息包含的最大句子数量。
+max_sentence_num = 7
+# 专注聊天期间，进行一次增量式微总结的消息数量间隔。
+summary_interval = 5
+
+
+[platform_action_settings.adapter_behaviors.master_ui_adapter]
+confirms_by_action_response = true
+self_reports_actions_as_message = false
+
+# 示例：为名为 "napcat_qq" 的适配器配置行为标记。
+# 您需要根据您的 Napcat 适配器实际注册到 Core 时使用的 platform_id (如果不是 "napcat_qq" 请修改键名)
+# 以及该适配器的具体行为来设置以下值。模板中提供的仅为示例。
+[platform_action_settings.adapter_behaviors.napcat_qq]
+# 如果您的 Napcat 适配器会发送标准的 action_response 事件来确认动作完成，请设为 true。
+# 如果它通过其他方式（如自我消息上报）确认，或者不需要Core等待其响应，请设为 false。
+confirms_by_action_response = true
+# 如果您的 Napcat 适配器会将其代表AI执行的动作（如发送消息）作为一条新的、由AI自身发出的 message.* 事件上报给Core，请设为 true。
+self_reports_actions_as_message = false
+
+[platform_action_settings.adapter_behaviors.your_other_adapter_id]
+confirms_by_action_response = true
+self_reports_actions_as_message = false
