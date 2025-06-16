@@ -175,4 +175,3 @@ cython_debug/
 config/config.toml
 config/old/
 logs/
-日志.md
