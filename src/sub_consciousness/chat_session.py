@@ -1,20 +1,10 @@
 import asyncio
-import json
-import random
-import re
 import time
-import uuid
 from collections import OrderedDict
-from typing import TYPE_CHECKING, Any, Optional
-
-from aicarus_protocols.conversation_info import ConversationInfo
-from aicarus_protocols.event import Event
-from aicarus_protocols.seg import SegBuilder
-from aicarus_protocols.user_info import UserInfo
+from typing import TYPE_CHECKING, Any
 
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logger_manager import get_logger
-from src.common.text_splitter import process_llm_response
 from src.config import config
 from src.database.services.event_storage_service import EventStorageService
 from src.llmrequest.llm_processor import Client as LLMProcessorClient
@@ -84,10 +74,10 @@ class ChatSession:  # Renamed class
         self.prompt_builder = ChatPromptBuilder(
             event_storage=self.event_storage, bot_id=self.bot_id, conversation_id=self.conversation_id
         )
-        
+
         # 新增：集成 Cycler
         self.cycler = FocusChatCycler(self)
-        
+
         logger.info(f"[ChatSession][{self.conversation_id}] 实例已创建。")
 
     def activate(self, core_last_think: str | None = None) -> None:
@@ -95,7 +85,7 @@ class ChatSession:  # Renamed class
         if self.is_active:
             # 如果已经激活，可能只是更新思考上下文
             self.initial_core_think = core_last_think
-            self.is_first_turn_for_session = True # 重新进入时，视为新周期的第一轮
+            self.is_first_turn_for_session = True  # 重新进入时，视为新周期的第一轮
             logger.info(f"[ChatSession][{self.conversation_id}] 会话已激活，重置思考上下文。")
             return
 
@@ -108,12 +98,12 @@ class ChatSession:  # Renamed class
         self.current_handover_summary = None
         self.events_since_last_summary = []
         self.message_count_since_last_summary = 0
-        
+
         logger.info(
             f"[ChatSession][{self.conversation_id}] 已激活。首次处理: {self.is_first_turn_for_session}, "
             f"主意识想法: '{core_last_think}'."
         )
-        
+
         # 启动循环
         asyncio.create_task(self.cycler.start())
 
@@ -121,13 +111,13 @@ class ChatSession:  # Renamed class
         """停用会话并关闭其主动循环。"""
         if not self.is_active:
             return
-            
+
         self.is_active = False
         logger.info(f"[ChatSession][{self.conversation_id}] 正在停用...")
-        
+
         # 关闭循环
         asyncio.create_task(self.cycler.shutdown())
-        
+
         self.last_llm_decision = None
         self.last_processed_timestamp = 0.0
         logger.info(f"[ChatSession][{self.conversation_id}] 已停用。")

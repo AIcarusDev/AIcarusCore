@@ -319,14 +319,14 @@ class EventStorageService:
                 "conversation_id": conversation_id,
                 "timestamp": timestamp,
             }
-            
+
             results = await self.conn_manager.execute_query(query, bind_vars)
-            
+
             # 如果 results 列表不为空，说明至少找到了一个匹配的文档
             if results:
                 return True
             return False
-            
+
         except Exception as e:
             self.logger.error(
                 f"检查新事件失败 (会话ID: {conversation_id}): {e}",
@@ -340,7 +340,7 @@ class EventStorageService:
         """
         if not event_ids:
             return []
-        
+
         try:
             query = """
                 FOR doc IN @@collection
@@ -351,10 +351,10 @@ class EventStorageService:
                 "@collection": self.COLLECTION_NAME,
                 "keys": event_ids,
             }
-            
+
             results = await self.conn_manager.execute_query(query, bind_vars)
             return results if results is not None else []
-            
+
         except Exception as e:
             self.logger.error(
                 f"根据ID列表获取事件失败: {e}",

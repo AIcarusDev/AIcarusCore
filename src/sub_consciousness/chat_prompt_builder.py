@@ -140,7 +140,7 @@ class ChatPromptBuilder:
             bot_id=self.bot_id,  # Use generalized bot_id
             optional_description=bot_description_str,
             optional_profile=bot_profile_str,
-            no_action_guidance=no_action_guidance_str, # 使用占位符
+            no_action_guidance=no_action_guidance_str,  # 使用占位符
         )
 
         # --- Prepare data for User Prompt ---
