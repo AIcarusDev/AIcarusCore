@@ -57,6 +57,14 @@ class ChatSessionManager:  # Renamed class
         self.core_logic = core_logic_instance
         self.logger.info("CoreLogic 实例已成功注入到 ChatSessionManager。")
 
+        # 哼，顺便把那个唤醒主意识的事件也拿过来
+        if hasattr(core_logic_instance, "focus_session_inactive_event"):
+            self.focus_session_inactive_event = core_logic_instance.focus_session_inactive_event
+            self.logger.info("已从 CoreLogic 获取 focus_session_inactive_event。")
+        else:
+            self.logger.error("CoreLogic 实例中没有找到 focus_session_inactive_event！这会导致主意识无法被正确唤醒！")
+            self.focus_session_inactive_event = None
+
     def _get_conversation_id(self, event: Event) -> str:
         # 从 Event 中提取唯一的会话ID (例如 group_id 或 user_id)
         # 此处需要根据 aicarus_protocols 的具体定义来实现
@@ -130,6 +138,15 @@ class ChatSessionManager:  # Renamed class
                 session = self.sessions.pop(conversation_id)  # 使用 pop 原子地移除并获取
                 session.deactivate()  # 调用会话自己的停用方法
                 self.logger.info(f"[SessionManager] 会话 '{conversation_id}' 已被停用并从管理器中移除。")
+
+                # 检查是否所有会话都已停用
+                if not self.is_any_session_active():
+                    self.logger.info("[SessionManager] 所有专注会话均已结束。")
+                    if hasattr(self, "focus_session_inactive_event") and self.focus_session_inactive_event:
+                        self.logger.info("[SessionManager] 正在设置 focus_session_inactive_event 以唤醒主意识。")
+                        self.focus_session_inactive_event.set()
+                    else:
+                        self.logger.error("[SessionManager] 无法唤醒主意识：focus_session_inactive_event 未设置！")
             else:
                 self.logger.warning(f"[SessionManager] 尝试停用一个不存在或已被移除的会话 '{conversation_id}'。")
 
