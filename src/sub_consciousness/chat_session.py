@@ -72,7 +72,10 @@ class ChatSession:  # Renamed class
         # Instantiate the prompt builder
         # Passing self.bot_id to the builder
         self.prompt_builder = ChatPromptBuilder(
-            event_storage=self.event_storage, bot_id=self.bot_id, conversation_id=self.conversation_id
+            event_storage=self.event_storage,
+            bot_id=self.bot_id,
+            conversation_id=self.conversation_id,
+            conversation_type=self.conversation_type,
         )
 
         # 新增：集成 Cycler

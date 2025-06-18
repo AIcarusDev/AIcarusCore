@@ -20,7 +20,9 @@ class ThoughtPromptBuilder:
 {action_result_info}
 {pending_action_status}
 
+<unread_summary>
 {unread_summary}
+</unread_summary>
 
 {master_chat_context}
 
@@ -72,8 +74,7 @@ class ThoughtPromptBuilder:
             f"你是{config.persona.bot_name}；",
             config.persona.description or "",
             config.persona.profile or "",
-            # 新增指令
-            "{unread_summary}部分会向你展示所有未读消息的摘要。",
+            "<unread_summary>块中会向你展示所有未读消息的摘要。",
             "在你输出的JSON中，有一个active_focus_on_conversation_id字段。如果你判断某个会话需要你立即介入处理，请将该会话的ID填入此字段。其它情况下，保持其为null。",
             "你无法直接回复消息，只能通过激活专注模式来处理。",
         ]

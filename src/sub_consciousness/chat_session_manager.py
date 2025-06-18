@@ -189,8 +189,11 @@ class ChatSessionManager:  # Renamed class
             conversation_id=conv_id, platform=platform, conversation_type=conv_type
         )
 
-        # 激活逻辑：如果被@，则激活会话
-        if self._is_bot_mentioned(event) and not session.is_active:
+        # 激活逻辑：如果被@或收到私聊消息，则激活会话
+        # 这里是为了方便测试硬编码的逻辑，未来会进一步优化激活逻辑
+        # TODO
+        if (self._is_bot_mentioned(event) or event.event_type.startswith("message.private")) and not session.is_active:
+            self.logger.info(f"会话 '{conv_id}' 满足激活条件 (被@或私聊)，准备激活。")
             # 从 CoreLogic 获取最新的思考
             last_think = self.core_logic.get_latest_thought() if self.core_logic else None
             session.activate(core_last_think=last_think)

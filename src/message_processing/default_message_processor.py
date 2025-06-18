@@ -94,8 +94,27 @@ class DefaultMessageProcessor:
             # 1. 事件持久化 (如果需要)
             if needs_persistence:
                 # 将协议事件对象转换为数据库文档字典
-                event_db_doc = DBEventDocument.from_protocol(proto_event)
-                save_success = await self.event_service.save_event_document(event_db_doc.to_dict())
+                event_db_dict = DBEventDocument.from_protocol(proto_event).to_dict()
+
+                # --- START: 优化后的逻辑，仅针对消息类事件提取 conversation_id ---
+                if proto_event.event_type.startswith("message."):
+                    conv_id_extracted = (
+                        proto_event.conversation_info.conversation_id
+                        if proto_event.conversation_info and proto_event.conversation_info.conversation_id
+                        else None
+                    )
+
+                    if conv_id_extracted:
+                        event_db_dict["conversation_id_extracted"] = conv_id_extracted
+                        self.logger.debug(f"为事件 {proto_event.event_id} 添加了 conversation_id_extracted: {conv_id_extracted}")
+                    else:
+                        # 仅当是消息事件但无法提取ID时，才记录一个警告
+                        self.logger.warning(
+                            f"消息事件 {proto_event.event_id} 无法提取 conversation_id_extracted，可能影响会话分组。"
+                        )
+                # --- END: 优化后的逻辑 ---
+
+                save_success = await self.event_service.save_event_document(event_db_dict)
 
                 if not save_success:
                     self.logger.error(f"保存事件文档失败: {proto_event.event_id}")
