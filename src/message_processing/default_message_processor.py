@@ -12,6 +12,7 @@ from aicarus_protocols import Event as ProtocolEvent  # 重命名以区分数据
 from websockets.server import WebSocketServerProtocol
 
 from src.common.custom_logging.logger_manager import get_logger
+from src.config import config
 from src.database.models import DBEventDocument, EnrichedConversationInfo  # 导入我们定义的数据模型
 from src.database.services.conversation_storage_service import ConversationStorageService
 
@@ -93,8 +94,29 @@ class DefaultMessageProcessor:
             # 1. 事件持久化 (如果需要)
             if needs_persistence:
                 # 将协议事件对象转换为数据库文档字典
-                event_db_doc = DBEventDocument.from_protocol(proto_event)
-                save_success = await self.event_service.save_event_document(event_db_doc.to_dict())
+                event_db_dict = DBEventDocument.from_protocol(proto_event).to_dict()
+
+                # --- START: 优化后的逻辑，仅针对消息类事件提取 conversation_id ---
+                if proto_event.event_type.startswith("message."):
+                    conv_id_extracted = (
+                        proto_event.conversation_info.conversation_id
+                        if proto_event.conversation_info and proto_event.conversation_info.conversation_id
+                        else None
+                    )
+
+                    if conv_id_extracted:
+                        event_db_dict["conversation_id_extracted"] = conv_id_extracted
+                        self.logger.debug(
+                            f"为事件 {proto_event.event_id} 添加了 conversation_id_extracted: {conv_id_extracted}"
+                        )
+                    else:
+                        # 仅当是消息事件但无法提取ID时，才记录一个警告
+                        self.logger.warning(
+                            f"消息事件 {proto_event.event_id} 无法提取 conversation_id_extracted，可能影响会话分组。"
+                        )
+                # --- END: 优化后的逻辑 ---
+
+                save_success = await self.event_service.save_event_document(event_db_dict)
 
                 if not save_success:
                     self.logger.error(f"保存事件文档失败: {proto_event.event_id}")
@@ -203,6 +225,15 @@ class DefaultMessageProcessor:
             self.logger.info(
                 f"收到消息事件 ({proto_event.event_type}) 来自 {sender_nickname_log}({sender_id_log}): '{text_content[:50]}...'"
             )
+
+            if (
+                config.test_function.enable_test_group
+                and proto_event.conversation_info.conversation_id not in config.test_function.test_group
+            ):
+                self.logger.debug(
+                    f"  ConversationInfo ID: {proto_event.conversation_info.conversation_id} ，非测试群，不处理。"
+                )
+                return False
 
             # 如果是来自主人UI的特殊消息
             if proto_event.event_type == "message.master.input":

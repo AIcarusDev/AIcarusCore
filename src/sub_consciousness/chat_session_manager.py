@@ -57,6 +57,14 @@ class ChatSessionManager:  # Renamed class
         self.core_logic = core_logic_instance
         self.logger.info("CoreLogic 实例已成功注入到 ChatSessionManager。")
 
+        # 哼，顺便把那个唤醒主意识的事件也拿过来
+        if hasattr(core_logic_instance, "focus_session_inactive_event"):
+            self.focus_session_inactive_event = core_logic_instance.focus_session_inactive_event
+            self.logger.info("已从 CoreLogic 获取 focus_session_inactive_event。")
+        else:
+            self.logger.error("CoreLogic 实例中没有找到 focus_session_inactive_event！这会导致主意识无法被正确唤醒！")
+            self.focus_session_inactive_event = None
+
     def _get_conversation_id(self, event: Event) -> str:
         # 从 Event 中提取唯一的会话ID (例如 group_id 或 user_id)
         # 此处需要根据 aicarus_protocols 的具体定义来实现
@@ -130,6 +138,15 @@ class ChatSessionManager:  # Renamed class
                 session = self.sessions.pop(conversation_id)  # 使用 pop 原子地移除并获取
                 session.deactivate()  # 调用会话自己的停用方法
                 self.logger.info(f"[SessionManager] 会话 '{conversation_id}' 已被停用并从管理器中移除。")
+
+                # 检查是否所有会话都已停用
+                if not self.is_any_session_active():
+                    self.logger.info("[SessionManager] 所有专注会话均已结束。")
+                    if hasattr(self, "focus_session_inactive_event") and self.focus_session_inactive_event:
+                        self.logger.info("[SessionManager] 正在设置 focus_session_inactive_event 以唤醒主意识。")
+                        self.focus_session_inactive_event.set()
+                    else:
+                        self.logger.error("[SessionManager] 无法唤醒主意识：focus_session_inactive_event 未设置！")
             else:
                 self.logger.warning(f"[SessionManager] 尝试停用一个不存在或已被移除的会话 '{conversation_id}'。")
 
@@ -172,14 +189,19 @@ class ChatSessionManager:  # Renamed class
             conversation_id=conv_id, platform=platform, conversation_type=conv_type
         )
 
-        # 激活逻辑：如果被@，则激活会话
-        if self._is_bot_mentioned(event) and not session.is_active:
+        # 激活逻辑：如果被@或收到私聊消息，则激活会话
+        # 这里是为了方便测试硬编码的逻辑，未来会进一步优化激活逻辑
+        # TODO
+        if (self._is_bot_mentioned(event) or event.event_type.startswith("message.private")) and not session.is_active:
+            self.logger.info(f"会话 '{conv_id}' 满足激活条件 (被@或私聊)，准备激活。")
             # 从 CoreLogic 获取最新的思考
             last_think = self.core_logic.get_latest_thought() if self.core_logic else None
             session.activate(core_last_think=last_think)
 
-        # 将事件交给会话处理 (会话内部会判断 is_active)
-        await session.process_event(event)
+        # 在新的主动循环模型中，管理器不再直接将事件推给会话。
+        # 会话的循环 (`FocusChatCycler`) 会自己从数据库拉取最新的事件。
+        # `handle_incoming_message` 的主要职责是确保在需要时（如被@）激活会话。
+        # （可选优化：此处可以设置一个 event 或 condition 来唤醒可能正在等待的循环，以提高响应速度）
 
     async def run_periodic_deactivation_check(self) -> None:
         """

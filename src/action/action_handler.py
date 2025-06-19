@@ -42,7 +42,7 @@ class ActionHandler:
         self.event_storage_service: EventStorageService | None = None
         self.action_log_service: ActionLogStorageService | None = None
         self.thought_trigger: asyncio.Event | None = None
-        self._pending_actions: dict[str, tuple[asyncio.Event, str | None, str, dict[str, Any]]] = {}
+        self._pending_actions: dict[str, tuple[asyncio.Future, str | None, str, dict[str, Any]]] = {}
         self._action_registry: dict[str, Callable[..., Coroutine[Any, Any, Any]]] = {}
         self.logger.info(f"{self.__class__.__name__} instance created.")
 
@@ -80,7 +80,6 @@ class ActionHandler:
             self.logger.info("ActionHandler 的主思维触发器已成功设置。")
 
     def _create_llm_client_from_config(self, purpose_key: str) -> ProcessorClient | None:
-        # ... (此方法无需修改)
         try:
             if not config.llm_models:
                 self.logger.error("配置错误：AlcarusRootConfig 中缺少 'llm_models' 配置段。")
@@ -267,10 +266,9 @@ class ActionHandler:
             return
 
         # 从这里开始，后面的逻辑都是对的，因为我们现在用的是正确的ID了！
-        pending_event, stored_thought_doc_key, stored_original_action_description, original_action_sent_dict = (
+        pending_future, stored_thought_doc_key, stored_original_action_description, original_action_sent_dict = (
             self._pending_actions.pop(original_action_id)
         )
-        pending_event.set()  # 唤醒那个正在焦急等待的 _execute_platform_action 先生
         self.logger.info(
             f"动作处理器: 已匹配到等待中的动作 '{original_action_id}' ({stored_original_action_description})。"
         )
@@ -326,6 +324,11 @@ class ActionHandler:
                 error_info=error_message_from_response if not action_successful else None,
                 result_details=result_details_from_response,
             )
+
+        # 将最终结果设置到 Future 中，唤醒等待的协程
+        if not pending_future.done():
+            result_for_future = (action_successful, final_result_for_thought)
+            pending_future.set_result(result_for_future)
 
         # 更新思考文档
         is_direct_reply_action_for_response = (
@@ -392,14 +395,8 @@ class ActionHandler:
         if platform_id_from_event == "master_ui":
             target_adapter_id = "master_ui_adapter"
 
-        adapter_behavior_config = config.platform_action_settings.adapter_behaviors.get(target_adapter_id)
-        confirms_by_action_response = True
-        if adapter_behavior_config:
-            confirms_by_action_response = adapter_behavior_config.confirms_by_action_response
-
         current_timestamp_ms = int(time.time() * 1000)
         action_to_send["timestamp"] = current_timestamp_ms
-        action_log_initial_status = "executing_awaiting_self_report" if not confirms_by_action_response else "executing"
 
         if self.action_log_service:
             conversation_id = action_to_send.get("conversation_info", {}).get("conversation_id", "unknown_conv_id")
@@ -412,15 +409,9 @@ class ActionHandler:
                 conversation_id=conversation_id,
                 content=action_to_send.get("content", []),
             )
-            if not confirms_by_action_response:
-                await self.action_log_service.update_action_log_with_response(
-                    action_id=core_action_id, status=action_log_initial_status, response_timestamp=current_timestamp_ms
-                )
 
         if not is_direct_reply_action and self.thought_storage_service and thought_doc_key:
-            thought_update_status = (
-                "EXECUTING_AWAITING_SELF_REPORT" if not confirms_by_action_response else "EXECUTING_AWAITING_RESPONSE"
-            )
+            thought_update_status = "EXECUTING_AWAITING_RESPONSE"
             await self.thought_storage_service.update_action_status_in_thought_document(
                 thought_doc_key,
                 core_action_id,
@@ -439,36 +430,37 @@ class ActionHandler:
             # ... (处理异常)
             return False, f"发送平台动作时发生意外异常: {str(e_send)}"
 
-        if confirms_by_action_response:
-            response_received_event = asyncio.Event()
-            self._pending_actions[core_action_id] = (
-                response_received_event,
-                thought_doc_key,
-                original_action_description,
-                action_to_send,
+        response_future = asyncio.Future()
+        self._pending_actions[core_action_id] = (
+            response_future,
+            thought_doc_key,
+            original_action_description,
+            action_to_send,
+        )
+        try:
+            # 等待 handle_action_response 处理完毕并返回结果
+            action_successful, result_message = await asyncio.wait_for(
+                response_future, timeout=ACTION_RESPONSE_TIMEOUT_SECONDS
             )
-            try:
-                await asyncio.wait_for(response_received_event.wait(), timeout=ACTION_RESPONSE_TIMEOUT_SECONDS)
-                final_log_entry = (
-                    await self.action_log_service.get_action_log(core_action_id) if self.action_log_service else None
-                )
-                if final_log_entry and final_log_entry.get("status") == "success":
-                    return True, f"动作 '{original_action_description}' 已成功执行并收到响应。"
-                elif final_log_entry:
-                    error_details = final_log_entry.get("error_info") or "适配器未提供具体错误信息"
-                    return False, f"动作 '{original_action_description}' 执行失败: {error_details}"
-                return False, f"动作 '{original_action_description}' 响应处理后状态未知。"
-            except TimeoutError:
-                if core_action_id in self._pending_actions:
-                    await self._handle_action_timeout(
-                        core_action_id, thought_doc_key, original_action_description, action_to_send
-                    )
-                return False, f"动作 '{original_action_description}' 响应超时。"
-            finally:
+
+            # 无论动作本身成功与否，通信流程是成功的
+            return True, result_message
+
+        except TimeoutError:
+            # 超时处理逻辑保持不变
+            if core_action_id in self._pending_actions:
+                # 从 pending_actions 中移除 future，防止它被错误地设置结果
                 self._pending_actions.pop(core_action_id, None)
-        else:
-            self.logger.info(f"平台动作 '{core_action_id}' 已发送给自我上报型适配器 '{target_adapter_id}'。")
-            return True, "动作已发送，等待自我上报。"
+                await self._handle_action_timeout(
+                    core_action_id, thought_doc_key, original_action_description, action_to_send
+                )
+            return False, f"动作 '{original_action_description}' 响应超时。"
+        except Exception as e:
+            self.logger.error(f"等待动作响应时发生未知错误: {e}", exc_info=True)
+            return False, f"等待动作 '{original_action_description}' 响应时发生内部错误。"
+        finally:
+            # 确保无论如何都清理掉
+            self._pending_actions.pop(core_action_id, None)
 
     async def process_action_flow(
         self,

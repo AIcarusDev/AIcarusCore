@@ -61,6 +61,7 @@ class CoreLogic:
         self.prompt_builder = prompt_builder  # 保存注入的 ThoughtPromptBuilder 实例
         self.stop_event = stop_event
         self.immediate_thought_trigger = immediate_thought_trigger
+        self.focus_session_inactive_event = asyncio.Event()  # 新增：用于在专注会话结束后唤醒主意识
         self.intrusive_generator_instance = intrusive_generator_instance
 
         self.last_known_state: dict[str, Any] = {}  # 用于存储最新的状态
@@ -80,7 +81,7 @@ class CoreLogic:
             if extracted_think.endswith("；"):
                 extracted_think = extracted_think[:-1].strip()
 
-        return extracted_think if extracted_think else "主意识在进入专注前没有留下明确的即时想法。"
+        return extracted_think or "主意识在进入专注前没有留下明确的即时想法。"
 
     def trigger_immediate_thought_cycle(
         self, handover_summary: str | None = None, last_focus_think: str | None = None
@@ -174,11 +175,14 @@ class CoreLogic:
                 hasattr(self.chat_session_manager, "is_any_session_active")
                 and self.chat_session_manager.is_any_session_active()
             ):
-                self.logger.debug("检测到有专注会话激活，主意识进入空转等待1秒。")
+                self.logger.debug("检测到有专注会话激活，主意识暂停，等待所有专注会话结束...")
                 try:
-                    await asyncio.sleep(1)
+                    # 等待 ChatSessionManager 发出“所有专注会话已结束”的信号
+                    await self.focus_session_inactive_event.wait()
+                    self.focus_session_inactive_event.clear()  # 重置事件，为下一次等待做准备
+                    self.logger.info("所有专注会话已结束，主意识被唤醒，继续思考。")
                 except asyncio.CancelledError:
-                    self.logger.info("主意识空转等待时被取消。")
+                    self.logger.info("主意识在等待专注会话结束时被取消。")
                     break
                 continue
 

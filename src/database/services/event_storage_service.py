@@ -300,3 +300,62 @@ class EventStorageService:
         except Exception as e:
             self.logger.error(f"批量更新事件的 is_processed 状态失败: {e}", exc_info=True)
             return False
+
+    async def has_new_events_since(self, conversation_id: str, timestamp: float) -> bool:
+        """
+        高效地检查指定会话中，在给定时间戳之后是否有新的消息事件。
+        """
+        try:
+            query = """
+                FOR doc IN @@collection
+                    FILTER doc.conversation_id_extracted == @conversation_id
+                    FILTER doc.timestamp > @timestamp
+                    FILTER doc.event_type LIKE 'message.%'
+                    LIMIT 1
+                    RETURN 1
+            """
+            bind_vars = {
+                "@collection": self.COLLECTION_NAME,
+                "conversation_id": conversation_id,
+                "timestamp": timestamp,
+            }
+
+            results = await self.conn_manager.execute_query(query, bind_vars)
+
+            # 如果 results 列表不为空，说明至少找到了一个匹配的文档
+            return bool(results)
+
+        except Exception as e:
+            self.logger.error(
+                f"检查新事件失败 (会话ID: {conversation_id}): {e}",
+                exc_info=True,
+            )
+            return False
+
+    async def get_events_by_ids(self, event_ids: list[str]) -> list[dict[str, Any]]:
+        """
+        根据 event_id (_key) 列表，批量获取事件文档。
+        """
+        if not event_ids:
+            return []
+
+        try:
+            query = """
+                FOR doc IN @@collection
+                    FILTER doc._key IN @keys
+                    RETURN doc
+            """
+            bind_vars = {
+                "@collection": self.COLLECTION_NAME,
+                "keys": event_ids,
+            }
+
+            results = await self.conn_manager.execute_query(query, bind_vars)
+            return results if results is not None else []
+
+        except Exception as e:
+            self.logger.error(
+                f"根据ID列表获取事件失败: {e}",
+                exc_info=True,
+            )
+            return []

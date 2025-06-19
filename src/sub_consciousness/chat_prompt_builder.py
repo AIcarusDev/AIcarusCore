@@ -1,7 +1,7 @@
 import uuid
 from collections import OrderedDict
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from aicarus_protocols.common import extract_text_from_content
 from aicarus_protocols.conversation_info import ConversationInfo
@@ -13,124 +13,62 @@ from src.common.custom_logging.logger_manager import get_logger
 from src.config import config
 from src.database.services.event_storage_service import EventStorageService
 
+from . import prompt_templates
+
+if TYPE_CHECKING:
+    from .chat_session import ChatSession
+
 logger = get_logger(__name__)
-
-# --- Prompt Templates ---
-# Note: bot_qq_id in SYSTEM_PROMPT_TEMPLATE is changed to bot_id for generality
-SYSTEM_PROMPT_TEMPLATE = """
-当前时间：{current_time}
-你是{bot_name}；
-你的qq号是{bot_id}；
-{optional_description}
-{optional_profile}
-你当前正在参与qq群聊
-"""
-
-USER_PROMPT_TEMPLATE = """
-<当前聊天信息>
-# CONTEXT
-## Conversation Info
-{conversation_info_block}
-
-## Users
-# 格式: ID: qq号 [nick:昵称, card:群名片/备注, title:头衔, perm:权限]
-{user_list_block}
-
-## Event Types
-[MSG]: 普通消息，在消息后的（id:xxx）为消息的id
-[ACT]: 行为消息，通常是你主动做出的动作，如果是消息则消息后的（id:xxx）为消息的id
-[SYS]: 系统通知
-[MOTIVE]: 对应你的"motivation"，帮助你更好的了解自己的心路历程，它有两种出现形式：
-      1. 独立出现时 (无缩进): 代表你经过思考后，决定“保持沉默/不发言”的原因。
-      2. 附属出现时 (在[MSG]下缩进): 代表你发出该条消息的“背后动机”或“原因”，是消息的附注说明。
-[IMG]: 图片消息
-[FILE]: 文件分享
-
-# CHAT HISTORY LOG
-{chat_history_log_block}
-</当前聊天信息>
-
-{previous_thoughts_block}
-
-<thinking_guidance>
-请仔细阅读当前聊天内容，分析讨论话题和成员关系，分析你刚刚发言和别人对你的发言的反应，思考你要不要回复或发言。
-注意耐心：
-  -请特别关注对话的自然流转和对方的输入状态。如果感觉对方可能正在打字或思考，或者其发言明显未结束（比如话说到一半），请耐心等待，避免过早打断或急于追问。
-  -如果你发送消息后对方没有立即回应，请优先考虑对方是否正在忙碌或话题已自然结束，内心想法应倾向于“耐心等待”或“思考对方是否在忙”，而非立即追问，除非追问非常必要且不会打扰。
-当你觉得不想聊了，或对话已经告一段落时，请在"end_focused_chat"字段中填写true。
-思考并输出你真实的内心想法。
-</thinking_guidance>
-
-<output_requirements_for_inner_thought>
-1. 根据聊天内容生成你的内心想法，但是注意话题的推进，不要在一个话题上停留太久或揪着一个话题不放，除非你觉得真的有必要
-   - 如果你决定回复或发言，请在"reply_text"中填写你准备发送的消息的具体内容，应该非常简短自然，省略主语
-2. 不要分点、不要使用表情符号
-3. 避免多余符号(冒号、引号、括号等)
-4. 语言简洁自然，不要浮夸
-5. 不要把注意力放在别人发的表情包上，它们只是一种辅助表达方式
-6. 注意分辨群里谁在跟谁说话，你不一定是当前聊天的主角，消息中的“你”不一定指的是你，也可能是别人
-7. 默认使用中文
-</output_requirements_for_inner_thought>
-
-现在请你请输出你现在的心情，内心想法，是否要发言，发言的动机，和要发言的内容等等。
-请严格使用以下json格式输出内容，不需要输出markdown语句等多余内容，仅输出纯json内容：
-```json
-{{
-    "mood":"此处填写你现在的心情，与造成这个心情的原因",
-    "think":"此处填写你此时的内心想法，衔接你刚才的想法继续思考，应该自然流畅",
-    "reply_willing":"此处决定是否发言，布尔值，true为发言，false为先不发言",
-    "motivation":"此处填写发言/不发言的动机，会保留在聊天记录中，帮助你更好的了解自己的心路历程",
-    "at_someone":"【可选】仅在reply_willing为True时有效，通常可能不需要，当目前群聊比较混乱，需要明确对某人说话的时使用，填写你想@的人的平台ID，如果需要@多个人，请用逗号隔开，如果不需要则不输出此字段",
-    "quote_reply":"【可选】仅在reply_willing为True时有效，通常可能不需要，当需要明确回复某条消息时使用，填写你想具体回复的消息的message_id，只能回复一条，如果不需要则不输出此字段",
-    "reply_text":"此处填写你完整的发言内容，应该尽可能简短，自然，口语化，多简短都可以。若已经@某人或引用回复某条消息，则建议省略主语。若reply_willing为False，则不输出此字段",
-    "poke":"【可选】平台特有的戳一戳功能，填写目标平台ID，如果不需要则不输出此字段",
-    "action_to_take":"【可选】描述你当前最想做的、需要与外界交互的具体动作，例如上网查询某信息，如果无，则不包含此字段",
-    "action_motivation":"【可选】如果你有想做的动作，请说明其动机。如果action_to_take不输出，此字段也应不输出",
-    "end_focused_chat":"【可选】布尔值。当你认为本次对话可以告一段落时，请将此字段设为true。其它情况下，保持其为false"
-}}
-```"""
 
 
 class ChatPromptBuilder:
     def __init__(
         self,
         event_storage: EventStorageService,
-        bot_id: str,  # Changed from bot_qq_id
-        # platform: str, # May not be needed directly if conv_info has it
-        # conversation_type: str, # May not be needed directly if conv_info has it
+        bot_id: str,
         conversation_id: str,
+        conversation_type: str,
     ) -> None:
         self.event_storage: EventStorageService = event_storage
         self.bot_id: str = bot_id
-        # self.platform: str = platform
-        # self.conversation_type: str = conversation_type
         self.conversation_id: str = conversation_id
-        logger.info(f"[ChatPromptBuilder][{self.conversation_id}] 实例已创建 for bot_id: {self.bot_id}.")
+        self.conversation_type: str = conversation_type
+        logger.info(
+            f"[ChatPromptBuilder][{self.conversation_id}] 实例已创建 for bot_id: {self.bot_id}, type: {self.conversation_type}."
+        )
 
     async def build_prompts(
         self,
+        session: "ChatSession",
         last_processed_timestamp: float,
         last_llm_decision: dict[str, Any] | None,
         sent_actions_context: OrderedDict[str, dict[str, Any]],
         is_first_turn: bool,  # 新增参数
         last_think_from_core: str | None = None,  # 新增参数
     ) -> tuple[str, str, dict[str, str], list[str]]:  # 修改返回类型，增加 List[str] for processed_event_ids
-        # --- Prepare data for System Prompt ---
+        # --- Step 1: Decide which templates to use ---
+        user_nick = ""
+        if self.conversation_type == "private":
+            system_prompt_template = prompt_templates.PRIVATE_SYSTEM_PROMPT
+            user_prompt_template = prompt_templates.PRIVATE_USER_PROMPT
+        else:
+            system_prompt_template = prompt_templates.GROUP_SYSTEM_PROMPT
+            user_prompt_template = prompt_templates.GROUP_USER_PROMPT
+
+        # --- Step 2: Prepare common data ---
         current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         persona_config = config.persona
         bot_name_str = persona_config.bot_name or "AI"
         bot_description_str = f"\n{persona_config.description}" if persona_config.description else ""
         bot_profile_str = f"\n{persona_config.profile}" if persona_config.profile else ""
 
-        system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
-            current_time=current_time_str,
-            bot_name=bot_name_str,
-            bot_id=self.bot_id,  # Use generalized bot_id
-            optional_description=bot_description_str,
-            optional_profile=bot_profile_str,
-        )
+        # 根据无动作计数器，准备引导提示
+        no_action_guidance_str = ""
+        if session.no_action_count >= 3:
+            no_action_guidance_str = f"\n你已经决定连续不发言/没有互动 {session.no_action_count} 次了，观察一下目前群内话题是不是已经告一段落了，如果是，可以考虑暂时先不专注于群聊的消息了。"
+            logger.info(f"[{self.conversation_id}] 添加无互动提示到System Prompt, count: {session.no_action_count}")
 
-        # --- Prepare data for User Prompt ---
+        # --- Step 3: Fetch and process events ---
         event_dicts = await self.event_storage.get_recent_chat_message_documents(
             conversation_id=self.conversation_id,
             limit=50,  # Fetch a bit more to allow for deduplication if needed, or ensure DB query is distinct
@@ -252,6 +190,14 @@ class ChatPromptBuilder:
                         "perm": event_data.user_info.permission_level or "成员",
                     }
 
+        if self.conversation_type == "private":
+            for _, user_data in user_map.items():
+                if user_data.get("uid_str") == "U1":
+                    user_nick = user_data.get("nick", "对方")
+                    break
+            if not user_nick:
+                user_nick = "对方"
+
         conversation_info_block_str = (
             f'- conversation_name: "{conversation_name_str}"\n- conversation_type: "{conversation_type_str}"'
         )
@@ -263,8 +209,10 @@ class ChatPromptBuilder:
         for p_id in sorted_user_platform_ids:
             user_data_item = user_map[p_id]
             user_identity_suffix = "（你）" if user_data_item["uid_str"] == "U0" else ""
-            # Displaying platform ID (p_id) along with U_id
-            user_line = f"{user_data_item['uid_str']}: {p_id}{user_identity_suffix} [nick:{user_data_item['nick']}, card:{user_data_item['card']}, title:{user_data_item['title']}, perm:{user_data_item['perm']}]"
+            if self.conversation_type == "private":
+                user_line = f"{user_data_item['uid_str']}: {p_id}{user_identity_suffix} [nick:{user_data_item['nick']}, card:{user_data_item['card']}]"
+            else:
+                user_line = f"{user_data_item['uid_str']}: {p_id}{user_identity_suffix} [nick:{user_data_item['nick']}, card:{user_data_item['card']}, title:{user_data_item['title']}, perm:{user_data_item['perm']}]"
             user_list_lines.append(user_line)
         user_list_block_str = "\n".join(user_list_lines)
 
@@ -351,10 +299,9 @@ class ChatPromptBuilder:
                         file_size = seg.data.get("size", 0)
                         text_content += f"[FILE:{file_name} ({file_size} bytes)]"
 
-                if log_user_id_str == "U0":
-                    log_line = f"[{time_str}] {log_user_id_str} [ACT]: {text_content.strip()} (id:{msg_id_for_display})"
-                else:
-                    log_line = f"[{time_str}] {log_user_id_str} [MSG]: {text_content.strip()} (id:{msg_id_for_display})"
+                # 修正：机器人的普通消息也应标记为[MSG]。
+                # 在这个if块中，所有事件都应被视为消息。
+                log_line = f"[{time_str}] {log_user_id_str} [MSG]: {text_content.strip()} (id:{msg_id_for_display})"
 
                 event_motivation = getattr(event_data_log, "motivation", None)
                 if log_user_id_str == "U0" and event_motivation and event_motivation.strip():
@@ -439,11 +386,22 @@ class ChatPromptBuilder:
         elif not last_llm_decision:  # is_first_turn is False, but no last_llm_decision
             previous_thoughts_block_str = "<previous_thoughts_and_actions>\n我正在处理当前会话，但上一轮的思考信息似乎丢失了。\n</previous_thoughts_and_actions>"
 
-        user_prompt = USER_PROMPT_TEMPLATE.format(
+        # --- Step 6: Assemble final prompts ---
+        system_prompt = system_prompt_template.format(
+            current_time=current_time_str,
+            bot_name=bot_name_str,
+            bot_id=self.bot_id,
+            optional_description=bot_description_str,
+            optional_profile=bot_profile_str,
+            no_action_guidance=no_action_guidance_str,
+            user_nick=user_nick,
+        )
+
+        user_prompt = user_prompt_template.format(
             conversation_info_block=conversation_info_block_str,
             user_list_block=user_list_block_str,
             chat_history_log_block=chat_history_log_block_str,
-            previous_thoughts_block=previous_thoughts_block_str,  # 确保这个占位符在模板中
+            previous_thoughts_block=previous_thoughts_block_str,
         )
 
         # --- Construct uid_str_to_platform_id_map ---

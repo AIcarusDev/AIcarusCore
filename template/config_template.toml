@@ -7,7 +7,7 @@
 # Inner Settings (内部配置，一般无需更改此部分内容)
 # ===============================
 [inner]
-version = "0.0.9" # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
+version = "0.0.10" # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
 # Aicarus-Message-Protocol 标准通信协议版本号，确保与客户端和其他服务兼容。
 protocol_version = "1.4.0"
 
@@ -121,27 +121,6 @@ generation_interval_seconds = 600 # 侵入性思维的生成频率（秒）。�
 insertion_probability = 0.15 # 默认15%的概率注入
 
 # ===============================
-# Platform Action Settings (平台动作相关设置)
-# ===============================
-[platform_action_settings]
-
-# adapter_behaviors: 一个字典，键是适配器ID (例如 "master_ui_adapter", "napcat_adapter"),
-#                      值是该适配器的行为标记。
-#                      每个适配器的行为标记包含以下字段：
-#                         confirms_by_action_response (布尔型, 在Python代码中 AdapterBehaviorFlags 类中默认为 true):
-#                            适配器是否通过标准的 action_response.* 事件确认动作完成。
-#                            如果设为 false，则AIcarusCore会认为该适配器通过其他方式（如自我消息上报）确认动作，
-#                            并且不会为发往此适配器的动作启动标准的action_response超时等待。
-#                         self_reports_actions_as_message (布尔型, 在Python代码中 AdapterBehaviorFlags 类中默认为 false):
-#                            适配器是否会通过上报自身发送的消息（作为 message.* 事件）来间接确认动作。
-#                            这个标记主要用于AIcarusCore中后续的“监听匹配机制”，以识别这类上报事件。
-#
-# 注意：下面的示例是注释掉的。如果您的 config.toml 中没有为某个适配器ID配置这些行为，
-# AIcarusCore在处理该适配器的动作时，会使用 AdapterBehaviorFlags 类中定义的字段默认值
-# (即 confirms_by_action_response=True, self_reports_actions_as_message=False)。
-# 您需要根据您的实际适配器ID和它们的行为特性，在这里取消注释并进行配置，或者添加新的适配器配置。
-
-# ===============================
 # Focused Chat Settings (专注聊天模块设置)
 # ===============================
 [sub_consciousness]
@@ -161,21 +140,13 @@ max_sentence_num = 7
 # 专注聊天期间，进行一次增量式微总结的消息数量间隔。
 summary_interval = 5
 
+# ===============================
+# Test Settings (测试功能设置)
+# ===============================
+[test_function]
+# 测试用，一般不用考虑
+enable_test_group = false
+# 是否启用测试模式。
 
-[platform_action_settings.adapter_behaviors.master_ui_adapter]
-confirms_by_action_response = true
-self_reports_actions_as_message = false
-
-# 示例：为名为 "napcat_qq" 的适配器配置行为标记。
-# 您需要根据您的 Napcat 适配器实际注册到 Core 时使用的 platform_id (如果不是 "napcat_qq" 请修改键名)
-# 以及该适配器的具体行为来设置以下值。模板中提供的仅为示例。
-[platform_action_settings.adapter_behaviors.napcat_qq]
-# 如果您的 Napcat 适配器会发送标准的 action_response 事件来确认动作完成，请设为 true。
-# 如果它通过其他方式（如自我消息上报）确认，或者不需要Core等待其响应，请设为 false。
-confirms_by_action_response = true
-# 如果您的 Napcat 适配器会将其代表AI执行的动作（如发送消息）作为一条新的、由AI自身发出的 message.* 事件上报给Core，请设为 true。
-self_reports_actions_as_message = false
-
-[platform_action_settings.adapter_behaviors.your_other_adapter_id]
-confirms_by_action_response = true
-self_reports_actions_as_message = false
+test_group = ["123456"]
+# 测试群组列表，用于指定哪些群组启用测试功能。
