@@ -202,32 +202,27 @@ class ArangoDBConnectionManager:
         has_collection = await asyncio.to_thread(current_db_ref.has_collection, collection_name)
 
         if not has_collection:
-            logger.debug(f"集合 '{collection_name}' 不存在，正在创建...")  # INFO -> DEBUG
-            current_db_ref_for_create = self.db  # 再次检查
-            if not current_db_ref_for_create:
-                logger.warning(f"数据库连接在尝试创建集合 '{collection_name}' 前已不可用。")
-                return None  # type: ignore
+            logger.debug(f"集合 '{collection_name}' 不存在，正在创建...")
             try:
-                collection = await asyncio.to_thread(current_db_ref_for_create.create_collection, collection_name)
-                logger.debug(f"集合 '{collection_name}' 创建成功。")  # INFO -> DEBUG
+                # 创建集合
+                await asyncio.to_thread(current_db_ref.create_collection, collection_name)
+                logger.debug(f"集合 '{collection_name}' 创建成功。")
             except CollectionCreateError as e:
-                logger.error(f"创建集合 '{collection_name}' 失败: {e}", exc_info=True)
-                raise
-        else:
-            current_db_ref_for_get = self.db  # 再次检查
-            if not current_db_ref_for_get:
-                logger.warning(f"数据库连接在尝试获取已存在集合 '{collection_name}' 前已不可用。")
-                return None  # type: ignore
-            collection = await asyncio.to_thread(current_db_ref_for_get.collection, collection_name)
+                # 捕获并发创建错误，这种情况下集合可能已经被另一个进程创建
+                logger.warning(f"创建集合 '{collection_name}' 时发生冲突或错误: {e}。将继续尝试获取该集合。")
+
+        # 无论之前是存在、刚创建还是创建时冲突，都统一通过此方法获取集合对象
+        try:
+            collection = await asyncio.to_thread(current_db_ref.collection, collection_name)
+        except Exception as e:
+            logger.error(f"最终获取集合 '{collection_name}' 失败: {e}", exc_info=True)
+            return None  # type: ignore
 
         # 只有当 collection 成功获取且 index_definitions 存在时才应用索引
         if collection and index_definitions:
-            # _apply_indexes_to_collection 内部也会使用 self.db (间接通过 collection 对象)，
-            # 但 collection 对象一旦成功创建/获取，它内部应该持有了对数据库的有效引用，
-            # 或者其操作会因数据库关闭而自然失败。
-            # 如果 collection 本身是 None (例如上面返回了 None)，这里就不会执行。
             await self._apply_indexes_to_collection(collection, index_definitions)
         elif not collection:
+            # 这个日志在新的逻辑下应该很难被触发，但保留以防万一
             logger.warning(f"未能成功获取或创建集合 '{collection_name}'，无法应用索引。")
 
         return collection
@@ -348,6 +343,7 @@ class CoreDBCollections:
     ACTION_LOGS: str = "action_logs"  # 动作执行日志 (虽然目前用得少，但保留结构)
     EVENTS: str = "events"  # 存储所有接收到的原始事件
     CONVERSATIONS: str = "conversations"  # 存储会话信息及其注意力档案
+    CONVERSATION_SUMMARIES: str = "conversation_summaries" # 存储会话的最终总结
 
     # 集合名称与其索引定义的映射字典
     INDEX_DEFINITIONS: dict[str, list[tuple[list[str], bool, bool]]] = {
@@ -382,6 +378,10 @@ class CoreDBCollections:
                 True,
             ),  # 筛选被AI暂停处理的会话 (稀疏，因为该字段可能不存在或为false)
             (["attention_profile.base_importance_score"], False, False),  # 按会话的基础重要性排序或筛选
+        ],
+        CONVERSATION_SUMMARIES: [
+            (["conversation_id", "timestamp"], False, False), # 按会话ID和时间戳查询
+            (["timestamp"], False, False), # 按时间戳排序
         ],
         INTRUSIVE_THOUGHTS_POOL: [
             (["timestamp_generated"], False, False),  # 按生成时间排序

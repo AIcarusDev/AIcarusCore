@@ -361,6 +361,41 @@ class DBEventDocument:
 
 
 @dataclass
+class ConversationSummaryDocument:
+    """代表存储在数据库中的会话总结文档结构。"""
+
+    _key: str  # summary_id 将作为数据库文档的 _key
+    summary_id: str  # 总结的唯一ID
+    conversation_id: str  # 关联的会话ID
+    timestamp: int  # 总结创建的时间戳 (毫秒, UTC)
+    platform: str  # 会话所属平台
+    bot_id: str  # 处理此会话的机器人ID
+    summary_text: str  # 总结的文本内容
+    event_ids_covered: list[str] = field(default_factory=list)  # 此总结覆盖的事件ID列表
+
+    def to_dict(self) -> dict[str, Any]:
+        """将此 ConversationSummaryDocument 实例转换为字典，用于数据库存储。"""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> Optional["ConversationSummaryDocument"]:
+        """从数据库文档字典创建 ConversationSummaryDocument 实例。"""
+        if not data:
+            return None
+
+        known_fields = {f.name for f in fields(cls)}
+        filtered_data = {k: v for k, v in data.items() if k in known_fields}
+
+        if "_key" not in filtered_data and "summary_id" in filtered_data:
+            filtered_data["_key"] = filtered_data["summary_id"]
+        elif "_key" not in filtered_data:
+            logger.error(f"无法从字典创建 ConversationSummaryDocument：缺少 'summary_id' 或 '_key'。数据: {data}")
+            return None
+
+        return cls(**filtered_data)
+
+
+@dataclass
 class ActionRecordDocument:
     """代表存储在数据库中的 Action 执行记录的文档结构。"""
 

@@ -28,6 +28,7 @@ from src.database.core.connection_manager import ArangoDBConnectionManager, Core
 from src.database.services.action_log_storage_service import ActionLogStorageService
 from src.database.services.conversation_storage_service import ConversationStorageService
 from src.database.services.event_storage_service import EventStorageService
+from src.database.services.summary_storage_service import SummaryStorageService
 from src.database.services.thought_storage_service import ThoughtStorageService
 from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.llmrequest.utils_model import GenerationParams
@@ -49,6 +50,7 @@ class CoreSystemInitializer:
         self.conversation_storage_service: ConversationStorageService | None = None
         self.thought_storage_service: ThoughtStorageService | None = None
         self.action_log_service: ActionLogStorageService | None = None
+        self.summary_storage_service: SummaryStorageService | None = None
 
         self.main_consciousness_llm_client: ProcessorClient | None = None
         self.summary_llm_client: ProcessorClient | None = None
@@ -149,6 +151,12 @@ class CoreSystemInitializer:
                 await instance.initialize_infrastructure()
             setattr(self, attr_name, instance)
             logger.info(f"{service_class.__name__} 已初始化。")
+
+        # 单独处理 SummaryStorageService
+        self.summary_storage_service = SummaryStorageService(db_manager=self.conn_manager)
+        if hasattr(self.summary_storage_service, "initialize_infrastructure"):
+            await self.summary_storage_service.initialize_infrastructure()
+        logger.info(f"{SummaryStorageService.__name__} 已初始化。")
         logger.info("所有核心数据存储服务均已初始化。")
 
     async def initialize(self) -> None:
@@ -218,6 +226,7 @@ class CoreSystemInitializer:
                         action_handler=self.action_handler_instance,
                         bot_id=config.persona.qq_id,
                         summarization_service=self.summarization_service,
+                        summary_storage_service=self.summary_storage_service,
                         core_logic=None,
                     )
                     logger.info("ChatSessionManager 初始化完成。")
@@ -405,6 +414,11 @@ class CoreSystemInitializer:
                 logger.warning("侵入性思维线程超时未结束。")
 
         # 确保在关闭数据库连接之前，处理完所有需要数据库的清理工作
+        if self.qq_chat_session_manager:
+            logger.info("正在关闭 ChatSessionManager...")
+            await self.qq_chat_session_manager.shutdown()
+            logger.info("ChatSessionManager 已关闭。")
+
         if self.core_comm_layer:
             await self.core_comm_layer.stop()
 

@@ -10,6 +10,7 @@ from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logger_manager import get_logger
 from src.config.aicarus_configs import SubConsciousnessSettings
 from src.database.services.event_storage_service import EventStorageService
+from src.database.services.summary_storage_service import SummaryStorageService
 from src.llmrequest.llm_processor import Client as LLMProcessorClient
 
 from .chat_session import ChatSession  # Updated import
@@ -17,6 +18,7 @@ from .chat_session import ChatSession  # Updated import
 if TYPE_CHECKING:
     from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow  # 用于类型提示
     from src.core_logic.summarization_service import SummarizationService  # 用于类型提示
+    from src.database.services.summary_storage_service import SummaryStorageService
 
 logger = get_logger(__name__)
 
@@ -35,6 +37,7 @@ class ChatSessionManager:  # Renamed class
         bot_id: str,
         # 新增依赖，core_logic 稍后通过 setter 注入
         summarization_service: "SummarizationService",
+        summary_storage_service: "SummaryStorageService",
         core_logic: Optional["CoreLogicFlow"] = None,
     ) -> None:
         self.config = config
@@ -44,7 +47,8 @@ class ChatSessionManager:  # Renamed class
         self.bot_id = bot_id
         self.logger = logger
 
-        self.summarization_service = summarization_service  # 新增
+        self.summarization_service = summarization_service
+        self.summary_storage_service = summary_storage_service
         self.core_logic = core_logic  # 新增，可能为 None
 
         self.sessions: dict[str, ChatSession] = {}
@@ -112,6 +116,7 @@ class ChatSessionManager:  # Renamed class
                     core_logic=self.core_logic,  # 注入 CoreLogic
                     chat_session_manager=self,  # 注入自身
                     summarization_service=self.summarization_service,  # 注入 SummarizationService
+                    summary_storage_service=self.summary_storage_service,
                 )
 
             # # 确保现有会话实例也有 platform 和 conversation_type (如果之前没有)
@@ -268,3 +273,32 @@ class ChatSessionManager:  # Renamed class
         # async with self.lock: # 读取操作，如果 sessions 的修改都在锁内，这里可能不需要锁，或者用更轻量级的读锁
         # 简单遍历，不加锁以避免潜在的异步问题，假设读取是相对安全的
         return any(session.is_active for session in self.sessions.values())
+
+    async def shutdown(self) -> None:
+        """
+        关闭所有活动的聊天会话。
+        这会触发每个会话保存其最终总结。
+        """
+        self.logger.info("[SessionManager] 正在开始关闭所有活动会话...")
+        active_sessions: list[ChatSession]
+        async with self.lock:
+            # 创建一个当前活动会话的副本进行操作，避免在迭代时修改字典
+            active_sessions = list(self.sessions.values())
+
+        if not active_sessions:
+            self.logger.info("[SessionManager] 没有活动的会话需要关闭。")
+            return
+
+        shutdown_tasks = [session.shutdown() for session in active_sessions]
+        results = await asyncio.gather(*shutdown_tasks, return_exceptions=True)
+
+        for session, result in zip(active_sessions, results):
+            if isinstance(result, Exception):
+                self.logger.error(
+                    f"[SessionManager] 关闭会话 '{session.conversation_id}' 时发生错误: {result}",
+                    exc_info=result,
+                )
+            else:
+                self.logger.info(f"[SessionManager] 会话 '{session.conversation_id}' 已成功关闭。")
+
+        self.logger.info("[SessionManager] 所有活动会话的关闭流程已完成。")

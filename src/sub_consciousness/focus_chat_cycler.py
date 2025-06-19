@@ -13,6 +13,7 @@ from aicarus_protocols.user_info import UserInfo
 from src.common.custom_logging.logger_manager import get_logger
 from src.common.text_splitter import process_llm_response
 from src.config import config
+from src.database.services.summary_storage_service import SummaryStorageService
 
 if TYPE_CHECKING:
     from .chat_session import ChatSession
@@ -41,6 +42,7 @@ class FocusChatCycler:
         self.core_logic = self.session.core_logic
         self.chat_session_manager = self.session.chat_session_manager
         self.summarization_service = self.session.summarization_service
+        self.summary_storage_service = self.session.summary_storage_service  # 新增
 
         logger.info(f"[FocusChatCycler][{self.conversation_id}] 实例已创建。")
 
@@ -66,6 +68,9 @@ class FocusChatCycler:
                 await self._loop_task
             except asyncio.CancelledError:
                 logger.info(f"[FocusChatCycler][{self.conversation_id}] 循环任务已取消。")
+
+        # 在关闭的最后阶段保存最终总结
+        await self._save_final_summary()
 
         self._loop_active = False
         logger.info(f"[FocusChatCycler][{self.conversation_id}] 已关闭。")
@@ -217,6 +222,8 @@ class FocusChatCycler:
                 )
 
             if hasattr(self.chat_session_manager, "deactivate_session"):
+                # 在停用会话前，保存最终的总结
+                await self._save_final_summary()
                 await self.chat_session_manager.deactivate_session(self.conversation_id)
 
             return True
@@ -385,3 +392,33 @@ class FocusChatCycler:
                     logger.info(f"Summary consolidated. New summary (first 50 chars): {new_summary[:50]}...")
             except Exception as e:
                 logger.error(f"Error during summary consolidation: {e}", exc_info=True)
+
+    async def _save_final_summary(self) -> None:
+        """保存当前会话的最终总结到数据库。"""
+        final_summary = self.session.current_handover_summary
+        if not final_summary or not final_summary.strip():
+            logger.info(f"[{self.conversation_id}] 没有最终总结可保存，跳过。")
+            return
+
+        # 为了获取 event_ids_covered，我们需要合并已处理和未处理的事件ID
+        # 注意：这可能不是最精确的做法，但能确保所有相关事件都被记录
+        # 一个更精确的方法是在每次总结时都记录下覆盖的ID
+        event_ids_covered = [
+            event.get("event_id") for event in self.session.events_since_last_summary if event.get("event_id")
+        ]
+
+        logger.info(f"[{self.conversation_id}] 正在尝试保存最终的会话总结...")
+        try:
+            success = await self.summary_storage_service.save_summary(
+                conversation_id=self.session.conversation_id,
+                summary_text=final_summary,
+                platform=self.session.platform,
+                bot_id=self.session.bot_id,
+                event_ids_covered=event_ids_covered,
+            )
+            if success:
+                logger.info(f"[{self.conversation_id}] 成功保存最终总结。")
+            else:
+                logger.warning(f"[{self.conversation_id}] 保存最终总结失败（服务返回False）。")
+        except Exception as e:
+            logger.error(f"[{self.conversation_id}] 保存最终总结时发生意外错误: {e}", exc_info=True)
