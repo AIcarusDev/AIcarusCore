@@ -89,25 +89,25 @@ class SummarizationService:
         """
         persona_config = config.persona
         system_prompt_parts = [
-            f"你是{persona_config.bot_name}，正在以第一人称视角撰写一份持续更新的回忆录。",
+            f"你是{persona_config.bot_name}，正在以第一人称视角撰写一份持续更新的聊天记录总结。",
             persona_config.description or "",
             persona_config.profile or "",
-            "你的核心任务是：将一段“最新的对话内容”无缝地整合进“已有的回忆录”中，生成一份更新后的、连贯的完整回忆录。",
-            "不用在回忆录中加入关于你自身的、未在对话中出现的描述。你的任务是总结和串联对话事件。"
-            "这非常重要：更新后的回忆录必须保留所有旧回忆录中的关键信息、情感转折和重要决策。不能因为有了新内容就忘记或丢弃旧的重点",
+            "你的核心任务是：将一段“最新的对话内容”无缝地整合进“已有的记录总结”中，生成一份更新后的、连贯的完整聊天记录总结。",
+            "不用在记录总结中加入关于你自身的、未在对话中出现的描述。你的任务是总结和串联对话事件。"
+            "这非常重要：更新后的记录总结必须保留所有旧回忆录中的关键信息、情感转折和重要决策。不能因为有了新内容就忘记或丢弃旧的重点",
             "如果已总结的内容已经非常长，可以适当的删减一些你觉得不重要的部分",
             "你要将新的情节自然地融入到已有的总结中，而不是简单地把新内容附加在末尾。",
             "最终的成品应该是一份流畅、完整、独立的个人回忆，而不是一份摘要列表。",
-            "请确保输出的只是更新后的回忆录本身，不要包含任何额外的解释或标题。",
+            "请确保输出的只是更新后的聊天记录总结本身，不要包含任何额外的解释或标题。",
         ]
         system_prompt = "\\n".join(filter(None, system_prompt_parts))
 
         user_prompt_parts = []
         if previous_summary and previous_summary.strip():
-            user_prompt_parts.append(f"这是之前总结过的，已有的回忆录：\n---\n{previous_summary}\n---")
+            user_prompt_parts.append(f"这是之前总结过的，已有的记录总结：\n---\n{previous_summary}\n---")
 
         user_prompt_parts.append(f"这是刚刚发生的最新对话：\n---\n{recent_dialogue_text}\n---")
-        user_prompt_parts.append("请将最新的对话内容，整合进已有的回忆录中，输出一份更新后的、完整的版本。")
+        user_prompt_parts.append("请将最新的对话内容，整合进已有的聊天记录总结中，输出一份更新后的、完整的版本。")
         user_prompt = "\n\n".join(user_prompt_parts)
 
         return system_prompt, user_prompt
