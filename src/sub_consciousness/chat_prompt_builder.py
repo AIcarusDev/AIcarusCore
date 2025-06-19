@@ -21,7 +21,6 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-
 class ChatPromptBuilder:
     def __init__(
         self,
@@ -190,9 +189,9 @@ class ChatPromptBuilder:
                         "title": event_data.user_info.user_titlename or "",
                         "perm": event_data.user_info.permission_level or "成员",
                     }
-        
+
         if self.conversation_type == "private":
-            for p_id, user_data in user_map.items():
+            for _, user_data in user_map.items():
                 if user_data.get("uid_str") == "U1":
                     user_nick = user_data.get("nick", "对方")
                     break

@@ -106,7 +106,9 @@ class DefaultMessageProcessor:
 
                     if conv_id_extracted:
                         event_db_dict["conversation_id_extracted"] = conv_id_extracted
-                        self.logger.debug(f"为事件 {proto_event.event_id} 添加了 conversation_id_extracted: {conv_id_extracted}")
+                        self.logger.debug(
+                            f"为事件 {proto_event.event_id} 添加了 conversation_id_extracted: {conv_id_extracted}"
+                        )
                     else:
                         # 仅当是消息事件但无法提取ID时，才记录一个警告
                         self.logger.warning(

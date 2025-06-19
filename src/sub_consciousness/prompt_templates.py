@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 """
 This file stores the prompt templates for the chat sub-consciousness.
 """

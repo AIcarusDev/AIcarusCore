@@ -323,9 +323,7 @@ class EventStorageService:
             results = await self.conn_manager.execute_query(query, bind_vars)
 
             # 如果 results 列表不为空，说明至少找到了一个匹配的文档
-            if results:
-                return True
-            return False
+            return bool(results)
 
         except Exception as e:
             self.logger.error(

@@ -4,7 +4,7 @@ import random
 import re
 import time
 import uuid
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from aicarus_protocols.conversation_info import ConversationInfo
 from aicarus_protocols.seg import SegBuilder
@@ -26,7 +26,7 @@ class FocusChatCycler:
     负责驱动“观察-思考-决策”的循环，并在没有新消息时进行自我再思考。
     """
 
-    def __init__(self, session: "ChatSession"):
+    def __init__(self, session: "ChatSession") -> None:
         self.session = session
         self._loop_active: bool = False
         self._loop_task: asyncio.Task | None = None
@@ -44,7 +44,7 @@ class FocusChatCycler:
 
         logger.info(f"[FocusChatCycler][{self.conversation_id}] 实例已创建。")
 
-    async def start(self):
+    async def start(self) -> None:
         """启动循环引擎。"""
         if self._loop_active:
             return
@@ -52,7 +52,7 @@ class FocusChatCycler:
         self._loop_task = asyncio.create_task(self._chat_loop())
         logger.info(f"[FocusChatCycler][{self.conversation_id}] 循环已启动。")
 
-    async def shutdown(self):
+    async def shutdown(self) -> None:
         """优雅地关闭循环引擎。"""
         if not self._loop_active or self._shutting_down:
             return
@@ -92,7 +92,7 @@ class FocusChatCycler:
         logger.debug(f"[FocusChatCycler][{self.conversation_id}] 等待超时，进入下一轮思考。")
         return False
 
-    async def _chat_loop(self):
+    async def _chat_loop(self) -> None:
         """专注聊天的主循环。"""
         while not self._shutting_down:
             try:
@@ -289,7 +289,9 @@ class FocusChatCycler:
                 await asyncio.sleep(random.uniform(0.5, 1.5))
         return action_recorded
 
-    def _build_reply_segments(self, index: int, text: str, quote_id: str | None, at_raw: Any, uid_map: dict) -> list:
+    def _build_reply_segments(
+        self, index: int, text: str, quote_id: str | None, at_raw: str | list | None, uid_map: dict
+    ) -> list:
         """构建单条回复消息的 segments。"""
         payload = []
         if index == 0:
@@ -342,7 +344,7 @@ class FocusChatCycler:
             logger.error(f"Failed to save internal ACT event: {e}", exc_info=True)
             return False
 
-    async def _mark_events_as_processed(self, event_ids: list[str]):
+    async def _mark_events_as_processed(self, event_ids: list[str]) -> None:
         """获取事件详情以用于总结，然后将事件标记为已处理。"""
         if not event_ids:
             return
@@ -365,7 +367,7 @@ class FocusChatCycler:
         except Exception as e:
             logger.error(f"Error during marking events as processed: {e}", exc_info=True)
 
-    async def _consolidate_summary_if_needed(self):
+    async def _consolidate_summary_if_needed(self) -> None:
         """检查并执行摘要。"""
         if self.session.message_count_since_last_summary >= self.session.SUMMARY_INTERVAL:
             logger.info("Reached summary interval. Triggering summary consolidation.")
