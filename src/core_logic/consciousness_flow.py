@@ -83,17 +83,38 @@ class CoreLogic:
 
         return extracted_think or "主意识在进入专注前没有留下明确的即时想法。"
 
+    def get_latest_mood(self) -> str:
+        """获取主意识最新的心情。"""
+        if not self.last_known_state:
+            return "平静"  # 默认心情
+
+        mood_raw = self.last_known_state.get("mood", "你现在的心情大概是：平静。")
+        
+        # 提取冒号后面的心情部分
+        if "：" in mood_raw:
+            extracted_mood = mood_raw.split("：", 1)[-1].strip()
+            # 去掉可能存在的句号
+            if extracted_mood.endswith("。"):
+                extracted_mood = extracted_mood[:-1].strip()
+            return extracted_mood or "平静"
+        
+        return mood_raw or "平静"
+
     def trigger_immediate_thought_cycle(
-        self, handover_summary: str | None = None, last_focus_think: str | None = None
+        self,
+        handover_summary: str | None = None,
+        last_focus_think: str | None = None,
+        last_focus_mood: str | None = None,
     ) -> None:
         self.logger.info(
-            f"接收到立即思考触发信号。交接总结: {'有' if handover_summary else '无'}, 最后想法: {'有' if last_focus_think else '无'}"
+            f"接收到立即思考触发信号。交接总结: {'有' if handover_summary else '无'}, "
+            f"最后想法: {'有' if last_focus_think else '无'}, 最后心情: {last_focus_mood or '无'}"
         )
-        if handover_summary or last_focus_think:
+        if handover_summary or last_focus_think or last_focus_mood:
             if hasattr(self.state_manager, "set_next_handover_info") and callable(
                 self.state_manager.set_next_handover_info
             ):
-                self.state_manager.set_next_handover_info(handover_summary, last_focus_think)
+                self.state_manager.set_next_handover_info(handover_summary, last_focus_think, last_focus_mood)
                 self.logger.info("已调用 AIStateManager.set_next_handover_info 存储交接信息。")
             else:
                 self.logger.error(
@@ -350,6 +371,8 @@ class CoreLogic:
                     if not last_think_for_focus or not last_think_for_focus.strip():
                         last_think_for_focus = "主意识在进入专注前没有留下明确的即时想法。"
 
+                    last_mood_for_focus = generated_thought.get("mood", "平静")
+
                     if hasattr(self.chat_session_manager, "activate_session_by_id"):
                         target_conv_details = next(
                             (
@@ -366,7 +389,8 @@ class CoreLogic:
                                 try:
                                     await self.chat_session_manager.activate_session_by_id(
                                         conversation_id=focus_conversation_id,
-                                        core_last_think=last_think_for_focus,  # 这里传递的是确保有值的字符串
+                                        core_last_think=last_think_for_focus,
+                                        core_last_mood=last_mood_for_focus,
                                         platform=platform,
                                         conversation_type=conv_type,
                                     )

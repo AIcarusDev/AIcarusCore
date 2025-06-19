@@ -59,6 +59,7 @@ class ChatSession:  # Renamed class
         # 新增状态，用于首次构建 prompt
         self.is_first_turn_for_session: bool = True
         self.initial_core_think: str | None = None
+        self.initial_core_mood: str | None = None
 
         # 新增状态，用于渐进式总结
         self.current_handover_summary: str | None = None
@@ -83,18 +84,20 @@ class ChatSession:  # Renamed class
 
         logger.info(f"[ChatSession][{self.conversation_id}] 实例已创建。")
 
-    def activate(self, core_last_think: str | None = None) -> None:
+    def activate(self, core_last_think: str | None = None, core_last_mood: str | None = None) -> None:
         """激活会话并启动其主动循环。"""
         if self.is_active:
             # 如果已经激活，可能只是更新思考上下文
             self.initial_core_think = core_last_think
+            self.initial_core_mood = core_last_mood
             self.is_first_turn_for_session = True  # 重新进入时，视为新周期的第一轮
-            logger.info(f"[ChatSession][{self.conversation_id}] 会话已激活，重置思考上下文。")
+            logger.info(f"[ChatSession][{self.conversation_id}] 会话已激活，重置思考和心情上下文。")
             return
 
         self.is_active = True
         self.is_first_turn_for_session = True
         self.initial_core_think = core_last_think
+        self.initial_core_mood = core_last_mood
         self.last_active_time = time.time()
 
         # 重置状态

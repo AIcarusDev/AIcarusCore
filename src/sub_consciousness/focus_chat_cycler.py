@@ -209,9 +209,12 @@ class FocusChatCycler:
             logger.info(f"[FocusChatCycler][{self.conversation_id}] LLM决策结束专注模式。")
             handover_summary = self.session.current_handover_summary or "我结束了专注，但似乎没什么特别的总结可以交接。"
             last_session_think = self.session.last_llm_decision.get("think", "专注会话结束，无特定最终想法。")
+            last_session_mood = self.session.last_llm_decision.get("mood", "平静")
 
             if hasattr(self.core_logic, "trigger_immediate_thought_cycle"):
-                self.core_logic.trigger_immediate_thought_cycle(handover_summary, last_session_think)
+                self.core_logic.trigger_immediate_thought_cycle(
+                    handover_summary, last_session_think, last_session_mood
+                )
 
             if hasattr(self.chat_session_manager, "deactivate_session"):
                 await self.chat_session_manager.deactivate_session(self.conversation_id)

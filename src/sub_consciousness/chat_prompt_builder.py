@@ -342,12 +342,20 @@ class ChatPromptBuilder:
 
         previous_thoughts_block_str = ""
         if is_first_turn:
+            mood_part = ""
+            if session.initial_core_mood:
+                mood_part = f'你刚才的心情是"{session.initial_core_mood}"。\n'
+
+            think_part = ""
             if last_think_from_core:
-                previous_thoughts_block_str = f"<previous_thoughts_and_actions>\n你刚才的想法是：{last_think_from_core}\n\n现在你刚刚把注意力放到这个群聊中；\n\n原因是：你对当前聊天内容有点兴趣\n</previous_thoughts_and_actions>"
+                think_part = f"你刚才的想法是：{last_think_from_core}\n\n现在你刚刚把注意力放到这个群聊中；\n\n原因是：你对当前聊天内容有点兴趣\n"
             else:
-                previous_thoughts_block_str = "<previous_thoughts_and_actions>\n你已进入专注模式，开始处理此会话。\n</previous_thoughts_and_actions>"
+                think_part = "你已进入专注模式，开始处理此会话。\n"
+
+            previous_thoughts_block_str = f"<previous_thoughts_and_actions>\n{mood_part}{think_part}</previous_thoughts_and_actions>"
         elif last_llm_decision:  # 不是第一次，且有上一轮子意识的思考 (last_llm_decision 来自 ChatSession)
             think_content = last_llm_decision.get("think", "")
+            mood_content = last_llm_decision.get("mood", "平静")
             reply_text = last_llm_decision.get("reply_text")
             motivation = last_llm_decision.get("motivation", "")
             reply_willing = last_llm_decision.get("reply_willing", False)
@@ -365,7 +373,9 @@ class ChatPromptBuilder:
                 else:
                     action_desc = "暂时不发言"
 
-            prev_parts = [f'<previous_thoughts_and_actions>\n刚刚你的内心想法是："{think_content}"']
+            prev_parts = [
+                f'<previous_thoughts_and_actions>\n刚刚你的心情是："{mood_content}"\n刚刚你的内心想法是："{think_content}"'
+            ]
             if action_desc:
                 prev_parts.append(f"出于这个想法，你刚才做了：{action_desc}")
 

@@ -194,9 +194,10 @@ class ChatSessionManager:  # Renamed class
         # TODO
         if (self._is_bot_mentioned(event) or event.event_type.startswith("message.private")) and not session.is_active:
             self.logger.info(f"会话 '{conv_id}' 满足激活条件 (被@或私聊)，准备激活。")
-            # 从 CoreLogic 获取最新的思考
+            # 从 CoreLogic 获取最新的思考和心情
             last_think = self.core_logic.get_latest_thought() if self.core_logic else None
-            session.activate(core_last_think=last_think)
+            last_mood = self.core_logic.get_latest_mood() if self.core_logic else "平静"
+            session.activate(core_last_think=last_think, core_last_mood=last_mood)
 
         # 在新的主动循环模型中，管理器不再直接将事件推给会话。
         # 会话的循环 (`FocusChatCycler`) 会自己从数据库拉取最新的事件。
@@ -224,7 +225,12 @@ class ChatSessionManager:  # Renamed class
                     session.deactivate()
 
     async def activate_session_by_id(
-        self, conversation_id: str, core_last_think: str, platform: str, conversation_type: str
+        self,
+        conversation_id: str,
+        core_last_think: str,
+        core_last_mood: str | None,
+        platform: str,
+        conversation_type: str,
     ) -> None:
         """
         根据会话ID激活一个专注会话，并传递主意识的最后想法以及会话的platform和type。
@@ -233,7 +239,8 @@ class ChatSessionManager:  # Renamed class
         """
         self.logger.info(
             f"[SessionManager] 收到激活会话 '{conversation_id}' 的请求。"
-            f" Platform: {platform}, Type: {conversation_type}, 主意识想法: '{core_last_think[:50]}...'"
+            f" Platform: {platform}, Type: {conversation_type}, 主意识想法: '{core_last_think[:50]}...', "
+            f"主意识心情: {core_last_mood}"
         )
 
         # 现在 platform 和 conversation_type 是由调用者（CoreLogic）提供的，
@@ -245,8 +252,8 @@ class ChatSessionManager:  # Renamed class
             )
 
             if session:
-                session.activate(core_last_think=core_last_think)  # 调用 ChatSession 的 activate 方法并传递想法
-                self.logger.info(f"[SessionManager] 会话 '{conversation_id}' 已成功激活，并传递了主意识的想法。")
+                session.activate(core_last_think=core_last_think, core_last_mood=core_last_mood)
+                self.logger.info(f"[SessionManager] 会话 '{conversation_id}' 已成功激活，并传递了主意识的想法和心情。")
             else:
                 # get_or_create_session 内部如果因为 core_logic 未注入等原因创建失败会抛异常，理论上不会到这里
                 self.logger.error(f"[SessionManager] 激活会话 '{conversation_id}' 失败：未能获取或创建会话实例。")

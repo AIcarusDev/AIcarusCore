@@ -30,20 +30,26 @@ class AIStateManager:
         self.thought_service = thought_service
         self._next_handover_summary: str | None = None
         self._next_last_focus_think: str | None = None
+        self._next_last_focus_mood: str | None = None
         logger.info("AIStateManager 初始化完毕，已准备好接收交接信息。")
 
-    def set_next_handover_info(self, summary: str | None, last_focus_think: str | None) -> None:
+    def set_next_handover_info(
+        self, summary: str | None, last_focus_think: str | None, last_focus_mood: str | None
+    ) -> None:
         """
         存储从专注模式传递过来的交接信息，供下一轮思考使用。
         哼，别想把这些重要的东西随便丢掉！
         """
         self._next_handover_summary = summary
         self._next_last_focus_think = last_focus_think
+        self._next_last_focus_mood = last_focus_mood
         log_parts = []
         if summary:
             log_parts.append(f"交接总结 (前50字符): '{summary[:50]}...'")
         if last_focus_think:
             log_parts.append(f"专注模式最后想法 (前50字符): '{last_focus_think[:50]}...'")
+        if last_focus_mood:
+            log_parts.append(f"专注模式最后心情: '{last_focus_mood}'")
         if log_parts:
             logger.info(f"AIStateManager 已接收到交接信息：{'; '.join(log_parts)}")
         else:
@@ -81,12 +87,14 @@ class AIStateManager:
             )
 
             # 检查是否有来自专注模式的交接信息，并用它覆盖/补充上一轮思考
-            if self._next_last_focus_think or self._next_handover_summary:
+            if self._next_last_focus_think or self._next_handover_summary or self._next_last_focus_mood:
                 handover_parts = []
+                if self._next_last_focus_mood:
+                    mood_for_prompt = f"你现在的心情大概是：{self._next_last_focus_mood} "
                 if self._next_last_focus_think:
-                    handover_parts.append(f"刚刚结束的专注会话留下的最后想法是：'{self._next_last_focus_think}'")
+                    handover_parts.append(f"刚刚结束的专注聊天留下的最后想法是：'{self._next_last_focus_think}'")
                 if self._next_handover_summary:
-                    handover_parts.append(f"该专注会话的总结纪要如下：\n---\n{self._next_handover_summary}\n---")
+                    handover_parts.append(f"该专注聊天的总结大致如下：\n---\n{self._next_handover_summary}\n---")
 
                 if handover_parts:
                     previous_thinking_for_prompt = "。\n".join(handover_parts)
@@ -95,6 +103,7 @@ class AIStateManager:
                 # 清理交接信息，确保只用一次
                 self._next_handover_summary = None
                 self._next_last_focus_think = None
+                self._next_last_focus_mood = None
                 logger.debug("已清理AIStateManager中的交接信息。")
 
             guidance_db = latest_thought_document.get(
