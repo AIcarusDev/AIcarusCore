@@ -52,11 +52,11 @@ class ContextBuilder:
             )
             self.logger.debug(f"获取到 {len(system_lifecycle_events_raw)} 条用于状态摘要的系统事件。")
             if system_lifecycle_events_raw:
-                self.logger.info(
+                self.logger.debug(
                     f"【调试】获取到的 system_lifecycle_events_raw 内容 (前3条): {json.dumps(system_lifecycle_events_raw[:3], ensure_ascii=False, indent=2)}"
                 )
             else:
-                self.logger.info("【调试】system_lifecycle_events_raw 为空或None。")
+                self.logger.debug("【调试】system_lifecycle_events_raw 为空或None。")
 
             all_other_events_excluding_master: list[dict[str, Any]] = (
                 await self.event_storage.get_recent_chat_message_documents(
