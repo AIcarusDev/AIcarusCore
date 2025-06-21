@@ -352,7 +352,9 @@ class ChatPromptBuilder:
             else:
                 think_part = "你已进入专注模式，开始处理此会话。\n"
 
-            previous_thoughts_block_str = f"<previous_thoughts_and_actions>\n{mood_part}{think_part}</previous_thoughts_and_actions>"
+            previous_thoughts_block_str = (
+                f"<previous_thoughts_and_actions>\n{mood_part}{think_part}</previous_thoughts_and_actions>"
+            )
         elif last_llm_decision:  # 不是第一次，且有上一轮子意识的思考 (last_llm_decision 来自 ChatSession)
             think_content = last_llm_decision.get("think", "")
             mood_content = last_llm_decision.get("mood", "平静")

@@ -292,7 +292,7 @@ class ChatSessionManager:  # Renamed class
         shutdown_tasks = [session.shutdown() for session in active_sessions]
         results = await asyncio.gather(*shutdown_tasks, return_exceptions=True)
 
-        for session, result in zip(active_sessions, results):
+        for session, result in zip(active_sessions, results, strict=False):
             if isinstance(result, Exception):
                 self.logger.error(
                     f"[SessionManager] 关闭会话 '{session.conversation_id}' 时发生错误: {result}",

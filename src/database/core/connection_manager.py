@@ -343,7 +343,7 @@ class CoreDBCollections:
     ACTION_LOGS: str = "action_logs"  # 动作执行日志 (虽然目前用得少，但保留结构)
     EVENTS: str = "events"  # 存储所有接收到的原始事件
     CONVERSATIONS: str = "conversations"  # 存储会话信息及其注意力档案
-    CONVERSATION_SUMMARIES: str = "conversation_summaries" # 存储会话的最终总结
+    CONVERSATION_SUMMARIES: str = "conversation_summaries"  # 存储会话的最终总结
 
     # 集合名称与其索引定义的映射字典
     INDEX_DEFINITIONS: dict[str, list[tuple[list[str], bool, bool]]] = {
@@ -380,8 +380,8 @@ class CoreDBCollections:
             (["attention_profile.base_importance_score"], False, False),  # 按会话的基础重要性排序或筛选
         ],
         CONVERSATION_SUMMARIES: [
-            (["conversation_id", "timestamp"], False, False), # 按会话ID和时间戳查询
-            (["timestamp"], False, False), # 按时间戳排序
+            (["conversation_id", "timestamp"], False, False),  # 按会话ID和时间戳查询
+            (["timestamp"], False, False),  # 按时间戳排序
         ],
         INTRUSIVE_THOUGHTS_POOL: [
             (["timestamp_generated"], False, False),  # 按生成时间排序

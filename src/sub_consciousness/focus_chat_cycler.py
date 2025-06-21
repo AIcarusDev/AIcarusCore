@@ -13,7 +13,6 @@ from aicarus_protocols.user_info import UserInfo
 from src.common.custom_logging.logger_manager import get_logger
 from src.common.text_splitter import process_llm_response
 from src.config import config
-from src.database.services.summary_storage_service import SummaryStorageService
 
 if TYPE_CHECKING:
     from .chat_session import ChatSession
@@ -217,9 +216,7 @@ class FocusChatCycler:
             last_session_mood = self.session.last_llm_decision.get("mood", "平静")
 
             if hasattr(self.core_logic, "trigger_immediate_thought_cycle"):
-                self.core_logic.trigger_immediate_thought_cycle(
-                    handover_summary, last_session_think, last_session_mood
-                )
+                self.core_logic.trigger_immediate_thought_cycle(handover_summary, last_session_think, last_session_mood)
 
             if hasattr(self.chat_session_manager, "deactivate_session"):
                 # 在停用会话前，保存最终的总结

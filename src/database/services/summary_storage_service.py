@@ -2,7 +2,6 @@
 import asyncio
 import time
 import uuid
-from typing import Any
 
 from src.common.custom_logging.logger_manager import get_logger
 from src.database.core.connection_manager import ArangoDBConnectionManager, CoreDBCollections
@@ -16,7 +15,7 @@ class SummaryStorageService:
     服务类，负责处理会话总结的数据库存储操作。
     """
 
-    def __init__(self, db_manager: ArangoDBConnectionManager):
+    def __init__(self, db_manager: ArangoDBConnectionManager) -> None:
         """
         初始化服务。
         :param db_manager: ArangoDBManager 的实例。

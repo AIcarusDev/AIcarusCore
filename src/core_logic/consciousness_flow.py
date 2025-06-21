@@ -89,7 +89,7 @@ class CoreLogic:
             return "平静"  # 默认心情
 
         mood_raw = self.last_known_state.get("mood", "你现在的心情大概是：平静。")
-        
+
         # 提取冒号后面的心情部分
         if "：" in mood_raw:
             extracted_mood = mood_raw.split("：", 1)[-1].strip()
@@ -97,7 +97,7 @@ class CoreLogic:
             if extracted_mood.endswith("。"):
                 extracted_mood = extracted_mood[:-1].strip()
             return extracted_mood or "平静"
-        
+
         return mood_raw or "平静"
 
     def trigger_immediate_thought_cycle(
