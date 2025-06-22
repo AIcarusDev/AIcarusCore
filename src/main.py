@@ -28,6 +28,7 @@ from src.database.core.connection_manager import ArangoDBConnectionManager, Core
 from src.database.services.action_log_storage_service import ActionLogStorageService
 from src.database.services.conversation_storage_service import ConversationStorageService
 from src.database.services.event_storage_service import EventStorageService
+from src.database.services.memory_storage_service import MemoryStorageService
 from src.database.services.summary_storage_service import SummaryStorageService
 from src.database.services.thought_storage_service import ThoughtStorageService
 from src.llmrequest.llm_processor import Client as ProcessorClient
@@ -51,6 +52,7 @@ class CoreSystemInitializer:
         self.thought_storage_service: ThoughtStorageService | None = None
         self.action_log_service: ActionLogStorageService | None = None
         self.summary_storage_service: SummaryStorageService | None = None
+        self.memory_storage_service: MemoryStorageService | None = None
 
         self.main_consciousness_llm_client: ProcessorClient | None = None
         self.summary_llm_client: ProcessorClient | None = None
@@ -144,6 +146,7 @@ class CoreSystemInitializer:
             "conversation_storage_service": ConversationStorageService,
             "thought_storage_service": ThoughtStorageService,
             "action_log_service": ActionLogStorageService,
+            "memory_storage_service": MemoryStorageService,
         }
         for attr_name, service_class in services_to_init.items():
             instance = service_class(conn_manager=self.conn_manager)
@@ -320,6 +323,7 @@ class CoreSystemInitializer:
                 context_builder=self.context_builder_instance,
                 thought_generator=self.thought_generator_instance,
                 thought_persistor=self.thought_persistor_instance,
+                memory_storage_service=self.memory_storage_service,
                 prompt_builder=self.thought_prompt_builder_instance,
                 stop_event=self.stop_event,
                 immediate_thought_trigger=self.immediate_thought_trigger,

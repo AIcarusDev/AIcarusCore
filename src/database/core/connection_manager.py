@@ -344,6 +344,8 @@ class CoreDBCollections:
     EVENTS: str = "events"  # 存储所有接收到的原始事件
     CONVERSATIONS: str = "conversations"  # 存储会话信息及其注意力档案
     CONVERSATION_SUMMARIES: str = "conversation_summaries"  # 存储会话的最终总结
+    EPISODIC_MEMORIES: str = "episodic_memories"  # 新增：体验类记忆主表
+    MEMORY_METADATA: str = "memory_metadata"  # 新增：体验类记忆的元数据（标签）
 
     # 集合名称与其索引定义的映射字典
     INDEX_DEFINITIONS: dict[str, list[tuple[list[str], bool, bool]]] = {
@@ -386,6 +388,16 @@ class CoreDBCollections:
         INTRUSIVE_THOUGHTS_POOL: [
             (["timestamp_generated"], False, False),  # 按生成时间排序
             (["used"], False, False),  # 关键索引，用于高效查找未被使用过的侵入性思维
+        ],
+        EPISODIC_MEMORIES: [
+            (["memory_id"], True, False), # 记忆ID，唯一
+            (["conversation_id", "created_at"], False, False), # 按会话和时间查询
+            (["importance_score"], False, False), # 按重要性排序
+            (["last_accessed_at"], False, False), # 按访问时间排序
+        ],
+        MEMORY_METADATA: [
+            (["memory_id", "meta_key"], False, False), # 快速查找一个记忆的所有同类标签
+            (["meta_key", "meta_value"], False, False), # 核心索引：通过标签的键值对反向查找记忆
         ],
     }
 

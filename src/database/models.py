@@ -442,3 +442,68 @@ class ActionRecordDocument:
             return None
 
         return cls(**filtered_data)
+
+
+@dataclass
+class EpisodicMemoryDocument:
+    """代表存储在数据库中的单条体验类记忆的文档结构。"""
+
+    _key: str  # memory_id 将作为数据库文档的 _key
+    memory_id: str  # 记忆的唯一ID (例如: uuid)
+    conversation_id: str  # 关联的会话ID，用于追溯记忆来源
+
+    # 核心内容
+    subjective_description: str  # 机器人对事件的主观描述 (日记正文)
+    source_event_ids: list[str] = field(default_factory=list)  # 构成此记忆的原始事件ID列表
+
+    # 状态与评估
+    emotion_state: str | None = None  # 关联的情感状态 (例如: "愉快", "悲伤-中等")
+    confidence_score: float = 1.0  # AI对此记忆真实性的置信度 (0.0 - 1.0)
+    importance_score: float = 0.5  # AI评估的此记忆的重要性 (0.0 - 1.0)
+
+    # 访问与衰减相关
+    access_count: int = 0  # 此记忆被访问（回忆）的次数
+    created_at: int = field(default_factory=lambda: int(time.time() * 1000))  # 创建时间戳 (毫秒, UTC)
+    last_accessed_at: int = field(default_factory=lambda: int(time.time() * 1000))  # 上次访问时间戳 (毫秒, UTC)
+
+    # 可选的扩展数据
+    extra: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        """将实例转换为字典用于数据库存储。"""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "EpisodicMemoryDocument":
+        """从字典创建实例。"""
+        if not data:
+            return None
+        known_fields = {f.name for f in fields(cls)}
+        filtered_data = {k: v for k, v in data.items() if k in known_fields}
+        if "_key" not in filtered_data and "memory_id" in filtered_data:
+            filtered_data["_key"] = filtered_data["memory_id"]
+        return cls(**filtered_data)
+
+
+@dataclass
+class MemoryMetadataDocument:
+    """代表与体验记忆关联的单个元数据（标签）。"""
+
+    _key: str | None = None # 自动生成的key
+    memory_id: str  # 外键，关联到 EpisodicMemoryDocument 的 memory_id
+    meta_key: str  # 标签的键 (例如: "人物", "主题", "关键实体")
+    meta_value: str  # 标签的值 (例如: "用户A", "宠物生病", "小狗")
+    created_at: int = field(default_factory=lambda: int(time.time() * 1000))
+
+    def to_dict(self) -> dict[str, Any]:
+        """将实例转换为字典用于数据库存储。"""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "MemoryMetadataDocument":
+        """从字典创建实例。"""
+        if not data:
+            return None
+        known_fields = {f.name for f in fields(cls)}
+        filtered_data = {k: v for k, v in data.items() if k in known_fields}
+        return cls(**filtered_data)
