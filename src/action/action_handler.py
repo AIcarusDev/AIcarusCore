@@ -327,7 +327,9 @@ class ActionHandler:
 
         # 将最终结果设置到 Future 中，唤醒等待的协程
         if not pending_future.done():
-            result_for_future = (action_successful, final_result_for_thought)
+            # 修正：Future 的结果应该是 (成功状态, 包含详情的字典或None)
+            result_payload = result_details_from_response if action_successful else {"error": error_message_from_response}
+            result_for_future = (action_successful, result_payload)
             pending_future.set_result(result_for_future)
 
         # 更新思考文档
@@ -454,7 +456,8 @@ class ActionHandler:
                 await self._handle_action_timeout(
                     core_action_id, thought_doc_key, original_action_description, action_to_send
                 )
-            return False, f"动作 '{original_action_description}' 响应超时。"
+            # 修正：返回统一的元组格式
+            return False, {"error": f"动作 '{original_action_description}' 响应超时。"}
         except Exception as e:
             self.logger.error(f"等待动作响应时发生未知错误: {e}", exc_info=True)
             return False, f"等待动作 '{original_action_description}' 响应时发生内部错误。"
@@ -606,6 +609,62 @@ class ActionHandler:
             self.thought_trigger.set()
 
         return action_was_successful, final_result_for_shimo, action_result_payload
+
+    async def send_action_and_wait_for_response(
+        self, action_event_dict: dict[str, Any], timeout: int = ACTION_RESPONSE_TIMEOUT_SECONDS
+    ) -> tuple[bool, dict[str, Any] | None]:
+        """
+        一个公共方法，用于发送一个动作并等待其响应。
+        这对于需要从适配器获取数据的内部工具非常有用。
+        """
+        if not self.action_sender:
+            self.logger.error("ActionSender 未设置，无法发送动作。")
+            return False, {"error": "ActionSender is not initialized."}
+
+        action_id = action_event_dict.get("event_id")
+        if not action_id:
+            action_id = str(uuid.uuid4())
+            action_event_dict["event_id"] = action_id
+
+        adapter_id = action_event_dict.get("platform")
+        if not adapter_id:
+            return False, {"error": "Action event must contain a 'platform' key as the target adapter_id."}
+
+        # --- 修正：在这里补充日志记录 ---
+        if self.action_log_service:
+            await self.action_log_service.save_action_attempt(
+                action_id=action_id,
+                action_type=action_event_dict.get("event_type", "internal_tool_call"),
+                timestamp=int(time.time() * 1000),
+                platform=adapter_id,
+                bot_id=action_event_dict.get("bot_id", config.persona.bot_name),
+                conversation_id=action_event_dict.get("conversation_info", {}).get("conversation_id", "N/A"),
+                content=action_event_dict.get("content", []),
+            )
+        # --- 修正结束 ---
+
+        # 发送动作
+        send_success = await self.action_sender.send_action_to_adapter_by_id(adapter_id, action_event_dict)
+        if not send_success:
+            return False, {"error": f"Failed to send action to adapter '{adapter_id}'."}
+
+        # 创建并等待 Future
+        response_future = asyncio.Future()
+        # 注意：对于这种内部调用，我们不传递 thought_doc_key 和 description
+        self._pending_actions[action_id] = (response_future, None, "internal_tool_call", action_event_dict)
+
+        try:
+            # 等待 handle_action_response 设置结果
+            successful, result_payload = await asyncio.wait_for(response_future, timeout=timeout)
+            return successful, result_payload
+        except asyncio.TimeoutError:
+            self.logger.warning(f"内部工具调用动作 (ID: {action_id}) 等待响应超时。")
+            self._pending_actions.pop(action_id, None)  # 清理
+            return False, {"error": "Action response timed out."}
+        except Exception as e:
+            self.logger.error(f"等待内部工具动作响应时发生未知错误: {e}", exc_info=True)
+            self._pending_actions.pop(action_id, None)  # 清理
+            return False, {"error": f"An unexpected error occurred while waiting for action response: {e}"}
 
     async def submit_constructed_action(
         self, action_event_dict: dict[str, Any], action_description: str, associated_record_key: str | None = None

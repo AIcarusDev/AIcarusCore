@@ -63,7 +63,9 @@ class ChatSession:
         self.no_action_count: int = 0
         self.prompt_builder = ChatPromptBuilder(
             event_storage=self.event_storage,
+            action_handler=self.action_handler,
             bot_id=self.bot_id,
+            platform=self.platform,
             conversation_id=self.conversation_id,
             conversation_type=self.conversation_type,
         )

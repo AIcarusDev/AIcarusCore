@@ -338,7 +338,7 @@ class CoreLogic:
                     if current_llm_think_str and current_llm_think_str.lower() != "none":
                         last_think_for_focus = current_llm_think_str
                     else:
-                        previous_thinking_raw = current_state.get("previous_thinking", "")
+                        previous_thinking_raw = current_state.get("previous_thinking") or "" # 确保不会是None
                         extracted_think = ""
                         if "你的上一轮思考是：" in previous_thinking_raw:
                             extracted_think = previous_thinking_raw.split("你的上一轮思考是：", 1)[-1].strip()
@@ -371,7 +371,7 @@ class CoreLogic:
                     if not last_think_for_focus or not last_think_for_focus.strip():
                         last_think_for_focus = "主意识在进入专注前没有留下明确的即时想法。"
 
-                    last_mood_for_focus = generated_thought.get("mood", "平静")
+                    last_mood_for_focus = generated_thought.get("mood") or "平静"
 
                     if hasattr(self.chat_session_manager, "activate_session_by_id"):
                         target_conv_details = next(

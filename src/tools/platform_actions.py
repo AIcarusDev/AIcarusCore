@@ -1,6 +1,7 @@
 # src/tools/platform_actions.py
 import time
 import uuid
+from typing import Optional, Dict, Any
 
 from aicarus_protocols import (
     ConversationInfo as ProtocolConversationInfo,
@@ -16,6 +17,8 @@ from aicarus_protocols import (
 
 from src.common.custom_logging.logger_manager import get_logger
 from src.core_communication.core_ws_server import CoreWebsocketServer
+from src.action.action_handler import ActionHandler
+from src.config import config
 
 logger = get_logger("AIcarusCore.tools.platform_actions")
 
@@ -104,3 +107,52 @@ async def send_reply_message(
         error_msg = f"发送消息时发生错误: {e}"
         logger.error(error_msg, exc_info=True)
         return {"status": "failure", "reason": error_msg}
+
+
+async def get_bot_profile(
+    action_handler: ActionHandler,
+    adapter_id: str,
+    group_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    获取指定适配器上机器人的详细信息。
+
+    Args:
+        action_handler: ActionHandler 的实例。
+        adapter_id: 目标适配器的ID。
+        group_id: (可选) 如果要获取在特定群聊中的信息，提供群组ID。
+
+    Returns:
+        一个包含机器人信息的字典，如果成功。
+        如果失败或超时，则返回 None。
+    """
+    if not action_handler:
+        logger.error("ActionHandler 未提供，无法获取机器人信息。")
+        return None
+
+    action_data = {}
+    if group_id:
+        action_data["group_id"] = group_id
+
+    action_event = ProtocolEvent(
+        event_id=f"action_get_profile_{uuid.uuid4()}",
+        event_type="action.bot.get_profile",
+        time=int(time.time() * 1000.0),
+        platform=adapter_id,  # platform 字段用于路由到正确的适配器
+        bot_id=config.persona.bot_name,  # 这里的 bot_id 是 Core 的身份，可以随意
+        content=[Seg(type="action.bot.get_profile", data=action_data)],
+    )
+
+    success, result = await action_handler.send_action_and_wait_for_response(
+        action_event.to_dict()
+    )
+
+    if success and result:
+        logger.info(f"成功从适配器 '{adapter_id}' 获取机器人信息: {result}")
+        return result
+    else:
+        error_info = result.get("error") if result else "未知错误"
+        logger.warning(
+            f"从适配器 '{adapter_id}' 获取机器人信息失败: {error_info}"
+        )
+        return None

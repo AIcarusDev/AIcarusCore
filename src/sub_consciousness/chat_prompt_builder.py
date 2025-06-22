@@ -9,9 +9,11 @@ from aicarus_protocols.event import Event
 from aicarus_protocols.seg import Seg  # SegBuilder is not used here directly for now
 from aicarus_protocols.user_info import UserInfo
 
+from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logger_manager import get_logger
 from src.config import config
 from src.database.services.event_storage_service import EventStorageService
+from src.tools.platform_actions import get_bot_profile
 
 from . import prompt_templates
 
@@ -25,12 +27,16 @@ class ChatPromptBuilder:
     def __init__(
         self,
         event_storage: EventStorageService,
+        action_handler: ActionHandler,
         bot_id: str,
+        platform: str,
         conversation_id: str,
         conversation_type: str,
     ) -> None:
         self.event_storage: EventStorageService = event_storage
+        self.action_handler: ActionHandler = action_handler
         self.bot_id: str = bot_id
+        self.platform: str = platform
         self.conversation_id: str = conversation_id
         self.conversation_type: str = conversation_type
         logger.info(
@@ -156,13 +162,31 @@ class ChatPromptBuilder:
         conversation_type_str = "未知类型"
 
         platform_id_to_uid_str[self.bot_id] = "U0"  # Bot's own platform ID
-        user_map[self.bot_id] = {
-            "uid_str": "U0",
-            "nick": persona_config.bot_name or "机器人",
-            "card": persona_config.bot_name or "机器人",
-            "title": getattr(persona_config, "title", None) or "",
-            "perm": "成员",
-        }
+
+        # --- 动态获取机器人信息 ---
+        bot_profile = await get_bot_profile(
+            self.action_handler,
+            adapter_id=self.platform,  # 正确地使用 platform 作为 adapter_id
+            group_id=self.conversation_id if self.conversation_type == "group" else None,
+        )
+
+        if bot_profile:
+            user_map[self.bot_id] = {
+                "uid_str": "U0",
+                "nick": bot_profile.get("nickname", persona_config.bot_name or "机器人"),
+                "card": bot_profile.get("card", bot_profile.get("nickname", persona_config.bot_name or "机器人")),
+                "title": bot_profile.get("title", ""),
+                "perm": bot_profile.get("role", "成员"),
+            }
+        else:
+            # Fallback to static config if API call fails
+            user_map[self.bot_id] = {
+                "uid_str": "U0",
+                "nick": persona_config.bot_name or "机器人",
+                "card": persona_config.bot_name or "机器人",
+                "title": getattr(persona_config, "title", None) or "",
+                "perm": "成员",
+            }
 
         # Initialize a set to track platform message IDs already added to chat_log_lines
         # This is for display-level deduplication if upstream deduplication isn't perfect.
