@@ -397,6 +397,19 @@ class CoreLogic:
                                     self.logger.info(
                                         f"已调用 chat_session_manager.activate_session_by_id 针对会话 {focus_conversation_id} (Platform: {platform}, Type: {conv_type})"
                                     )
+                                    # 在成功激活后，立即更新该会话的处理时间戳
+                                    latest_ts = target_conv_details.get("latest_message_timestamp")
+                                    if latest_ts and isinstance(latest_ts, int):
+                                        conv_storage = self.prompt_builder.unread_info_service.conversation_storage
+                                        await conv_storage.update_conversation_processed_timestamp(
+                                            focus_conversation_id, latest_ts
+                                        )
+                                        self.logger.info(f"会话 {focus_conversation_id} 的处理时间戳已更新为 {latest_ts}。")
+                                    else:
+                                        self.logger.warning(
+                                            f"无法为会话 {focus_conversation_id} 更新时间戳，因为 latest_message_timestamp 无效: {latest_ts}"
+                                        )
+
                                 except Exception as e_activate:
                                     self.logger.error(
                                         f"调用 chat_session_manager.activate_session_by_id 失败: {e_activate}",

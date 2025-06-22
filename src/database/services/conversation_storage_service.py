@@ -198,3 +198,38 @@ class ConversationStorageService:
         except Exception as e:
             self.logger.error(f"更新会话 '{conversation_id}' 的字段 '{field_path_to_update}' 失败: {e}", exc_info=True)
             return False
+
+    async def get_all_active_conversations(self) -> list[dict[str, Any]]:
+        """
+        获取所有被认为是“活跃”的会话文档。
+        目前的实现是获取所有会话，未来可以根据 attention_profile 过滤。
+        """
+        try:
+            query = "FOR doc IN @@collection RETURN doc"
+            bind_vars = {"@collection": self.COLLECTION_NAME}
+            results = await self.conn_manager.execute_query(query, bind_vars)
+            self.logger.info(f"成功获取到 {len(results) if results else 0} 个会话。")
+            return results if results is not None else []
+        except Exception as e:
+            self.logger.error(f"获取所有活跃会话失败: {e}", exc_info=True)
+            return []
+
+    async def update_conversation_processed_timestamp(self, conversation_id: str, timestamp: int) -> bool:
+        """
+        更新指定会话的 last_processed_timestamp。
+        """
+        if not conversation_id:
+            self.logger.warning("更新会话处理时间戳需要 conversation_id。")
+            return False
+        try:
+            collection = await self.conn_manager.get_collection(self.COLLECTION_NAME)
+            doc_key = str(conversation_id)
+            patch = {"last_processed_timestamp": timestamp, "updated_at": int(time.time() * 1000)}
+            await asyncio.to_thread(collection.update, {"_key": doc_key, **patch})
+            self.logger.debug(f"会话 '{conversation_id}' 的 last_processed_timestamp 已更新为 {timestamp}.")
+            return True
+        except Exception as e:
+            self.logger.error(
+                f"更新会话 '{conversation_id}' 的 last_processed_timestamp 失败: {e}", exc_info=True
+            )
+            return False
