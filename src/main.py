@@ -20,7 +20,7 @@ from src.core_logic.context_builder import ContextBuilder
 from src.core_logic.intrusive_thoughts import IntrusiveThoughtsGenerator
 from src.core_logic.prompt_builder import ThoughtPromptBuilder
 from src.core_logic.state_manager import AIStateManager  # 确保导入 AIStateManager
-from src.core_logic.summarization_service import SummarizationService
+from src.Observation.summarization_service import SummarizationService
 from src.core_logic.thought_generator import ThoughtGenerator
 from src.core_logic.thought_persistor import ThoughtPersistor
 from src.core_logic.unread_info_service import UnreadInfoService
