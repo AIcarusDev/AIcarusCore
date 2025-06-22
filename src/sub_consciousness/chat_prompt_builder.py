@@ -276,13 +276,26 @@ class ChatPromptBuilder:
                 added_platform_message_ids_for_log.add(current_platform_msg_id)
 
             if event_data_log.event_type.startswith("message.") or is_robot_message_to_display_as_msg:
-                text_content = ""
+                # --- New Logic for Handling Messages with Quotes ---
+                quote_display_str = ""
+                main_content_parts = []
+                main_content_type = "MSG"  # Default to MSG
+
                 for seg in event_data_log.content:
-                    if seg.type == "text":
-                        text_content += seg.data.get("text", "")
+                    if seg.type == "quote":
+                        quoted_message_id = seg.data.get("message_id", "unknown_id")
+                        quoted_user_id = seg.data.get("user_id")
+                        if quoted_user_id:
+                            quoted_user_uid = platform_id_to_uid_str.get(quoted_user_id, f"未知用户({quoted_user_id[:4]})")
+                            quote_display_str = f"引用/回复 {quoted_user_uid}(id:{quoted_message_id})"
+                        else:
+                            quote_display_str = f"引用/回复 (id:{quoted_message_id})"
+                    elif seg.type == "text":
+                        main_content_parts.append(seg.data.get("text", ""))
                     elif seg.type == "image":
+                        main_content_type = "IMG"
                         img_src = seg.data.get("file_id") or seg.data.get("url", "unknown_image")
-                        text_content += f"[IMG:{img_src.split('/')[-1][:15]}]"
+                        main_content_parts.append(f"[IMG:{img_src.split('/')[-1][:15]}]")
                     elif seg.type == "at":
                         at_user_id = seg.data.get("user_id")
                         at_display_name = seg.data.get("display_name")
@@ -290,25 +303,32 @@ class ChatPromptBuilder:
                             at_display_name = platform_id_to_uid_str[at_user_id]
                         elif not at_display_name:
                             at_display_name = f"@{at_user_id}"
-                        text_content += f"@{at_display_name} "
+                        main_content_parts.append(f"@{at_display_name} ")
                     elif seg.type == "face":
                         face_id = seg.data.get("id", "未知表情")
-                        text_content += f"[表情:{face_id}]"
+                        main_content_parts.append(f"[表情:{face_id}]")
                     elif seg.type == "file":
+                        main_content_type = "FILE"
                         file_name = seg.data.get("name", "未知文件")
                         file_size = seg.data.get("size", 0)
-                        text_content += f"[FILE:{file_name} ({file_size} bytes)]"
+                        main_content_parts.append(f"[FILE:{file_name} ({file_size} bytes)]")
 
-                # 修正：机器人的普通消息也应标记为[MSG]。
-                # 在这个if块中，所有事件都应被视为消息。
-                log_line = f"[{time_str}] {log_user_id_str} [MSG]: {text_content.strip()} (id:{msg_id_for_display})"
+                main_content_str = "".join(main_content_parts).strip()
+                
+                # Determine final display tag
+                display_tag = main_content_type
+                if quote_display_str:
+                    display_tag = f"{main_content_type}, {quote_display_str}"
+
+                log_line = f"[{time_str}] {log_user_id_str} [{display_tag}]: {main_content_str} (id:{msg_id_for_display})"
 
                 event_motivation = getattr(event_data_log, "motivation", None)
                 if log_user_id_str == "U0" and event_motivation and event_motivation.strip():
                     log_line += f"\n    - [MOTIVE]: {event_motivation}"
 
                 chat_log_lines.append(log_line)
-                log_line = ""  # 清空log_line
+                log_line = ""  # Clear log_line after use
+                # --- End of New Logic ---
 
             # Simplified event type handling for brevity, assuming QQ-like structures for now
             elif event_data_log.event_type == "notice.group.increase":

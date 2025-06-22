@@ -102,9 +102,11 @@ class DefaultMessageProcessor:
             # 1. 事件持久化 (如果需要)
             # 无论如何都要记录下这次接触，但要带上正确的“贞操锁”
             if needs_persistence:
-                db_event_document = DBEventDocument.from_protocol_event(proto_event)
-                db_event_document.is_processed = is_event_processed  # 在这里！注入我们刚才的判断结果！
-                await self.event_service.store_event(db_event_document)
+                db_event_document = DBEventDocument.from_protocol(proto_event)
+                # db_event_document.is_processed = is_event_processed  # 在这里！注入我们刚才的判断结果！
+                event_doc_to_save = db_event_document.to_dict()
+                event_doc_to_save["is_processed"] = is_event_processed
+                await self.event_service.save_event_document(event_doc_to_save)
                 self.logger.debug(f"事件文档 '{proto_event.event_id}' 已保存，is_processed={is_event_processed}")
 
             # 2. 会话信息 (ConversationInfo) 的创建或更新
