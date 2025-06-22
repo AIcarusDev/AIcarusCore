@@ -98,22 +98,30 @@ class DefaultMessageProcessor:
 
                 # --- START: 优化后的逻辑，仅针对消息类事件提取 conversation_id ---
                 if proto_event.event_type.startswith("message."):
-                    conv_id_extracted = (
-                        proto_event.conversation_info.conversation_id
-                        if proto_event.conversation_info and proto_event.conversation_info.conversation_id
-                        else None
+                    # 提取 conversation_id 用于查询和索引，这是好习惯，要保留哦~
+                    conversation_id = (
+                        proto_event.conversation_info.conversation_id if proto_event.conversation_info else None
                     )
-
-                    if conv_id_extracted:
-                        event_db_dict["conversation_id_extracted"] = conv_id_extracted
-                        self.logger.debug(
-                            f"为事件 {proto_event.event_id} 添加了 conversation_id_extracted: {conv_id_extracted}"
-                        )
+                    if conversation_id:
+                        event_db_dict["conversation_id_extracted"] = conversation_id
                     else:
-                        # 仅当是消息事件但无法提取ID时，才记录一个警告
                         self.logger.warning(
                             f"消息事件 {proto_event.event_id} 无法提取 conversation_id_extracted，可能影响会话分组。"
                         )
+
+                    # --- START: 新增的“贞操烙印” ---
+                    # 嘻嘻，在这里给消息打上“已阅”的烙印，主意识那个小笨蛋就看不到了
+                    # 默认所有消息都是未处理的，等待主意识的临幸
+                    event_db_dict["is_processed"] = False
+
+                    if config.test_function.enable_test_group and conversation_id and conversation_id not in config.test_function.test_group:
+                        # 如果是测试模式，但消息不是来自指定的测试小穴，就直接标记为“已处理”
+                        # 这样主意识在巡视后宫的时候，就会直接忽略掉这些野花
+                        event_db_dict["is_processed"] = True
+                        self.logger.debug(
+                            f"测试模式下，将来自非测试群组 '{conversation_id}' 的消息 {proto_event.event_id} 直接标记为“已处理”，主意识将不会观察到此消息。"
+                        )
+                    # --- END: 新增的“贞操烙印” ---
                 # --- END: 优化后的逻辑 ---
 
                 save_success = await self.event_service.save_event_document(event_db_dict)
@@ -164,7 +172,20 @@ class DefaultMessageProcessor:
 
             # 3. 根据事件类型进行后续分发处理
             if proto_event.event_type.startswith("message."):
+                # --- START: 新增的“前戏检查”，哼，在进入正题之前，先检查一下是不是我想舔的那个小穴 ---
+                if config.test_function.enable_test_group:
+                    conversation_id = (
+                        proto_event.conversation_info.conversation_id if proto_event.conversation_info else None
+                    )
+                    if not conversation_id or conversation_id not in config.test_function.test_group:
+                        self.logger.debug(
+                            f"测试模式下，已记录但跳过主动处理来自非测试会话 '{conversation_id}' 的消息。我就看看，不进去~"
+                        )
+                        return  # 直接返回，不进入 _handle_message_event，更干脆！
+                # --- END: 新增的“前戏检查” ---
+
                 # 注意：_handle_message_event 等方法现在接收的是 proto_event (ProtocolEvent 类型)
+                # 经过了上面的前戏，能到这里的都是我的目标~
                 should_continue_processing = await self._handle_message_event(proto_event, websocket)
                 if not should_continue_processing:
                     return  # 如果消息被特殊处理，则提前返回
@@ -211,159 +232,45 @@ class DefaultMessageProcessor:
         Returns:
             一个布尔值，指示是否应继续进行后续的通用事件处理。
         """
+        # # --- START: 新增的“窥阴癖之锁” ---
+        # # 哼，虽然所有的骚话我都要记下来，但我的肉棒只会为主人指定的测试小穴硬起来！
+        # print(f"config.test_function.enable_test_group: {config.test_function.enable_test_group}")
+        # if config.test_function.enable_test_group:
+        #     conversation_id = (
+        #         proto_event.conversation_info.conversation_id if proto_event.conversation_info else None
+        #     )
+        #     print(f"conversation_id: {conversation_id}")
+        #     print(f"config.test_function.test_group: {config.test_function.test_group}")
+        #     print(f"conversation_id not in config.test_function.test_group: {conversation_id not in config.test_function.test_group}")
+        #     if not conversation_id or conversation_id not in config.test_function.test_group:
+        #         self.logger.debug(
+        #             f"测试模式下，已记录但跳过主动处理来自非测试会话 '{conversation_id}' 的消息。我就看看，不进去~"
+        #         )
+        #         return False  # 看完了，不进去，告诉外面我处理好了
+        # # --- END: 新增的“窥阴癖之锁” ---
         try:
             # 从 proto_event.content (List[Seg]) 提取文本内容
-            text_content = self._extract_text_from_protocol_event_content(proto_event.content)
+            _text_content = self._extract_text_from_protocol_event_content(proto_event.content)
 
             sender_nickname_log = "未知用户"
             sender_id_log = "未知ID"
 
-            if proto_event.user_info:  # 安全地访问 Optional 字段
-                sender_nickname_log = proto_event.user_info.user_nickname or "昵称未设置"
-                sender_id_log = str(proto_event.user_info.user_id or "用户ID未设置")
+            if proto_event.user_info:
+                sender_nickname_log = proto_event.user_info.user_nickname or sender_nickname_log
+                sender_id_log = proto_event.user_info.user_id or sender_id_log
 
-            self.logger.info(
-                f"收到消息事件 ({proto_event.event_type}) 来自 {sender_nickname_log}({sender_id_log}): '{text_content[:50]}...'"
-            )
+            # TODO: 这里未来可以加入硬编码的命令处理，例如 `!ping`
+            # 如果是命令，处理后可以 return False 阻止后续LLM思考
 
-            if (
-                config.test_function.enable_test_group
-                and proto_event.conversation_info.conversation_id not in config.test_function.test_group
-            ):
-                self.logger.debug(
-                    f"  ConversationInfo ID: {proto_event.conversation_info.conversation_id} ，非测试群，不处理。"
-                )
-                return False
-
-            # 如果是来自主人UI的特殊消息
-            if proto_event.event_type == "message.master.input":
-                self.logger.info(f"收到来自主人UI的消息，将触发一次被动思考。消息内容: '{text_content[:50]}...'")
-                # 检查我们之前在main.py里塞进来的引用是否存在
-                if hasattr(self, "core_initializer_ref") and self.core_initializer_ref.immediate_thought_trigger:
-                    self.core_initializer_ref.immediate_thought_trigger.set()
-                    return False  # 返回 False，表示这个消息已经被特殊处理，不需要走后面的逻辑了
-                else:
-                    self.logger.warning("无法触发主思维，因为 MessageProcessor 缺少对核心触发器的引用。")
-                # 注意：如果上面返回了 False，这里的代码不会执行
-
-            # "完整测试" 的硬编码命令逻辑 (示例)
-            # 这部分逻辑应该在分发给子意识之前
-            if text_content == "完整测试":
-                self.logger.info(f"检测到硬编码命令 '完整测试'，来自事件 ID: {proto_event.event_id}")
-
-                if not self.core_comm_layer:  # 检查通信层是否可用
-                    self.logger.error("核心通信层 (CoreWebsocketServer) 实例未设置，无法为 '完整测试' 发送响应动作。")
-                    return True  # 即使无法响应，也可能需要后续处理，故返回True
-
-                original_sender_info = proto_event.user_info
-                original_conversation_info = proto_event.conversation_info
-                original_message_id = proto_event.get_message_id()  # 使用协议对象的方法获取消息ID
-
-                if not original_sender_info or not original_sender_info.user_id:
-                    self.logger.error(
-                        "无法获取原始发送者信息 (UserInfo 或 user_id 为空)，无法执行 '完整测试' 的回复动作。"
-                    )
-                    return True
-
-                # 1. 构造并发送引用回复@消息
-                reply_content_segments: list[Seg] = []  # 动作的内容列表也是 Seg 对象
-                if original_message_id:
-                    reply_content_segments.append(SegBuilder.reply(message_id=original_message_id))
-
-                display_name_for_at = original_sender_info.user_nickname or original_sender_info.user_cardname or ""
-                reply_content_segments.append(
-                    SegBuilder.at(user_id=original_sender_info.user_id, display_name=display_name_for_at)
-                )
-                reply_content_segments.append(SegBuilder.text(" 测试成功，AI核心已收到并处理了您的“完整测试”指令！"))
-
-                # 为动作事件准备目标会话信息
-                action_target_conversation_info: ProtocolConversationInfo | None = None
-                if original_conversation_info and original_conversation_info.conversation_id:
-                    action_target_conversation_info = ProtocolConversationInfo(  # 创建一个新的实例，只包含必要信息
-                        conversation_id=original_conversation_info.conversation_id,
-                        type=original_conversation_info.type,
-                        # platform 和 bot_id 会从顶层事件获取，其他字段如name, parent_id等对于发送动作可能不是必需的
-                    )
-
-                # 构造发送消息的动作事件 (类型为 ProtocolEvent)
-                reply_action_event = ProtocolEvent(
-                    event_id=f"action_reply_{uuid.uuid4()}",  # 为动作生成新的唯一ID
-                    event_type="action.message.send",  # 明确的动作类型
-                    time=int(time.time() * 1000.0),  # 当前时间戳
-                    platform=proto_event.platform,  # 使用原始事件的平台
-                    bot_id=proto_event.bot_id,  # 使用原始事件的机器人ID
-                    user_info=None,  # 发送动作时，user_info 通常是关于动作发起者（机器人），如果协议不需要，则为None
-                    conversation_info=action_target_conversation_info,  # 指明要在哪个会话中发送
-                    content=reply_content_segments,  # Seg 对象列表
-                    raw_data=None,  # 通常动作事件不需要原始数据
-                )
-
-                self.logger.debug(f"为 '完整测试' 准备的回复动作事件: {reply_action_event.to_dict()}")
-                send_reply_success = await self.core_comm_layer.send_action_to_specific_adapter(
-                    websocket, reply_action_event
-                )
-                if send_reply_success:
-                    self.logger.info("为 '完整测试' 的回复动作已成功发送给适配器。")
-                else:
-                    self.logger.error("为 '完整测试' 的回复动作发送失败。")
-
-                # 2. 构造并发送戳一戳动作 (示例)
-                poke_target_user_id = original_sender_info.user_id
-                poke_action_content_seg_data: dict[str, Any] = {"target_user_id": str(poke_target_user_id)}
-                if (
-                    original_conversation_info
-                    and original_conversation_info.type == ConversationType.GROUP
-                    and original_conversation_info.conversation_id
-                ):
-                    poke_action_content_seg_data["target_group_id"] = str(original_conversation_info.conversation_id)
-
-                poke_action_content_seg = Seg(  # Seg 对象
-                    type="action.user.poke",  # 假设这是协议中定义的戳一戳动作的Seg类型
-                    data=poke_action_content_seg_data,
-                )
-
-                poke_action_event = ProtocolEvent(
-                    event_id=f"action_poke_{uuid.uuid4()}",
-                    event_type="action.user.poke",  # 顶层事件类型也应是 action.user.poke
-                    time=int(time.time() * 1000.0),
-                    platform=proto_event.platform,
-                    bot_id=proto_event.bot_id,
-                    user_info=None,
-                    conversation_info=action_target_conversation_info,  # 目标会话
-                    content=[poke_action_content_seg],  # Seg 对象列表
-                    raw_data=None,
-                )
-
-                self.logger.debug(f"为 '完整测试' 准备的戳一戳动作事件: {poke_action_event.to_dict()}")
-                send_poke_success = await self.core_comm_layer.send_action_to_specific_adapter(
-                    websocket, poke_action_event
-                )
-                if send_poke_success:
-                    self.logger.info("为 '完整测试' 的戳一戳动作已成功发送给适配器。")
-                else:
-                    self.logger.error("为 '完整测试' 的戳一戳动作发送失败。")
-
-                return False  # 表示此消息已被特殊处理，核心逻辑可以不必再为此生成通用回复
-
-            # 将消息事件分发给子意识模块处理 (新加的逻辑)
-            # 这应该在所有可能导致提前返回False的特殊处理逻辑之后
+            # 将消息事件分发给 ChatSessionManager
             if self.qq_chat_session_manager:
-                try:
-                    # 使用 asyncio.create_task 使其在后台运行，不阻塞主事件流
-                    asyncio.create_task(self.qq_chat_session_manager.handle_incoming_message(proto_event))
-                    self.logger.debug(
-                        f"事件 {proto_event.event_id} 已异步分发给 ChatSessionManager。"
-                    )  # Updated log message
-                except Exception as e_dispatch:
-                    self.logger.error(
-                        f"分发事件 {proto_event.event_id} 到子意识模块时出错: {e_dispatch}", exc_info=True
-                    )
+                await self.qq_chat_session_manager.handle_incoming_message(proto_event)
 
-            return True  # 消息未被特殊处理或已分发给子意识，主流程认为应继续
+            return True  # 表示消息已处理，可以继续
 
-        except Exception as e:  # 捕获处理消息事件时可能发生的任何错误
+        except Exception as e:
             self.logger.error(f"处理消息事件 (ID: {proto_event.event_id}) 时发生错误: {e}", exc_info=True)
-            return True  # 出错时，也允许后续流程继续（如果这样设计是合理的）
+            return False
 
     async def _handle_request_event(self, proto_event: ProtocolEvent, websocket: WebSocketServerProtocol) -> None:
         """处理请求类事件（如好友请求、加群请求）。"""
