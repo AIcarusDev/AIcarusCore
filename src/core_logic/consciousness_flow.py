@@ -19,19 +19,16 @@ from src.core_communication.core_ws_server import CoreWebsocketServer
 # 导入新的服务类
 from src.core_logic.context_builder import ContextBuilder
 from src.core_logic.intrusive_thoughts import IntrusiveThoughtsGenerator
-from src.core_logic.memory_generator import MemoryGenerator
 from src.core_logic.prompt_builder import ThoughtPromptBuilder  # CoreLogic 会直接使用它
 from src.core_logic.state_manager import AIStateManager
 from src.core_logic.thought_generator import ThoughtGenerator
 from src.core_logic.thought_persistor import ThoughtPersistor
-from src.database.services.memory_storage_service import MemoryStorageService
 
 if TYPE_CHECKING:
     from src.sub_consciousness.chat_session_manager import ChatSessionManager
     # 下面这些是新服务类的依赖，CoreLogic 本身不再直接依赖它们
     # from src.database.services.event_storage_service import EventStorageService
     # from src.database.services.thought_storage_service import ThoughtStorageService
-    from src.database.services.memory_storage_service import MemoryStorageService
     # from src.llmrequest.llm_processor import Client as ProcessorClient
     # from src.core_logic.unread_info_service import UnreadInfoService
 
@@ -48,7 +45,6 @@ class CoreLogic:
         context_builder: ContextBuilder,
         thought_generator: ThoughtGenerator,
         thought_persistor: ThoughtPersistor,
-        memory_storage_service: "MemoryStorageService",  # 新增：记忆存储服务
         prompt_builder: ThoughtPromptBuilder,  # CoreLogic 直接使用 prompt_builder
         stop_event: threading.Event,
         immediate_thought_trigger: asyncio.Event,
@@ -62,7 +58,6 @@ class CoreLogic:
         self.context_builder = context_builder
         self.thought_generator = thought_generator
         self.thought_persistor = thought_persistor
-        self.memory_storage_service = memory_storage_service # 新增
         self.prompt_builder = prompt_builder  # 保存注入的 ThoughtPromptBuilder 实例
         self.stop_event = stop_event
         self.immediate_thought_trigger = immediate_thought_trigger
@@ -315,9 +310,6 @@ class CoreLogic:
                     self.logger.warning("有回复内容但没有思考文档的key，无法通过ActionHandler发送回复。")
 
                 if saved_key:
-                    # 在存储思考之后，立即尝试生成并存储体验记忆
-                    await self._store_experience_as_memory(generated_thought)
-
                     action_to_take_from_llm = generated_thought.get("action_to_take", "").strip()
                     if action_to_take_from_llm and action_to_take_from_llm.lower() != "null":
                         self.logger.info(f"LLM指定了行动 '{action_to_take_from_llm}'，准备分发。")
@@ -447,23 +439,3 @@ class CoreLogic:
                 await self.thinking_loop_task
             except asyncio.CancelledError:
                 self.logger.info("主思考循环任务已被取消。")
-
-    async def _store_experience_as_memory(self, thought_data: dict[str, Any]) -> None:
-        """根据思考结果，生成并存储体验记忆。"""
-        self.logger.debug("开始根据思考结果生成体验记忆...")
-        try:
-            memory_doc, metadata_docs = MemoryGenerator.generate_memory_from_thought(thought_data)
-            
-            if memory_doc and self.memory_storage_service:
-                success = await self.memory_storage_service.add_memory(memory_doc, metadata_docs)
-                if success:
-                    self.logger.info(f"成功将体验记忆 {memory_doc.memory_id} 存入数据库。")
-                else:
-                    self.logger.error(f"存储体验记忆 {memory_doc.memory_id} 到数据库失败。")
-            elif not memory_doc:
-                self.logger.debug("没有生成有效的体验记忆，跳过存储。")
-            elif not self.memory_storage_service:
-                self.logger.error("MemoryStorageService 未初始化，无法存储体验记忆。")
-
-        except Exception as e:
-            self.logger.error(f"生成或存储体验记忆时发生意外错误: {e}", exc_info=True)
