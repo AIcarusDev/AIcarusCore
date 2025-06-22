@@ -163,30 +163,45 @@ class ChatPromptBuilder:
 
         platform_id_to_uid_str[self.bot_id] = "U0"  # Bot's own platform ID
 
-        # --- 动态获取机器人信息 ---
+        # --- 动态获取机器人信息 (重构) ---
         bot_profile = await get_bot_profile(
             self.action_handler,
-            adapter_id=self.platform,  # 正确地使用 platform 作为 adapter_id
+            adapter_id=self.platform,
             group_id=self.conversation_id if self.conversation_type == "group" else None,
         )
 
-        if bot_profile:
-            user_map[self.bot_id] = {
+        # 准备最终用于 prompt 的变量，并设置后备值
+        final_bot_id = self.bot_id  # 默认使用配置文件中的 ID
+        final_bot_nickname = persona_config.bot_name or "机器人"
+        final_bot_card = final_bot_nickname  # 默认群名片是昵称
+
+        if bot_profile and bot_profile.get("user_id"):
+            final_bot_id = str(bot_profile["user_id"])  # 优先使用动态获取的 ID
+            final_bot_nickname = bot_profile.get("nickname", final_bot_nickname)
+            final_bot_card = bot_profile.get("card", final_bot_nickname)
+            logger.info(f"动态获取机器人信息成功: ID={final_bot_id}, Nick={final_bot_nickname}, Card={final_bot_card}")
+
+            # 更新 user_map 中的机器人信息
+            user_map[final_bot_id] = {
                 "uid_str": "U0",
-                "nick": bot_profile.get("nickname", persona_config.bot_name or "机器人"),
-                "card": bot_profile.get("card", bot_profile.get("nickname", persona_config.bot_name or "机器人")),
+                "nick": final_bot_nickname,
+                "card": final_bot_card,
                 "title": bot_profile.get("title", ""),
                 "perm": bot_profile.get("role", "成员"),
             }
         else:
+            logger.warning("动态获取机器人信息失败或信息不完整，将回退到使用配置文件中的信息。")
             # Fallback to static config if API call fails
             user_map[self.bot_id] = {
                 "uid_str": "U0",
-                "nick": persona_config.bot_name or "机器人",
-                "card": persona_config.bot_name or "机器人",
+                "nick": final_bot_nickname,
+                "card": final_bot_card,
                 "title": getattr(persona_config, "title", None) or "",
                 "perm": "成员",
             }
+        
+        # 确保机器人的 platform_id_to_uid_str 映射正确
+        platform_id_to_uid_str[final_bot_id] = "U0"
 
         # Initialize a set to track platform message IDs already added to chat_log_lines
         # This is for display-level deduplication if upstream deduplication isn't perfect.
@@ -443,15 +458,29 @@ class ChatPromptBuilder:
             previous_thoughts_block_str = "<previous_thoughts_and_actions>\n我正在处理当前会话，但上一轮的思考信息似乎丢失了。\n</previous_thoughts_and_actions>"
 
         # --- Step 6: Assemble final prompts ---
-        system_prompt = system_prompt_template.format(
-            current_time=current_time_str,
-            bot_name=bot_name_str,
-            bot_id=self.bot_id,
-            optional_description=bot_description_str,
-            optional_profile=bot_profile_str,
-            no_action_guidance=no_action_guidance_str,
-            user_nick=user_nick,
-        )
+        # 根据会话类型选择不同的格式化参数
+        if self.conversation_type == "group":
+            system_prompt = system_prompt_template.format(
+                current_time=current_time_str,
+                bot_name=bot_name_str,
+                optional_description=bot_description_str,
+                optional_profile=bot_profile_str,
+                bot_id=final_bot_id,
+                bot_nickname=final_bot_nickname,
+                conversation_name=conversation_name_str,
+                bot_card=final_bot_card,
+                no_action_guidance=no_action_guidance_str,
+            )
+        else:  # private
+            system_prompt = system_prompt_template.format(
+                current_time=current_time_str,
+                bot_name=bot_name_str,
+                bot_id=final_bot_id,
+                optional_description=bot_description_str,
+                optional_profile=bot_profile_str,
+                no_action_guidance=no_action_guidance_str,
+                user_nick=user_nick,
+            )
 
         user_prompt = user_prompt_template.format(
             conversation_info_block=conversation_info_block_str,

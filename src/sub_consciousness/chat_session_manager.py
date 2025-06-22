@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Optional
 from aicarus_protocols.event import Event
 
 from src.action.action_handler import ActionHandler
+from src.tools.platform_actions import get_bot_profile
 
 # 从项目中导入必要的模块
 from src.common.custom_logging.logger_manager import get_logger
@@ -155,7 +156,7 @@ class ChatSessionManager:  # Renamed class
             else:
                 self.logger.warning(f"[SessionManager] 尝试停用一个不存在或已被移除的会话 '{conversation_id}'。")
 
-    def _is_bot_mentioned(self, event: Event) -> bool:
+    async def _is_bot_mentioned(self, event: Event) -> bool:
         # 检查消息中是否 @ 了机器人
         if event.event_type != "message.group.normal":
             return False
@@ -164,20 +165,31 @@ class ChatSessionManager:  # Renamed class
             self.logger.debug(f"[_is_bot_mentioned] Event content is empty for event {event.event_id}")
             return False
 
+        # --- 动态获取机器人ID ---
+        group_id = event.conversation_info.conversation_id if event.conversation_info else None
+        bot_profile = await get_bot_profile(
+            self.action_handler, adapter_id=event.platform, group_id=group_id
+        )
+        
+        current_bot_id = str(bot_profile.get("user_id")) if bot_profile and bot_profile.get("user_id") else self.bot_id
+        if not bot_profile or not bot_profile.get("user_id"):
+            self.logger.warning(f"无法动态获取机器人ID，将回退到配置文件中的ID: {self.bot_id}")
+        # --- 结束动态获取 ---
+
         for seg in event.content:  # 应该直接访问 event.content
             if seg.type == "at":
                 at_user_id = seg.data.get("user_id")  # 应该用 'user_id' 而不是 'qq'
                 self.logger.debug(
-                    f"[_is_bot_mentioned] Found @ segment. at_user_id: {at_user_id} (type: {type(at_user_id)}), self.bot_id: {self.bot_id} (type: {type(self.bot_id)})"
+                    f"[_is_bot_mentioned] Found @ segment. at_user_id: {at_user_id} (type: {type(at_user_id)}), current_bot_id: {current_bot_id} (type: {type(current_bot_id)})"
                 )
                 # 确保比较时双方都是字符串
-                if at_user_id is not None and str(at_user_id) == str(self.bot_id):
+                if at_user_id is not None and str(at_user_id) == str(current_bot_id):
                     self.logger.info(
-                        f"[_is_bot_mentioned] Bot (ID: {self.bot_id}) was mentioned in event {event.event_id}."
+                        f"[_is_bot_mentioned] Bot (ID: {current_bot_id}) was mentioned in event {event.event_id}."
                     )
                     return True
 
-        self.logger.debug(f"[_is_bot_mentioned] Bot (ID: {self.bot_id}) was NOT mentioned in event {event.event_id}.")
+        self.logger.debug(f"[_is_bot_mentioned] Bot (ID: {current_bot_id}) was NOT mentioned in event {event.event_id}.")
         return False
 
     async def handle_incoming_message(self, event: Event) -> None:
@@ -197,7 +209,8 @@ class ChatSessionManager:  # Renamed class
         # 激活逻辑：如果被@或收到私聊消息，则激活会话
         # 这里是为了方便测试硬编码的逻辑，未来会进一步优化激活逻辑
         # TODO
-        if (self._is_bot_mentioned(event) or event.event_type.startswith("message.private")) and not session.is_active:
+        is_mentioned = await self._is_bot_mentioned(event)
+        if (is_mentioned or event.event_type.startswith("message.private")) and not session.is_active:
             self.logger.info(f"会话 '{conv_id}' 满足激活条件 (被@或私聊)，准备激活。")
             # 从 CoreLogic 获取最新的思考和心情
             last_think = self.core_logic.get_latest_thought() if self.core_logic else None

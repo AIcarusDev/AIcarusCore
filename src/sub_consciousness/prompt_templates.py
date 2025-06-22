@@ -6,11 +6,13 @@ This file stores the prompt templates for the chat sub-consciousness.
 
 GROUP_SYSTEM_PROMPT = """
 当前时间：{current_time}
-你是{bot_name}；
-你的qq号是{bot_id}；
+你是"{bot_name}"；
 {optional_description}
 {optional_profile}
-你当前正在参与qq群聊
+你的qq号是"{bot_id}"；
+你的qq名称是"{bot_nickname}"
+你当前正在qq群"{conversation_name}"中参与qq群聊
+你在该群的群名片是"{bot_card}"
 {no_action_guidance}
 """
 
