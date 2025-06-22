@@ -165,8 +165,8 @@ class FocusChatCycler:
 
                     # 6. 更新状态和时间戳
                     if action_or_thought_recorded:
-                        # 标记处理过的事件
-                        await self._mark_events_as_processed(processed_event_ids)
+                        # 将处理过的事件加入摘要队列
+                        await self._queue_events_for_summary(processed_event_ids)
                         # 检查并执行摘要
                         await self._consolidate_summary_if_needed()
 
@@ -352,12 +352,12 @@ class FocusChatCycler:
             logger.error(f"Failed to save internal ACT event: {e}", exc_info=True)
             return False
 
-    async def _mark_events_as_processed(self, event_ids: list[str]) -> None:
-        """获取事件详情以用于总结，然后将事件标记为已处理。"""
+    async def _queue_events_for_summary(self, event_ids: list[str]) -> None:
+        """获取事件详情以用于总结。"""
         if not event_ids:
             return
         try:
-            # 1. 根据ID获取完整的事件文档，用于总结
+            # 根据ID获取完整的事件文档，用于总结
             event_docs = await self.event_storage.get_events_by_ids(event_ids)
             if event_docs:
                 self.session.events_since_last_summary.extend(event_docs)
@@ -365,15 +365,8 @@ class FocusChatCycler:
                 logger.debug(f"Added {len(event_docs)} processed events to summary queue.")
             else:
                 logger.warning(f"Could not fetch event documents for IDs: {event_ids}")
-
-            # 2. 将这些事件标记为已处理
-            success_mark = await self.event_storage.mark_events_as_processed(event_ids, True)
-            if success_mark:
-                logger.info(f"Successfully marked {len(event_ids)} events as processed.")
-            else:
-                logger.error(f"Failed to mark {len(event_ids)} events as processed.")
         except Exception as e:
-            logger.error(f"Error during marking events as processed: {e}", exc_info=True)
+            logger.error(f"Error during queueing events for summary: {e}", exc_info=True)
 
     async def _consolidate_summary_if_needed(self) -> None:
         """检查并执行摘要。"""
