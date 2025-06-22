@@ -92,8 +92,8 @@ class ThoughtPersistor:
                 "initiated_at": datetime.datetime.now(datetime.UTC).isoformat(),
             }
         else:
-            self.logger.warning(
-                f"LLM指定了行动 '{action_desc_from_llm}' 但 thought_json 中缺少 action_id。将不记录 action_attempted。"
+            self.logger.debug(
+                f"LLM未指定行动，不记录 action_attempted。(action_to_take: '{action_desc_from_llm}')"
             )
 
         document_to_save = {

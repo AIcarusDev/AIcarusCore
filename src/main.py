@@ -20,7 +20,7 @@ from src.core_logic.context_builder import ContextBuilder
 from src.core_logic.intrusive_thoughts import IntrusiveThoughtsGenerator
 from src.core_logic.prompt_builder import ThoughtPromptBuilder
 from src.core_logic.state_manager import AIStateManager  # 确保导入 AIStateManager
-from src.core_logic.summarization_service import SummarizationService
+from src.Observation.summarization_service import SummarizationService
 from src.core_logic.thought_generator import ThoughtGenerator
 from src.core_logic.thought_persistor import ThoughtPersistor
 from src.core_logic.unread_info_service import UnreadInfoService
@@ -263,6 +263,10 @@ class CoreSystemInitializer:
             self.action_handler_instance.register_provider(internal_tools_provider)
             self.action_handler_instance.register_provider(platform_action_provider)
             logger.info("ActionHandler 的动作提供者已注册。")
+
+            # --- 手动初始化 ActionHandler 的 LLM 客户端 ---
+            await self.action_handler_instance.initialize_llm_clients()
+            logger.info("ActionHandler 的 LLM 客户端已手动初始化。")
 
             event_receiver = EventReceiver(
                 event_handler_callback=self.message_processor.process_event,

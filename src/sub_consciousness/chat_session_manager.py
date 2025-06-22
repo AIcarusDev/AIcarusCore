@@ -17,7 +17,7 @@ from .chat_session import ChatSession  # Updated import
 
 if TYPE_CHECKING:
     from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow  # 用于类型提示
-    from src.core_logic.summarization_service import SummarizationService  # 用于类型提示
+    from src.Observation.summarization_service import SummarizationService  # 用于类型提示
     from src.database.services.summary_storage_service import SummaryStorageService
 
 logger = get_logger(__name__)

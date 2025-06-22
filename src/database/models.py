@@ -90,6 +90,7 @@ class EnrichedConversationInfo:
     # 由系统管理的额外字段
     created_at: int = field(default_factory=lambda: int(time.time() * 1000))  # 会话记录首次创建时间戳 (毫秒, UTC)
     updated_at: int = field(default_factory=lambda: int(time.time() * 1000))  # 会话记录最后更新时间戳 (毫秒, UTC)
+    last_processed_timestamp: int | None = None  # AI核心处理此会话消息的最新时间戳 (毫秒, UTC)
 
     # 用于存储协议中可能存在的其他未明确定义的扩展数据
     extra: dict[str, Any] = field(default_factory=dict)
@@ -184,6 +185,7 @@ class EnrichedConversationInfo:
             "avatar": self.avatar,
             "created_at": self.created_at,  # 已经是毫秒时间戳
             "updated_at": self.updated_at,  # 确保每次保存都更新此时间戳
+            "last_processed_timestamp": self.last_processed_timestamp,  # 新增：更新处理时间戳
             "extra": self.extra,  # 已经是字典
             "attention_profile": self.attention_profile.to_dict(),  # 调用AttentionProfile的转换方法
         }
@@ -225,6 +227,7 @@ class EnrichedConversationInfo:
             avatar=doc.get("avatar"),  # avatar 是 Optional[str]
             created_at=doc.get("created_at", int(time.time() * 1000)),  # 兼容旧数据可能没有创建时间的情况
             updated_at=doc.get("updated_at", int(time.time() * 1000)),  # 兼容旧数据可能没有更新时间的情况
+            last_processed_timestamp=doc.get("last_processed_timestamp"),  # 新增：读取处理时间戳
             extra=doc.get("extra", {}),  # extra 默认为空字典
             attention_profile=AttentionProfile.from_dict(doc.get("attention_profile")),  # 使用from_dict处理None情况
         )

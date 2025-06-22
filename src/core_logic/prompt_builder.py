@@ -39,13 +39,12 @@ class ThoughtPromptBuilder:
 同时也要注意 你对自身的想法大多数情况下是包容的、合理化的，避免过度的/不必要的矛盾心理。
 
 关于行动：
-如果你在思考后，产生了明确的、希望与“外界”（例如上网获取信息、获取qq群聊/好友列表）进行交互的意图，请在action_to_take和action_motivation字段中描述。
+如果你在思考后，产生了明确的、希望与“外界”（例如上网获取信息）进行交互的意图，请在action_to_take和action_motivation字段中描述。
 
 严格以json字段输出：
 {{
     "think": "思考内容文本，注意不要过于冗长",
     "emotion": "当前心情和造成这个心情的原因",
-    "reply_to_master": "", \\【可选】如果你想对你所在设备的管理者说些什么，就在这里填写你想说的内容。如果不想说，则不包含此字段
     "to_do": "", \\【可选】如果你产生了明确的目标，可以在此处写下。如果没有特定目标，则不包含此字段。即使当前已有明确目标，你也可以在这里更新它
     "done": "", \\【可选】布尔值，如果该目标已完成、不再需要或你决定放弃，则设为true，会清空目前目标；如果目标未完成且需要继续，则为false。如果当前无目标，则不包含此字段或设为false
     "action_to_take": "", \\【可选】如果你有想做的动作，请在这里描述。可以是上网获取信息、获取qq群聊/好友列表等。如果没有明确的动作意图，则不包含此字段
@@ -75,8 +74,8 @@ class ThoughtPromptBuilder:
             config.persona.description or "",
             config.persona.profile or "",
             "<unread_summary>块中会向你展示所有未读消息的摘要。",
-            "在你输出的JSON中，有一个active_focus_on_conversation_id字段。如果你判断某个会话需要你立即介入处理，请将该会话的ID填入此字段。其它情况下，保持其为null。",
-            "你无法直接回复消息，只能通过激活专注模式来处理。",
+            "在你输出的JSON中，有一个active_focus_on_conversation_id字段。如果你想加入某个会话开始聊天，请将该会话的ID填入此字段。其它情况下，保持其为null。",
+            "你无法直接发送消息，只能通过填写active_focus_on_conversation_id来加入聊天。",
         ]
         return "\n".join(filter(None, system_prompt_parts))
 
