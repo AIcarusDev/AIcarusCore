@@ -138,6 +138,9 @@ class ThoughtPromptBuilder:
                 return None
 
         try:
+            # 在解析前，尝试移除可能导致错误的尾随逗号
+            json_str = re.sub(r",\s*(\}|\])", r"\1", json_str)
+            
             # 尝试解析提取出来的JSON字符串
             parsed_dict = json.loads(json_str)
 

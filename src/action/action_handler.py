@@ -63,7 +63,7 @@ class ActionHandler:
         """注册一个动作提供者。"""
         actions = provider.get_actions()
         for action_name, action_func in actions.items():
-            full_action_name = action_name if provider.name == "platform" else f"{provider.name}.{action_name}"
+            full_action_name = action_name if provider.name in ["platform", "internal"] else f"{provider.name}.{action_name}"
 
             if full_action_name in self._action_registry:
                 self.logger.warning(f"动作 '{full_action_name}' 已存在，将被新的提供者覆盖。")
