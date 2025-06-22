@@ -71,7 +71,10 @@ class ChatPromptBuilder:
         # 根据无动作计数器，准备引导提示
         no_action_guidance_str = ""
         if session.no_action_count >= 3:
-            no_action_guidance_str = f"\n你已经决定连续不发言/没有互动 {session.no_action_count} 次了，观察一下目前群内话题是不是已经告一段落了，如果是，可以考虑暂时先不专注于群聊的消息了。"
+            if self.conversation_type == "private":
+                no_action_guidance_str = f"\n你已经决定连续不发言/没有互动 {session.no_action_count} 次了，观察一下目前与对方的话题是不是已经告一段落了，如果是，可以考虑暂时先不专注于与对方的聊天了。"
+            else:
+                no_action_guidance_str = f"\n你已经决定连续不发言/没有互动 {session.no_action_count} 次了，观察一下目前群内话题是不是已经告一段落了，如果是，可以考虑暂时先不专注于群聊的消息了。"
             logger.info(f"[{self.conversation_id}] 添加无互动提示到System Prompt, count: {session.no_action_count}")
 
         # --- Step 3: Fetch and process events ---

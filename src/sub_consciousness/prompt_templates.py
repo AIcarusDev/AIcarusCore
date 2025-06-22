@@ -86,9 +86,9 @@ GROUP_USER_PROMPT = """
 PRIVATE_SYSTEM_PROMPT = """
 当前时间：{current_time}
 你是{bot_name}；
-你的qq号是{bot_id}；
 {optional_description}
 {optional_profile}
+你的qq号是{bot_id}；
 你当前正在与{user_nick}在qq上私聊
 {no_action_guidance}
 """
