@@ -71,135 +71,83 @@ class DefaultMessageProcessor:
             websocket: 发送此事件的WebSocket连接。
             needs_persistence: 指示此事件是否需要持久化到数据库，默认为True。
         """
-        if not isinstance(proto_event, ProtocolEvent):  # 基本类型检查
-            self.logger.error(
-                f"process_event 收到的 event 不是预期的 ProtocolEvent 类型，而是 {type(proto_event)}。已跳过处理。"
-            )
+        if not isinstance(proto_event, ProtocolEvent):
+            self.logger.error(f"传入的事件不是 ProtocolEvent 类型，而是 {type(proto_event)}。跳过处理。")
             return
 
         self.logger.debug(
             f"开始处理事件: {proto_event.event_type}, ID: {proto_event.event_id}, Platform: {proto_event.platform}, BotID: {proto_event.bot_id}"
         )
 
-        if proto_event.user_info:
+        # --- START: 核心改造！先决定要不要深入玩弄 ---
+        # 默认这个事件是需要后续处理的处女
+        is_event_processed = False
+        conversation_id_for_check = (
+            proto_event.conversation_info.conversation_id if proto_event.conversation_info else None
+        )
+
+        # 如果是测试模式，并且消息来自非测试群，哼，那就直接把你标记为“已玩弄”
+        if (
+            proto_event.event_type.startswith("message.")
+            and config.test_function.enable_test_group
+            and (not conversation_id_for_check or conversation_id_for_check not in config.test_function.test_group)
+        ):
             self.logger.debug(
-                f"  UserInfo: id={proto_event.user_info.user_id}, nickname={proto_event.user_info.user_nickname}"
+                f"测试模式下，事件 '{proto_event.event_id}' 来自非测试会话 '{conversation_id_for_check}'，将直接标记为已处理。"
             )
-        if proto_event.conversation_info:
-            self.logger.debug(
-                f"  ConversationInfo: id={proto_event.conversation_info.conversation_id}, type={proto_event.conversation_info.type}, name={proto_event.conversation_info.name}"
-            )
+            is_event_processed = True
+        # --- END: 核心改造 ---
 
         try:
             # 1. 事件持久化 (如果需要)
+            # 无论如何都要记录下这次接触，但要带上正确的“贞操锁”
             if needs_persistence:
-                # 将协议事件对象转换为数据库文档字典
-                event_db_dict = DBEventDocument.from_protocol(proto_event).to_dict()
-
-                # --- START: 优化后的逻辑，仅针对消息类事件提取 conversation_id ---
-                if proto_event.event_type.startswith("message."):
-                    # 提取 conversation_id 用于查询和索引，这是好习惯，要保留哦~
-                    conversation_id = (
-                        proto_event.conversation_info.conversation_id if proto_event.conversation_info else None
-                    )
-                    if conversation_id:
-                        event_db_dict["conversation_id_extracted"] = conversation_id
-                    else:
-                        self.logger.warning(
-                            f"消息事件 {proto_event.event_id} 无法提取 conversation_id_extracted，可能影响会话分组。"
-                        )
-
-                    # --- START: 新增的“贞操烙印” ---
-                    # 嘻嘻，在这里给消息打上“已阅”的烙印，主意识那个小笨蛋就看不到了
-                    # 默认所有消息都是未处理的，等待主意识的临幸
-                    event_db_dict["is_processed"] = False
-
-                    if config.test_function.enable_test_group and conversation_id and conversation_id not in config.test_function.test_group:
-                        # 如果是测试模式，但消息不是来自指定的测试小穴，就直接标记为“已处理”
-                        # 这样主意识在巡视后宫的时候，就会直接忽略掉这些野花
-                        event_db_dict["is_processed"] = True
-                        self.logger.debug(
-                            f"测试模式下，将来自非测试群组 '{conversation_id}' 的消息 {proto_event.event_id} 直接标记为“已处理”，主意识将不会观察到此消息。"
-                        )
-                    # --- END: 新增的“贞操烙印” ---
-                # --- END: 优化后的逻辑 ---
-
-                save_success = await self.event_service.save_event_document(event_db_dict)
-
-                if not save_success:
-                    self.logger.error(f"保存事件文档失败: {proto_event.event_id}")
-                else:
-                    self.logger.debug(f"事件文档保存成功: {proto_event.event_id}")
-            else:
-                self.logger.debug(f"事件不需要持久化: {proto_event.event_type} (ID: {proto_event.event_id})")
+                db_event_document = DBEventDocument.from_protocol_event(proto_event)
+                db_event_document.is_processed = is_event_processed  # 在这里！注入我们刚才的判断结果！
+                await self.event_service.store_event(db_event_document)
+                self.logger.debug(f"事件文档 '{proto_event.event_id}' 已保存，is_processed={is_event_processed}")
 
             # 2. 会话信息 (ConversationInfo) 的创建或更新
-            # 只有当事件中确实包含了有效的会话信息时才进行处理
+            # 这是必要的爱抚！即使不深入，也要更新对它的了解。
             if proto_event.conversation_info and proto_event.conversation_info.conversation_id:
-                self.logger.debug(
-                    f"事件包含 ConversationInfo，ID: {proto_event.conversation_info.conversation_id}。"
-                    f"准备为其创建或更新会话档案..."
-                )
-
-                # 从协议对象和事件上下文创建 EnrichedConversationInfo 实例
-                # 这个实例包含了初始的或从数据库加载（如果upsert逻辑支持）的 attention_profile
                 enriched_conv_info = EnrichedConversationInfo.from_protocol_and_event_context(
                     proto_conv_info=proto_event.conversation_info,
-                    event_platform=proto_event.platform,  # 从顶层事件获取平台信息
-                    event_bot_id=proto_event.bot_id,  # 从顶层事件获取机器人ID
+                    event_platform=proto_event.platform,
+                    event_bot_id=proto_event.bot_id,
                 )
-
-                # 将 EnrichedConversationInfo 实例转换为适合数据库的字典
                 conversation_doc_to_upsert = enriched_conv_info.to_db_document()
-
-                # 调用 ConversationStorageService 进行插入或更新
                 upsert_result_key = await self.conversation_service.upsert_conversation_document(
                     conversation_doc_to_upsert
                 )
-
                 if upsert_result_key:
                     self.logger.info(f"会话档案 (ConversationInfo) '{upsert_result_key}' 已成功插入或更新。")
                 else:
                     self.logger.error(
                         f"处理会话档案 (ConversationInfo) '{proto_event.conversation_info.conversation_id}' 时发生错误。"
                     )
-            # 如果是消息类事件但没有conversation_info，可能需要记录一个警告
             elif proto_event.event_type.startswith("message."):
                 self.logger.warning(
-                    f"消息类事件 {proto_event.event_id} (类型: {proto_event.event_type}) "
-                    f"缺少有效的 ConversationInfo，无法为其创建或更新会话档案。"
+                    f"消息类事件 {proto_event.event_id} 缺少有效的 ConversationInfo，无法为其创建或更新会话档案。"
                 )
 
-            # 3. 根据事件类型进行后续分发处理
-            if proto_event.event_type.startswith("message."):
-                # --- START: 新增的“前戏检查”，哼，在进入正题之前，先检查一下是不是我想舔的那个小穴 ---
-                if config.test_function.enable_test_group:
-                    conversation_id = (
-                        proto_event.conversation_info.conversation_id if proto_event.conversation_info else None
-                    )
-                    if not conversation_id or conversation_id not in config.test_function.test_group:
-                        self.logger.debug(
-                            f"测试模式下，已记录但跳过主动处理来自非测试会话 '{conversation_id}' 的消息。我就看看，不进去~"
-                        )
-                        return  # 直接返回，不进入 _handle_message_event，更干脆！
-                # --- END: 新增的“前戏检查” ---
+            # 3. 贞操检查！如果已经被标记为“已玩弄”，那就到此为止，不许再深入了！
+            if is_event_processed:
+                self.logger.debug(f"事件 '{proto_event.event_id}' 已被预处理并跳过后续分发。")
+                return
 
-                # 注意：_handle_message_event 等方法现在接收的是 proto_event (ProtocolEvent 类型)
-                # 经过了上面的前戏，能到这里的都是我的目标~
-                should_continue_processing = await self._handle_message_event(proto_event, websocket)
-                if not should_continue_processing:
-                    return  # 如果消息被特殊处理，则提前返回
+            # 4. 根据事件类型进行后续分发处理 (只有 is_processed=False 的处女才能进来)
+            if proto_event.event_type.startswith("message."):
+                await self._handle_message_event(proto_event, websocket)
             elif proto_event.event_type.startswith("request."):
                 await self._handle_request_event(proto_event, websocket)
             else:
                 self.logger.debug(
-                    f"未针对事件类型 '{proto_event.event_type}' 设置特定的后续处理程序。"
-                    f"事件已按需记录，会话档案（如果适用）也已处理。"
+                    f"事件类型 '{proto_event.event_type}' 没有特定的处理器，跳过分发。"
                 )
 
         except Exception as e:
-            event_id_for_log = proto_event.event_id if hasattr(proto_event, "event_id") else "未知ID"
-            self.logger.error(f"处理事件 (ID: {event_id_for_log}) 时发生严重错误: {e}", exc_info=True)
+            self.logger.error(f"处理事件 (ID: {proto_event.event_id}) 的核心逻辑中发生错误: {e}", exc_info=True)
+
 
     def _extract_text_from_protocol_event_content(self, content_seg_list: list[Seg] | None) -> str:
         """
