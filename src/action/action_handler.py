@@ -1,5 +1,6 @@
 # src/action/action_handler.py
 import asyncio
+import json # 确保导入 json
 import time
 import uuid
 from typing import TYPE_CHECKING, Any
@@ -80,17 +81,21 @@ class ActionHandler:
 
     async def initialize_llm_clients(self) -> None:
         if self.action_llm_client and self.summary_llm_client:
+            self.logger.debug("ActionHandler 的 LLM 客户端均已存在，无需重新初始化。")
             return
+            
         self.logger.info("正在为行动处理模块按需初始化LLM客户端...")
         factory = LLMClientFactory()
         try:
             if not self.action_llm_client:
                 self.action_llm_client = factory.create_client(purpose_key="action_decision")
+                self.logger.info("ActionHandler: action_llm_client 已初始化。")
             if not self.summary_llm_client:
                 self.summary_llm_client = factory.create_client(purpose_key="information_summary")
-            self.logger.info("行动处理模块的LLM客户端按需初始化完成。")
+                self.logger.info("ActionHandler: summary_llm_client 已初始化。")
+            self.logger.info("行动处理模块的LLM客户端按需初始化检查完成。")
         except RuntimeError as e:
-            self.logger.critical(f"LLM客户端初始化失败: {e}")
+            self.logger.critical(f"为 ActionHandler 初始化LLM客户端失败: {e}")
             raise
 
     async def handle_action_response(self, response_event_data: dict[str, Any]) -> None:
@@ -167,8 +172,12 @@ class ActionHandler:
         relevant_adapter_messages_context: str = "无相关外部消息或请求。",
     ) -> tuple[bool, str, Any]:
         self.logger.info(f"--- [Action ID: {action_id}, DocKey: {doc_key_for_updates}] 开始处理行动流程 ---")
-        if not self.thought_storage_service or not self.action_llm_client:
-            error_msg = "核心服务 (ThoughtStorageService 或 ActionLLMClient) 未初始化。"
+        
+        # 强制检查并初始化LLM客户端
+        await self.initialize_llm_clients()
+
+        if not self.thought_storage_service or not self.action_llm_client or not self.summary_llm_client:
+            error_msg = "核心服务 (ThoughtStorageService, ActionLLMClient, 或 SummaryLLMClient) 未初始化。"
             self.logger.error(error_msg)
             return False, error_msg, None
 
@@ -235,7 +244,6 @@ class ActionHandler:
         """执行由决策者选择的动作。"""
         action_func = self.action_registry.get_action(tool_name_chosen)
         if not self.thought_storage_service:
-            # This should not happen if dependencies are set correctly.
             return False, "ThoughtStorageService not initialized", None
 
         if not action_func:
@@ -256,19 +264,35 @@ class ActionHandler:
                 final_result = (
                     result_payload.get("error") if not was_successful else f"平台动作 '{tool_name_chosen}' 已提交。"
                 )
-                # The platform action's own implementation is responsible for updating the thought document.
                 return was_successful, final_result, result_payload
             else:  # Internal tool
                 tool_result_data = await action_func(**tool_arguments)
+
+                # 诊断日志
+                self.logger.info(f"【诊断】准备进行摘要判断。summary_llm_client 是否存在: {bool(self.summary_llm_client)}")
+                if self.summary_llm_client:
+                    self.logger.info(f"【诊断】summary_llm_client 实例类型: {type(self.summary_llm_client)}")
+
+                # 如果是网络搜索，并且能摘要，那就摘要它
                 if tool_name_chosen == "search_web" and tool_result_data and self.summary_llm_client:
+                    self.logger.info(f"工具 '{tool_name_chosen}' 返回了数据，将尝试进行摘要。")
                     summarizer = ToolResultSummarizer(self.summary_llm_client)
                     final_result = await summarizer.summarize(
                         original_query=tool_arguments.get("query", action_description),
                         original_motivation=action_motivation,
                         tool_output=tool_result_data,
                     )
+                # 如果是别的工具，或者摘要失败了，但它返回了数据
+                elif tool_result_data:
+                    self.logger.info(f"工具 '{tool_name_chosen}' 返回了原始数据，将直接格式化后使用。")
+                    try:
+                        result_str = json.dumps(tool_result_data, ensure_ascii=False, indent=2)
+                        final_result = f"工具 '{tool_name_chosen}' 执行成功，返回了以下数据：\n```json\n{result_str}\n```"
+                    except TypeError:
+                        final_result = f"工具 '{tool_name_chosen}' 执行成功，返回数据：{str(tool_result_data)}"
+                # 如果工具执行完就完了，啥也没返回
                 else:
-                    final_result = f"工具 '{tool_name_chosen}' 执行成功。"
+                    final_result = f"工具 '{tool_name_chosen}' 执行成功，但没有返回任何数据。"
 
                 await self.thought_storage_service.update_action_status_in_thought_document(
                     doc_key_for_updates,
@@ -325,10 +349,16 @@ class ActionHandler:
         if "event_id" not in action_event_dict:
             return False, "动作事件缺少 'event_id'"
 
-        success, message = await self._execute_platform_action(
+        success, message_payload = await self._execute_platform_action(
             action_to_send=action_event_dict,
             thought_doc_key=associated_record_key,
             original_action_description=action_description,
         )
+        
+        message = ""
+        if isinstance(message_payload, dict):
+            message = message_payload.get("error") or message_payload.get("message", str(message_payload))
+        else:
+            message = str(message_payload)
 
         return success, message
