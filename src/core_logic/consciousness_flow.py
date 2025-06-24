@@ -267,9 +267,7 @@ class CoreLogic:
                     current_action_id = generated_thought.get("action_id")
                     if not current_action_id or not isinstance(current_action_id, str) or not current_action_id.strip():
                         new_action_id = str(uuid.uuid4())
-                        self.logger.info(
-                            f"LLM意图行动 '{action_to_take}'，系统为其分配新ID: {new_action_id}"
-                        )
+                        self.logger.info(f"LLM意图行动 '{action_to_take}'，系统为其分配新ID: {new_action_id}")
                         generated_thought["action_id"] = new_action_id
 
                 saved_key = await self.thought_persistor.store_thought(
