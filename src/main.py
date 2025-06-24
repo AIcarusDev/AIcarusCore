@@ -32,7 +32,7 @@ from src.database.services.thought_storage_service import ThoughtStorageService
 from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.llmrequest.utils_model import GenerationParams
 from src.message_processing.default_message_processor import DefaultMessageProcessor
-from src.Observation.summarization_service import SummarizationService
+from src.observation.summarization_service import SummarizationService
 from src.sub_consciousness.chat_session_manager import ChatSessionManager
 
 if TYPE_CHECKING:

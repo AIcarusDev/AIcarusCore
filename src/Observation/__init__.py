@@ -1,1 +1,1 @@
-# This file makes the Observation directory a Python package.
+# This file makes the observation directory a Python package.

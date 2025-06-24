@@ -1,4 +1,4 @@
-# src/Observation/summarization_service.py
+# src/observation/summarization_service.py
 from typing import Any  # 确保Tuple被导入
 
 from src.common.custom_logging.logger_manager import get_logger
@@ -6,7 +6,7 @@ from src.config import config  # 假设用于获取AI人设
 from src.llmrequest.llm_processor import Client as LLMProcessorClient  # 假设LLM客户端路径
 
 # logger 定义移到文件顶部，确保在任何使用前都已定义
-logger = get_logger("AIcarusCore.Observation.SummarizationService")
+logger = get_logger("AIcarusCore.observation.SummarizationService")
 
 # tiktoken 相关的导入和逻辑已根据用户指示移除，因为渐进式总结不再依赖精确Token计数
 
