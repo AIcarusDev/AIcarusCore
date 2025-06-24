@@ -51,11 +51,10 @@ class UnreadInfoService:
 
             last_processed_ts = conv_doc.get("last_processed_timestamp") or 0
             try:
-                new_events_raw = await self.event_storage.get_message_events_after_timestamp(
-                    conversation_id=conv_id, timestamp=last_processed_ts
+                # 只获取状态为 "unread" 的新事件
+                new_events = await self.event_storage.get_message_events_after_timestamp(
+                    conversation_id=conv_id, timestamp=last_processed_ts, status="unread"
                 )
-                # 在这里过滤掉 is_processed 为 True 的事件
-                new_events = [event for event in new_events_raw if not event.get("is_processed")]
 
                 if new_events:
                     self.logger.info(f"会话 '{conv_id}' 发现 {len(new_events)} 条新消息 (已过滤)。")
@@ -72,9 +71,9 @@ class UnreadInfoService:
         unread_convs_with_events = await self._get_unread_conversations_with_events()
 
         if not unread_convs_with_events:
-            return "所有消息均已处理。"
+            return "所有消息均已读。"
 
-        summary_lines: list[str] = ["你有以下未处理的会话新消息:\n"]
+        summary_lines: list[str] = ["你有以下未读的会话新消息:\n"]
         group_chat_summaries: list[str] = []
         private_chat_summaries: list[str] = []
 

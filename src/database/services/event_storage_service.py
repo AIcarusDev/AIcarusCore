@@ -187,69 +187,39 @@ class EventStorageService:
             )
             return None
 
-    async def get_unprocessed_message_events(
-        self,
-        conversation_id: str | None = None,
-        limit: int = 1000,  # 默认获取大量未处理消息
-    ) -> list[dict[str, Any]]:
-        """
-        [待废弃] 获取所有 is_processed = False 且 event_type LIKE 'message.%' 的事件。
-        可选按 conversation_id 筛选。
-        结果按时间戳升序排列 (旧消息在前)。
-        哼，这个方法是专门给 UnreadInfoService 那个小弟用的，别搞错了！
-        新的逻辑将不再依赖 is_processed 字段。
-        """
-        try:
-            filters = ["doc.event_type LIKE 'message.%'", "doc.is_processed == false"]
-            bind_vars: dict[str, Any] = {"limit": limit}
-
-            if conversation_id:
-                filters.append("doc.conversation_id_extracted == @conversation_id")
-                bind_vars["conversation_id"] = conversation_id
-
-            query_parts = ["FOR doc IN @@collection"]
-            if filters:
-                query_parts.append(f"FILTER {(' AND '.join(filters))}")
-            query_parts.append("SORT doc.timestamp ASC")  # 按时间升序
-            query_parts.append("LIMIT @limit")
-            query_parts.append("RETURN doc")
-
-            query = "\n".join(query_parts)
-            bind_vars["@collection"] = self.COLLECTION_NAME
-
-            self.logger.debug(f"Executing query for unprocessed message events: {query} with bind_vars: {bind_vars}")
-            results = await self.conn_manager.execute_query(query, bind_vars)
-            return results if results is not None else []
-        except Exception as e:
-            self.logger.error(
-                f"获取未处理消息事件失败 (会话ID: {conversation_id}): {e}",
-                exc_info=True,
-            )
-            return []
-
     async def get_message_events_after_timestamp(
-        self, conversation_id: str, timestamp: int, limit: int = 500
+        self, conversation_id: str, timestamp: int, limit: int = 500, status: str | None = None
     ) -> list[dict[str, Any]]:
         """
         获取指定会话在给定时间戳之后的所有消息事件。
+        可选地根据 status 字段进行过滤。
         结果按时间戳升序排列。
         """
         try:
-            query = """
-                FOR doc IN @@collection
-                    FILTER doc.conversation_id_extracted == @conversation_id
-                    FILTER doc.timestamp > @timestamp
-                    FILTER doc.event_type LIKE 'message.%'
-                    SORT doc.timestamp ASC
-                    LIMIT @limit
-                    RETURN doc
-            """
+            filters = [
+                "doc.conversation_id_extracted == @conversation_id",
+                "doc.timestamp > @timestamp",
+                "doc.event_type LIKE 'message.%'",
+            ]
             bind_vars = {
                 "@collection": self.COLLECTION_NAME,
                 "conversation_id": conversation_id,
                 "timestamp": timestamp,
                 "limit": limit,
             }
+
+            if status:
+                filters.append("doc.status == @status")
+                bind_vars["status"] = status
+
+            query = f"""
+                FOR doc IN @@collection
+                    FILTER {(' AND '.join(filters))}
+                    SORT doc.timestamp ASC
+                    LIMIT @limit
+                    RETURN doc
+            """
+
             results = await self.conn_manager.execute_query(query, bind_vars)
             return results if results is not None else []
         except Exception as e:
@@ -317,3 +287,37 @@ class EventStorageService:
                 exc_info=True,
             )
             return []
+
+    async def update_events_status(self, event_ids: list[str], new_status: str) -> bool:
+        """
+        批量更新指定ID列表的事件的 status 字段。
+        """
+        if not event_ids:
+            self.logger.info("没有提供 event_ids，无需更新状态。")
+            return True
+        if not new_status:
+            self.logger.warning("没有提供 new_status，无法更新状态。")
+            return False
+
+        try:
+            query = """
+                FOR doc IN @@collection
+                    FILTER doc._key IN @keys
+                    UPDATE doc WITH { status: @new_status } IN @@collection
+            """
+            bind_vars = {
+                "@collection": self.COLLECTION_NAME,
+                "keys": event_ids,
+                "new_status": new_status,
+            }
+
+            await self.conn_manager.execute_query(query, bind_vars)
+            self.logger.info(f"成功将 {len(event_ids)} 个事件的状态更新为 '{new_status}'。")
+            return True
+
+        except Exception as e:
+            self.logger.error(
+                f"批量更新事件状态为 '{new_status}' 时失败: {e}",
+                exc_info=True,
+            )
+            return False

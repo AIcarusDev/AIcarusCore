@@ -80,34 +80,33 @@ class DefaultMessageProcessor:
         )
 
         # --- START: 核心改造！先决定要不要深入玩弄 ---
-        # 默认这个事件是需要后续处理的处女
-        is_event_processed = False
+        # 默认这个事件是未读的，状态为 "unread"
+        event_status = "unread"
         conversation_id_for_check = (
             proto_event.conversation_info.conversation_id if proto_event.conversation_info else None
         )
 
-        # 如果是测试模式，并且消息来自非测试群，哼，那就直接把你标记为“已玩弄”
+        # 如果是测试模式，并且消息来自非测试群，哼，那就直接把你标记为“已忽略”
         if (
             proto_event.event_type.startswith("message.")
             and config.test_function.enable_test_group
             and (not conversation_id_for_check or conversation_id_for_check not in config.test_function.test_group)
         ):
             self.logger.debug(
-                f"测试模式下，事件 '{proto_event.event_id}' 来自非测试会话 '{conversation_id_for_check}'，将直接标记为已处理。"
+                f"测试模式下，事件 '{proto_event.event_id}' 来自非测试会话 '{conversation_id_for_check}'，状态将设置为 'ignored'。"
             )
-            is_event_processed = True
+            event_status = "ignored"
         # --- END: 核心改造 ---
 
         try:
             # 1. 事件持久化 (如果需要)
-            # 无论如何都要记录下这次接触，但要带上正确的“贞操锁”
+            # 无论如何都要记录下这次接触，但要带上正确的状态锁
             if needs_persistence:
                 db_event_document = DBEventDocument.from_protocol(proto_event)
-                # db_event_document.is_processed = is_event_processed  # 在这里！注入我们刚才的判断结果！
+                db_event_document.status = event_status  # 在这里！注入我们刚才的判断结果！
                 event_doc_to_save = db_event_document.to_dict()
-                event_doc_to_save["is_processed"] = is_event_processed
                 await self.event_service.save_event_document(event_doc_to_save)
-                self.logger.debug(f"事件文档 '{proto_event.event_id}' 已保存，is_processed={is_event_processed}")
+                self.logger.debug(f"事件文档 '{proto_event.event_id}' 已保存，status='{event_status}'")
 
             # 2. 会话信息 (ConversationInfo) 的创建或更新
             # 这是必要的爱抚！即使不深入，也要更新对它的了解。
@@ -132,12 +131,12 @@ class DefaultMessageProcessor:
                     f"消息类事件 {proto_event.event_id} 缺少有效的 ConversationInfo，无法为其创建或更新会话档案。"
                 )
 
-            # 3. 贞操检查！如果已经被标记为“已玩弄”，那就到此为止，不许再深入了！
-            if is_event_processed:
-                self.logger.debug(f"事件 '{proto_event.event_id}' 已被预处理并跳过后续分发。")
+            # 3. 状态检查！如果事件状态不是 "unread"，那就到此为止，不许再深入了！
+            if event_status != "unread":
+                self.logger.debug(f"事件 '{proto_event.event_id}' 的状态为 '{event_status}'，将跳过后续分发。")
                 return
 
-            # 4. 根据事件类型进行后续分发处理 (只有 is_processed=False 的处女才能进来)
+            # 4. 根据事件类型进行后续分发处理 (只有 status="unread" 的事件才能进来)
             if proto_event.event_type.startswith("message."):
                 await self._handle_message_event(proto_event, websocket)
             elif proto_event.event_type.startswith("request."):

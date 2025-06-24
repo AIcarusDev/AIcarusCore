@@ -259,6 +259,7 @@ class DBEventDocument:
     user_id_extracted: str | None = None  # 提取出的用户ID
     conversation_id_extracted: str | None = None  # 提取出的会话ID
     motivation: str | None = None  # 新增：用于存储事件的动机，特别是机器人发出的消息事件
+    status: str = "unread"  # 新增：事件的读取状态，默认为"unread"
 
     @classmethod
     def from_protocol(cls, proto_event: ProtocolEvent) -> "DBEventDocument":

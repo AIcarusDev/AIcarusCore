@@ -118,6 +118,12 @@ class FocusChatCycler:
                         is_first_turn=self.session.is_first_turn_for_session,
                         last_think_from_core=self.session.initial_core_think,
                     )
+
+                    # 一旦获取了要处理的事件ID，就立刻将它们的状态更新为 "read"
+                    if processed_event_ids:
+                        await self.event_storage.update_events_status(processed_event_ids, "read")
+                        logger.info(f"已将 {len(processed_event_ids)} 个事件状态更新为 'read'。")
+
                     logger.debug(f"构建的System Prompt:\n{system_prompt}")
                     logger.debug(f"构建的User Prompt:\n{user_prompt}")
 

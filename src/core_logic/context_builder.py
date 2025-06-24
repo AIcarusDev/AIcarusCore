@@ -29,7 +29,7 @@ class ContextBuilder:
         从各种来源收集上下文信息，并格式化以供核心思考循环使用。
         """
         # 用户提示 master 功能在此分支不处理，所以 master_chat_history_str 设为固定值
-        master_chat_history_str: str = "与主人的聊天功能在此分支中已移除或正在重构。"
+        master_chat_history_str: str = ""
 
         initial_empty_context_info: str = self.state_manager.INITIAL_STATE.get(
             "recent_contextual_information", "无最近信息。"
