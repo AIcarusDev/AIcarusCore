@@ -217,6 +217,7 @@ class CoreSystemInitializer:
                     and config.persona.qq_id
                     and self.summarization_service
                     and self.event_storage_service
+                    and self.conversation_storage_service
                     and self.action_handler_instance
                 ):
                     self.qq_chat_session_manager = ChatSessionManager(
@@ -225,6 +226,7 @@ class CoreSystemInitializer:
                         event_storage=self.event_storage_service,
                         action_handler=self.action_handler_instance,
                         bot_id=config.persona.qq_id,
+                        conversation_service=self.conversation_storage_service,
                         summarization_service=self.summarization_service,
                         summary_storage_service=self.summary_storage_service,
                         core_logic=None,

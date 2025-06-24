@@ -2,7 +2,7 @@
 import time
 import uuid
 from dataclasses import asdict, dataclass, field, fields
-from typing import Any, Optional
+from typing import Any, Optional, Dict
 
 from aicarus_protocols import ConversationInfo as ProtocolConversationInfo
 from aicarus_protocols import ConversationType as ProtocolConversationType  # 会话类型的枚举
@@ -98,6 +98,10 @@ class EnrichedConversationInfo:
     # 核心增强：AI的注意力及偏好档案
     attention_profile: AttentionProfile = field(default_factory=AttentionProfile.get_default_profile)
 
+        # 【小懒猫的新增字段】
+    bot_profile_in_this_conversation: Optional[Dict[str, Any]] = None
+    """存储机器人自身在此会话中的档案信息，例如群名片、权限等，作为缓存。"""
+
     @classmethod
     def from_protocol_and_event_context(
         cls,
@@ -188,6 +192,7 @@ class EnrichedConversationInfo:
             "last_processed_timestamp": self.last_processed_timestamp,  # 新增：更新处理时间戳
             "extra": self.extra,  # 已经是字典
             "attention_profile": self.attention_profile.to_dict(),  # 调用AttentionProfile的转换方法
+            "bot_profile_in_this_conversation": self.bot_profile_in_this_conversation,
         }
         # 根据需要，可以移除值为None的顶级可选字段，以保持数据库文档的清洁
         # 例如: return {k: v for k, v in doc.items() if v is not None}
@@ -230,6 +235,7 @@ class EnrichedConversationInfo:
             last_processed_timestamp=doc.get("last_processed_timestamp"),  # 新增：读取处理时间戳
             extra=doc.get("extra", {}),  # extra 默认为空字典
             attention_profile=AttentionProfile.from_dict(doc.get("attention_profile")),  # 使用from_dict处理None情况
+            bot_profile_in_this_conversation=doc.get("bot_profile_in_this_conversation"),
         )
 
 

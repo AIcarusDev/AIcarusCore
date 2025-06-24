@@ -138,11 +138,80 @@ class DefaultMessageProcessor:
                 await self._handle_message_event(proto_event, websocket)
             elif proto_event.event_type.startswith("request."):
                 await self._handle_request_event(proto_event, websocket)
+            # --- 【小懒猫的雷达核心】 ---
+            # 加上对我们“小报告”的处理分支！
+            elif proto_event.event_type == "notice.bot.profile_update":
+                await self._handle_bot_profile_update(proto_event)
             else:
                 self.logger.debug(f"事件类型 '{proto_event.event_type}' 没有特定的处理器，跳过分发。")
 
         except Exception as e:
             self.logger.error(f"处理事件 (ID: {proto_event.event_id}) 的核心逻辑中发生错误: {e}", exc_info=True)
+
+    async def _handle_bot_profile_update(self, event: ProtocolEvent) -> None:
+        """
+        处理机器人自身档案更新的通知，并更新相关会话的缓存和数据库。
+        哼，小报告来了，我得赶紧记下来。
+        """
+        try:
+            if not event.content:
+                self.logger.warning("收到的机器人档案更新通知没有内容。")
+                return
+
+            # 小报告的核心内容在第一个 seg 的 data 里
+            report_data = event.content[0].data
+            conversation_id = report_data.get("conversation_id")
+            update_type = report_data.get("update_type")
+            new_value = report_data.get("new_value")
+
+            if not conversation_id or not update_type:
+                self.logger.warning(f"机器人档案更新通知格式不正确，缺少关键信息: {report_data}")
+                return
+
+            self.logger.info(f"收到会话 '{conversation_id}' 的机器人档案更新通知: '{update_type}' -> '{new_value}'")
+
+            # 检查这个会话当前是否在专注聊天模式下是活跃的
+            session = self.qq_chat_session_manager.sessions.get(conversation_id) if self.qq_chat_session_manager else None
+
+            if session and session.is_active:
+                # 如果会话活跃，直接更新它的短期记忆（内存缓存）
+                self.logger.info(f"会话 '{conversation_id}' 处于激活状态，正在实时更新其机器人档案缓存。")
+                if update_type == "card_change":
+                    session.bot_profile_cache["card"] = new_value
+                # 可以在这里添加对其他更新类型的处理，比如头衔 'title'
+                
+                session.last_profile_update_time = time.time() # 别忘了更新时间戳！
+                
+                # 同时，把更新后的完整档案存回数据库（长期记忆）
+                profile_to_save = session.bot_profile_cache.copy()
+                profile_to_save['updated_at'] = int(time.time() * 1000)
+                await self.conversation_service.update_conversation_field(
+                    conversation_id, "bot_profile_in_this_conversation", profile_to_save
+                )
+            else:
+                # 如果会话不活跃，我们只更新数据库里的长期记忆
+                # 这样下次会话被激活时，它就能从数据库读到最新的信息
+                self.logger.info(f"会话 '{conversation_id}' 不活跃，仅更新其在数据库中的机器人档案。")
+                
+                # 先从数据库读出旧的档案
+                conv_doc = await self.conversation_service.get_conversation_document_by_id(conversation_id)
+                profile_to_update = {}
+                if conv_doc and conv_doc.get("bot_profile_in_this_conversation"):
+                    profile_to_update = conv_doc["bot_profile_in_this_conversation"]
+                
+                # 在旧档案基础上更新
+                if update_type == "card_change":
+                    profile_to_update["card"] = new_value
+                
+                profile_to_update['updated_at'] = int(time.time() * 1000)
+                
+                # 写回数据库
+                await self.conversation_service.update_conversation_field(
+                    conversation_id, "bot_profile_in_this_conversation", profile_to_update
+                )
+
+        except Exception as e:
+            self.logger.error(f"处理机器人档案更新通知时出错: {e}", exc_info=True)
 
     def _extract_text_from_protocol_event_content(self, content_seg_list: list[Seg] | None) -> str:
         """

@@ -164,14 +164,12 @@ class ChatPromptBuilder:
         conversation_name_str = "未知会话"
         conversation_type_str = "未知类型"
 
-        platform_id_to_uid_str[self.bot_id] = "U0"  # Bot's own platform ID
+        persona_config = config.persona
 
-        # --- 动态获取机器人信息 (重构) ---
-        bot_profile = await get_bot_profile(
-            self.action_handler,
-            adapter_id=self.platform,
-            group_id=self.conversation_id if self.conversation_type == "group" else None,
-        )
+        
+
+        # --- 动态获取机器人信息 (小懒猫修正版：先问身份！) ---
+        bot_profile = await session.get_bot_profile()
 
         # 准备最终用于 prompt 的变量，并设置后备值
         final_bot_id = self.bot_id  # 默认使用配置文件中的 ID
@@ -179,32 +177,23 @@ class ChatPromptBuilder:
         final_bot_card = final_bot_nickname  # 默认群名片是昵称
 
         if bot_profile and bot_profile.get("user_id"):
-            final_bot_id = str(bot_profile["user_id"])  # 优先使用动态获取的 ID
+            final_bot_id = str(bot_profile["user_id"])
             final_bot_nickname = bot_profile.get("nickname", final_bot_nickname)
             final_bot_card = bot_profile.get("card", final_bot_nickname)
             logger.info(f"动态获取机器人信息成功: ID={final_bot_id}, Nick={final_bot_nickname}, Card={final_bot_card}")
-
-            # 更新 user_map 中的机器人信息
-            user_map[final_bot_id] = {
-                "uid_str": "U0",
-                "nick": final_bot_nickname,
-                "card": final_bot_card,
-                "title": bot_profile.get("title", ""),
-                "perm": bot_profile.get("role", "成员"),
-            }
         else:
             logger.warning("动态获取机器人信息失败或信息不完整，将回退到使用配置文件中的信息。")
-            # Fallback to static config if API call fails
-            user_map[self.bot_id] = {
-                "uid_str": "U0",
-                "nick": final_bot_nickname,
-                "card": final_bot_card,
-                "title": getattr(persona_config, "title", None) or "",
-                "perm": "成员",
-            }
+            # Fallback to static config if API call fails, final_bot_id, etc., will use their default values.
 
-        # 确保机器人的 platform_id_to_uid_str 映射正确
+        # 【关键修正】在确定了最终的 final_bot_id 之后，再进行登记！
         platform_id_to_uid_str[final_bot_id] = "U0"
+        user_map[final_bot_id] = {
+            "uid_str": "U0",
+            "nick": final_bot_nickname,
+            "card": final_bot_card,
+            "title": bot_profile.get("title", "") if bot_profile else getattr(persona_config, "title", None) or "",
+            "perm": bot_profile.get("role", "成员") if bot_profile else "成员",
+        }
 
         # Initialize a set to track platform message IDs already added to chat_log_lines
         # This is for display-level deduplication if upstream deduplication isn't perfect.

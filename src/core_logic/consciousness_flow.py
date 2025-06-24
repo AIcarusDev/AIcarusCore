@@ -295,9 +295,13 @@ class CoreLogic:
                 else:
                     self.logger.info("LLM未在当前思考周期指定需要执行的 action_to_take。")
 
-                focus_conversation_id = generated_thought.get("active_focus_on_conversation_id")
-                if focus_conversation_id and isinstance(focus_conversation_id, str):
+                focus_conversation_id_raw = generated_thought.get("active_focus_on_conversation_id")
+
+                focus_conversation_id = str(focus_conversation_id_raw) if focus_conversation_id_raw is not None else None
+
+                if focus_conversation_id and isinstance(focus_conversation_id, str) and focus_conversation_id.strip() and focus_conversation_id.lower() != 'null':
                     self.logger.info(f"LLM决策激活专注模式，目标会话ID: {focus_conversation_id}")
+
                     current_llm_think_raw = generated_thought.get("think")
                     current_llm_think_str = (
                         str(current_llm_think_raw).strip() if current_llm_think_raw is not None else ""
@@ -338,7 +342,7 @@ class CoreLogic:
                             (
                                 conv
                                 for conv in structured_unread_conversations
-                                if conv.get("conversation_id") == focus_conversation_id
+                                if str(conv.get("conversation_id")) == focus_conversation_id
                             ),
                             None,
                         )

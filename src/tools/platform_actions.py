@@ -149,6 +149,7 @@ async def get_bot_profile(
         logger.info(f"成功从适配器 '{adapter_id}' 获取机器人信息: {result}")
         return result
     else:
-        error_info = result.get("error") if result else "未知错误"
+        # 这样处理就安全多了
+        error_info = result.get("error") if isinstance(result, dict) else "未知错误或无响应"
         logger.warning(f"从适配器 '{adapter_id}' 获取机器人信息失败: {error_info}")
         return None
