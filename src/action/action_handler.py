@@ -1,6 +1,6 @@
 # src/action/action_handler.py
 import asyncio
-import json # 确保导入 json
+import json  # 确保导入 json
 import time
 import uuid
 from typing import TYPE_CHECKING, Any
@@ -83,7 +83,7 @@ class ActionHandler:
         if self.action_llm_client and self.summary_llm_client:
             self.logger.debug("ActionHandler 的 LLM 客户端均已存在，无需重新初始化。")
             return
-            
+
         self.logger.info("正在为行动处理模块按需初始化LLM客户端...")
         factory = LLMClientFactory()
         try:
@@ -172,7 +172,7 @@ class ActionHandler:
         relevant_adapter_messages_context: str = "无相关外部消息或请求。",
     ) -> tuple[bool, str, Any]:
         self.logger.info(f"--- [Action ID: {action_id}, DocKey: {doc_key_for_updates}] 开始处理行动流程 ---")
-        
+
         # 强制检查并初始化LLM客户端
         await self.initialize_llm_clients()
 
@@ -269,7 +269,9 @@ class ActionHandler:
                 tool_result_data = await action_func(**tool_arguments)
 
                 # 诊断日志
-                self.logger.info(f"【诊断】准备进行摘要判断。summary_llm_client 是否存在: {bool(self.summary_llm_client)}")
+                self.logger.info(
+                    f"【诊断】准备进行摘要判断。summary_llm_client 是否存在: {bool(self.summary_llm_client)}"
+                )
                 if self.summary_llm_client:
                     self.logger.info(f"【诊断】summary_llm_client 实例类型: {type(self.summary_llm_client)}")
 
@@ -287,7 +289,9 @@ class ActionHandler:
                     self.logger.info(f"工具 '{tool_name_chosen}' 返回了原始数据，将直接格式化后使用。")
                     try:
                         result_str = json.dumps(tool_result_data, ensure_ascii=False, indent=2)
-                        final_result = f"工具 '{tool_name_chosen}' 执行成功，返回了以下数据：\n```json\n{result_str}\n```"
+                        final_result = (
+                            f"工具 '{tool_name_chosen}' 执行成功，返回了以下数据：\n```json\n{result_str}\n```"
+                        )
                     except TypeError:
                         final_result = f"工具 '{tool_name_chosen}' 执行成功，返回数据：{str(tool_result_data)}"
                 # 如果工具执行完就完了，啥也没返回
@@ -354,7 +358,7 @@ class ActionHandler:
             thought_doc_key=associated_record_key,
             original_action_description=action_description,
         )
-        
+
         message = ""
         if isinstance(message_payload, dict):
             message = message_payload.get("error") or message_payload.get("message", str(message_payload))
