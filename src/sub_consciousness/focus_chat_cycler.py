@@ -100,37 +100,43 @@ class FocusChatCycler:
         """专注聊天的主循环。"""
         while not self._shutting_down:
             try:
+                # --- 关键改动：把耗时操作拿到锁外面！ ---
+                # 1. 先把所有需要的数据都准备好，这叫“备菜”
+                #    get_bot_profile() 可能会有网络IO，必须在锁外面！
+                #    我们让 prompt_builder 在外面就把所有东西都构建好。
+                (
+                    system_prompt,
+                    user_prompt,
+                    uid_str_to_platform_id_map,
+                    processed_event_ids,
+                ) = await self.prompt_builder.build_prompts(
+                    session=self.session,
+                    last_processed_timestamp=self.session.last_processed_timestamp,
+                    last_llm_decision=self.session.last_llm_decision,
+                    sent_actions_context=self.session.sent_actions_context,
+                    is_first_turn=self.session.is_first_turn_for_session,
+                    last_think_from_core=self.session.initial_core_think,
+                )
+                
+                # 2. 调用 LLM，这也是耗时操作，同样在锁外面
+                logger.debug(f"构建的System Prompt:\n{system_prompt}")
+                logger.debug(f"构建的User Prompt:\n{user_prompt}")
+                llm_api_response = await self.llm_client.make_llm_request(
+                    prompt=user_prompt, system_prompt=system_prompt, is_stream=False
+                )
+                response_text = llm_api_response.get("text") if llm_api_response else None
+
+                # 3. 解析 LLM 响应，这也是纯计算，在锁外面
+                parsed_response_data = self._parse_llm_response(response_text)
+
+                # --- 现在，所有准备工作都做完了，才进入锁内去修改状态！ ---
                 async with self.session.processing_lock:
                     self.session.last_active_time = time.time()
 
-                    # 1. 构建 Prompt
-                    (
-                        system_prompt,
-                        user_prompt,
-                        uid_str_to_platform_id_map,
-                        processed_event_ids,
-                    ) = await self.prompt_builder.build_prompts(
-                        session=self.session,  # 传入整个session以访问no_action_count等状态
-                        last_processed_timestamp=self.session.last_processed_timestamp,
-                        last_llm_decision=self.session.last_llm_decision,
-                        sent_actions_context=self.session.sent_actions_context,
-                        is_first_turn=self.session.is_first_turn_for_session,
-                        last_think_from_core=self.session.initial_core_think,
-                    )
-
-                    # 一旦获取了要处理的事件ID，就立刻将它们的状态更新为 "read"
+                    # 在这里处理事件状态更新，因为这会影响下一轮的 last_processed_timestamp
                     if processed_event_ids:
                         await self.event_storage.update_events_status(processed_event_ids, "read")
                         logger.info(f"已将 {len(processed_event_ids)} 个事件状态更新为 'read'。")
-
-                    logger.debug(f"构建的System Prompt:\n{system_prompt}")
-                    logger.debug(f"构建的User Prompt:\n{user_prompt}")
-
-                    # 2. LLM 调用
-                    llm_api_response = await self.llm_client.make_llm_request(
-                        prompt=user_prompt, system_prompt=system_prompt, is_stream=False
-                    )
-                    response_text = llm_api_response.get("text") if llm_api_response else None
 
                     if not response_text or (llm_api_response and llm_api_response.get("error")):
                         error_msg = llm_api_response.get("message") if llm_api_response else "无响应"
@@ -140,11 +146,9 @@ class FocusChatCycler:
                             "reply_willing": False,
                             "motivation": "系统错误导致无法思考",
                         }
-                        await asyncio.sleep(5)  # 出错后等待
-                        continue
+                        await asyncio.sleep(5)
+                        continue # continue 会自动释放锁并开始下一次循环
 
-                    # 3. 解析和处理响应
-                    parsed_response_data = self._parse_llm_response(response_text)
                     if not parsed_response_data:
                         logger.error(f"[FocusChatCycler][{self.conversation_id}] LLM响应最终解析失败或为空。")
                         self.session.last_llm_decision = {
@@ -152,40 +156,39 @@ class FocusChatCycler:
                             "reply_willing": False,
                             "motivation": "系统错误导致无法解析LLM的胡言乱语",
                         }
-                        await asyncio.sleep(5)  # 出错后等待
+                        await asyncio.sleep(5)
                         continue
 
                     if "mood" not in parsed_response_data:
                         parsed_response_data["mood"] = "平静"
                     self.session.last_llm_decision = parsed_response_data
 
-                    # 4. 检查是否结束专注模式
+                    # 检查结束和执行动作的逻辑可以放在锁内，因为它们依赖刚更新的 decision
                     if await self._handle_end_focus_chat_if_needed(parsed_response_data):
-                        break  # 如果决定结束，则跳出 while 循环
+                        break
 
-                    # 5. 执行动作（回复或记录思考）
                     action_or_thought_recorded = await self._execute_action(
                         parsed_response_data, uid_str_to_platform_id_map
                     )
 
-                    # 6. 更新状态和时间戳
                     if action_or_thought_recorded:
-                        # 将处理过的事件加入摘要队列
                         await self._queue_events_for_summary(processed_event_ids)
-                        # 检查并执行摘要
                         await self._consolidate_summary_if_needed()
 
                     if self.session.is_first_turn_for_session:
                         self.session.is_first_turn_for_session = False
-
-                    # 更新时间戳为当前时间，因为我们处理了当前时间点之前的所有事件
+                    
+                    # 更新时间戳也必须在锁内，因为它是一个重要的状态
                     self.session.last_processed_timestamp = time.time() * 1000
 
-                    # 7. 根据决策决定是等待还是继续
-                    if not parsed_response_data.get("reply_willing"):
-                        await self._wait_for_new_event_or_timeout()
-                    else:
-                        await asyncio.sleep(1)  # 回复后短暂休眠
+                    # 根据决策决定下一步动作
+                    should_wait = not parsed_response_data.get("reply_willing")
+
+                # --- 锁已经释放了，现在可以安全地进行等待 ---
+                if should_wait:
+                    await self._wait_for_new_event_or_timeout()
+                else:
+                    await asyncio.sleep(1)
 
             except asyncio.CancelledError:
                 logger.info(f"[FocusChatCycler][{self.conversation_id}] 循环被取消。")
