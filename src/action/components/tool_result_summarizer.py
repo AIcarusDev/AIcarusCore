@@ -12,16 +12,14 @@ class ToolResultSummarizer:
     负责将工具执行的原始结果总结为对AI更有用的自然语言。
     """
 
-    def __init__(self, llm_client: ProcessorClient):
+    def __init__(self, llm_client: ProcessorClient) -> None:
         self.logger = get_logger(f"AIcarusCore.{self.__class__.__name__}")
         if not llm_client:
             raise ValueError("LLM客户端实例 'llm_client' 不能为空。")
         self.llm_client = llm_client
         self.logger.info(f"{self.__class__.__name__} instance created.")
 
-    async def summarize(
-        self, original_query: str, original_motivation: str, tool_output: str | list | dict
-    ) -> str:
+    async def summarize(self, original_query: str, original_motivation: str, tool_output: str | list | dict) -> str:
         """
         调用LLM对工具的原始输出进行总结。
 

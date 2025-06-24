@@ -202,7 +202,7 @@ class ChatPromptBuilder:
                 "title": getattr(persona_config, "title", None) or "",
                 "perm": "成员",
             }
-        
+
         # 确保机器人的 platform_id_to_uid_str 映射正确
         platform_id_to_uid_str[final_bot_id] = "U0"
 
@@ -328,7 +328,9 @@ class ChatPromptBuilder:
                         quoted_message_id = seg.data.get("message_id", "unknown_id")
                         quoted_user_id = seg.data.get("user_id")
                         if quoted_user_id:
-                            quoted_user_uid = platform_id_to_uid_str.get(quoted_user_id, f"未知用户({quoted_user_id[:4]})")
+                            quoted_user_uid = platform_id_to_uid_str.get(
+                                quoted_user_id, f"未知用户({quoted_user_id[:4]})"
+                            )
                             quote_display_str = f"引用/回复 {quoted_user_uid}(id:{quoted_message_id})"
                         else:
                             quote_display_str = f"引用/回复 (id:{quoted_message_id})"
@@ -356,13 +358,15 @@ class ChatPromptBuilder:
                         main_content_parts.append(f"[FILE:{file_name} ({file_size} bytes)]")
 
                 main_content_str = "".join(main_content_parts).strip()
-                
+
                 # Determine final display tag
                 display_tag = main_content_type
                 if quote_display_str:
                     display_tag = f"{main_content_type}, {quote_display_str}"
 
-                log_line = f"[{time_str}] {log_user_id_str} [{display_tag}]: {main_content_str} (id:{msg_id_for_display})"
+                log_line = (
+                    f"[{time_str}] {log_user_id_str} [{display_tag}]: {main_content_str} (id:{msg_id_for_display})"
+                )
 
                 event_motivation = getattr(event_data_log, "motivation", None)
                 if log_user_id_str == "U0" and event_motivation and event_motivation.strip():

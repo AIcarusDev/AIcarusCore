@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Optional
 from aicarus_protocols.event import Event
 
 from src.action.action_handler import ActionHandler
-from src.tools.platform_actions import get_bot_profile
 
 # 从项目中导入必要的模块
 from src.common.custom_logging.logger_manager import get_logger
@@ -13,13 +12,14 @@ from src.config.aicarus_configs import SubConsciousnessSettings
 from src.database.services.event_storage_service import EventStorageService
 from src.database.services.summary_storage_service import SummaryStorageService
 from src.llmrequest.llm_processor import Client as LLMProcessorClient
+from src.tools.platform_actions import get_bot_profile
 
 from .chat_session import ChatSession  # Updated import
 
 if TYPE_CHECKING:
     from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow  # 用于类型提示
-    from src.Observation.summarization_service import SummarizationService  # 用于类型提示
     from src.database.services.summary_storage_service import SummaryStorageService
+    from src.Observation.summarization_service import SummarizationService  # 用于类型提示
 
 logger = get_logger(__name__)
 
@@ -167,10 +167,8 @@ class ChatSessionManager:  # Renamed class
 
         # --- 动态获取机器人ID ---
         group_id = event.conversation_info.conversation_id if event.conversation_info else None
-        bot_profile = await get_bot_profile(
-            self.action_handler, adapter_id=event.platform, group_id=group_id
-        )
-        
+        bot_profile = await get_bot_profile(self.action_handler, adapter_id=event.platform, group_id=group_id)
+
         current_bot_id = str(bot_profile.get("user_id")) if bot_profile and bot_profile.get("user_id") else self.bot_id
         if not bot_profile or not bot_profile.get("user_id"):
             self.logger.warning(f"无法动态获取机器人ID，将回退到配置文件中的ID: {self.bot_id}")
@@ -189,7 +187,9 @@ class ChatSessionManager:  # Renamed class
                     )
                     return True
 
-        self.logger.debug(f"[_is_bot_mentioned] Bot (ID: {current_bot_id}) was NOT mentioned in event {event.event_id}.")
+        self.logger.debug(
+            f"[_is_bot_mentioned] Bot (ID: {current_bot_id}) was NOT mentioned in event {event.event_id}."
+        )
         return False
 
     async def handle_incoming_message(self, event: Event) -> None:

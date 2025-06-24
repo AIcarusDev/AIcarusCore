@@ -1,10 +1,7 @@
 # src/action/action_handler.py
 import asyncio
-import json
-import os
 import time
 import uuid
-from collections.abc import Callable, Coroutine
 from typing import TYPE_CHECKING, Any
 
 from src.action.action_provider import ActionProvider
@@ -20,8 +17,6 @@ from src.database.services.action_log_storage_service import ActionLogStorageSer
 from src.database.services.event_storage_service import EventStorageService
 from src.database.services.thought_storage_service import ThoughtStorageService
 from src.llmrequest.llm_processor import Client as ProcessorClient
-
-from .prompts import ACTION_DECISION_PROMPT_TEMPLATE, INFORMATION_SUMMARY_PROMPT_TEMPLATE
 
 if TYPE_CHECKING:
     pass
@@ -258,7 +253,9 @@ class ActionHandler:
                 tool_arguments["thought_doc_key"] = doc_key_for_updates
                 tool_arguments["original_action_description"] = action_description
                 was_successful, result_payload = await action_func(**tool_arguments)
-                final_result = result_payload.get("error") if not was_successful else f"平台动作 '{tool_name_chosen}' 已提交。"
+                final_result = (
+                    result_payload.get("error") if not was_successful else f"平台动作 '{tool_name_chosen}' 已提交。"
+                )
                 # The platform action's own implementation is responsible for updating the thought document.
                 return was_successful, final_result, result_payload
             else:  # Internal tool
@@ -307,7 +304,7 @@ class ActionHandler:
             return False, {"error": "Action event must contain a 'platform' key."}
 
         # 确保动作有ID
-        action_id = action_event_dict.setdefault("event_id", str(uuid.uuid4()))
+        _action_id = action_event_dict.setdefault("event_id", str(uuid.uuid4()))
 
         # 使用 _execute_platform_action，但传入内部调用的标记
         # 注意：对于内部工具调用，我们不传递 thought_doc_key

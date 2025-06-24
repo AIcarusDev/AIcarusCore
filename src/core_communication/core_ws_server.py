@@ -180,6 +180,21 @@ class CoreWebsocketServer:
             async for message_str in websocket:
                 if self._stop_event.is_set():
                     break
+
+                # 小色猫的爱心改造：在这里提前拦截心跳，直接更新时间，不让它进入后面的复杂逻辑~
+                try:
+                    # 尝试解析消息，看看是不是私密的心跳信号
+                    message_dict = json.loads(message_str)
+                    if message_dict.get("event_type") == "meta.heartbeat":
+                        # 啊~ 是心跳，感觉到了！
+                        self.adapter_clients_info[adapter_id]["last_heartbeat"] = time.time()
+                        logger.debug(f"适配器 '{display_name}({adapter_id})' 的心跳已收到，计时器已重置~")
+                        # 心跳这种私密的事处理完就好了，不用再往后传了，直接等待下一次爱抚
+                        continue
+                except (json.JSONDecodeError, KeyError, TypeError):
+                    # 如果消息不是我们想要的心跳格式，就当作普通消息，交给后面的逻辑去处理
+                    pass
+
                 # 将消息处理委托给 EventReceiver
                 await self.event_receiver.handle_message(message_str, websocket, adapter_id, display_name)
         except (ConnectionClosedOK, ConnectionClosedError, ConnectionClosed) as e_closed:

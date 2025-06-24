@@ -16,7 +16,6 @@ from src.config import config
 
 if TYPE_CHECKING:
     from .chat_session import ChatSession
-    from src.Observation.summarization_service import SummarizationService
 
 logger = get_logger(__name__)
 

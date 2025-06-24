@@ -28,21 +28,15 @@ class ActionRegistry:
         for action_name, action_func in actions.items():
             # 平台和内部工具不加前缀，其他提供者（如插件）使用 "provider_name.action_name" 格式
             full_action_name = (
-                action_name
-                if provider.name in ["platform", "internal"]
-                else f"{provider.name}.{action_name}"
+                action_name if provider.name in ["platform", "internal"] else f"{provider.name}.{action_name}"
             )
 
             if full_action_name in self._action_registry:
-                self.logger.warning(
-                    f"动作 '{full_action_name}' 已存在，将被新的提供者 '{provider.name}' 覆盖。"
-                )
+                self.logger.warning(f"动作 '{full_action_name}' 已存在，将被新的提供者 '{provider.name}' 覆盖。")
             self._action_registry[full_action_name] = action_func
             self.logger.info(f"成功注册动作: {full_action_name} (来自: {provider.name})")
 
-    def get_action(
-        self, action_name: str
-    ) -> Callable[..., Coroutine[Any, Any, Any]] | None:
+    def get_action(self, action_name: str) -> Callable[..., Coroutine[Any, Any, Any]] | None:
         """
         根据动作名称查找并返回对应的可调用动作函数。
 

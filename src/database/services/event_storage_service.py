@@ -214,7 +214,7 @@ class EventStorageService:
 
             query = f"""
                 FOR doc IN @@collection
-                    FILTER {(' AND '.join(filters))}
+                    FILTER {(" AND ".join(filters))}
                     SORT doc.timestamp ASC
                     LIMIT @limit
                     RETURN doc

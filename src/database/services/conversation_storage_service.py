@@ -229,7 +229,5 @@ class ConversationStorageService:
             self.logger.debug(f"会话 '{conversation_id}' 的 last_processed_timestamp 已更新为 {timestamp}.")
             return True
         except Exception as e:
-            self.logger.error(
-                f"更新会话 '{conversation_id}' 的 last_processed_timestamp 失败: {e}", exc_info=True
-            )
+            self.logger.error(f"更新会话 '{conversation_id}' 的 last_processed_timestamp 失败: {e}", exc_info=True)
             return False

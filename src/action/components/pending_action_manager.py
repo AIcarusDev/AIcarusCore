@@ -24,7 +24,7 @@ class PendingActionManager:
         action_log_service: ActionLogStorageService,
         thought_storage_service: ThoughtStorageService,
         event_storage_service: EventStorageService,
-    ):
+    ) -> None:
         self.logger = get_logger(f"AIcarusCore.{self.__class__.__name__}")
         self._pending_actions: dict[str, tuple[asyncio.Future, str | None, str, dict[str, Any]]] = {}
         self.action_log_service = action_log_service
@@ -54,7 +54,7 @@ class PendingActionManager:
         )
         try:
             return await asyncio.wait_for(response_future, timeout=ACTION_RESPONSE_TIMEOUT_SECONDS)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             if action_id in self._pending_actions:
                 await self._handle_action_timeout(action_id)
             return False, {"error": f"动作 '{original_action_description}' 响应超时。"}
@@ -68,7 +68,7 @@ class PendingActionManager:
         self.logger.warning(f"动作 '{action_id}' 超时未收到响应！")
         pending_event, thought_doc_key, description, _ = self._pending_actions.pop(action_id)
         if not pending_event.done():
-            pending_event.set_exception(asyncio.TimeoutError())
+            pending_event.set_exception(TimeoutError())
 
         timeout_timestamp = int(time.time() * 1000)
         await self.action_log_service.update_action_log_with_response(
@@ -174,15 +174,17 @@ class PendingActionManager:
             return msg
         return f"动作 '{desc}' 执行失败: {err}"
 
-    async def _save_successful_action_as_event(self, action_id, sent_dict, resp_data):
+    async def _save_successful_action_as_event(
+        self, action_id: str, sent_dict: dict[str, Any], resp_data: dict[str, Any]
+    ) -> None:
         event_to_save = sent_dict.copy()
         event_to_save["event_id"] = action_id
         event_to_save["timestamp"] = int(time.time() * 1000)
-        
+
         message_id = await self._get_sent_message_id_safe(resp_data)
         metadata = [{"type": "message_metadata", "data": {"message_id": message_id}}]
         event_to_save["content"] = metadata + event_to_save.get("content", [])
-        
+
         event_to_save["user_info"] = {
             "platform": resp_data.get("platform", "unknown_platform"),
             "user_id": resp_data.get("bot_id", "unknown_user_id"),

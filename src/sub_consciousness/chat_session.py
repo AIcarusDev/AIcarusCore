@@ -14,8 +14,8 @@ from .focus_chat_cycler import FocusChatCycler
 
 if TYPE_CHECKING:
     from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
-    from src.Observation.summarization_service import SummarizationService
     from src.database.services.summary_storage_service import SummaryStorageService
+    from src.Observation.summarization_service import SummarizationService
     from src.sub_consciousness.chat_session_manager import ChatSessionManager
 
 logger = get_logger(__name__)

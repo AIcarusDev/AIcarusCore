@@ -1,7 +1,7 @@
 # src/tools/platform_actions.py
 import time
 import uuid
-from typing import Optional, Dict, Any
+from typing import Any
 
 from aicarus_protocols import (
     ConversationInfo as ProtocolConversationInfo,
@@ -15,10 +15,10 @@ from aicarus_protocols import (
     Event as ProtocolEvent,
 )
 
-from src.common.custom_logging.logger_manager import get_logger
-from src.core_communication.core_ws_server import CoreWebsocketServer
 from src.action.action_handler import ActionHandler
+from src.common.custom_logging.logger_manager import get_logger
 from src.config import config
+from src.core_communication.core_ws_server import CoreWebsocketServer
 
 logger = get_logger("AIcarusCore.tools.platform_actions")
 
@@ -112,8 +112,8 @@ async def send_reply_message(
 async def get_bot_profile(
     action_handler: ActionHandler,
     adapter_id: str,
-    group_id: Optional[str] = None,
-) -> Optional[Dict[str, Any]]:
+    group_id: str | None = None,
+) -> dict[str, Any] | None:
     """
     获取指定适配器上机器人的详细信息。
 
@@ -143,16 +143,12 @@ async def get_bot_profile(
         content=[Seg(type="action.bot.get_profile", data=action_data)],
     )
 
-    success, result = await action_handler.send_action_and_wait_for_response(
-        action_event.to_dict()
-    )
+    success, result = await action_handler.send_action_and_wait_for_response(action_event.to_dict())
 
     if success and result:
         logger.info(f"成功从适配器 '{adapter_id}' 获取机器人信息: {result}")
         return result
     else:
         error_info = result.get("error") if result else "未知错误"
-        logger.warning(
-            f"从适配器 '{adapter_id}' 获取机器人信息失败: {error_info}"
-        )
+        logger.warning(f"从适配器 '{adapter_id}' 获取机器人信息失败: {error_info}")
         return None

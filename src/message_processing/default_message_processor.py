@@ -1,14 +1,11 @@
 # src/message_processing/default_message_processor.py
-import asyncio  # 新增导入 asyncio
 import time
 import uuid
 from typing import TYPE_CHECKING, Any, Optional
 
-from aicarus_protocols import ConversationInfo as ProtocolConversationInfo
-from aicarus_protocols import ConversationType, Seg, SegBuilder, UserInfo
-
 # v1.4.0 协议导入
 from aicarus_protocols import Event as ProtocolEvent  # 重命名以区分数据库模型
+from aicarus_protocols import Seg, UserInfo
 from websockets.server import WebSocketServerProtocol
 
 from src.common.custom_logging.logger_manager import get_logger
@@ -142,13 +139,10 @@ class DefaultMessageProcessor:
             elif proto_event.event_type.startswith("request."):
                 await self._handle_request_event(proto_event, websocket)
             else:
-                self.logger.debug(
-                    f"事件类型 '{proto_event.event_type}' 没有特定的处理器，跳过分发。"
-                )
+                self.logger.debug(f"事件类型 '{proto_event.event_type}' 没有特定的处理器，跳过分发。")
 
         except Exception as e:
             self.logger.error(f"处理事件 (ID: {proto_event.event_id}) 的核心逻辑中发生错误: {e}", exc_info=True)
-
 
     def _extract_text_from_protocol_event_content(self, content_seg_list: list[Seg] | None) -> str:
         """

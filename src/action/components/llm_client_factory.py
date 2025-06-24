@@ -38,7 +38,9 @@ class LLMClientFactory:
 
             model_params_cfg = getattr(config.llm_models, purpose_key, None)
             if not model_params_cfg or not hasattr(model_params_cfg, "provider"):
-                msg = f"配置错误：在 AlcarusRootConfig.llm_models 下未找到模型用途键 '{purpose_key}' 对应的有效模型配置。"
+                msg = (
+                    f"配置错误：在 AlcarusRootConfig.llm_models 下未找到模型用途键 '{purpose_key}' 对应的有效模型配置。"
+                )
                 self.logger.error(msg)
                 raise RuntimeError(msg)
 
@@ -53,9 +55,7 @@ class LLMClientFactory:
             final_proxy_host = os.getenv("HTTP_PROXY_HOST")
             final_proxy_port_str = os.getenv("HTTP_PROXY_PORT")
             final_proxy_port = (
-                int(final_proxy_port_str)
-                if final_proxy_port_str and final_proxy_port_str.isdigit()
-                else None
+                int(final_proxy_port_str) if final_proxy_port_str and final_proxy_port_str.isdigit() else None
             )
 
             if final_proxy_host and final_proxy_port:

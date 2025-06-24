@@ -92,9 +92,7 @@ class ThoughtPersistor:
                 "initiated_at": datetime.datetime.now(datetime.UTC).isoformat(),
             }
         else:
-            self.logger.debug(
-                f"LLM未指定行动，不记录 action_attempted。(action_to_take: '{action_desc_from_llm}')"
-            )
+            self.logger.debug(f"LLM未指定行动，不记录 action_attempted。(action_to_take: '{action_desc_from_llm}')")
 
         document_to_save = {
             "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
