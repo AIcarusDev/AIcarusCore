@@ -54,6 +54,7 @@ class ChatSession:
         self.bot_id: str = bot_id
         self.platform: str = platform
         self.conversation_type: str = conversation_type
+        self.conversation_name: str | None = None
         self.core_logic = core_logic
         self.chat_session_manager = chat_session_manager
         self.conversation_service = conversation_service  # 【修改点2】直接保存依赖实例！
@@ -82,6 +83,7 @@ class ChatSession:
         # --- 辅助组件 ---
         self.SUMMARY_INTERVAL: int = getattr(config.sub_consciousness, "summary_interval", 5)
         self.prompt_builder = ChatPromptBuilder(
+            session=self,
             event_storage=self.event_storage,
             action_handler=self.action_handler,
             bot_id=self.bot_id,
@@ -174,20 +176,26 @@ class ChatSession:
         """停用会话并触发其关闭流程（不等待）。"""
         if not self.is_active:
             return
-        logger.info(f"[ChatSession][{self.conversation_id}] 正在停用...")
-        self.is_active = False
-        # 触发关闭，但不阻塞当前同步的 deactivation 流程
+        logger.info(f"[ChatSession][{self.conversation_id}] 正在发起停用请求...")
+        self.is_active = False # 只设置状态，不清理任何东西！
+        # 把所有清理工作都交给 shutdown
         asyncio.create_task(self.shutdown())
-        self.last_llm_decision = None
-        self.last_processed_timestamp = 0.0
         logger.info(f"[ChatSession][{self.conversation_id}] 停用状态已设置，关闭任务已派发。")
 
     async def shutdown(self) -> None:
         """
         执行并等待会话的优雅关闭。
-        这是被 ChatSessionManager 调用的主要关闭入口。
+        现在它负责所有清理工作。
         """
         if self.cycler:
-            await self.cycler.shutdown()
-        self.is_active = False  # 再次确认状态
-        logger.info(f"[ChatSession][{self.conversation_id}] 已成功关闭。")
+            # shutdown cycler 会触发 _save_final_summary
+            await self.cycler.shutdown() 
+        
+        # 【懒猫修复】在所有异步任务完成后，再清理会话的状态！
+        self.is_active = False
+        self.last_llm_decision = None
+        self.last_processed_timestamp = 0.0
+        self.current_handover_summary = None # 也可以在这里清理
+        self.events_since_last_summary = []
+        
+        logger.info(f"[ChatSession][{self.conversation_id}] 已成功关闭并清理状态。")

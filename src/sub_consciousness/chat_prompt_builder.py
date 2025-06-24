@@ -26,6 +26,7 @@ logger = get_logger(__name__)
 class ChatPromptBuilder:
     def __init__(
         self,
+        session: "ChatSession",
         event_storage: EventStorageService,
         action_handler: ActionHandler,
         bot_id: str,
@@ -33,6 +34,7 @@ class ChatPromptBuilder:
         conversation_id: str,
         conversation_type: str,
     ) -> None:
+        self.session = session
         self.event_storage: EventStorageService = event_storage
         self.action_handler: ActionHandler = action_handler
         self.bot_id: str = bot_id
@@ -204,6 +206,8 @@ class ChatPromptBuilder:
             conversation_type_str = conv_info.type
             if conv_info.name:
                 conversation_name_str = conv_info.name
+
+        self.session.conversation_name = conversation_name_str
 
         for event_data in raw_events:
             if event_data.user_info and event_data.user_info.user_id:

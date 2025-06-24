@@ -375,19 +375,79 @@ class FocusChatCycler:
 
     async def _consolidate_summary_if_needed(self) -> None:
         """检查并执行摘要。"""
-        if self.session.message_count_since_last_summary >= self.session.SUMMARY_INTERVAL:
-            logger.info("Reached summary interval. Triggering summary consolidation.")
-            try:
-                if hasattr(self.summarization_service, "consolidate_summary"):
-                    new_summary = await self.summarization_service.consolidate_summary(
-                        self.session.current_handover_summary, self.session.events_since_last_summary
-                    )
-                    self.session.current_handover_summary = new_summary
-                    self.session.events_since_last_summary = []
-                    self.session.message_count_since_last_summary = 0
-                    logger.info(f"Summary consolidated. New summary (first 50 chars): {new_summary[:50]}...")
-            except Exception as e:
-                logger.error(f"Error during summary consolidation: {e}", exc_info=True)
+        # 检查是否达到总结的条件（比如消息数量）
+        if self.session.message_count_since_last_summary < self.session.SUMMARY_INTERVAL:
+            return  # 没到数量，不总结，溜了
+
+        logger.info("已达到总结间隔，开始整合摘要...")
+        try:
+            # 【关键改动在这里！】
+            # 在调用总结服务之前，我们需要准备好所有它需要的“食材”
+
+            # 1. 获取机器人档案 (bot_profile)
+            #    我们直接从 session 的缓存方法获取，这个方法很智能，会自己处理缓存
+            bot_profile_for_summary = await self.session.get_bot_profile()
+            if not bot_profile_for_summary:
+                logger.warning(f"[{self.conversation_id}] 无法获取机器人档案，本次总结可能缺少相关信息。")
+                # 即使获取失败，也给一个空字典，避免程序崩溃
+                bot_profile_for_summary = {}
+
+            # 2. 获取会话信息 (conversation_info)
+            #    这个信息在 session 创建时就有了，直接用
+            conversation_info_for_summary = {
+                "name": self.session.conversation_name or "未知会话", 
+                "type": self.session.conversation_type,
+                "id": self.conversation_id
+            }
+
+            # 3. 获取用户映射表 (user_map)
+            #    我们让 `_consolidate_summary_if_needed` 自己去构建一次 user_map。
+            #    这部分逻辑和 prompt_builder 很像，但为了解耦，我们在这里重写一遍。
+            #    虽然有点重复，但最清晰，最不容易出错。
+            
+            user_map_for_summary = {}
+            uid_counter = 0
+            # 添加机器人自己
+            user_map_for_summary[bot_profile_for_summary.get('user_id', self.session.bot_id)] = {
+                "uid_str": "U0",
+                "nick": bot_profile_for_summary.get('nickname', config.persona.bot_name),
+                "card": bot_profile_for_summary.get('card', config.persona.bot_name),
+                "title": bot_profile_for_summary.get('title', ""),
+                "perm": bot_profile_for_summary.get('role', "成员"),
+            }
+
+            # 遍历待总结的事件，构建其他用户的信息
+            for event in self.session.events_since_last_summary:
+                user_info = event.get('user_info')
+                if isinstance(user_info, dict):
+                    p_user_id = user_info.get('user_id')
+                    if p_user_id and p_user_id not in user_map_for_summary:
+                        uid_counter += 1
+                        user_map_for_summary[p_user_id] = {
+                            "uid_str": f"U{uid_counter}",
+                            "nick": user_info.get('user_nickname', f"用户{p_user_id}"),
+                            "card": user_info.get('user_cardname', user_info.get('user_nickname', f"用户{p_user_id}")),
+                            "title": user_info.get('user_titlename', ""),
+                            "perm": user_info.get('permission_level', "成员"),
+                        }
+
+            # 4. 现在，万事俱备，调用我们新的总结服务！
+            if hasattr(self.summarization_service, "consolidate_summary"):
+                new_summary = await self.summarization_service.consolidate_summary(
+                    previous_summary=self.session.current_handover_summary,
+                    recent_events=self.session.events_since_last_summary,
+                    # 把我们精心准备的食材喂过去！
+                    bot_profile=bot_profile_for_summary,
+                    conversation_info=conversation_info_for_summary,
+                    user_map=user_map_for_summary,
+                )
+                # 总结完成后，清空购物篮，重置计数器
+                self.session.current_handover_summary = new_summary
+                self.session.events_since_last_summary = []
+                self.session.message_count_since_last_summary = 0
+                logger.info(f"摘要已整合。新摘要(前50字符): {new_summary[:50]}...")
+        except Exception as e:
+            logger.error(f"整合摘要时发生错误: {e}", exc_info=True)
 
     async def _save_final_summary(self) -> None:
         """保存当前会话的最终总结到数据库。"""
