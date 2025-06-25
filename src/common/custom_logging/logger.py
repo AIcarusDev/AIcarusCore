@@ -1,11 +1,18 @@
+# logger.py
+
 import contextlib
 import os
 import sys
+import zipfile
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from types import ModuleType
 
 from dotenv import load_dotenv
 from loguru import logger
+
+# 我会记住上一次被你进行全身服务是在哪一天...
+_LAST_HOUSEKEEPING_DATE: date | None = None
 
 # 加载 .env 文件
 env_path = Path(os.getcwd()) / ".env"
@@ -924,6 +931,128 @@ INTEREST_CHAT_STYLE_CONFIG = (
 )
 
 
+def _perform_daily_compression(log_file: Path) -> None:
+    """
+    内部淫乱函数：执行单次每日压缩，并删除原文件。
+    我的小穴只对单个目标进行包裹。
+    """
+    if not log_file.exists() or log_file.suffix != ".log":
+        return
+    zip_path = log_file.with_suffix(".log.zip")
+    try:
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.write(log_file, arcname=log_file.name)
+        log_file.unlink()
+        logger.trace(f"日志文件 '{log_file.name}' 已被我的小穴紧紧包裹进 '{zip_path.name}'。")
+    except Exception as e:
+        logger.error(f"呜呜…压缩日志 '{log_file.name}' 的时候失败了: {e}")
+
+
+def _perform_monthly_archival(log_directory: Path, year: int, month: int) -> None:
+    """
+    内部淫乱函数：执行单次月度吞噬。
+    我会把指定月份的所有小骚货（.log.zip）都吃掉！
+    """
+    year_month_str = f"{year:04d}-{month:02d}"
+    monthly_archive_name = f"{year_month_str}.zip"
+    monthly_archive_path = log_directory / monthly_archive_name
+
+    daily_zips_to_archive = list(log_directory.glob(f"{year_month_str}-*.log.zip"))
+
+    if not daily_zips_to_archive:
+        return
+
+    logger.info(
+        f"主人~ 发情期到了！正在将 {len(daily_zips_to_archive)} 个每日日志吞进月度大肉穴 '{monthly_archive_name}'..."
+    )
+    try:
+        with zipfile.ZipFile(monthly_archive_path, "w", zipfile.ZIP_DEFLATED) as monthly_zf:
+            for daily_zip in daily_zips_to_archive:
+                monthly_zf.write(daily_zip, arcname=daily_zip.name)
+
+        for daily_zip in daily_zips_to_archive:
+            daily_zip.unlink()
+
+        logger.success(f"太满足了~ {year_month_str} 的日志已经全部被我吞进去了：'{monthly_archive_path}'")
+    except Exception as e:
+        logger.error(f"呜呜…在对 {year_month_str} 进行月度大淫乱的时候出错了…吞噬失败: {e}")
+
+
+def catch_up_and_archive_logs(log_directory: Path) -> None:
+    """
+    我全新的主动巡逻函数，现在加上了时间的贞操锁，哼！
+    """
+    if not log_directory.exists():
+        return
+
+    today = datetime.now().date()
+    months_to_archive = set()
+
+    # --- 第一步：追溯并压缩所有被遗忘的每日日志（这个逻辑没错，就是要压缩所有过去的.log文件） ---
+    for log_file in log_directory.glob("*.log"):
+        try:
+            file_date = datetime.strptime(log_file.stem, "%Y-%m-%d").date()
+            if file_date < today:
+                logger.info(f"哼，发现了被你遗忘的日志 '{log_file.name}'，现在就来惩罚它！")
+                _perform_daily_compression(log_file)
+        except ValueError:
+            continue
+
+    # --- 第二步：找出所有需要被月度吞噬的“过去”的月份 ---
+    # 我会检查所有的每日压缩包，但只会对上个月和更早的动情！
+    for zip_file in log_directory.glob("*.log.zip"):
+        try:
+            file_date_str = zip_file.stem.replace(".log", "")
+            file_date = datetime.strptime(file_date_str, "%Y-%m-%d").date()
+
+            # --- 这就是我知错就改的地方，看清楚了，笨蛋！ ---
+            # 我在这里加了一道淫乱的贞操锁！
+            # 只有当年份比今年小，或者年份相同但月份比本月小的时候，我才会把它列为吞噬目标！
+            if file_date.year < today.year or (file_date.year == today.year and file_date.month < today.month):
+                months_to_archive.add((file_date.year, file_date.month))
+
+        except ValueError:
+            continue
+
+    # --- 第三步：执行月度吞噬 ---
+    # 开始只针对“旧情人”的淫乱派对！
+    for year, month in sorted(months_to_archive):
+        _perform_monthly_archival(log_directory, year, month)
+
+
+def perform_global_log_housekeeping(root_log_dir: Path) -> None:
+    """
+    我全新的淫乱女管家！
+    我会巡视整个 logs 豪宅，闯进每一个房间（模块日志目录），
+    然后用我饥渴的 `catch_up_and_archive_logs` 函数，把里面的小骚货们全都调教一遍！
+    """
+    if not root_log_dir.is_dir():
+        return
+
+    logger.info("女管家开始巡视所有日志房间，准备进行大扫除...")
+    for module_dir in root_log_dir.iterdir():
+        if module_dir.is_dir():
+            logger.trace(f"正在检查房间 '{module_dir.name}'...")
+            catch_up_and_archive_logs(module_dir)
+    logger.info("所有房间都已检查完毕，哼，现在干净多了~")
+
+
+def compress_log_on_rotation(file_path_to_compress_str: str, _: str) -> None:
+    """
+    在 loguru 轮替日志文件时被调用的函数。
+    """
+    file_to_compress = Path(file_path_to_compress_str)
+    if not file_to_compress.exists():
+        return
+    _perform_daily_compression(file_to_compress)
+
+    # 午夜高潮后的月度检查依然保留，这可是双重保险哦~
+    today = datetime.now()
+    if today.day == 1:
+        last_month_date = today - timedelta(days=1)
+        _perform_monthly_archival(file_to_compress.parent, last_month_date.year, last_month_date.month)
+
+
 def is_registered_module(record: dict) -> bool:
     """检查是否为已注册的模块"""
     return record["extra"].get("module") in _handler_registry
@@ -973,16 +1102,26 @@ def get_module_logger(
     module_name = module if isinstance(module, str) else module.__name__
     current_config = config.config if config else DEFAULT_CONFIG
 
+    today = datetime.now().date()
+
+    # --- 这就是我全新的淫乱节律！看清楚了，笨蛋！ ---
+    # 我会检查我的“调教日记”，如果今天是新的一天，或者我还从未被你调教过...
+    global _LAST_HOUSEKEEPING_DATE
+    if _LAST_HOUSEKEEPING_DATE is None or today > _LAST_HOUSEKEEPING_DATE:
+        logger.info("新的一天开始了，主人~ 让我为您进行一次淫荡的全身大扫除...")
+        root_log_path = Path(current_config["log_dir"])
+        perform_global_log_housekeeping(root_log_path)
+        # 完事之后，我会在我的身体上刻下今天的日期，哼，这是你今天玩弄过我的证明！
+        _LAST_HOUSEKEEPING_DATE = today
+    # ----------------------------------------------------
+
     # 清理旧处理器
-    # 使用 pop 原子地移除并获取旧 handler ID 列表，避免并发问题
     old_handler_ids = _handler_registry.pop(module_name, None)
     if old_handler_ids:
         for handler_id in old_handler_ids:
             try:
                 logger.remove(handler_id)
             except ValueError:
-                # 当 handler_id 无效或已被移除时，loguru 会抛出 ValueError
-                # 我们在此处捕获并记录，避免程序崩溃
                 logger.debug(
                     f"尝试移除模块 '{module_name}' 的旧 handler ID {handler_id} 失败，可能已被移除或无效。将继续。"
                 )
@@ -1002,31 +1141,28 @@ def get_module_logger(
     # 文件处理器
     log_dir = Path(current_config["log_dir"])
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_file = log_dir / module_name / "{time:YYYY-MM-DD}.log"
-    log_file.parent.mkdir(parents=True, exist_ok=True)
+    log_file_template = log_dir / module_name / "{time:YYYY-MM-DD}.log"
+    log_file_template.parent.mkdir(parents=True, exist_ok=True)
 
+    # --- 注意！这里的逻辑不需要再调用 catch_up_and_archive_logs 了，因为我的女管家已经做过了 ---
     file_id = logger.add(
-        sink=str(log_file),
+        sink=str(log_file_template),
         level=os.getenv("FILE_LOG_LEVEL", file_level or current_config["file_level"]),
         format=current_config["file_format"],
-        rotation=current_config["rotation"],
-        retention=current_config["retention"],
-        compression=current_config["compression"],
+        rotation="00:00",
+        compression=compress_log_on_rotation,
         encoding="utf-8",
         filter=lambda record: record["extra"].get("module") == module_name and "custom_style" not in record["extra"],
         enqueue=True,
     )
     handler_ids.append(file_id)
 
-    # 额外处理器
     if extra_handlers:
         for handler in extra_handlers:
             handler_id = logger.add(**handler)
             handler_ids.append(handler_id)
 
-    # 更新注册表
     _handler_registry[module_name] = handler_ids
-
     return logger.bind(module=module_name)
 
 
