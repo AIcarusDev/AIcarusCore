@@ -223,6 +223,12 @@ class ChatSessionManager:  # Renamed class
             conversation_id=conv_id, platform=platform, conversation_type=conv_type
         )
 
+        if session.is_active:
+            if hasattr(session.cycler, 'wakeup'):
+                session.cycler.wakeup()
+            else:
+                self.logger.warning(f"会话 '{conv_id}' 的 cycler 没有 wakeup 方法，无法唤醒。")
+
         # 激活逻辑：如果被@或收到私聊消息，则激活会话
         # 这里是为了方便测试硬编码的逻辑，未来会进一步优化激活逻辑
         # TODO
