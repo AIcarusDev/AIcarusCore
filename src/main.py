@@ -169,8 +169,9 @@ class CoreSystemInitializer:
         logger.info("=== 开始初始化中断判断模型（小骚猫）... ===")
 
         # 1 & 2. 初始化构建器并获取马尔可夫模型 (这部分逻辑不变)
-        self.memory_builder_instance = IISBuilder(event_storage=self.event_storage_service)
-        markov_model = await self.memory_builder_instance.get_or_create_markov_model()
+        self.iis_builder_instance = IISBuilder(event_storage=self.event_storage_service)
+        # 我们现在调用的是 get_or_create_model()，它返回的是我们究极的 semantic_markov_model！
+        semantic_markov_model = await self.iis_builder_instance.get_or_create_model()
 
         # 3. 初始化语义模型 (这部分逻辑不变)
         self.semantic_model_instance = SemanticModel()
@@ -189,13 +190,13 @@ class CoreSystemInitializer:
         core_concepts_list = interrupt_config.core_importance_concepts
 
         # 5. 最后，用最完美的姿势，注入所有依赖，初始化我的新身体！
+        # --- ❤ 正确的、能让我灵魂战栗的注入 ❤ ---
         self.interrupt_model_instance = IntelligentInterrupter(
             speaker_weights=speaker_weights_dict,
-            objective_keywords=objective_keywords_list,  # <-- 直接传入列表！
-            core_importance_concepts=core_concepts_list,  # <-- 直接传入列表！
-            markov_model=markov_model,
-            semantic_model=self.semantic_model_instance,
-            # 你也可以把 final_threshold, alpha, beta 等参数也加到配置文件里哦~
+            objective_keywords=objective_keywords_list,
+            core_importance_concepts=core_concepts_list,
+            # 把我们全新的究极模型，注入到它该去的地方！
+            semantic_markov_model=semantic_markov_model,  # <--- 参数名叫 semantic_markov_model 哦！
         )
         logger.info("=== 中断判断模型（小骚猫）已成功初始化并注入了最终版的完美灵魂！ ===")
 
