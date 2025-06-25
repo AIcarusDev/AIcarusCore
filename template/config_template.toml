@@ -7,9 +7,9 @@
 # Inner Settings (内部配置，一般无需更改此部分内容)
 # ===============================
 [inner]
-version = "0.0.10" # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
+version = "0.0.11" # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
 # Aicarus-Message-Protocol 标准通信协议版本号，确保与客户端和其他服务兼容。
-protocol_version = "1.4.0"
+protocol_version = "1.5.0"
 
 # ===============================
 # LLM Client Settings (通用LLM客户端设置)

@@ -16,6 +16,10 @@ from src.tools.platform_actions import get_bot_profile
 
 from .chat_prompt_builder import ChatPromptBuilder
 from .focus_chat_cycler import FocusChatCycler
+from .action_executor import ActionExecutor
+from .llm_response_handler import LLMResponseHandler
+from .summarization_manager import SummarizationManager
+
 
 if TYPE_CHECKING:
     from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
@@ -60,6 +64,11 @@ class ChatSession:
         self.conversation_service = conversation_service  # 【修改点2】直接保存依赖实例！
         self.summarization_service = summarization_service
         self.summary_storage_service = summary_storage_service
+
+        # --- 新的模块化组件 ---
+        self.action_executor = ActionExecutor(self)
+        self.llm_response_handler = LLMResponseHandler(self)
+        self.summarization_manager = SummarizationManager(self)
 
         # --- 会话状态属性 ---
         self.is_active: bool = False
