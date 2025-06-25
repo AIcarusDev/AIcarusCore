@@ -171,21 +171,24 @@ class ChatPromptBuilder:
         
 
         # --- 动态获取机器人信息 (小懒猫修正版：先问身份！) ---
-        bot_profile = await session.get_bot_profile()
-
         # 准备最终用于 prompt 的变量，并设置后备值
+        bot_profile = None
         final_bot_id = self.bot_id  # 默认使用配置文件中的 ID
-        final_bot_nickname = persona_config.bot_name or "机器人"
+        final_bot_nickname = persona_config.bot_name or "bot"
         final_bot_card = final_bot_nickname  # 默认群名片是昵称
 
-        if bot_profile and bot_profile.get("user_id"):
-            final_bot_id = str(bot_profile["user_id"])
-            final_bot_nickname = bot_profile.get("nickname", final_bot_nickname)
-            final_bot_card = bot_profile.get("card", final_bot_nickname)
-            logger.info(f"动态获取机器人信息成功: ID={final_bot_id}, Nick={final_bot_nickname}, Card={final_bot_card}")
+        if config.focus_chat_mode.enable_dynamic_bot_profile:
+            bot_profile = await session.get_bot_profile()
+            if bot_profile and bot_profile.get("user_id"):
+                final_bot_id = str(bot_profile["user_id"])
+                final_bot_nickname = bot_profile.get("nickname", final_bot_nickname)
+                final_bot_card = bot_profile.get("card", final_bot_nickname)
+                logger.info(f"动态获取机器人信息成功: ID={final_bot_id}, Nick={final_bot_nickname}, Card={final_bot_card}")
+            else:
+                logger.warning("动态获取机器人信息失败或信息不完整，将回退到使用配置文件中的信息。")
+                # Fallback to static config if API call fails, final_bot_id, etc., will use their default values.
         else:
-            logger.warning("动态获取机器人信息失败或信息不完整，将回退到使用配置文件中的信息。")
-            # Fallback to static config if API call fails, final_bot_id, etc., will use their default values.
+            logger.info("动态获取机器人信息功能已禁用，使用静态配置。")
 
         # 【关键修正】在确定了最终的 final_bot_id 之后，再进行登记！
         platform_id_to_uid_str[final_bot_id] = "U0"

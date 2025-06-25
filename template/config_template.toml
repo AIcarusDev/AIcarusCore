@@ -126,6 +126,9 @@ insertion_probability = 0.15 # 默认15%的概率注入
 [focus_chat_mode]
 # 是否启用专注聊天模块。
 enabled = true
+# 是否启用动态获取机器人自身信息，很快就会有更好的实现
+enable_dynamic_bot_profile = false
+
 session_timeout_seconds = 180 # # 如果一个已激活的会话在此时间内没有任何机器人发言或收到新消息，该会话的专注聊天模式将自动停用。默认3分钟
 # 管理器后台检查不活跃会话并将其停用的时间间隔（秒）。
 deactivation_check_interval_seconds = 60 # 默认1分钟

@@ -177,6 +177,9 @@ class FocusChatModeSettings(ConfigBase):
     enabled: bool = True
     """是否启用子意识模块"""
 
+    enable_dynamic_bot_profile: bool = True
+    """是否启用动态获取机器人自身信息的功能。如果禁用，将回退到使用 persona 中的静态配置。"""
+
     session_timeout_seconds: int = 180
     """子意识模块将固定使用 llm_models.focused_chat 中定义的模型
     会话超时时间（秒），超过此时间未活动则停用"""
