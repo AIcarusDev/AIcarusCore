@@ -1,5 +1,4 @@
 # src/database/services/summary_storage_service.py
-import asyncio
 import time
 import uuid
 
@@ -72,8 +71,7 @@ class SummaryStorageService:
 
         try:
             doc_to_insert = summary_doc.to_dict()
-            # 使用 asyncio.to_thread 来执行同步的 insert 操作，避免阻塞事件循环
-            await asyncio.to_thread(self.summaries_collection.insert, doc_to_insert)
+            await self.summaries_collection.insert(doc_to_insert)
             logger.info(f"成功将总结 '{summary_id}' 保存到会话 '{conversation_id}' 的数据库中。")
             return True
         except Exception as e:

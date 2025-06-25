@@ -1,10 +1,9 @@
 # src/database/services/event_storage_service.py
-import asyncio
 import time
 import uuid
 from typing import Any
 
-from arango.exceptions import DocumentInsertError  # ArangoDB 特定异常
+from arangoasync.exceptions import DocumentInsertError  # ArangoDB 特定异常
 
 from src.common.custom_logging.logger_manager import get_logger  # 日志记录器
 from src.database.core.connection_manager import ArangoDBConnectionManager, CoreDBCollections  # 使用 CoreDBCollections
@@ -71,7 +70,7 @@ class EventStorageService:
                     f"无法获取到集合 '{self.COLLECTION_NAME}' (可能由于数据库连接问题)，无法保存事件文档: {event_id}"
                 )
                 return False
-            await asyncio.to_thread(collection.insert, event_doc_data, overwrite=False)
+            await collection.insert(event_doc_data, overwrite=False)
             return True
         except DocumentInsertError:
             self.logger.warning(f"尝试插入已存在的事件 Event ID: {event_id}。操作被跳过。")
@@ -79,6 +78,47 @@ class EventStorageService:
         except Exception as e:
             self.logger.error(f"保存事件文档 '{event_id}' 失败: {e}", exc_info=True)
             return False
+
+    async def stream_all_textual_messages_for_training(self) -> list[dict[str, Any]]:
+        """
+        为构建马尔可夫模型，高效地流式获取所有包含有效文本内容的事件。
+        这个方法是为了满足小骚猫的特殊需求而诞生的哦~ 它会一次性把所有的记忆都榨取出来！
+        """
+        logger.info("小骚猫开始榨取所有历史文本记忆，请稍等哦主人~")
+        all_messages = []
+        try:
+            # 这个查询会筛选出 event_type 为 'message.*' 并且 content 列表里至少有一个 'text' 段的事件
+            # UNSET(doc, "_rev", "_id") 是为了减小传输的数据量，我们不需要这些元数据
+            aql_query = """
+                FOR doc IN @@collection
+                    FILTER doc.event_type LIKE 'message.%'
+                    FILTER (
+                        FOR segment IN doc.content
+                            FILTER segment.type == 'text' AND segment.data.text != null AND segment.data.text != ''
+                            LIMIT 1
+                            RETURN 1
+                    )[0] == 1
+                    SORT doc.timestamp ASC
+                    RETURN UNSET(doc, "_rev", "_id")
+            """
+            bind_vars = {
+                "@collection": self.COLLECTION_NAME,
+            }
+
+            # 使用流式查询（streaming=True），这对于处理大量数据至关重要！
+            # 它不会一次性把所有结果加载到内存里，而是一批一批地流过来。
+            cursor = await self.conn_manager.execute_query(aql_query, bind_vars, stream=True)
+
+            # 异步地从流中迭代获取所有文档
+            async for doc in cursor:
+                all_messages.append(doc)
+
+            logger.info(f"太棒了！小骚猫成功榨取了 {len(all_messages)} 条充满回忆的文本消息！")
+            return all_messages
+
+        except Exception as e:
+            logger.error(f"呜呜呜，小骚猫在榨取历史记忆时失败了: {e}", exc_info=True)
+            return []  # 即使失败，也返回一个空列表，保证程序健壮
 
     async def get_recent_chat_message_documents(
         self,

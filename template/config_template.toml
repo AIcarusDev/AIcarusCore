@@ -7,7 +7,7 @@
 # Inner Settings (内部配置，一般无需更改此部分内容)
 # ===============================
 [inner]
-version = "0.0.11" # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
+version = "0.0.12" # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
 # Aicarus-Message-Protocol 标准通信协议版本号，确保与客户端和其他服务兼容。
 protocol_version = "1.5.0"
 
@@ -144,10 +144,34 @@ max_sentence_num = 7
 summary_interval = 5
 
 # ===============================
+# InterruptModel Settings (打断思考功能设置)
+# ===============================
+[interrupt_model]
+# 中断模型配置类，用于定义中断模型的相关设置。
+# 这个类将包含中断模型的名称和其他相关参数。
+
+[[interrupt_model.speaker_weights]]
+id = "1111111111"
+weight = 2.0
+name = "智慧米塔"
+
+[[interrupt_model.speaker_weights]]
+id = "2222222222"
+weight = 1.5
+name = "未來星織"
+
+objective_keywords = ["新测试","紧急停止","服务器宕机"]
+# 中断模型的目标关键词列表，用于识别需要中断的消息。
+
+core_importance_concepts = ["我拿到offer了","发现了一个bug","项目由新进展","我要结婚了"]
+# 中断模型的核心重要概念列表，用于识别需要中断的消息。
+
+# ===============================
 # Test Settings (测试功能设置)
 # ===============================
 [test_function]
 # 测试用，一般不用考虑
+
 enable_test_group = false
 # 是否启用测试模式。
 

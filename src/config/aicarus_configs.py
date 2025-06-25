@@ -217,6 +217,34 @@ class TestFunctionConfig(ConfigBase):
 
 
 @dataclass
+class SpeakerWeightEntry(ConfigBase):
+    """定义单个发言者的权重条目。"""
+
+    id: str
+    """发言者的唯一ID。"""
+    weight: float
+    """该发言者的权重因子。"""
+    name: str | None = None  # name是可选的，给个备注方便看~
+    """发言者的名字（可选，仅用于备注）。"""
+
+
+@dataclass
+class InterruptModelConfig(ConfigBase):
+    """中断模型配置类，用于定义中断模型的相关设置。
+    这个类将包含中断模型的名称和其他相关参数。
+    """
+
+    speaker_weights: list[SpeakerWeightEntry] = field(default_factory=list)
+    """发言者权重列表，用于调整不同发言者的中断权重。"""
+
+    objective_keywords: list[str] = field(default_factory=list)
+    """中断模型的目标关键词列表，用于识别需要中断的消息。"""
+
+    core_importance_concepts: list[str] = field(default_factory=list)
+    """中断模型的核心重要概念列表，用于识别需要中断的消息。"""
+
+
+@dataclass
 class AlcarusRootConfig(ConfigBase):
     """Aicarus 的根配置类，包含所有核心设置和模型配置。
     这个类将作为 Aicarus 的主要配置入口点，包含所有必要的设置。
@@ -233,3 +261,4 @@ class AlcarusRootConfig(ConfigBase):
     database: DatabaseSettings = field(default_factory=DatabaseSettings)  # 新增数据库配置
     logging: LoggingSettings = field(default_factory=LoggingSettings)
     server: ServerSettings = field(default_factory=ServerSettings)
+    interrupt_model: InterruptModelConfig = field(default_factory=InterruptModelConfig)

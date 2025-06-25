@@ -20,4 +20,4 @@ ACTUAL_CONFIG_FILENAME: str = "config.toml"
 # Alcarus 代码期望的配置文件结构版本
 # 当 template/settings_template.toml 结构发生重大变化时需要递增此版本号，
 # 并确保 settings_template.toml 中的 [inner].version 也同步更新
-EXPECTED_CONFIG_VERSION: str = "0.0.10"
+EXPECTED_CONFIG_VERSION: str = "0.0.12"

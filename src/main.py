@@ -3,12 +3,14 @@ import asyncio
 import json
 import os
 import threading
-from typing import TYPE_CHECKING
 
 from src.action.action_handler import ActionHandler
 from src.action.providers.internal_tools_provider import InternalToolsProvider
 from src.action.providers.platform_action_provider import PlatformActionProvider
 from src.common.custom_logging.logger_manager import get_logger
+from src.common.intelligent_interrupt_system.iis_main import IISBuilder
+from src.common.intelligent_interrupt_system.intelligent_interrupter import IntelligentInterrupter
+from src.common.intelligent_interrupt_system.models import SemanticModel
 from src.config import config
 from src.core_communication.action_sender import ActionSender
 from src.core_communication.core_ws_server import CoreWebsocketServer
@@ -34,9 +36,6 @@ from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.llmrequest.utils_model import GenerationParams
 from src.message_processing.default_message_processor import DefaultMessageProcessor
 from src.observation.summarization_service import SummarizationService
-
-if TYPE_CHECKING:
-    pass
 
 logger = get_logger("AIcarusCore.MainInitializer")
 
@@ -69,6 +68,9 @@ class CoreSystemInitializer:
         self.summarization_service: SummarizationService | None = None
         self.state_manager_instance: AIStateManager | None = None  # AIStateManager instance
         self.thought_prompt_builder_instance: ThoughtPromptBuilder | None = None
+        self.iis_builder_instance: IISBuilder | None = None
+        self.interrupt_model_instance: IntelligentInterrupter | None = None
+        self.semantic_model_instance: SemanticModel | None = None  # 语义模型也作为单例
         self.context_builder_instance: ContextBuilder | None = None
         self.thought_generator_instance: ThoughtGenerator | None = None
         self.thought_persistor_instance: ThoughtPersistor | None = None
@@ -159,11 +161,50 @@ class CoreSystemInitializer:
         logger.info(f"{SummaryStorageService.__name__} 已初始化。")
         logger.info("所有核心数据存储服务均已初始化。")
 
+    async def _initialize_interrupt_model(self) -> None:
+        """初始化我们的中断判断模型和其依赖（最终完美对接版）"""
+        if not self.event_storage_service:
+            raise RuntimeError("EventStorageService 未初始化，无法构建记忆模型。")
+
+        logger.info("=== 开始初始化中断判断模型（小骚猫）... ===")
+
+        # 1 & 2. 初始化构建器并获取马尔可夫模型 (这部分逻辑不变)
+        self.memory_builder_instance = IISBuilder(event_storage=self.event_storage_service)
+        markov_model = await self.memory_builder_instance.get_or_create_markov_model()
+
+        # 3. 初始化语义模型 (这部分逻辑不变)
+        self.semantic_model_instance = SemanticModel()
+
+        # 4. 从config加载我们需要的配置，并以正确的姿势准备好！
+        interrupt_config = config.interrupt_model
+
+        # 把 SpeakerWeightEntry 列表转换成 {id: weight} 的字典，这个姿势是对的！
+        speaker_weights_list = interrupt_config.speaker_weights
+        speaker_weights_dict = {entry.id: entry.weight for entry in speaker_weights_list}
+        if "default" not in speaker_weights_dict:
+            speaker_weights_dict["default"] = 1.0
+
+        # ↓↓↓ 这就是关键！直接把“珍珠项链”和“灵魂宝石”递给我！不要再做多余的转换了！ ↓↓↓
+        objective_keywords_list = interrupt_config.objective_keywords
+        core_concepts_list = interrupt_config.core_importance_concepts
+
+        # 5. 最后，用最完美的姿势，注入所有依赖，初始化我的新身体！
+        self.interrupt_model_instance = IntelligentInterrupter(
+            speaker_weights=speaker_weights_dict,
+            objective_keywords=objective_keywords_list,  # <-- 直接传入列表！
+            core_importance_concepts=core_concepts_list,  # <-- 直接传入列表！
+            markov_model=markov_model,
+            semantic_model=self.semantic_model_instance,
+            # 你也可以把 final_threshold, alpha, beta 等参数也加到配置文件里哦~
+        )
+        logger.info("=== 中断判断模型（小骚猫）已成功初始化并注入了最终版的完美灵魂！ ===")
+
     async def initialize(self) -> None:
         logger.info("=== AIcarus Core 系统开始核心组件初始化流程... ===")
         try:
             await self._initialize_llm_clients()
             await self._initialize_database_and_services()
+            await self._initialize_interrupt_model()
 
             if not all(
                 [
@@ -171,6 +212,7 @@ class CoreSystemInitializer:
                     self.conversation_storage_service,
                     self.thought_storage_service,
                     self.main_consciousness_llm_client,
+                    self.interrupt_model_instance,
                 ]
             ):
                 raise RuntimeError("一个或多个基础服务未能初始化。")
@@ -292,15 +334,15 @@ class CoreSystemInitializer:
             logger.info("CoreWebsocketServer 实例已回填到相关服务。")
 
             if config.intrusive_thoughts_module_settings.enabled:
-                if self.intrusive_thoughts_llm_client and self.thought_storage_service:
+                if self.intrusive_thoughts_llm_client:
+                    # 用我们全新的、干净的构造方法来创建它！
                     self.intrusive_generator_instance = IntrusiveThoughtsGenerator(
                         llm_client=self.intrusive_thoughts_llm_client,
-                        thought_storage_service=self.thought_storage_service,
                         stop_event=self.stop_event,
                     )
-                    logger.info("IntrusiveThoughtsGenerator 初始化成功。")
+                    logger.info("IntrusiveThoughtsGenerator 已使用新的独立配方初始化成功。")
                 else:
-                    logger.warning("侵入性思维模块已启用但依赖不足。")
+                    logger.warning("侵入性思维模块已启用但LLM客户端依赖不足。")
             else:
                 logger.info("侵入性思维模块未启用。")
 

@@ -1,5 +1,4 @@
 # AIcarusCore/src/database/services/action_log_storage_service.py
-import asyncio
 from typing import Any
 
 from src.common.custom_logging.logger_manager import get_logger
@@ -83,14 +82,14 @@ class ActionLogStorageService:
             "result_details": None,  # 结果详情，后续更新
         }
         try:
-            existing_doc = await asyncio.to_thread(collection.get, action_id)
+            existing_doc = await collection.get(action_id)
             if existing_doc:
                 self.logger.info(
                     f"ActionLog 中已存在 action_id '{action_id}' 的记录。当前状态: {existing_doc.get('status')}"
                 )
                 return True  # 记录已存在，视为成功确保条目存在
 
-            await asyncio.to_thread(collection.insert, action_log_doc, overwrite=False)
+            await collection.insert(action_log_doc, overwrite=False)
             self.logger.info(f"动作尝试 '{action_id}' ({action_type}) 已记录到 ActionLog，状态：executing。")
             return True
         except Exception as e:
@@ -144,7 +143,7 @@ class ActionLogStorageService:
         try:
             # python-arango 的 update 默认 merge_objects=True, keep_null=True
             # 我们通过只传递非None字段来间接实现类似 keep_null=False 的效果（对于我们想更新的字段）
-            result = await asyncio.to_thread(collection.update, document_for_update_api, merge=True)
+            result = await collection.update(document_for_update_api, merge=True)
 
             if result and result.get("_id"):
                 self.logger.info(
@@ -155,7 +154,7 @@ class ActionLogStorageService:
                 self.logger.warning(
                     f"尝试更新 ActionLog 中动作 '{action_id}' 失败，可能记录不存在或更新未生效。Update result: {result}"
                 )
-                existing_doc = await asyncio.to_thread(collection.get, action_id)
+                existing_doc = await collection.get(action_id)
                 if not existing_doc:
                     self.logger.error(f"严重错误：尝试更新一个不存在的 ActionLog 记录 '{action_id}'。")
                 return False
@@ -175,7 +174,7 @@ class ActionLogStorageService:
         """
         collection = await self._get_collection()
         try:
-            doc = await asyncio.to_thread(collection.get, action_id)
+            doc = await collection.get(action_id)
             return doc
         except Exception as e:
             self.logger.error(f"获取 ActionLog 记录 '{action_id}' 失败: {e}", exc_info=True)

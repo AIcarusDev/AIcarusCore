@@ -1,10 +1,9 @@
 # src/database/services/conversation_storage_service.py
-import asyncio
 import time
 from contextlib import suppress
 from typing import Any
 
-from arango.exceptions import (
+from arangoasync.exceptions import (
     DocumentInsertError,
     DocumentRevisionError,
     DocumentUpdateError,
@@ -70,7 +69,7 @@ class ConversationStorageService:
         existing_doc: dict[str, Any] | None = None
 
         with suppress(Exception):  # 例如 DocumentNotFoundError
-            existing_doc = await asyncio.to_thread(collection.get, doc_key)
+            existing_doc = await collection.get(doc_key)
 
         if existing_doc:  # 文档已存在，执行更新逻辑
             self.logger.debug(f"会话 '{doc_key}' 已存在。正在合并并更新其档案。")
@@ -102,7 +101,7 @@ class ConversationStorageService:
 
             try:
                 # collection.update 使用文档中的 _key 匹配并合并更新
-                await asyncio.to_thread(collection.update, doc_for_db)
+                await collection.update(doc_for_db)
                 self.logger.info(f"会话 '{doc_key}' 的档案已成功更新。")
                 return doc_key
             except DocumentUpdateError as e:
@@ -127,7 +126,7 @@ class ConversationStorageService:
 
             try:
                 # insert 操作，如果 _key 已存在将会失败（除非 overwrite=True，但我们已经用 get 检查过了）
-                result = await asyncio.to_thread(collection.insert, doc_for_db, overwrite=False)
+                result = await collection.insert(doc_for_db, overwrite=False)
                 if result and result.get("_key"):
                     self.logger.info(f"新的会话档案 '{doc_key}' 已成功创建，ID: {result['_key']}")
                     return result["_key"]
@@ -149,7 +148,7 @@ class ConversationStorageService:
             return None
         try:
             collection = await self.conn_manager.get_collection(self.COLLECTION_NAME)
-            doc = await asyncio.to_thread(collection.get, str(conversation_id))
+            doc = await collection.get(str(conversation_id))
             return doc  # collection.get 在找不到时返回 None
         except Exception as e:
             self.logger.error(f"获取会话文档失败，ID '{conversation_id}': {e}", exc_info=True)
@@ -192,7 +191,7 @@ class ConversationStorageService:
 
             doc_key = str(conversation_id)
             # 使用 update 方法，它会合并传入的 patch_doc
-            await asyncio.to_thread(collection.update, {"_key": doc_key, **patch_doc})
+            await collection.update({"_key": doc_key, **patch_doc})
             self.logger.info(f"会话 '{conversation_id}' 中的字段 '{field_path_to_update}' 已更新为 '{new_value}'.")
             return True
         except Exception as e:
@@ -225,7 +224,7 @@ class ConversationStorageService:
             collection = await self.conn_manager.get_collection(self.COLLECTION_NAME)
             doc_key = str(conversation_id)
             patch = {"last_processed_timestamp": timestamp, "updated_at": int(time.time() * 1000)}
-            await asyncio.to_thread(collection.update, {"_key": doc_key, **patch})
+            await collection.update({"_key": doc_key, **patch})
             self.logger.debug(f"会话 '{conversation_id}' 的 last_processed_timestamp 已更新为 {timestamp}.")
             return True
         except Exception as e:

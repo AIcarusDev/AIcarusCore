@@ -180,7 +180,9 @@ class ChatPromptBuilder:
                 final_bot_id = str(bot_profile["user_id"])
                 final_bot_nickname = bot_profile.get("nickname", final_bot_nickname)
                 final_bot_card = bot_profile.get("card", final_bot_nickname)
-                logger.info(f"动态获取机器人信息成功: ID={final_bot_id}, Nick={final_bot_nickname}, Card={final_bot_card}")
+                logger.info(
+                    f"动态获取机器人信息成功: ID={final_bot_id}, Nick={final_bot_nickname}, Card={final_bot_card}"
+                )
             else:
                 logger.warning("动态获取机器人信息失败或信息不完整，将回退到使用配置文件中的信息。")
                 # Fallback to static config if API call fails, final_bot_id, etc., will use their default values.
