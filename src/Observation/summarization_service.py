@@ -76,7 +76,7 @@ class SummarizationService:
                 if is_bot_message and motivation and isinstance(motivation, str) and motivation.strip():
                     log_line += f"\n    - [MOTIVE]: {motivation}"
 
-            elif event_type == "internal.sub_consciousness.thought_log":
+            elif event_type == "internal.focus_chat_mode.thought_log":
                 log_line = f"[{time_str}] {uid_str} [MOTIVE]: {content_text}"
             
             if log_line:

@@ -377,7 +377,7 @@ class ChatPromptBuilder:
                 tar_uid = platform_id_to_uid_str.get(tar_id, tar_id or "UnknownTarget")
                 log_line = f"[{time_str}] [SYS]: {op_uid}邀请{tar_uid}加入了群聊。"
             # ... other notice types would be similarly formatted ...
-            elif event_data_log.event_type == "internal.sub_consciousness.thought_log":
+            elif event_data_log.event_type == "internal.focus_chat_mode.thought_log":
                 motivation_text = extract_text_from_content(event_data_log.content)
                 log_line = f"[{time_str}] {log_user_id_str} [MOTIVE]: {motivation_text}"
             else:

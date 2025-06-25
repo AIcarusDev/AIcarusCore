@@ -24,7 +24,7 @@ from src.core_logic.thought_generator import ThoughtGenerator
 from src.core_logic.thought_persistor import ThoughtPersistor
 
 if TYPE_CHECKING:
-    from src.sub_consciousness.chat_session_manager import ChatSessionManager
+    from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 
 logger = get_logger("AIcarusCore.CoreLogicFlow")
 

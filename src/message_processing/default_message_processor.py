@@ -20,7 +20,7 @@ from src.database.services.event_storage_service import EventStorageService
 if TYPE_CHECKING:
     from src.core_communication.core_ws_server import CoreWebsocketServer
     from src.main import CoreSystemInitializer
-    from src.sub_consciousness.chat_session_manager import ChatSessionManager  # Updated import
+from src.focus_chat_mode.chat_session_manager import ChatSessionManager  # Updated import
 
 
 class DefaultMessageProcessor:

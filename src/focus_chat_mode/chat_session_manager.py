@@ -8,7 +8,7 @@ from src.action.action_handler import ActionHandler
 
 # 从项目中导入必要的模块
 from src.common.custom_logging.logger_manager import get_logger
-from src.config.aicarus_configs import SubConsciousnessSettings
+from src.config.aicarus_configs import FocusChatModeSettings
 from src.database.services.event_storage_service import EventStorageService
 from src.database.services.summary_storage_service import SummaryStorageService
 from src.llmrequest.llm_processor import Client as LLMProcessorClient
@@ -32,7 +32,7 @@ class ChatSessionManager:  # Renamed class
 
     def __init__(
         self,
-        config: SubConsciousnessSettings,
+        config: FocusChatModeSettings,
         llm_client: LLMProcessorClient,
         event_storage: EventStorageService,
         action_handler: ActionHandler,

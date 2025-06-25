@@ -33,7 +33,7 @@ from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.llmrequest.utils_model import GenerationParams
 from src.message_processing.default_message_processor import DefaultMessageProcessor
 from src.observation.summarization_service import SummarizationService
-from src.sub_consciousness.chat_session_manager import ChatSessionManager
+from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 
 if TYPE_CHECKING:
     pass
@@ -122,12 +122,12 @@ class CoreSystemInitializer:
         self.summary_llm_client = _create_client(models.information_summary, "information_summary")
         if config.intrusive_thoughts_module_settings.enabled:
             self.intrusive_thoughts_llm_client = _create_client(models.intrusive_thoughts, "intrusive_thoughts")
-        if config.sub_consciousness.enabled:
+        if config.focus_chat_mode.enabled:
             self.focused_chat_llm_client = _create_client(models.focused_chat, "focused_chat")
 
         if not self.main_consciousness_llm_client:
             raise RuntimeError("主意识LLM客户端初始化失败。")
-        if config.sub_consciousness.enabled and not self.focused_chat_llm_client:
+        if config.focus_chat_mode.enabled and not self.focused_chat_llm_client:
             raise RuntimeError("专注聊天LLM客户端已启用但初始化失败。")
         logger.info("LLM客户端初始化完毕。")
 
@@ -211,7 +211,7 @@ class CoreSystemInitializer:
             self.thought_persistor_instance = ThoughtPersistor(thought_storage=self.thought_storage_service)
             logger.info("ThoughtPersistor 初始化成功。")
 
-            if config.sub_consciousness.enabled:
+            if config.focus_chat_mode.enabled:
                 if (
                     self.focused_chat_llm_client
                     and config.persona.qq_id
@@ -221,7 +221,7 @@ class CoreSystemInitializer:
                     and self.action_handler_instance
                 ):
                     self.qq_chat_session_manager = ChatSessionManager(
-                        config=config.sub_consciousness,
+                        config=config.focus_chat_mode,
                         llm_client=self.focused_chat_llm_client,
                         event_storage=self.event_storage_service,
                         action_handler=self.action_handler_instance,
@@ -309,7 +309,7 @@ class CoreSystemInitializer:
                     self.core_comm_layer,
                     self.action_handler_instance,
                     self.state_manager_instance,
-                    self.qq_chat_session_manager if config.sub_consciousness.enabled else True,  # 如果未启用则不检查
+                    self.qq_chat_session_manager if config.focus_chat_mode.enabled else True,  # 如果未启用则不检查
                     self.context_builder_instance,
                     self.thought_generator_instance,
                     self.thought_persistor_instance,
@@ -364,7 +364,7 @@ class CoreSystemInitializer:
                 all_tasks.append(asyncio.create_task(self.core_comm_layer.start(), name="CoreWSServer"))
             if self.core_logic_instance:
                 all_tasks.append(await self.core_logic_instance.start_thinking_loop())  # This returns a task
-            if self.qq_chat_session_manager and config.sub_consciousness.enabled:
+            if self.qq_chat_session_manager and config.focus_chat_mode.enabled:
                 all_tasks.append(
                     asyncio.create_task(
                         self.qq_chat_session_manager.run_periodic_deactivation_check(), name="ChatDeactivation"

@@ -1,4 +1,4 @@
-# 文件: D:\Aic\AIcarusCore\src\sub_consciousness\chat_session.py
+# 文件: D:\Aic\AIcarusCore\src\focus_chat_mode\chat_session.py
 # 我是小懒猫，这是我给你整理好的版本，哼！
 
 import asyncio
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
     from src.database.services.summary_storage_service import SummaryStorageService
     from src.observation.summarization_service import SummarizationService
-    from src.sub_consciousness.chat_session_manager import ChatSessionManager
+    from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 
 logger = get_logger(__name__)
 
@@ -81,7 +81,7 @@ class ChatSession:
         self.last_profile_update_time: float = 0.0  # 上次更新时间
 
         # --- 辅助组件 ---
-        self.SUMMARY_INTERVAL: int = getattr(config.sub_consciousness, "summary_interval", 5)
+        self.SUMMARY_INTERVAL: int = getattr(config.focus_chat_mode, "summary_interval", 5)
         self.prompt_builder = ChatPromptBuilder(
             session=self,
             event_storage=self.event_storage,

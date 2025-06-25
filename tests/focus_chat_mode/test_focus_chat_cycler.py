@@ -1,4 +1,4 @@
-# tests/sub_consciousness/test_focus_chat_cycler.py
+# tests/focus_chat_mode/test_focus_chat_cycler.py
 
 import asyncio
 import unittest
@@ -10,8 +10,8 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 # 导入一大堆我们要测试和模拟的东西，别头晕
-from src.sub_consciousness.focus_chat_cycler import FocusChatCycler
-from src.sub_consciousness.chat_session import ChatSession
+from src.focus_chat_mode.focus_chat_cycler import FocusChatCycler
+from src.focus_chat_mode.chat_session import ChatSession
 
 class TestFocusChatCycler(unittest.TestCase):
 

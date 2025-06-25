@@ -123,7 +123,7 @@ insertion_probability = 0.15 # 默认15%的概率注入
 # ===============================
 # Focused Chat Settings (专注聊天模块设置)
 # ===============================
-[sub_consciousness]
+[focus_chat_mode]
 # 是否启用专注聊天模块。
 enabled = true
 session_timeout_seconds = 180 # # 如果一个已激活的会话在此时间内没有任何机器人发言或收到新消息，该会话的专注聊天模式将自动停用。默认3分钟

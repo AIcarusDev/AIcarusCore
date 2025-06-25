@@ -85,7 +85,7 @@ class FocusChatCycler:
         """
         专注聊天的主循环（终极版），哼，这次总没问题了吧！
         """
-        idle_thinking_interval = getattr(config.sub_consciousness, "self_reflection_interval_seconds", 15)
+        idle_thinking_interval = getattr(config.focus_chat_mode, "self_reflection_interval_seconds", 15)
 
         while not self._shutting_down:
             self._interruption_event.clear()
@@ -419,10 +419,10 @@ class FocusChatCycler:
         original_reply_text = parsed_data["reply_text"]
         split_sentences = process_llm_response(
             text=original_reply_text,
-            enable_kaomoji_protection=config.sub_consciousness.enable_kaomoji_protection,
-            enable_splitter=config.sub_consciousness.enable_splitter,
-            max_length=config.sub_consciousness.max_length,
-            max_sentence_num=config.sub_consciousness.max_sentence_num,
+            enable_kaomoji_protection=config.focus_chat_mode.enable_kaomoji_protection,
+            enable_splitter=config.focus_chat_mode.enable_splitter,
+            max_length=config.focus_chat_mode.max_length,
+            max_sentence_num=config.focus_chat_mode.max_sentence_num,
         )
 
         at_target_values_raw = parsed_data.get("at_someone")
@@ -492,7 +492,7 @@ class FocusChatCycler:
         logger.info(f"Decided not to reply. Motivation: {motivation}")
         internal_act_event_dict = {
             "event_id": f"internal_act_{uuid.uuid4()}",
-            "event_type": "internal.sub_consciousness.thought_log",
+            "event_type": "internal.focus_chat_mode.thought_log",
             "time": time.time() * 1000,
             "platform": self.session.platform,
             "bot_id": self.session.bot_id,

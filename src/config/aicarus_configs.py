@@ -171,8 +171,8 @@ class InnerConfig(ConfigBase):
 
 
 @dataclass
-class SubConsciousnessSettings(ConfigBase):
-    """子意识模块，如专注聊天功能的设置"""
+class FocusChatModeSettings(ConfigBase):
+    """专注聊天模式的设置"""
 
     enabled: bool = True
     """是否启用子意识模块"""
@@ -226,7 +226,7 @@ class AlcarusRootConfig(ConfigBase):
     intrusive_thoughts_module_settings: IntrusiveThoughtsSettings
     llm_models: AllModelPurposesConfig | None = field(default_factory=AllModelPurposesConfig)
     test_function: TestFunctionConfig = field(default_factory=TestFunctionConfig)
-    sub_consciousness: SubConsciousnessSettings = field(default_factory=SubConsciousnessSettings)  # 新增子意识配置
+    focus_chat_mode: FocusChatModeSettings = field(default_factory=FocusChatModeSettings)  # 新增专注聊天配置
     database: DatabaseSettings = field(default_factory=DatabaseSettings)  # 新增数据库配置
     logging: LoggingSettings = field(default_factory=LoggingSettings)
     server: ServerSettings = field(default_factory=ServerSettings)
