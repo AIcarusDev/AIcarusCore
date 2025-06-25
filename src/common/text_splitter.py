@@ -483,7 +483,19 @@ def split_into_sentences_w_remove_punctuation(original_text: str) -> list[str]:
                     should_merge_based_on_punctuation = False
 
                 if random.random() < actual_merge_probability and temp_sentence and should_merge_based_on_punctuation:
-                    if not temp_sentence.endswith(" ") and not current_sentence_to_merge.startswith(" "):
+                    # 检查是否需要添加空格
+                    need_space = False
+                    if temp_sentence and current_sentence_to_merge:
+                        last_char = temp_sentence.strip()[-1] if temp_sentence.strip() else ""
+                        first_char = current_sentence_to_merge.strip()[0] if current_sentence_to_merge.strip() else ""
+
+                        # 如果前后都是非中文字符（如英文、俄文等），才添加空格
+                        if (is_letter_not_han(last_char) or is_digit(last_char)) and (
+                            is_letter_not_han(first_char) or is_digit(first_char)
+                        ):
+                            need_space = True
+
+                    if need_space and not temp_sentence.endswith(" ") and not current_sentence_to_merge.startswith(" "):
                         temp_sentence += " "
                     temp_sentence += current_sentence_to_merge
                 else:

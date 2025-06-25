@@ -171,7 +171,9 @@ class DefaultMessageProcessor:
             self.logger.info(f"收到会话 '{conversation_id}' 的机器人档案更新通知: '{update_type}' -> '{new_value}'")
 
             # 检查这个会话当前是否在专注聊天模式下是活跃的
-            session = self.qq_chat_session_manager.sessions.get(conversation_id) if self.qq_chat_session_manager else None
+            session = (
+                self.qq_chat_session_manager.sessions.get(conversation_id) if self.qq_chat_session_manager else None
+            )
 
             if session and session.is_active:
                 # 如果会话活跃，直接更新它的短期记忆（内存缓存）
@@ -179,12 +181,12 @@ class DefaultMessageProcessor:
                 if update_type == "card_change":
                     session.bot_profile_cache["card"] = new_value
                 # 可以在这里添加对其他更新类型的处理，比如头衔 'title'
-                
-                session.last_profile_update_time = time.time() # 别忘了更新时间戳！
-                
+
+                session.last_profile_update_time = time.time()  # 别忘了更新时间戳！
+
                 # 同时，把更新后的完整档案存回数据库（长期记忆）
                 profile_to_save = session.bot_profile_cache.copy()
-                profile_to_save['updated_at'] = int(time.time() * 1000)
+                profile_to_save["updated_at"] = int(time.time() * 1000)
                 await self.conversation_service.update_conversation_field(
                     conversation_id, "bot_profile_in_this_conversation", profile_to_save
                 )
@@ -192,19 +194,19 @@ class DefaultMessageProcessor:
                 # 如果会话不活跃，我们只更新数据库里的长期记忆
                 # 这样下次会话被激活时，它就能从数据库读到最新的信息
                 self.logger.info(f"会话 '{conversation_id}' 不活跃，仅更新其在数据库中的机器人档案。")
-                
+
                 # 先从数据库读出旧的档案
                 conv_doc = await self.conversation_service.get_conversation_document_by_id(conversation_id)
                 profile_to_update = {}
                 if conv_doc and conv_doc.get("bot_profile_in_this_conversation"):
                     profile_to_update = conv_doc["bot_profile_in_this_conversation"]
-                
+
                 # 在旧档案基础上更新
                 if update_type == "card_change":
                     profile_to_update["card"] = new_value
-                
-                profile_to_update['updated_at'] = int(time.time() * 1000)
-                
+
+                profile_to_update["updated_at"] = int(time.time() * 1000)
+
                 # 写回数据库
                 await self.conversation_service.update_conversation_field(
                     conversation_id, "bot_profile_in_this_conversation", profile_to_update

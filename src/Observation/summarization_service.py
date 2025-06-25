@@ -7,6 +7,7 @@ from src.llmrequest.llm_processor import Client as LLMProcessorClient
 
 logger = get_logger("AIcarusCore.observation.SummarizationService")
 
+
 class SummarizationService:
     """
     服务类，负责对会话历史进行总结，生成第一人称的回忆录。
@@ -47,6 +48,7 @@ class SummarizationService:
             time_str = ""
             if timestamp > 0:
                 from datetime import datetime
+
                 time_str = datetime.fromtimestamp(timestamp / 1000.0).strftime("%H:%M:%S")
 
             user_info = event_doc.get("user_info", {})
@@ -63,14 +65,14 @@ class SummarizationService:
                         if isinstance(data, dict):
                             text_parts.append(str(data.get("text", "")))
                 content_text = "".join(text_parts)
-            
+
             # 标记机器人自己的发言
-            is_bot_message = (sender_platform_id == bot_id)
+            is_bot_message = sender_platform_id == bot_id
 
             log_line = ""
             if event_type.startswith("message.") or (is_bot_message and event_type == "action.message.send"):
                 log_line = f"[{time_str}] {uid_str} [MSG]: {content_text} (id:{event_doc.get('_key')})"
-                
+
                 # 如果是机器人发的，并且有动机，就附加上
                 motivation = event_doc.get("motivation")
                 if is_bot_message and motivation and isinstance(motivation, str) and motivation.strip():
@@ -78,7 +80,7 @@ class SummarizationService:
 
             elif event_type == "internal.focus_chat_mode.thought_log":
                 log_line = f"[{time_str}] {uid_str} [MOTIVE]: {content_text}"
-            
+
             if log_line:
                 chat_log_lines.append(log_line)
 
@@ -100,6 +102,7 @@ class SummarizationService:
         persona_config = config.persona
         current_time_str = ""
         from datetime import datetime
+
         current_time_str = datetime.now().strftime("%Y年%m月%d日 %H点%M分%S秒")
 
         system_prompt = f"""
@@ -107,9 +110,9 @@ class SummarizationService:
 你是{persona_config.bot_name}
 {persona_config.description}
 {persona_config.profile}
-你的qq号是"{bot_profile.get('user_id', '未知')}"；
-你当前正在qq群"{conversation_info.get('name', '未知群聊')}"中参与qq群聊
-你在该群的群名片是"{bot_profile.get('card', persona_config.bot_name)}"
+你的qq号是"{bot_profile.get("user_id", "未知")}"；
+你当前正在qq群"{conversation_info.get("name", "未知群聊")}"中参与qq群聊
+你在该群的群名片是"{bot_profile.get("card", persona_config.bot_name)}"
 你的任务是以你的视角总结聊天记录里的内容，包括人物、事件和主要信息，不要分点，不要换行。
 现在请将“最新的聊天记录内容”无缝地整合进“已有的记录总结”中，生成一份更新后的、连贯的完整聊天记录总结。
 更新后的记录总结必须保留所有旧回忆录中的关键信息、情感转折和重要决策。不能因为有了新内容就忘记或丢弃旧的重点。
@@ -145,9 +148,14 @@ class SummarizationService:
       2. 附属出现时 (在[MSG]下缩进): 代表你发出该条消息的“背后动机”或“原因”，是消息的附注说明。
 [IMG]: 图片消息
 [FILE]: 文件分享""".format(
-            conv_name=conversation_info.get('name', '未知'),
-            conv_type=conversation_info.get('type', '未知'),
-            user_list="\n".join([f"{u_info['uid_str']}: {p_id} [nick:{u_info['nick']}, card:{u_info['card']}, title:{u_info['title']}, perm:{u_info['perm']}]" for p_id, u_info in user_map.items()])
+            conv_name=conversation_info.get("name", "未知"),
+            conv_type=conversation_info.get("type", "未知"),
+            user_list="\n".join(
+                [
+                    f"{u_info['uid_str']}: {p_id} [nick:{u_info['nick']}, card:{u_info['card']}, title:{u_info['title']}, perm:{u_info['perm']}]"
+                    for p_id, u_info in user_map.items()
+                ]
+            ),
         )
 
         # Part 3: 新聊天记录

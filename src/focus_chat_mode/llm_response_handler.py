@@ -15,7 +15,7 @@ class LLMResponseHandler:
     LLM响应处理器，专门解析和验证LLM返回的那些乱七八糟的文本。
     """
 
-    def __init__(self, session: "ChatSession"):
+    def __init__(self, session: "ChatSession") -> None:
         self.session = session
         self.core_logic = session.core_logic
         self.chat_session_manager = session.chat_session_manager
@@ -30,13 +30,17 @@ class LLMResponseHandler:
             try:
                 return json.loads(json_str)
             except json.JSONDecodeError as e:
-                logger.error(f"[{self.session.conversation_id}] 解析被```json包裹的响应时JSONDecodeError: {e}. JSON string: {json_str[:200]}...")
+                logger.error(
+                    f"[{self.session.conversation_id}] 解析被```json包裹的响应时JSONDecodeError: {e}. JSON string: {json_str[:200]}..."
+                )
                 return None
         else:
             try:
                 return json.loads(response_text)
             except json.JSONDecodeError:
-                logger.warning(f"[{self.session.conversation_id}] LLM响应不是有效的JSON，且未被```json包裹: {response_text[:200]}")
+                logger.warning(
+                    f"[{self.session.conversation_id}] LLM响应不是有效的JSON，且未被```json包裹: {response_text[:200]}"
+                )
                 return None
 
     async def handle_end_focus_chat_if_needed(self, parsed_data: dict) -> bool:

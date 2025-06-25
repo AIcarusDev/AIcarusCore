@@ -1,12 +1,12 @@
 import asyncio
-import uuid
 import random
 import time
+import uuid
 from typing import TYPE_CHECKING
 
+from aicarus_protocols.conversation_info import ConversationInfo
 from aicarus_protocols.seg import SegBuilder
 from aicarus_protocols.user_info import UserInfo
-from aicarus_protocols.conversation_info import ConversationInfo
 
 from src.common.custom_logging.logger_manager import get_logger
 from src.common.text_splitter import process_llm_response
@@ -24,7 +24,7 @@ class ActionExecutor:
     哼，别想让我干别的！
     """
 
-    def __init__(self, session: "ChatSession"):
+    def __init__(self, session: "ChatSession") -> None:
         self.session = session
         self.action_handler = session.action_handler
         self.event_storage = session.event_storage
@@ -78,7 +78,10 @@ class ActionExecutor:
                 "event_type": "action.message.send",
                 "platform": self.session.platform,
                 "bot_id": self.session.bot_id,
-                "conversation_info": {"conversation_id": self.session.conversation_id, "type": self.session.conversation_type},
+                "conversation_info": {
+                    "conversation_id": self.session.conversation_id,
+                    "type": self.session.conversation_type,
+                },
                 "content": content_segs_payload,
                 "motivation": current_motivation
                 if i == 0 and current_motivation and current_motivation.strip()

@@ -15,13 +15,13 @@ class InterruptionWatcher:
     哼，我就是那个躲在暗处盯着你们聊天的小猫咪！
     """
 
-    def __init__(self, session: "ChatSession", interruption_event: asyncio.Event):
+    def __init__(self, session: "ChatSession", interruption_event: asyncio.Event) -> None:
         self.session = session
         self.event_storage = session.event_storage
         self._interruption_event = interruption_event
         self._shutting_down = False
 
-    async def run(self, observe_start_timestamp: float):
+    async def run(self, observe_start_timestamp: float) -> None:
         """
         启动观察员，在思考期间监视新消息。
         """
@@ -42,7 +42,7 @@ class InterruptionWatcher:
 
                 if new_events:
                     for event_doc in new_events:
-                        event_key = event_doc.get('_key')
+                        event_key = event_doc.get("_key")
                         if not event_key or event_key in processed_event_keys_in_this_run:
                             continue
 
@@ -50,7 +50,9 @@ class InterruptionWatcher:
                         sender_id = sender_info.get("user_id") if isinstance(sender_info, dict) else None
 
                         if sender_id and str(sender_id) == current_bot_id:
-                            logger.debug(f"[{self.session.conversation_id}] 观察员发现一条自己发的消息({event_key})，已忽略。")
+                            logger.debug(
+                                f"[{self.session.conversation_id}] 观察员发现一条自己发的消息({event_key})，已忽略。"
+                            )
                             processed_event_keys_in_this_run.add(event_key)
                             continue
 
@@ -58,12 +60,16 @@ class InterruptionWatcher:
 
                         score_to_add = self._calculate_score(event_doc, current_bot_id)
                         interruption_score += score_to_add
-                        logger.debug(f"[{self.session.conversation_id}] 新消息({event_key})计分后，中断分数: {interruption_score}")
+                        logger.debug(
+                            f"[{self.session.conversation_id}] 新消息({event_key})计分后，中断分数: {interruption_score}"
+                        )
 
-                        last_checked_timestamp = new_events[-1]['timestamp']
+                        last_checked_timestamp = new_events[-1]["timestamp"]
 
                         if interruption_score >= threshold:
-                            logger.info(f"[{self.session.conversation_id}] 中断分数达到阈值 ({interruption_score}/{threshold})！发送中断信号！")
+                            logger.info(
+                                f"[{self.session.conversation_id}] 中断分数达到阈值 ({interruption_score}/{threshold})！发送中断信号！"
+                            )
                             self._interruption_event.set()
                             return
 
@@ -72,10 +78,10 @@ class InterruptionWatcher:
             except Exception as e:
                 logger.error(f"[{self.session.conversation_id}] 中断观察员出错: {e}", exc_info=True)
                 await asyncio.sleep(2)
-        
+
         logger.debug(f"[{self.session.conversation_id}] 中断观察员正常退出。")
 
-    def shutdown(self):
+    def shutdown(self) -> None:
         self._shutting_down = True
 
     async def _calculate_score(self, event_doc: dict, current_bot_id: str) -> int:
@@ -83,7 +89,7 @@ class InterruptionWatcher:
             return 100
         if await self._is_quoting_me(event_doc, current_bot_id):
             return 80
-        
+
         content = event_doc.get("content", [])
         if content and isinstance(content, list) and len(content) > 0:
             main_seg_type = content[0].get("type")
@@ -92,12 +98,18 @@ class InterruptionWatcher:
             elif main_seg_type == "text":
                 text_content = "".join([s.get("data", {}).get("text", "") for s in content if s.get("type") == "text"])
                 char_count = len(text_content.replace(" ", "").replace("\n", ""))
-                if char_count >= 25: return 35
-                elif char_count >= 5: return 20
-                else: return 5
-            elif main_seg_type == "record": return 15
-            elif main_seg_type in ["face", "poke"]: return 5
-            else: return 10
+                if char_count >= 25:
+                    return 35
+                elif char_count >= 5:
+                    return 20
+                else:
+                    return 5
+            elif main_seg_type == "record":
+                return 15
+            elif main_seg_type in ["face", "poke"]:
+                return 5
+            else:
+                return 10
         return 0
 
     def _is_mentioning_me(self, event_doc: dict, current_bot_id: str) -> bool:
@@ -130,11 +142,13 @@ class InterruptionWatcher:
             original_message_doc = original_message_docs[0]
             original_sender_info = original_message_doc.get("user_info", {})
             original_sender_id = original_sender_info.get("user_id") if isinstance(original_sender_info, dict) else None
-            
+
             if original_sender_id and str(original_sender_id) == current_bot_id:
-                logger.debug(f"[{self.session.conversation_id}] 确认被回复，被引用的消息 {quoted_message_id} 是由我 ({current_bot_id}) 发送的。")
+                logger.debug(
+                    f"[{self.session.conversation_id}] 确认被回复，被引用的消息 {quoted_message_id} 是由我 ({current_bot_id}) 发送的。"
+                )
                 return True
         except Exception as e:
             logger.error(f"[{self.session.conversation_id}] 在检查是否被回复时发生数据库查询错误: {e}", exc_info=True)
-        
+
         return False

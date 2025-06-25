@@ -1,6 +1,6 @@
 # run_core_logic.py
 import asyncio
-import os # <-- 加上这个
+import os  # <-- 加上这个
 import traceback
 
 # 导入新的主启动函数
@@ -15,8 +15,8 @@ if __name__ == "__main__":
             print("--- 启动 asyncio 调试模式，慢速回调检测已开启！ ---")
             loop = asyncio.get_event_loop()
             # slow_callback_duration 设置为 0.5 秒，任何阻塞超过这个时间的同步调用都会被揪出来！
-            loop.set_debug(True) 
-            loop.slow_callback_duration = 0.5 
+            loop.set_debug(True)
+            loop.slow_callback_duration = 0.5
         # --- 魔法结束 ---
 
         asyncio.run(start_core_system())
