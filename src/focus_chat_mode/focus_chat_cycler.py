@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 from src.common.custom_logging.logger_manager import get_logger
 from src.config import config
+
 from .interruption_watcher import InterruptionWatcher
 
 if TYPE_CHECKING:
@@ -29,7 +30,7 @@ class FocusChatCycler:
         self.conversation_id = self.session.conversation_id
         self.llm_client = self.session.llm_client
         self.prompt_builder = self.session.prompt_builder
-        
+
         # 新的模块化依赖
         self.llm_response_handler = self.session.llm_response_handler
         self.action_executor = self.session.action_executor
@@ -70,8 +71,8 @@ class FocusChatCycler:
 
         self._loop_active = False
         logger.info(f"[FocusChatCycler][{self.conversation_id}] 已关闭。")
-    
-    def wakeup(self):
+
+    def wakeup(self) -> None:
         """从外部唤醒空闲的循环。哼，别随便叫我！"""
         logger.debug(f"[{self.conversation_id}] 接收到外部唤醒信号。")
         self._wakeup_event.set()
@@ -91,7 +92,7 @@ class FocusChatCycler:
             try:
                 # 阶段一：思考与决策
                 system_prompt, user_prompt, uid_map, processed_ids = await self._prepare_and_think()
-                
+
                 current_loop_start_time_ms = time.time() * 1000
                 llm_task = asyncio.create_task(
                     self.llm_client.make_llm_request(prompt=user_prompt, system_prompt=system_prompt, is_stream=False)
@@ -103,13 +104,15 @@ class FocusChatCycler:
 
                 if observer_task in done or self._interruption_event.is_set():
                     logger.info(f"[{self.conversation_id}] 思考被高价值新消息中断，将立即重新思考。")
-                    if llm_task and not llm_task.done(): llm_task.cancel()
+                    if llm_task and not llm_task.done():
+                        llm_task.cancel()
                     continue
 
                 # 阶段二：执行与状态更新
                 if llm_task in done:
-                    if observer_task and not observer_task.done(): observer_task.cancel()
-                    
+                    if observer_task and not observer_task.done():
+                        observer_task.cancel()
+
                     async with self.session.processing_lock:
                         llm_response = llm_task.result()
                         await self._process_llm_response(llm_response, uid_map, processed_ids)
@@ -124,12 +127,14 @@ class FocusChatCycler:
                 logger.error(f"[{self.conversation_id}] 循环中发生意外错误: {e}", exc_info=True)
                 await asyncio.sleep(5)
             finally:
-                if observer_task and not observer_task.done(): observer_task.cancel()
-                if llm_task and not llm_task.done(): llm_task.cancel()
+                if observer_task and not observer_task.done():
+                    observer_task.cancel()
+                if llm_task and not llm_task.done():
+                    llm_task.cancel()
 
         logger.info(f"[{self.conversation_id}] 专注聊天循环已结束。")
 
-    async def _prepare_and_think(self):
+    async def _prepare_and_think(self) -> tuple:
         logger.debug(f"[{self.conversation_id}] 循环开始，正在构建 prompts...")
         system_prompt, user_prompt, uid_map, processed_ids = await self.prompt_builder.build_prompts(
             session=self.session,
@@ -142,7 +147,7 @@ class FocusChatCycler:
         logger.debug(f"[{self.conversation_id}] Prompts 构建完成，正在启动 LLM 思考任务和中断观察员...")
         return system_prompt, user_prompt, uid_map, processed_ids
 
-    async def _process_llm_response(self, llm_api_response: dict, uid_map: dict, processed_event_ids: list):
+    async def _process_llm_response(self, llm_api_response: dict, uid_map: dict, processed_event_ids: list) -> None:
         self.session.last_active_time = time.time()
         if processed_event_ids:
             await self.session.event_storage.update_events_status(processed_event_ids, "read")
@@ -152,13 +157,21 @@ class FocusChatCycler:
         if not response_text or (llm_api_response and llm_api_response.get("error")):
             error_msg = llm_api_response.get("message") if llm_api_response else "无响应"
             logger.error(f"[{self.conversation_id}] LLM调用失败或返回空: {error_msg}")
-            self.session.last_llm_decision = {"think": f"LLM调用失败: {error_msg}", "reply_willing": False, "motivation": "系统错误导致无法思考"}
+            self.session.last_llm_decision = {
+                "think": f"LLM调用失败: {error_msg}",
+                "reply_willing": False,
+                "motivation": "系统错误导致无法思考",
+            }
             return
 
         parsed_data = self.llm_response_handler.parse(response_text)
         if not parsed_data:
             logger.error(f"[{self.conversation_id}] LLM响应最终解析失败或为空。")
-            self.session.last_llm_decision = {"think": "LLM响应解析失败或为空", "reply_willing": False, "motivation": "系统错误导致无法解析LLM的胡言乱语"}
+            self.session.last_llm_decision = {
+                "think": "LLM响应解析失败或为空",
+                "reply_willing": False,
+                "motivation": "系统错误导致无法解析LLM的胡言乱语",
+            }
             return
 
         if "mood" not in parsed_data:
@@ -178,13 +191,13 @@ class FocusChatCycler:
 
         if self.session.is_first_turn_for_session:
             self.session.is_first_turn_for_session = False
-        
+
         self.session.last_processed_timestamp = time.time() * 1000
 
-    async def _idle_wait(self, interval: float):
+    async def _idle_wait(self, interval: float) -> None:
         logger.debug(f"[{self.conversation_id}] 进入空闲等待阶段，等待下一次唤醒或 {interval} 秒后超时。")
         try:
             await asyncio.wait_for(self._wakeup_event.wait(), timeout=interval)
             logger.info(f"[{self.conversation_id}] 被新消息唤醒，立即开始下一轮思考。")
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.info(f"[{self.conversation_id}] 空闲等待超时，主动开始下一轮思考。")

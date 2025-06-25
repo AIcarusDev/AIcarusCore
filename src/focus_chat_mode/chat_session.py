@@ -4,7 +4,7 @@
 import asyncio
 import time
 from collections import OrderedDict
-from typing import TYPE_CHECKING, Any, Dict
+from typing import TYPE_CHECKING, Any
 
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logger_manager import get_logger
@@ -14,18 +14,19 @@ from src.database.services.event_storage_service import EventStorageService
 from src.llmrequest.llm_processor import Client as LLMProcessorClient
 from src.tools.platform_actions import get_bot_profile
 
+from .action_executor import ActionExecutor
 from .chat_prompt_builder import ChatPromptBuilder
 from .focus_chat_cycler import FocusChatCycler
-from .action_executor import ActionExecutor
 from .llm_response_handler import LLMResponseHandler
 from .summarization_manager import SummarizationManager
-
 
 if TYPE_CHECKING:
     from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
     from src.database.services.summary_storage_service import SummaryStorageService
-    from src.observation.summarization_service import SummarizationService
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
+    from src.observation.summarization_service import SummarizationService
+
+CACHE_EXPIRATION_SECONDS = 600  # 缓存10分钟
 
 logger = get_logger(__name__)
 
@@ -86,7 +87,7 @@ class ChatSession:
         self.events_since_last_summary: list[dict[str, Any]] = []
         self.message_count_since_last_summary: int = 0
         self.no_action_count: int = 0
-        self.bot_profile_cache: Dict[str, Any] = {}  # 短期记忆小本本
+        self.bot_profile_cache: dict[str, Any] = {}  # 短期记忆小本本
         self.last_profile_update_time: float = 0.0  # 上次更新时间
 
         # --- 辅助组件 ---
@@ -104,13 +105,11 @@ class ChatSession:
 
         logger.info(f"[ChatSession][{self.conversation_id}] 实例已创建，依赖已注入。")
 
-    async def get_bot_profile(self) -> Dict[str, Any]:
+    async def get_bot_profile(self) -> dict[str, Any]:
         """
         智能获取机器人档案，优先使用缓存，再查数据库，最后才问适配器。
         哼，这才叫高效的懒！
         """
-        CACHE_EXPIRATION_SECONDS = 600  # 缓存10分钟
-
         # 1. 检查短期记忆（内存缓存）是否有效
         if self.bot_profile_cache and (time.time() - self.last_profile_update_time < CACHE_EXPIRATION_SECONDS):
             logger.info(f"[{self.conversation_id}] 使用内存缓存的机器人档案。")
@@ -122,7 +121,7 @@ class ChatSession:
         if conv_doc and conv_doc.get("bot_profile_in_this_conversation"):
             db_profile = conv_doc["bot_profile_in_this_conversation"]
             # 假设数据库里也存了更新时间戳
-            db_profile_time = db_profile.get("updated_at", 0) / 1000.0 # 数据库存的是毫秒
+            db_profile_time = db_profile.get("updated_at", 0) / 1000.0  # 数据库存的是毫秒
             if time.time() - db_profile_time < CACHE_EXPIRATION_SECONDS:
                 self.bot_profile_cache = db_profile
                 self.last_profile_update_time = time.time()
@@ -142,7 +141,7 @@ class ChatSession:
             self.last_profile_update_time = time.time()
             # 更新数据库里的长期记忆
             profile_with_ts = profile.copy()
-            profile_with_ts["updated_at"] = int(time.time() * 1000) # 存毫秒时间戳
+            profile_with_ts["updated_at"] = int(time.time() * 1000)  # 存毫秒时间戳
             # 【修改点4】这里也一样，直接调用！
             await self.conversation_service.update_conversation_field(
                 self.conversation_id, "bot_profile_in_this_conversation", profile_with_ts
@@ -171,8 +170,8 @@ class ChatSession:
         self.current_handover_summary = None
         self.events_since_last_summary = []
         self.message_count_since_last_summary = 0
-        self.no_action_count = 0 # 每次激活时重置
-        self.bot_profile_cache = {} # 每次激活时清空短期记忆，强制重新获取
+        self.no_action_count = 0  # 每次激活时重置
+        self.bot_profile_cache = {}  # 每次激活时清空短期记忆，强制重新获取
         self.last_profile_update_time = 0.0
 
         logger.info(
@@ -186,7 +185,7 @@ class ChatSession:
         if not self.is_active:
             return
         logger.info(f"[ChatSession][{self.conversation_id}] 正在发起停用请求...")
-        self.is_active = False # 只设置状态，不清理任何东西！
+        self.is_active = False  # 只设置状态，不清理任何东西！
         # 把所有清理工作都交给 shutdown
         asyncio.create_task(self.shutdown())
         logger.info(f"[ChatSession][{self.conversation_id}] 停用状态已设置，关闭任务已派发。")
@@ -198,13 +197,13 @@ class ChatSession:
         """
         if self.cycler:
             # shutdown cycler 会触发 _save_final_summary
-            await self.cycler.shutdown() 
-        
+            await self.cycler.shutdown()
+
         # 【懒猫修复】在所有异步任务完成后，再清理会话的状态！
         self.is_active = False
         self.last_llm_decision = None
         self.last_processed_timestamp = 0.0
-        self.current_handover_summary = None # 也可以在这里清理
+        self.current_handover_summary = None  # 也可以在这里清理
         self.events_since_last_summary = []
-        
+
         logger.info(f"[ChatSession][{self.conversation_id}] 已成功关闭并清理状态。")

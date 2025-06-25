@@ -2,7 +2,7 @@
 import time
 import uuid
 from dataclasses import asdict, dataclass, field, fields
-from typing import Any, Optional, Dict
+from typing import Any, Optional
 
 from aicarus_protocols import ConversationInfo as ProtocolConversationInfo
 from aicarus_protocols import ConversationType as ProtocolConversationType  # 会话类型的枚举
@@ -98,8 +98,8 @@ class EnrichedConversationInfo:
     # 核心增强：AI的注意力及偏好档案
     attention_profile: AttentionProfile = field(default_factory=AttentionProfile.get_default_profile)
 
-        # 【小懒猫的新增字段】
-    bot_profile_in_this_conversation: Optional[Dict[str, Any]] = None
+    # 【小懒猫的新增字段】
+    bot_profile_in_this_conversation: dict[str, Any] | None = None
     """存储机器人自身在此会话中的档案信息，例如群名片、权限等，作为缓存。"""
 
     @classmethod

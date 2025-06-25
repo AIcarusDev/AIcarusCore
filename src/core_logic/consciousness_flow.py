@@ -295,9 +295,16 @@ class CoreLogic:
 
                 focus_conversation_id_raw = generated_thought.get("active_focus_on_conversation_id")
 
-                focus_conversation_id = str(focus_conversation_id_raw) if focus_conversation_id_raw is not None else None
+                focus_conversation_id = (
+                    str(focus_conversation_id_raw) if focus_conversation_id_raw is not None else None
+                )
 
-                if focus_conversation_id and isinstance(focus_conversation_id, str) and focus_conversation_id.strip() and focus_conversation_id.lower() != 'null':
+                if (
+                    focus_conversation_id
+                    and isinstance(focus_conversation_id, str)
+                    and focus_conversation_id.strip()
+                    and focus_conversation_id.lower() != "null"
+                ):
                     self.logger.info(f"LLM决策激活专注模式，目标会话ID: {focus_conversation_id}")
 
                     current_llm_think_raw = generated_thought.get("think")

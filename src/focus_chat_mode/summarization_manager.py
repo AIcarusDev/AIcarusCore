@@ -15,7 +15,7 @@ class SummarizationManager:
     别想让我干别的，写会议纪要很累的！
     """
 
-    def __init__(self, session: "ChatSession"):
+    def __init__(self, session: "ChatSession") -> None:
         self.session = session
         self.event_storage = session.event_storage
         self.summarization_service = session.summarization_service
@@ -30,11 +30,15 @@ class SummarizationManager:
             if event_docs:
                 self.session.events_since_last_summary.extend(event_docs)
                 self.session.message_count_since_last_summary += len(event_docs)
-                logger.debug(f"[{self.session.conversation_id}] Added {len(event_docs)} processed events to summary queue.")
+                logger.debug(
+                    f"[{self.session.conversation_id}] Added {len(event_docs)} processed events to summary queue."
+                )
             else:
                 logger.warning(f"[{self.session.conversation_id}] Could not fetch event documents for IDs: {event_ids}")
         except Exception as e:
-            logger.error(f"[{self.session.conversation_id}] Error during queueing events for summary: {e}", exc_info=True)
+            logger.error(
+                f"[{self.session.conversation_id}] Error during queueing events for summary: {e}", exc_info=True
+            )
 
     async def consolidate_summary_if_needed(self) -> None:
         """检查并执行摘要。"""
@@ -51,7 +55,7 @@ class SummarizationManager:
             conversation_info_for_summary = {
                 "name": self.session.conversation_name or "未知会话",
                 "type": self.session.conversation_type,
-                "id": self.session.conversation_id
+                "id": self.session.conversation_id,
             }
 
             user_map_for_summary = self._build_user_map(bot_profile_for_summary)
@@ -74,28 +78,28 @@ class SummarizationManager:
     def _build_user_map(self, bot_profile: dict) -> dict:
         user_map = {}
         uid_counter = 0
-        
-        bot_id = bot_profile.get('user_id', self.session.bot_id)
+
+        bot_id = bot_profile.get("user_id", self.session.bot_id)
         user_map[bot_id] = {
             "uid_str": "U0",
-            "nick": bot_profile.get('nickname', config.persona.bot_name),
-            "card": bot_profile.get('card', config.persona.bot_name),
-            "title": bot_profile.get('title', ""),
-            "perm": bot_profile.get('role', "成员"),
+            "nick": bot_profile.get("nickname", config.persona.bot_name),
+            "card": bot_profile.get("card", config.persona.bot_name),
+            "title": bot_profile.get("title", ""),
+            "perm": bot_profile.get("role", "成员"),
         }
 
         for event in self.session.events_since_last_summary:
-            user_info = event.get('user_info')
+            user_info = event.get("user_info")
             if isinstance(user_info, dict):
-                p_user_id = user_info.get('user_id')
+                p_user_id = user_info.get("user_id")
                 if p_user_id and p_user_id not in user_map:
                     uid_counter += 1
                     user_map[p_user_id] = {
                         "uid_str": f"U{uid_counter}",
-                        "nick": user_info.get('user_nickname', f"用户{p_user_id}"),
-                        "card": user_info.get('user_cardname', user_info.get('user_nickname', f"用户{p_user_id}")),
-                        "title": user_info.get('user_titlename', ""),
-                        "perm": user_info.get('permission_level', "成员"),
+                        "nick": user_info.get("user_nickname", f"用户{p_user_id}"),
+                        "card": user_info.get("user_cardname", user_info.get("user_nickname", f"用户{p_user_id}")),
+                        "title": user_info.get("user_titlename", ""),
+                        "perm": user_info.get("permission_level", "成员"),
                     }
         return user_map
 

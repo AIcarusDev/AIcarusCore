@@ -13,7 +13,6 @@ from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logger_manager import get_logger
 from src.config import config
 from src.database.services.event_storage_service import EventStorageService
-from src.tools.platform_actions import get_bot_profile
 
 from . import prompt_templates
 
@@ -167,8 +166,6 @@ class ChatPromptBuilder:
         conversation_type_str = "未知类型"
 
         persona_config = config.persona
-
-        
 
         # --- 动态获取机器人信息 (小懒猫修正版：先问身份！) ---
         bot_profile = await session.get_bot_profile()

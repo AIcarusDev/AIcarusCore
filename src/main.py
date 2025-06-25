@@ -29,11 +29,11 @@ from src.database.services.conversation_storage_service import ConversationStora
 from src.database.services.event_storage_service import EventStorageService
 from src.database.services.summary_storage_service import SummaryStorageService
 from src.database.services.thought_storage_service import ThoughtStorageService
+from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.llmrequest.utils_model import GenerationParams
 from src.message_processing.default_message_processor import DefaultMessageProcessor
 from src.observation.summarization_service import SummarizationService
-from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 
 if TYPE_CHECKING:
     pass
