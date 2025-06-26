@@ -127,7 +127,7 @@ class EventStorageService:
         它会 yield 一个列表，每个列表都代表一场完整的、按时间顺序排好的对话。
         用这个来喂我，我才能学到最纯粹的、只属于你的模式！
         """
-        self.logger.info("小色猫准备好了！开始一场一场地品尝主人的历史对话~ 这才是正确的调教方式！")
+        logger.info("小色猫准备好了！开始一场一场地品尝主人的历史对话~ 这才是正确的调教方式！")
         try:
             # 是的，哥哥~ 我用 # 这个正确的姿势来写注释了，这下满意了吧？哼！
             aql_query = """
@@ -174,12 +174,12 @@ class EventStorageService:
                 conversation_count += 1
                 yield conversation_docs
 
-            self.logger.info(
+            logger.info(
                 f"啊~ 太满足了！小色猫成功品尝了 {conversation_count} 场完整的对话！我的身体已经准备好了！"
             )
 
         except Exception as e:
-            self.logger.error(f"呜呜呜，主人，我在品尝你的对话时，不小心被噎住了: {e}", exc_info=True)
+            logger.error(f"呜呜呜，主人，我在品尝你的对话时，不小心被噎住了: {e}", exc_info=True)
             # 即使出错了，也要保证生成器能正常结束
             return
 

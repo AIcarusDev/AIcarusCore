@@ -33,12 +33,36 @@ async def format_chat_history_for_llm(
     last_processed_timestamp: float,
     is_first_turn: bool,
     # --- 新增一个参数，让它也能直接处理传入的事件列表 ---
-    raw_events_from_caller: list[dict] | None = None,
+    raw_events_from_caller: list[dict[str, Any]] | None = None,
     # 其他可能需要的参数...
-) -> tuple[str, dict, dict, list[str], list[str], str]:
+) -> tuple[str, dict, dict, list[str], list[str], str | None, str | None]: # 【【【修改点1：返回值签名】】】
     """
-    一个通用的聊天记录格式化工具。
-    它负责从数据库获取事件，处理用户映射，格式化聊天记录，并处理图片。
+    一个通用的聊天记录格式化工具，哼，真麻烦。
+    它负责从数据库获取事件，处理用户映射，格式化聊天记录，还顺便处理了那些烦人的图片。
+
+    Args:
+        event_storage: 事件存储服务的实例。
+        conversation_id: 目标会话的ID。
+        bot_id: 机器人的ID。
+        platform: 平台名称。
+        bot_profile: 机器人在该会话的档案信息。
+        conversation_type: 会话类型 ("group" 或 "private")。
+        conversation_name: 会话名称。
+        last_processed_timestamp: 上次处理到的时间戳，用于标记已读/未读。
+        is_first_turn: 是否是当前专注会话的第一次思考。
+        raw_events_from_caller: (可选) 直接提供事件列表，而不是从数据库获取。
+
+    Returns:
+        一个元组，包含了所有你需要的东西，自己看，别问我！
+        (
+        chat_history_log_block: str,
+        user_map: dict,
+        uid_str_to_platform_id_map: dict,
+        processed_event_ids: list[str],
+        image_references: list[str],
+        conversation_name_str: str | None, 
+        last_valid_text_message: str | None 
+    )
     """
     # 确保临时目录存在
     temp_image_dir = config.runtime_environment.temp_file_directory
@@ -86,12 +110,13 @@ async def format_chat_history_for_llm(
                     raw_data=event_dict.get("raw_data") if isinstance(event_dict.get("raw_data"), dict) else None,
                 )
                 if motivation:
-                    event_obj.motivation = motivation  # 将 motivation 赋值给 Event 对象
+                    setattr(event_obj, "motivation", motivation)
                 raw_events.append(event_obj)
             except Exception as e_conv:
                 logger.bind(event_dict=event_dict).error(
                     f"将数据库事件字典转换为Event对象时出错: {e_conv}", exc_info=True
                 )
+
 
     # --- Deduplicate raw_events (based on your existing logic) ---
     if raw_events:
@@ -192,6 +217,7 @@ async def format_chat_history_for_llm(
     image_references: list[str] = []
     unread_section_started = False
     current_last_processed_timestamp = last_processed_timestamp  # 从参数获取
+    last_valid_text_message: str | None = None
 
     # 用于消息显示去重的集合，确保每次调用 build_prompts 时都是新的
     added_platform_message_ids_for_log: set[str] = set()
@@ -308,6 +334,12 @@ async def format_chat_history_for_llm(
                     main_content_parts.append(f"[FILE:{file_name} ({file_size} bytes)]")
 
             main_content_str = "".join(main_content_parts).strip()
+            text_only_from_content = extract_text_from_content(event_data_log.content)
+            # 如果这条消息里真的有文字，就更新我们的变量
+            if text_only_from_content:
+                last_valid_text_message = text_only_from_content
+                logger.trace(f"更新 last_valid_text_message 为: '{last_valid_text_message[:30]}...'")
+
             display_tag = main_content_type
             if quote_display_str:
                 display_tag = f"{main_content_type}, {quote_display_str}"
@@ -367,5 +399,6 @@ async def format_chat_history_for_llm(
         uid_str_to_platform_id_map,
         processed_event_ids,
         image_references,
-        conversation_name_str,
+        conversation_name_str, # 返回正确的群名
+        last_valid_text_message, # 返回我们找到的最后一条文本消息
     )

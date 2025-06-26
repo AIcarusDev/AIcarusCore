@@ -60,7 +60,7 @@ class FocusChatCycler:
             try:
                 await self._loop_task
             except asyncio.CancelledError:
-                logger.info(f"[FocusChatCycler][{self.conversation_id}] 循环任务已取消。")
+                logger.info(f"[FocusChatCycler][{self.session.conversation_id}] 循环任务已取消。")
         await self.summarization_manager.create_and_save_final_summary()
         self._loop_active = False
         logger.info(f"[FocusChatCycler][{self.session.conversation_id}] 已关闭。")
@@ -170,7 +170,6 @@ class FocusChatCycler:
             session=self.session,
             last_processed_timestamp=self.session.last_processed_timestamp,
             last_llm_decision=self.session.last_llm_decision,
-            sent_actions_context=self.session.sent_actions_context,
             is_first_turn=self.session.is_first_turn_for_session,
             last_think_from_core=self.session.initial_core_think,
         )

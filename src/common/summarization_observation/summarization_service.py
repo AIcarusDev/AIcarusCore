@@ -1,6 +1,8 @@
-# src/observation/summarization_service.py
+
 from typing import Any
 
+# 导入我们的新玩具！
+from src.common.focus_chat_history_builder.chat_history_formatter import format_chat_history_for_llm
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
 from src.llmrequest.llm_processor import Client as LLMProcessorClient
@@ -22,76 +24,15 @@ class SummarizationService:
         self.llm_client = llm_client
         logger.info("SummarizationService (重构版) 已初始化。")
 
-    def _format_events_for_summary_prompt(
-        self,
-        events: list[dict[str, Any]],
-        user_map: dict[str, dict[str, Any]],
-        bot_id: str,
-    ) -> str:
-        """
-        将事件列表格式化为详细的“战地简报”格式，用于总结。
-        :param events: 要格式化的事件文档列表。
-        :param user_map: 从外部传入的用户ID到用户信息的映射。
-        :param bot_id: 机器人的平台ID。
-        :return: 格式化后的聊天记录字符串。
-        """
-        chat_log_lines: list[str] = []
-        platform_id_to_uid_str = {p_id: u_info["uid_str"] for p_id, u_info in user_map.items()}
-
-        for event_doc in events:
-            if not isinstance(event_doc, dict):
-                continue
-
-            event_type = event_doc.get("event_type", "unknown")
-            timestamp = event_doc.get("timestamp", 0)
-            time_str = ""
-            if timestamp > 0:
-                from datetime import datetime
-
-                time_str = datetime.fromtimestamp(timestamp / 1000.0).strftime("%H:%M:%S")
-
-            user_info = event_doc.get("user_info", {})
-            sender_platform_id = user_info.get("user_id") if isinstance(user_info, dict) else None
-            uid_str = platform_id_to_uid_str.get(sender_platform_id, f"Unknown({str(sender_platform_id)[:4]})")
-
-            content_text = ""
-            content_segs = event_doc.get("content", [])
-            if isinstance(content_segs, list):
-                text_parts = []
-                for seg in content_segs:
-                    if isinstance(seg, dict) and seg.get("type") == "text":
-                        data = seg.get("data", {})
-                        if isinstance(data, dict):
-                            text_parts.append(str(data.get("text", "")))
-                content_text = "".join(text_parts)
-
-            # 标记机器人自己的发言
-            is_bot_message = sender_platform_id == bot_id
-
-            log_line = ""
-            if event_type.startswith("message.") or (is_bot_message and event_type == "action.message.send"):
-                log_line = f"[{time_str}] {uid_str} [MSG]: {content_text} (id:{event_doc.get('_key')})"
-
-                # 如果是机器人发的，并且有动机，就附加上
-                motivation = event_doc.get("motivation")
-                if is_bot_message and motivation and isinstance(motivation, str) and motivation.strip():
-                    log_line += f"\n    - [MOTIVE]: {motivation}"
-
-            elif event_type == "internal.focus_chat_mode.thought_log":
-                log_line = f"[{time_str}] {uid_str} [MOTIVE]: {content_text}"
-
-            if log_line:
-                chat_log_lines.append(log_line)
-
-        return "\n".join(chat_log_lines) if chat_log_lines else "这段时间内没有新的文本对话。"
+    # 注意：这里原来那个又长又臭的 _format_events_for_summary_prompt 方法已经被我扔进垃圾桶了！
 
     async def _build_summary_prompt(
         self,
         previous_summary: str | None,
-        recent_events: list[dict[str, Any]],
-        bot_profile: dict[str, Any],
+        formatted_chat_history: str,
+        image_references: list[str],
         conversation_info: dict[str, Any],
-        user_map: dict[str, dict[str, Any]],
+        user_map: dict[str, Any],
     ) -> tuple[str, str]:
         """
         构建用于整合摘要的 System Prompt 和 User Prompt。
@@ -109,9 +50,9 @@ class SummarizationService:
 你是{persona_config.bot_name}
 {persona_config.description}
 {persona_config.profile}
-你的qq号是"{bot_profile.get("user_id", "未知")}"；
+你的qq号是"{conversation_info.get("bot_id", "未知")}"；
 你当前正在qq群"{conversation_info.get("name", "未知群聊")}"中参与qq群聊
-你在该群的群名片是"{bot_profile.get("card", persona_config.bot_name)}"
+你在该群的群名片是"{conversation_info.get("bot_card", persona_config.bot_name)}"
 你的任务是以你的视角总结聊天记录里的内容，包括人物、事件和主要信息，不要分点，不要换行。
 现在请将“最新的聊天记录内容”无缝地整合进“已有的记录总结”中，生成一份更新后的、连贯的完整聊天记录总结。
 更新后的记录总结必须保留所有旧回忆录中的关键信息、情感转折和重要决策。不能因为有了新内容就忘记或丢弃旧的重点。
@@ -122,12 +63,16 @@ class SummarizationService:
 
         # --- User Prompt ---
         # Part 1: 已有总结
-        if previous_summary and previous_summary.strip():
-            summary_block = previous_summary
-        else:
-            summary_block = "暂时无总结，这是你专注于该群聊的首次总结"
+        summary_block = previous_summary or "暂时无总结，这是你专注于该群聊的首次总结"
 
-        # Part 2: 聊天记录格式提示 (静态)
+        # Part 2: 聊天记录格式提示 (遵从你的旧格式，我用新工具返回的数据帮你拼起来)
+        user_list_lines = []
+        for p_id, u_info in user_map.items():
+            user_list_lines.append(
+                f"{u_info['uid_str']}: {p_id} [nick:{u_info['nick']}, card:{u_info['card']}, title:{u_info['title']}, perm:{u_info['perm']}]"
+            )
+        user_list_block = "\n".join(user_list_lines)
+
         format_hint_block = """
 # CONTEXT
 ## Conversation Info
@@ -148,18 +93,11 @@ class SummarizationService:
 [FILE]: 文件分享""".format(
             conv_name=conversation_info.get("name", "未知"),
             conv_type=conversation_info.get("type", "未知"),
-            user_list="\n".join(
-                [
-                    f"{u_info['uid_str']}: {p_id} [nick:{u_info['nick']}, card:{u_info['card']}, title:{u_info['title']}, perm:{u_info['perm']}]"
-                    for p_id, u_info in user_map.items()
-                ]
-            ),
+            user_list=user_list_block,
         )
 
         # Part 3: 新聊天记录
-        chat_history_block = self._format_events_for_summary_prompt(
-            recent_events, user_map, bot_profile.get("user_id", "")
-        )
+        chat_history_block = formatted_chat_history
 
         # Part 4: 注意事项 (静态)
         notes_block = "像U0,U1这样的编号只是为了让你更好的分辨谁是谁，以及获取更多信息，你在输出总结时不应该使用这类编号来指代某人"
@@ -190,7 +128,7 @@ class SummarizationService:
         recent_events: list[dict[str, Any]],
         bot_profile: dict[str, Any],
         conversation_info: dict[str, Any],
-        user_map: dict[str, dict[str, Any]],
+        event_storage: Any, # 实际应为 EventStorageService
     ) -> str:
         """
         对提供的最近事件列表进行总结，并将其整合进之前的摘要中。
@@ -209,16 +147,58 @@ class SummarizationService:
             logger.info("没有新的事件，直接返回之前的摘要。")
             return previous_summary or "我刚才好像走神了，什么也没记住。"
 
+        # --- 【核心改造点】调用通用格式化工具 ---
+        # 很多参数都是为了调用这个新玩具准备的
+        (
+            formatted_chat_history,
+            user_map, # 需要这个来构建你的旧Prompt
+            _, # uid_to_pid_map, 我们不需要
+            _, # processed_event_ids, 我们不需要
+            image_references, # 我们需要这个！
+            conversation_name_from_formatter,
+            _, # last_message_text, 我们不需要
+        ) = await format_chat_history_for_llm(
+            event_storage=event_storage, # 把 event_storage 传给它
+            conversation_id=conversation_info.get("id"),
+            bot_id=bot_profile.get("user_id"),
+            platform=conversation_info.get("platform", "unknown"),
+            bot_profile=bot_profile,
+            conversation_type=conversation_info.get("type"),
+            conversation_name=conversation_info.get("name"),
+            last_processed_timestamp=0, # 对于总结，我们通常处理的是一批，所以时间戳起点不重要
+            is_first_turn=True, # 同上
+            raw_events_from_caller=recent_events, # 直接把事件喂给它，懒得让它再去查数据库
+        )
+
+        # 准备一个包含bot_id和bot_card的conversation_info字典，给你的旧Prompt用
+        extended_conv_info = conversation_info.copy()
+        extended_conv_info["bot_id"] = bot_profile.get("user_id")
+        extended_conv_info["bot_card"] = bot_profile.get("card")
+        extended_conv_info["name"] = conversation_name_from_formatter or conversation_info.get("name")
+
+        # 构建 Prompt，这次用的是你那个没改过的旧版逻辑
         system_prompt, user_prompt = await self._build_summary_prompt(
-            previous_summary, recent_events, bot_profile, conversation_info, user_map
+            previous_summary, formatted_chat_history, image_references, extended_conv_info, user_map
+        )
+         # --- 【在这里也加上我的探针！】 ---
+        conv_id_for_log = conversation_info.get("id", "未知会话")
+        logger.debug(
+            f"[{conv_id_for_log}] 摘要整合 - 准备发送给LLM的完整Prompt:\n"
+            f"==================== SYSTEM PROMPT (摘要整合) ====================\n"
+            f"{system_prompt}\n"
+            f"==================== USER PROMPT (摘要整合) ======================\n"
+            f"{user_prompt}\n"
+            f"=================================================================="
         )
 
         try:
-            logger.debug(
-                f"调用LLM进行摘要整合。System Prompt (部分): {system_prompt[:100]}... User Prompt (部分): {user_prompt[:200]}..."
-            )
+            # 【改造点】调用LLM时，把图片也一起喂进去！
             response_data = await self.llm_client.make_llm_request(
-                prompt=user_prompt, system_prompt=system_prompt, is_stream=False
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                is_stream=False,
+                is_multimodal=bool(image_references), # 告诉LLM有图
+                image_inputs=image_references, # 把图片塞进去
             )
 
             if response_data and not response_data.get("error"):
