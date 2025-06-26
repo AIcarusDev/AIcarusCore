@@ -11,6 +11,7 @@ from src.common.custom_logging.logger_manager import get_logger
 from src.common.intelligent_interrupt_system.iis_main import IISBuilder
 from src.common.intelligent_interrupt_system.intelligent_interrupter import IntelligentInterrupter
 from src.common.intelligent_interrupt_system.models import SemanticModel
+from src.common.summarization_observation.summarization_service import SummarizationService
 from src.config import config
 from src.core_communication.action_sender import ActionSender
 from src.core_communication.core_ws_server import CoreWebsocketServer
@@ -35,7 +36,6 @@ from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.llmrequest.utils_model import GenerationParams
 from src.message_processing.default_message_processor import DefaultMessageProcessor
-from src.common.summarization_observation.summarization_service import SummarizationService
 
 logger = get_logger("AIcarusCore.MainInitializer")
 

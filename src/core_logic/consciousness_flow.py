@@ -99,9 +99,7 @@ class CoreLogic:
                 self.state_manager.set_next_handover_info(handover_summary, last_focus_think, last_focus_mood)
                 logger.info("已调用 AIStateManager.set_next_handover_info 存储交接信息。")
             else:
-                logger.error(
-                    "AIStateManager 对象没有 set_next_handover_info 方法或该方法不可调用，交接信息可能丢失！"
-                )
+                logger.error("AIStateManager 对象没有 set_next_handover_info 方法或该方法不可调用，交接信息可能丢失！")
         self.immediate_thought_trigger.set()
         logger.info("已设置 immediate_thought_trigger 事件。")
 
@@ -158,9 +156,7 @@ class CoreLogic:
                 original_action_description="回复主人",
             )
             if action_success:
-                logger.info(
-                    f"通过 ActionHandler 回复主人的动作 '{reply_action_id}' 已处理，结果: {action_message}"
-                )
+                logger.info(f"通过 ActionHandler 回复主人的动作 '{reply_action_id}' 已处理，结果: {action_message}")
             else:
                 logger.error(f"通过 ActionHandler 回复主人的动作 '{reply_action_id}' 失败: {action_message}")
         else:
@@ -209,18 +205,12 @@ class CoreLogic:
                     if structured_unread_conversations:
                         logger.debug(f"获取到 {len(structured_unread_conversations)} 条结构化的未读会话信息。")
                 except Exception as e_struct_unread:
-                    logger.error(
-                        f"调用 get_structured_unread_conversations 失败: {e_struct_unread}", exc_info=True
-                    )
+                    logger.error(f"调用 get_structured_unread_conversations 失败: {e_struct_unread}", exc_info=True)
             else:
-                logger.warning(
-                    "UnreadInfoService (via prompt_builder) 缺少 get_structured_unread_conversations 方法。"
-                )
+                logger.warning("UnreadInfoService (via prompt_builder) 缺少 get_structured_unread_conversations 方法。")
 
             if action_id_to_mark_as_seen and self.state_manager.thought_service:
-                logger.info(
-                    f"动作ID {action_id_to_mark_as_seen} 的结果将在本次思考中呈现给LLM，现在将其标记为已阅。"
-                )
+                logger.info(f"动作ID {action_id_to_mark_as_seen} 的结果将在本次思考中呈现给LLM，现在将其标记为已阅。")
                 marked_seen = await self.state_manager.thought_service.mark_action_result_as_seen(
                     action_id_to_mark_as_seen
                 )
@@ -371,9 +361,7 @@ class CoreLogic:
                                         await conv_storage.update_conversation_processed_timestamp(
                                             focus_conversation_id, latest_ts
                                         )
-                                        logger.info(
-                                            f"会话 {focus_conversation_id} 的处理时间戳已更新为 {latest_ts}。"
-                                        )
+                                        logger.info(f"会话 {focus_conversation_id} 的处理时间戳已更新为 {latest_ts}。")
                                     else:
                                         logger.warning(
                                             f"无法为会话 {focus_conversation_id} 更新时间戳，因为 latest_message_timestamp 无效: {latest_ts}"

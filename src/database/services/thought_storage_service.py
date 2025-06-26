@@ -83,9 +83,7 @@ class ThoughtStorageService:
                 logger.debug(f"主思考文档 '{result.get('_key')}' 已成功保存。")
                 return result.get("_key")
             else:
-                logger.error(
-                    f"保存主思考文档 '{doc_key_for_log}' 后未能从数据库返回结果中获取 _key。结果: {result}"
-                )
+                logger.error(f"保存主思考文档 '{doc_key_for_log}' 后未能从数据库返回结果中获取 _key。结果: {result}")
                 return None
         except DocumentInsertError:
             logger.warning(f"尝试插入主思考文档失败，因为键 '{doc_key_for_log}' 可能已存在。操作被跳过。")

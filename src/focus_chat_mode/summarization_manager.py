@@ -1,6 +1,6 @@
 # D:\Aic\AIcarusCore\src\focus_chat_mode\summarization_manager.py
 
-from typing import TYPE_CHECKING, List, Dict, Any, Tuple
+from typing import TYPE_CHECKING, Any
 
 from src.common.custom_logging.logger_manager import get_logger
 from src.common.summarization_observation.summarization_service import SummarizationService
@@ -33,7 +33,7 @@ class SummarizationManager:
         try:
             # 1. 直接捞货，不数了，懒得数。
             events_to_summarize = await self.event_storage.get_summarizable_events(self.session.conversation_id)
-            
+
             # 2. 检查数量，不够就不干了。
             if not events_to_summarize:
                 if final_save and self.session.current_handover_summary:
@@ -47,7 +47,9 @@ class SummarizationManager:
 
             log_prefix = f"[{self.session.conversation_id}]"
             summary_type = "最终" if final_save else "阶段性"
-            logger.info(f"{log_prefix} 已达到{summary_type}总结阈值({len(events_to_summarize)}/{self.summary_threshold if not final_save else 'N/A'})，开始整合摘要...")
+            logger.info(
+                f"{log_prefix} 已达到{summary_type}总结阈值({len(events_to_summarize)}/{self.summary_threshold if not final_save else 'N/A'})，开始整合摘要..."
+            )
 
             # 3. 构造用户信息和调用LLM，这些都是体力活。
             bot_profile = await self.session.get_bot_profile()
@@ -89,7 +91,6 @@ class SummarizationManager:
         except Exception as e:
             logger.error(f"[{self.session.conversation_id}] 执行{summary_type}总结时发生错误: {e}", exc_info=True)
 
-
     async def consolidate_summary_if_needed(self) -> None:
         """
         【日常模式】检查并执行阶段性总结。
@@ -104,7 +105,7 @@ class SummarizationManager:
         """
         await self._handle_summary_process(final_save=True)
 
-    async def _save_summary_to_db(self, summary_text: str, event_ids: List[str]) -> None:
+    async def _save_summary_to_db(self, summary_text: str, event_ids: list[str]) -> None:
         """内部辅助方法，保存摘要到数据库。"""
         if not summary_text or not summary_text.strip():
             return
@@ -119,9 +120,9 @@ class SummarizationManager:
         except Exception as e:
             logger.error(f"[{self.session.conversation_id}] 内部保存摘要到数据库时失败: {e}", exc_info=True)
 
-    def _build_user_map(self, bot_profile: Dict[str, Any], events: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _build_user_map(self, bot_profile: dict[str, Any], events: list[dict[str, Any]]) -> dict[str, Any]:
         """构建用户映射表，和原来一样。"""
-        user_map: Dict[str, Dict[str, Any]] = {}
+        user_map: dict[str, dict[str, Any]] = {}
         uid_counter = 0
 
         bot_id = bot_profile.get("user_id", self.session.bot_id)

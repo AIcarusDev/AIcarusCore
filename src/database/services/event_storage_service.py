@@ -449,7 +449,7 @@ class EventStorageService:
 
             # 执行查询
             cursor = await self.conn_manager.execute_query(query, bind_vars)
-            
+
             # 结果是个列表，里面只有一个数字
             if cursor and isinstance(cursor, list) and len(cursor) > 0:
                 count = cursor[0]
