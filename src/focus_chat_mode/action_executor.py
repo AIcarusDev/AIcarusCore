@@ -60,13 +60,7 @@ class ActionExecutor:
     async def _send_reply(self, parsed_data: dict, uid_map: dict) -> bool:
         """发送回复消息。"""
         original_reply_text = parsed_data["reply_text"]
-        split_sentences = process_llm_response(
-            text=original_reply_text,
-            enable_kaomoji_protection=config.focus_chat_mode.enable_kaomoji_protection,
-            enable_splitter=config.focus_chat_mode.enable_splitter,
-            max_length=config.focus_chat_mode.max_length,
-            max_sentence_num=config.focus_chat_mode.max_sentence_num,
-        )
+        split_sentences = process_llm_response(original_reply_text)
 
         at_target_values_raw = parsed_data.get("at_someone")
         quote_msg_id = parsed_data.get("quote_reply")
