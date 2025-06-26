@@ -5,6 +5,7 @@ import asyncio
 import time
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Any
+import uuid
 
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logger_manager import get_logger
@@ -12,7 +13,7 @@ from src.config import config
 from src.database.services.conversation_storage_service import ConversationStorageService
 from src.database.services.event_storage_service import EventStorageService
 from src.llmrequest.llm_processor import Client as LLMProcessorClient
-from src.tools.platform_actions import get_bot_profile
+from src.action.action_handler import ActionHandler
 
 from .action_executor import ActionExecutor
 from .chat_prompt_builder import ChatPromptBuilder
@@ -130,11 +131,16 @@ class ChatSession:
 
         # 3. 没办法了，只能去问适配器了，真麻烦
         logger.info(f"[{self.conversation_id}] 缓存失效或不存在，向适配器查询机器人档案。")
-        profile = await get_bot_profile(
-            self.action_handler,
-            adapter_id=self.platform,
-            group_id=self.conversation_id if self.conversation_type == "group" else None,
-        )
+
+        action_event_dict = {
+            "event_id": f"focus_get_profile_{self.conversation_id}_{uuid.uuid4().hex[:6]}",
+            "event_type": "action.bot.get_profile",
+            "platform": self.platform,
+            "bot_id": self.bot_id,
+            "content": [{"type": "action.bot.get_profile", "data": {"group_id": self.conversation_id}}]
+        }
+        success, result = await self.action_handler.send_action_and_wait_for_response(action_event_dict)
+        profile = result if success and result else None
 
         if profile:
             self.bot_profile_cache = profile

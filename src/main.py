@@ -298,6 +298,7 @@ class CoreSystemInitializer:
                 thought_service=self.thought_storage_service,
                 event_service=self.event_storage_service,
                 action_log_service=self.action_log_service,
+                conversation_service=self.conversation_storage_service, 
                 action_sender=action_sender,
             )
             logger.info("ActionHandler 的依赖已设置 (包括 ActionSender)。")
@@ -326,6 +327,7 @@ class CoreSystemInitializer:
                 event_receiver=event_receiver,
                 action_sender=action_sender,
                 event_storage_service=self.event_storage_service,
+                action_handler_instance=self.action_handler_instance,
             )
             logger.info(f"CoreWebsocketServer (重构版) 准备在 ws://{config.server.host}:{config.server.port} 上监听。")
 

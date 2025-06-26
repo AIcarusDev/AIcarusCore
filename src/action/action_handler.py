@@ -18,6 +18,7 @@ from src.database.services.action_log_storage_service import ActionLogStorageSer
 from src.database.services.event_storage_service import EventStorageService
 from src.database.services.thought_storage_service import ThoughtStorageService
 from src.llmrequest.llm_processor import Client as ProcessorClient
+from src.database.services.conversation_storage_service import ConversationStorageService
 
 if TYPE_CHECKING:
     pass
@@ -42,6 +43,7 @@ class ActionHandler:
         self.thought_storage_service: ThoughtStorageService | None = None
         self.event_storage_service: EventStorageService | None = None
         self.action_log_service: ActionLogStorageService | None = None
+        self.conversation_service: ConversationStorageService | None = None
         self.thought_trigger: asyncio.Event | None = None
         self.pending_action_manager: PendingActionManager | None = None
         self.action_registry = ActionRegistry()
@@ -52,17 +54,20 @@ class ActionHandler:
         thought_service: ThoughtStorageService,
         event_service: EventStorageService,
         action_log_service: ActionLogStorageService,
+        conversation_service: ConversationStorageService,
         action_sender: ActionSender,
     ) -> None:
         self.thought_storage_service = thought_service
         self.event_storage_service = event_service
         self.action_log_service = action_log_service
+        self.conversation_service = conversation_service
         self.action_sender = action_sender
 
         self.pending_action_manager = PendingActionManager(
             action_log_service=action_log_service,
             thought_storage_service=thought_service,
             event_storage_service=event_service,
+            conversation_service=conversation_service,
         )
         self.logger.info("ActionHandler 的依赖已成功设置，PendingActionManager 已创建。")
 
@@ -105,6 +110,32 @@ class ActionHandler:
         else:
             self.logger.error("PendingActionManager 未初始化，无法处理动作响应。")
 
+    async def system_get_bot_profile(self, adapter_id: str) -> None:
+        """
+        由系统（如WebSocket服务器）调用的，用于触发机器人档案获取的特定方法。
+        它不返回结果，只负责发送动作并让 PendingActionManager 等待。
+        """
+        self.logger.info(f"系统触发为适配器 '{adapter_id}' 获取机器人档案。")
+        action_event = {
+            "event_id": f"core_get_profile_{adapter_id}_{uuid.uuid4().hex[:6]}",
+            "event_type": "action.bot.get_profile",
+            "platform": adapter_id,
+            "bot_id": config.persona.bot_name,
+            "content": [{"type": "action.bot.get_profile", "data": {}}]
+        }
+        
+        # 我们调用 _execute_platform_action，因为它会正确地在 PendingActionManager 中注册等待！
+        # 我们不关心它的返回值，因为它会自己处理超时和响应。
+        # 我们用 asyncio.create_task 把它丢到后台去执行，不阻塞当前任务。
+        asyncio.create_task(
+            self._execute_platform_action(
+                action_to_send=action_event,
+                thought_doc_key=None, # 系统级动作没有关联的思考文档
+                original_action_description="系统：上线安检"
+            )
+        )
+        self.logger.info(f"已为适配器 '{adapter_id}' 创建并派发“上线安检”任务。")
+
     async def _execute_platform_action(
         self,
         action_to_send: dict[str, Any],
@@ -115,7 +146,7 @@ class ActionHandler:
             self.logger.error("核心服务 (ActionSender, ActionLogService, or PendingActionManager) 未设置!")
             return False, {"error": "内部错误：核心服务不可用。"}
 
-        is_direct_reply_action = original_action_description in ["回复主人", "发送子意识聊天回复", "internal_tool_call"]
+        is_direct_reply_action = original_action_description in ["回复主人", "发送子意识聊天回复", "internal_tool_call", "系统：上线安检"]
         if not is_direct_reply_action and not thought_doc_key:
             self.logger.error(f"严重错误：动作 '{original_action_description}' 缺少 thought_doc_key。")
             return False, {"error": "内部错误：执行动作缺少必要的思考文档关联。"}

@@ -13,7 +13,6 @@ from src.database.services.conversation_storage_service import ConversationStora
 from src.database.services.event_storage_service import EventStorageService
 from src.database.services.summary_storage_service import SummaryStorageService
 from src.llmrequest.llm_processor import Client as LLMProcessorClient
-from src.tools.platform_actions import get_bot_profile
 
 from .chat_session import ChatSession  # Updated import
 
@@ -165,6 +164,7 @@ class ChatSessionManager:  # Renamed class
         检查消息中是否 @ 了机器人。
         哼，看看是不是有人在背后议论我。
         """
+
         if event.event_type != "message.group.normal":
             return False
 
@@ -172,31 +172,12 @@ class ChatSessionManager:  # Renamed class
             self.logger.debug(f"[_is_bot_mentioned] Event content is empty for event {event.event_id}")
             return False
 
-        # --- 动态获取机器人ID ---
-        group_id = event.conversation_info.conversation_id if event.conversation_info else None
-
-        # 【优化点】这里可以先检查 session 缓存，如果 manager 也维护了缓存的话
-        # 但为了保持逻辑简单，我们还是按之前的逻辑去实时获取
-        bot_profile = await get_bot_profile(self.action_handler, adapter_id=event.platform, group_id=group_id)
-
-        # --- 【小懒猫的关键修复】 ---
-        # 1. 无论从哪拿到ID，都立刻用 str() 把它变成纯净的字符串！
-
-        if bot_profile and bot_profile.get("user_id"):
-            # 优先用动态获取的真实ID
-            current_bot_id = str(bot_profile.get("user_id"))
-        else:
-            # 如果获取失败，用配置文件里的后备ID，但也要转成str！
-            # self.bot_id 是从 config 里来的，可能是 tomlkit.items.String 类型
-            current_bot_id = str(self.bot_id)
-            self.logger.warning(f"无法动态获取机器人ID，将回退到配置文件中的ID: {current_bot_id}")
+        current_bot_id = str(self.bot_id)
 
         # --- 遍历消息内容，进行安全的比较 ---
         for seg in event.content:
             if seg.type == "at":
                 at_user_id_raw = seg.data.get("user_id")
-
-                # 2. 【小懒猫的关键修复】对 @ 消息里的ID也进行强制字符串转换！
                 if at_user_id_raw is not None and str(at_user_id_raw) == current_bot_id:
                     self.logger.info(
                         f"[_is_bot_mentioned] Bot (ID: {current_bot_id}) was mentioned in event {event.event_id}."
@@ -207,6 +188,7 @@ class ChatSessionManager:  # Renamed class
             f"[_is_bot_mentioned] Bot (ID: {current_bot_id}) was NOT mentioned in event {event.event_id}."
         )
         return False
+        
 
     async def handle_incoming_message(self, event: Event) -> None:
         """
