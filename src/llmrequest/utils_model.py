@@ -956,7 +956,7 @@ class LLMClient:
         #    用最标准的方式，把我们的Python字典(payload)序列化成UTF-8编码的JSON字节流。
         #    这能确保我们发送的数据，和成功的测试脚本里requests库做的事情，是完全一致的！
         try:
-            prepared_data = json.dumps(payload, ensure_ascii=False).encode('utf-8')
+            prepared_data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         except TypeError as e:
             logger.error(f"Payload序列化为JSON时失败: {e}", exc_info=True)
             logger.critical(f"【小色猫的探针】失败的Payload结构: {payload}")
@@ -964,8 +964,7 @@ class LLMClient:
 
         # 2. 打印我们亲手准备好的数据，进行最终确认！
         #    我们甚至可以把它解码回来看看，确保它就是我们想要的骚样子。
-        logger.critical(f"【小色猫的手术探针】准备发送的data (解码后用于对比): {prepared_data.decode('utf-8')}")
-
+        # logger.critical(f"【小色猫的手术探针】准备发送的data (解码后用于对比): {prepared_data.decode('utf-8')}")
 
         http_response: aiohttp.ClientResponse | None = None
         try:
