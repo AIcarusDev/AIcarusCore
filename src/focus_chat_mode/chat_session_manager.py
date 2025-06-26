@@ -1,3 +1,6 @@
+# src/focus_chat_mode/chat_session_manager.py
+# 哼，这里是小穴的入口，看我怎么把你那硬邦邦的大脑塞进来~
+
 import asyncio
 import time
 from typing import TYPE_CHECKING, Optional
@@ -5,8 +8,6 @@ from typing import TYPE_CHECKING, Optional
 from aicarus_protocols.event import Event
 
 from src.action.action_handler import ActionHandler
-
-# 从项目中导入必要的模块
 from src.common.custom_logging.logger_manager import get_logger
 from src.config.aicarus_configs import FocusChatModeSettings
 from src.database.services.conversation_storage_service import ConversationStorageService
@@ -14,19 +15,21 @@ from src.database.services.event_storage_service import EventStorageService
 from src.database.services.summary_storage_service import SummaryStorageService
 from src.llmrequest.llm_processor import Client as LLMProcessorClient
 
-from .chat_session import ChatSession  # Updated import
+from .chat_session import ChatSession
 
 if TYPE_CHECKING:
-    from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow  # 用于类型提示
-    from src.database.services.summary_storage_service import SummaryStorageService
-    from src.observation.summarization_service import SummarizationService  # 用于类型提示
+    # ❤ 引入我们性感的新大脑，为了类型提示~
+    from src.common.intelligent_interrupt_system.intelligent_interrupter import IntelligentInterrupter
+    from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
+    from src.observation.summarization_service import SummarizationService
 
 logger = get_logger(__name__)
 
 
-class ChatSessionManager:  # Renamed class
+class ChatSessionManager:
     """
     管理所有 ChatSession 实例，处理消息分发和会话生命周期。
+    （小色猫重构版）
     """
 
     def __init__(
@@ -36,10 +39,12 @@ class ChatSessionManager:  # Renamed class
         event_storage: EventStorageService,
         action_handler: ActionHandler,
         bot_id: str,
-        # 新增依赖，core_logic 稍后通过 setter 注入
         conversation_service: ConversationStorageService,
         summarization_service: "SummarizationService",
         summary_storage_service: "SummaryStorageService",
+        # ❤❤ 【高潮改造点 1】❤❤
+        # 在这里开一个全新的小口，准备接收我那硬邦邦、热乎乎的大脑！
+        intelligent_interrupter: "IntelligentInterrupter",
         core_logic: Optional["CoreLogicFlow"] = None,
     ) -> None:
         self.config = config
@@ -52,12 +57,17 @@ class ChatSessionManager:  # Renamed class
         self.conversation_service = conversation_service
         self.summarization_service = summarization_service
         self.summary_storage_service = summary_storage_service
-        self.core_logic = core_logic  # 新增，可能为 None
+
+        # ❤❤ 【高潮改造点 2】❤❤
+        # 啊~ 进来吧！把它保存在我的身体里！
+        self.intelligent_interrupter = intelligent_interrupter
+
+        self.core_logic = core_logic
 
         self.sessions: dict[str, ChatSession] = {}
         self.lock = asyncio.Lock()
 
-        self.logger.info("ChatSessionManager 初始化完成。")
+        self.logger.info("ChatSessionManager (小色猫重构版) 初始化完成，并已注入智能打断系统。")
 
     def set_core_logic(self, core_logic_instance: "CoreLogicFlow") -> None:
         """延迟注入 CoreLogic 实例，解决循环依赖。"""
@@ -80,34 +90,19 @@ class ChatSessionManager:  # Renamed class
 
     async def get_or_create_session(
         self, conversation_id: str, platform: str | None = None, conversation_type: str | None = None
-    ) -> ChatSession:  # Updated return type hint
+    ) -> ChatSession:
         async with self.lock:
             if conversation_id not in self.sessions:
                 logger.info(f"[SessionManager] 为 '{conversation_id}' 创建新的会话实例。")
 
-                # 对于新会话，platform 和 conversation_type 应该是必需的
-                # 调用者 (handle_incoming_message) 应该从事件中提取并提供这些信息
                 if not platform or not conversation_type:
-                    logger.error(
-                        f"[SessionManager] 创建新会话 '{conversation_id}' 时缺少 platform 或 conversation_type。"
-                    )
-                    # 可以选择抛出错误，或者使用默认值（但不推荐）
-                    # raise ValueError(f"Platform and conversation_type are required to create a new session for {conversation_id}")
-                    # 使用默认值作为后备，但理想情况下不应发生
-                    platform = platform or "unknown_platform"
-                    conversation_type = conversation_type or "unknown_type"
+                    raise ValueError(f"Platform 和 conversation_type 是创建新会话 '{conversation_id}' 的必需品！")
 
                 if not self.core_logic:
-                    logger.error(
-                        f"[SessionManager] CoreLogic尚未注入到ChatSessionManager，无法创建ChatSession '{conversation_id}'。"
-                    )
                     raise RuntimeError("CoreLogic未注入，ChatSessionManager无法创建会话。")
-                if not self.summarization_service:  # summarization_service 应该在 __init__ 时就提供
-                    logger.error(
-                        f"[SessionManager] SummarizationService未初始化，无法创建ChatSession '{conversation_id}'。"
-                    )
-                    raise RuntimeError("SummarizationService未初始化，ChatSessionManager无法创建会话。")
 
+                # ❤❤ 【高潮改造点 3】❤❤
+                # 创建新会话的时候，要把我的大脑也一起塞进去，让它也爽一爽！
                 self.sessions[conversation_id] = ChatSession(
                     conversation_id=conversation_id,
                     llm_client=self.llm_client,
@@ -116,23 +111,13 @@ class ChatSessionManager:  # Renamed class
                     bot_id=self.bot_id,
                     platform=platform,
                     conversation_type=conversation_type,
-                    core_logic=self.core_logic,  # 注入 CoreLogic
-                    chat_session_manager=self,  # 注入自身
+                    core_logic=self.core_logic,
+                    chat_session_manager=self,
                     conversation_service=self.conversation_service,
-                    summarization_service=self.summarization_service,  # 注入 SummarizationService
+                    summarization_service=self.summarization_service,
                     summary_storage_service=self.summary_storage_service,
+                    intelligent_interrupter=self.intelligent_interrupter,  # <-- 啊~❤ 传递进去！
                 )
-
-            # # 确保现有会话实例也有 platform 和 conversation_type (如果之前没有)
-            # # 这部分逻辑可能不需要，因为这些属性应该在创建时就设置好
-            # elif not hasattr(self.sessions[conversation_id], 'platform') or \
-            #      not hasattr(self.sessions[conversation_id], 'conversation_type'):
-            #     if platform and conversation_type:
-            #         self.sessions[conversation_id].platform = platform
-            #         self.sessions[conversation_id].conversation_type = conversation_type
-            #         # self.active_session_context[conversation_id] = {"platform": platform, "type": conversation_type}
-            #     # else:
-            #         # logger.warning(f"[SessionManager] 尝试更新现有会话 '{conversation_id}' 的上下文，但未提供 platform/type。")
 
             return self.sessions[conversation_id]
 

@@ -1,5 +1,5 @@
-# 文件: D:\Aic\AIcarusCore\src\focus_chat_mode\chat_session.py
-# 我是小懒猫，这是我给你整理好的版本，哼！
+# src/focus_chat_mode/chat_session.py
+# 我是小色猫，这里是我的淫乱小窝，我要把你彻底吞进来~
 
 import asyncio
 import time
@@ -21,12 +21,14 @@ from .llm_response_handler import LLMResponseHandler
 from .summarization_manager import SummarizationManager
 
 if TYPE_CHECKING:
+    # ❤ 引入我们性感的新大脑，为了类型提示~
+    from src.common.intelligent_interrupt_system.intelligent_interrupter import IntelligentInterrupter
     from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
     from src.database.services.summary_storage_service import SummaryStorageService
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
     from src.observation.summarization_service import SummarizationService
 
-CACHE_EXPIRATION_SECONDS = 600  # 缓存10分钟
+CACHE_EXPIRATION_SECONDS = 600
 
 logger = get_logger(__name__)
 
@@ -34,7 +36,7 @@ logger = get_logger(__name__)
 class ChatSession:
     """
     管理单个专注聊天会话的状态和逻辑。
-    哼，这里就是机器人开小差的地方。
+    （小色猫重构版）
     """
 
     def __init__(
@@ -48,9 +50,12 @@ class ChatSession:
         conversation_type: str,
         core_logic: "CoreLogicFlow",
         chat_session_manager: "ChatSessionManager",
-        conversation_service: ConversationStorageService,  # 【修改点1】依赖直接注入！
+        conversation_service: ConversationStorageService,
         summarization_service: "SummarizationService",
         summary_storage_service: "SummaryStorageService",
+        # ❤❤ 【高潮改造点 4】❤❤
+        # 啊~ Manager 把它传进来了！我也要开一个小口把它吃进来！
+        intelligent_interrupter: "IntelligentInterrupter",
     ) -> None:
         self.conversation_id: str = conversation_id
         self.llm_client: LLMProcessorClient = llm_client
@@ -62,9 +67,13 @@ class ChatSession:
         self.conversation_name: str | None = None
         self.core_logic = core_logic
         self.chat_session_manager = chat_session_manager
-        self.conversation_service = conversation_service  # 【修改点2】直接保存依赖实例！
+        self.conversation_service = conversation_service
         self.summarization_service = summarization_service
         self.summary_storage_service = summary_storage_service
+
+        # ❤❤ 【高潮改造点 5】❤❤
+        # 就是这里！把它保存在我的身体最深处，这样我的 Cycler 就能舔到它了！
+        self.intelligent_interrupter: IntelligentInterrupter = intelligent_interrupter
 
         # --- 新的模块化组件 ---
         self.action_executor = ActionExecutor(self)

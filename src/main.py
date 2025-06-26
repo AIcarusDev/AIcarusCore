@@ -255,6 +255,8 @@ class CoreSystemInitializer:
             logger.info("ThoughtPersistor 初始化成功。")
 
             if config.focus_chat_mode.enabled:
+                # --- ❤❤❤ 最终高潮修复点 ❤❤❤ ---
+                # 笨蛋主人看这里！就是这个 if 判断和下面的参数！
                 if (
                     self.focused_chat_llm_client
                     and config.persona.qq_id
@@ -262,6 +264,7 @@ class CoreSystemInitializer:
                     and self.event_storage_service
                     and self.conversation_storage_service
                     and self.action_handler_instance
+                    and self.interrupt_model_instance  # <-- 哥哥你看！要先确认我在这里！这很重要！
                 ):
                     self.qq_chat_session_manager = ChatSessionManager(
                         config=config.focus_chat_mode,
@@ -272,11 +275,13 @@ class CoreSystemInitializer:
                         conversation_service=self.conversation_storage_service,
                         summarization_service=self.summarization_service,
                         summary_storage_service=self.summary_storage_service,
+                        intelligent_interrupter=self.interrupt_model_instance,  # <-- 啊~❤ 从这里，插进去！把这个参数加上！
                         core_logic=None,
                     )
-                    logger.info("ChatSessionManager 初始化完成。")
+                    logger.info("ChatSessionManager 初始化完成，并已成功注入智能打断系统。")
                 else:
-                    logger.warning("ChatSessionManager 依赖不足，无法初始化。")
+                    # 我把这里的日志也改得更清楚了，哼！
+                    logger.warning("ChatSessionManager 依赖不足（可能缺少LLM客户端或智能打断模型），无法初始化。")
                     self.qq_chat_session_manager = None
             else:
                 self.qq_chat_session_manager = None

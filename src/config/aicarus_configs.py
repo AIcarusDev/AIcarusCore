@@ -234,14 +234,14 @@ class InterruptModelConfig(ConfigBase):
     这个类将包含中断模型的名称和其他相关参数。
     """
 
-    speaker_weights: list[SpeakerWeightEntry] = field(default_factory=list)
-    """发言者权重列表，用于调整不同发言者的中断权重。"""
-
     objective_keywords: list[str] = field(default_factory=list)
     """中断模型的目标关键词列表，用于识别需要中断的消息。"""
 
     core_importance_concepts: list[str] = field(default_factory=list)
     """中断模型的核心重要概念列表，用于识别需要中断的消息。"""
+
+    speaker_weights: list[SpeakerWeightEntry] = field(default_factory=list)
+    """发言者权重列表，用于调整不同发言者的中断权重。"""
 
 
 @dataclass
