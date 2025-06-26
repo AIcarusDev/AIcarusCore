@@ -1,5 +1,6 @@
 # 文件: llmrequest/utils_model.py
-# 接下来是这个文件，呜呜呜，工作量好大...
+# 小色猫的最终忏悔版！保证这次让你爽到天上去！呜呜呜……
+
 import asyncio
 import base64
 import contextlib
@@ -15,7 +16,7 @@ from typing import Any, TypedDict, Unpack
 import aiohttp
 from PIL import Image
 
-from src.common.custom_logging.logger_manager import get_logger  # type: ignore # 假设这个导入是有效的，但找不到存根 #
+from src.common.custom_logging.logger_manager import get_logger
 
 # --- 日志配置 ---
 logger = get_logger("AIcarusCore.llm.utils")
@@ -24,20 +25,18 @@ logger = get_logger("AIcarusCore.llm.utils")
 # --- 定义 TypedDict 用于 default_generation_config ---
 class GenerationParams(TypedDict, total=False):
     temperature: float
-    maxOutputTokens: int  # Google & OpenAI (as max_tokens)
-    topP: float  # Google (top_p for OpenAI)
-    topK: int  # Google (top_k for OpenAI)
-    stopSequences: list[str]  # Google (stop for OpenAI)
-    candidateCount: int  # Google (n for OpenAI)
-    # OpenAI specific, but good to have for potential future mapping or if provider supports them
+    maxOutputTokens: int
+    topP: float
+    topK: int
+    stopSequences: list[str]
+    candidateCount: int
     presence_penalty: float
     frequency_penalty: float
     seed: int
-    user: str  # OpenAI specific
-    response_mime_type: str  # Google specific for function calling
-    # For embeddings
-    encoding_format: str  # OpenAI specific
-    dimensions: int  # OpenAI specific
+    user: str
+    response_mime_type: str
+    encoding_format: str
+    dimensions: int
 
 
 # --- 自定义 .env 加载器 ---
@@ -292,7 +291,7 @@ class LLMClient:
             self.embedding_endpoint_path = DEFAULT_EMBEDDING_ENDPOINT_GOOGLE
         elif self.provider in ["OPENAI", "SILICONFLOW", "DEEPSEEK", "CHATANYWHERE"] or (
             "openai" in self.base_url.lower()
-        ):  # Added DEEPSEEK and CHATANYWHERE
+        ):
             self.api_endpoint_style = "openai"
             self.streaming_endpoint_path = DEFAULT_CHAT_COMPLETIONS_ENDPOINT_OPENAI
             self.non_streaming_endpoint_path = DEFAULT_CHAT_COMPLETIONS_ENDPOINT_OPENAI
@@ -301,7 +300,7 @@ class LLMClient:
             logger.warning(
                 f"无法根据Base URL '{self.base_url}' 或提供商 '{self.provider}' 自动确定API风格。默认为 'openai' 风格。"
             )
-            self.api_endpoint_style = "openai"  # Default to OpenAI style
+            self.api_endpoint_style = "openai"
             self.streaming_endpoint_path = DEFAULT_CHAT_COMPLETIONS_ENDPOINT_OPENAI
             self.non_streaming_endpoint_path = DEFAULT_CHAT_COMPLETIONS_ENDPOINT_OPENAI
             self.embedding_endpoint_path = DEFAULT_EMBEDDINGS_ENDPOINT_OPENAI
@@ -356,7 +355,7 @@ class LLMClient:
         try:
             image_bytes = base64.b64decode(base64_data)
             current_size_bytes = len(image_bytes)
-            if current_size_bytes <= self.image_compression_target_bytes * 1.05:  # Add a small margin
+            if current_size_bytes <= self.image_compression_target_bytes * 1.05:
                 return base64_data, original_mime_type
 
             img = Image.open(io.BytesIO(image_bytes))
@@ -364,12 +363,10 @@ class LLMClient:
             img_format_from_mime = (
                 original_mime_type.split("/")[-1].upper() if original_mime_type and "/" in original_mime_type else None
             )
-            # Prefer Pillow's detected format if available, otherwise use MIME type, fallback to JPEG
             img_format = img_format_from_pillow if img_format_from_pillow else img_format_from_mime or "JPEG"
 
             original_width, original_height = img.size
 
-            # Calculate scale_factor to aim for target_bytes, but don't go below min_scale
             scale_factor = max(
                 DEFAULT_IMAGE_COMPRESSION_SCALE_MIN,
                 min(1.0, (self.image_compression_target_bytes / current_size_bytes) ** 0.5),
@@ -379,19 +376,18 @@ class LLMClient:
             new_height = max(1, int(original_height * scale_factor))
 
             output_buffer = io.BytesIO()
-            save_format = img_format  # Default to original format
+            save_format = img_format
             save_params = {}
 
             if getattr(img, "is_animated", False) and img.n_frames > 1 and img_format == "GIF":
                 frames = []
                 durations = []
                 loop = img.info.get("loop", 0)
-                disposal = img.info.get("disposal", 2)  # Default to "restore to background"
+                disposal = img.info.get("disposal", 2)
 
                 for frame_idx in range(img.n_frames):
                     img.seek(frame_idx)
-                    durations.append(img.info.get("duration", 100))  # Default duration 100ms
-                    # Resize each frame
+                    durations.append(img.info.get("duration", 100))
                     resized_frame = img.convert("RGBA").resize((new_width, new_height), Image.Resampling.LANCZOS)
                     frames.append(resized_frame)
 
@@ -401,35 +397,32 @@ class LLMClient:
                         format="GIF",
                         save_all=True,
                         append_images=frames[1:],
-                        optimize=False,  # GIF optimization can be lossy or slow
+                        optimize=False,
                         duration=durations,
                         loop=loop,
                         disposal=disposal,
-                        transparency=img.info.get("transparency"),  # Preserve transparency if present
-                        background=img.info.get("background"),  # Preserve background if present
+                        transparency=img.info.get("transparency"),
+                        background=img.info.get("background"),
                     )
-                    save_format = "GIF"  # Explicitly set save format
-                else:  # Should not happen if n_frames > 1
+                    save_format = "GIF"
+                else:
                     return base64_data, original_mime_type
-            else:  # Non-animated or non-GIF animated
-                # Handle transparency: if original has alpha, convert to RGBA before resize
-                if img.mode == "P":  # Palette mode, often used for GIFs, check for transparency
-                    img = img.convert("RGBA")  # Convert to RGBA to preserve transparency
+            else:
+                if img.mode == "P":
+                    img = img.convert("RGBA")
                 elif img.mode == "CMYK":
-                    img = img.convert("RGB")  # Convert CMYK to RGB first
+                    img = img.convert("RGB")
 
                 if img.mode in ("RGBA", "LA") or (isinstance(img.info, dict) and "transparency" in img.info):
-                    # Has alpha channel or transparency info, prefer PNG to preserve it
                     resized_img = img.convert("RGBA").resize((new_width, new_height), Image.Resampling.LANCZOS)
                     save_format = "PNG"
                     save_params = {"optimize": True}
                 else:
-                    # No alpha, can use JPEG if original was JPEG, otherwise PNG
                     resized_img = img.convert("RGB").resize((new_width, new_height), Image.Resampling.LANCZOS)
                     if img_format == "JPEG":
                         save_format = "JPEG"
                         save_params = {"quality": DEFAULT_IMAGE_COMPRESSION_QUALITY_JPEG, "optimize": True}
-                    else:  # Fallback to PNG for other non-alpha formats
+                    else:
                         save_format = "PNG"
                         save_params = {"optimize": True}
 
@@ -444,19 +437,18 @@ class LLMClient:
                 f"大小: {current_size_bytes / 1024:.1f}KB -> {new_size_bytes / 1024:.1f}KB"
             )
 
-            # Only return compressed if significantly smaller and non-empty
             if new_size_bytes < current_size_bytes * 0.98 and new_size_bytes > 0:
                 return base64.b64encode(compressed_bytes).decode("utf-8"), f"image/{save_format.lower()}"
 
-            return base64_data, original_mime_type  # Return original if not significantly smaller
+            return base64_data, original_mime_type
 
         except Exception as e:
             logger.error(f"图像压缩过程中发生错误: {e}", exc_info=True)
-            return base64_data, original_mime_type  # Fallback to original on error
+            return base64_data, original_mime_type
 
     async def _process_single_image(
         self,
-        image_path_or_url: str,
+        image_path_or_url_or_data_uri: str,
         session: aiohttp.ClientSession,
         mime_type_override: str | None,
         proxy_url_for_image: str | None,
@@ -464,10 +456,16 @@ class LLMClient:
         base64_image_data = None
         determined_mime_type = mime_type_override
         try:
-            if image_path_or_url.startswith(("http://", "https://")):
-                headers = {"User-Agent": "Mozilla/5.0", "Referer": image_path_or_url}
+            if image_path_or_url_or_data_uri.startswith("data:image"):
+                logger.info("检测到 Data URI，直接处理。")
+                header, encoded_data = image_path_or_url_or_data_uri.split(",", 1)
+                determined_mime_type = header.split(";")[0].split(":")[1]
+                base64_image_data = encoded_data
+                # 这里不压缩，因为Data URI被认为是最终形式
+            elif image_path_or_url_or_data_uri.startswith(("http://", "https://")):
+                headers = {"User-Agent": "Mozilla/5.0", "Referer": image_path_or_url_or_data_uri}
                 async with session.get(
-                    image_path_or_url,
+                    image_path_or_url_or_data_uri,
                     timeout=30,
                     proxy=proxy_url_for_image,
                     headers=headers,
@@ -478,39 +476,34 @@ class LLMClient:
                         if not determined_mime_type:
                             determined_mime_type = response.headers.get("Content-Type", "").split(";")[0].strip()
                     else:
-                        logger.error(f"Img fetch failed {image_path_or_url}, status: {response.status}")
+                        logger.error(f"Img fetch failed {image_path_or_url_or_data_uri}, status: {response.status}")
                         return None
-            elif image_path_or_url.startswith("data:image"):
-                header, encoded_data = image_path_or_url.split(",", 1)
-                determined_mime_type = header.split(";")[0].split(":")[1]
-                base64_image_data = encoded_data
-            elif os.path.exists(image_path_or_url):
+            elif os.path.exists(image_path_or_url_or_data_uri):
                 if not determined_mime_type:
-                    guessed_mime, _ = mimetypes.guess_type(image_path_or_url)
+                    guessed_mime, _ = mimetypes.guess_type(image_path_or_url_or_data_uri)
                     determined_mime_type = guessed_mime
-                with open(image_path_or_url, "rb") as image_file:
+                with open(image_path_or_url_or_data_uri, "rb") as image_file:
                     base64_image_data = base64.b64encode(image_file.read()).decode("utf-8")
             else:
-                logger.error(f"Img not found: {image_path_or_url}")
+                logger.error(f"Img not found: {image_path_or_url_or_data_uri}")
                 return None
 
             if not base64_image_data:
                 return None
 
-            determined_mime_type = determined_mime_type or "image/jpeg"  # Default if still None
-            if not determined_mime_type.startswith("image/"):  # Ensure it's a valid image MIME
+            determined_mime_type = determined_mime_type or "image/jpeg"
+            if not determined_mime_type.startswith("image/"):
                 logger.warning(f"无效的MIME类型 '{determined_mime_type}'，将回退到 image/jpeg。")
                 determined_mime_type = "image/jpeg"
 
-            # Perform compression if enabled
-            if self.enable_image_compression:
+            if self.enable_image_compression and not image_path_or_url_or_data_uri.startswith("data:image"):
                 base64_image_data, determined_mime_type = await self._compress_base64_image(
                     base64_image_data, determined_mime_type
                 )
 
             return {"b64_data": base64_image_data, "mime_type": determined_mime_type}
         except Exception as e:
-            logger.exception(f"Img processing error {image_path_or_url}: {e}")
+            logger.exception(f"Img processing error {image_path_or_url_or_data_uri}: {e}")
             return None
 
     async def _process_images_input(
@@ -545,52 +538,61 @@ class LLMClient:
 
         if self.api_endpoint_style == "google":
             api_request_elements: list[dict[str, Any]] = []
-            text_segments = (
-                prompt_text.split(self.image_placeholder_tag)
-                if prompt_text and self.image_placeholder_tag in prompt_text and processed_images
-                else [prompt_text or ""]
-            )
+
+            if not processed_images or not prompt_text or self.image_placeholder_tag not in prompt_text:
+                if prompt_text:
+                    api_request_elements.append({"text": prompt_text})
+                if processed_images:
+                    for img_data in processed_images:
+                        api_request_elements.append(
+                            {
+                                "inline_data": {
+                                    "mime_type": img_data["mime_type"],
+                                    "data": img_data["b64_data"],
+                                }
+                            }
+                        )
+                return api_request_elements if api_request_elements else [{"text": ""}]
+
+            text_segments = prompt_text.split(self.image_placeholder_tag)
             img_idx = 0
+
             for i, segment in enumerate(text_segments):
                 if segment:
                     api_request_elements.append({"text": segment})
-                if i < len(text_segments) - 1 and processed_images and img_idx < len(processed_images):
+
+                if i < len(text_segments) - 1 and img_idx < len(processed_images):
+                    img_data = processed_images[img_idx]
                     api_request_elements.append(
                         {
                             "inline_data": {
-                                "mime_type": processed_images[img_idx]["mime_type"],
-                                "data": processed_images[img_idx]["b64_data"],
+                                "mime_type": img_data["mime_type"],
+                                "data": img_data["b64_data"],
                             }
                         }
                     )
                     img_idx += 1
-            # Append any remaining images if placeholders were fewer than images
-            while processed_images and img_idx < len(processed_images):
+
+            while img_idx < len(processed_images):
+                img_data = processed_images[img_idx]
                 api_request_elements.append(
                     {
                         "inline_data": {
-                            "mime_type": processed_images[img_idx]["mime_type"],
-                            "data": processed_images[img_idx]["b64_data"],
+                            "mime_type": img_data["mime_type"],
+                            "data": img_data["b64_data"],
                         }
                     }
                 )
                 img_idx += 1
 
-            # If no elements were added (e.g., empty prompt and no images), but prompt_text was provided (e.g. non-empty but no placeholders)
-            if not api_request_elements and prompt_text and not processed_images:
-                api_request_elements.append({"text": prompt_text})
-
             return api_request_elements
 
         elif self.api_endpoint_style == "openai":
-            if not processed_images or request_type == "chat":  # For pure chat or text-only tool calls
+            if not processed_images or request_type == "chat":
                 return prompt_text or ""
-
-            # For multimodal (vision) with OpenAI style
             content_list: list[dict[str, Any]] = []
-            if prompt_text:  # Text part must come first for some models like gpt-4-vision-preview
+            if prompt_text:
                 content_list.append({"type": "text", "text": prompt_text})
-
             for img_data in processed_images:
                 content_list.append(
                     {
@@ -619,63 +621,20 @@ class LLMClient:
         tool_choice: str | dict | None = None,
         text_to_embed: str | None = None,
     ) -> tuple[str, dict[str, Any], dict[str, Any]]:
-        content = self._build_content_for_style(request_type, prompt, processed_images, text_to_embed)
         headers = {"Content-Type": "application/json"}
         payload: dict[str, Any] = {}
         url_path = self._get_endpoint_path(request_type, is_streaming)
 
         if self.api_endpoint_style == "google":
             if request_type == "embedding":
-                payload = {"model": f"models/{self.model_name}", "content": content}
+                # Embedding logic remains the same
+                user_content_parts = self._build_content_for_style(request_type, None, None, text_to_embed)
+                payload = {"model": f"models/{self.model_name}", "content": user_content_parts}  # Adjusted structure
             else:
-                # Make a copy to modify for vision-specific unsupported params
-                current_final_gen_config = final_generation_config.copy()
-                is_vision_request_for_google = request_type == "vision" or (
-                    processed_images and len(processed_images) > 0
-                )
+                # --- 这是究极高潮的核心！！！ ---
 
-                if is_vision_request_for_google:
-                    # These are keys as they appear in the Google API JSON payload
-                    # GenerationParams TypedDict: temperature, maxOutputTokens, top_p, top_k, stop_sequences, candidate_count
-                    # Google API payload:        temperature, maxOutputTokens, topP, topK, stopSequences, candidateCount
-                    params_to_remove_from_payload = ["topP", "topK", "candidateCount", "stopSequences"]
-
-                    # We need to remove keys from current_final_gen_config which is TypedDict style
-                    # Map API payload keys to TypedDict keys
-                    api_to_typed_dict_map = {
-                        "topP": "topP",  # Assuming TypedDict uses topP directly for Google
-                        "topK": "topK",  # Assuming TypedDict uses topK directly for Google
-                        "candidateCount": "candidateCount",  # Assuming TypedDict uses candidateCount
-                        "stopSequences": "stopSequences",  # Assuming TypedDict uses stopSequences
-                    }
-                    # Fallback for TypedDict keys if they differ (example, not strictly needed if above is correct)
-                    # api_to_typed_dict_map_alt = {
-                    #     "topP": "top_p",
-                    #     "topK": "top_k",
-                    #     "candidateCount": "candidate_count",
-                    #     "stopSequences": "stop_sequences"
-                    # }
-
-                    keys_in_config_to_delete = []
-                    for api_param_name in params_to_remove_from_payload:
-                        # Check if the API param name itself is in current_final_gen_config (e.g. if TypedDict uses API names)
-                        if api_param_name in current_final_gen_config:
-                            keys_in_config_to_delete.append(api_param_name)
-                        # Also check if the mapped TypedDict key is present (if mapping is different)
-                        elif api_to_typed_dict_map.get(api_param_name) in current_final_gen_config:
-                            keys_in_config_to_delete.append(api_to_typed_dict_map[api_param_name])
-
-                    for key_to_del in set(
-                        keys_in_config_to_delete
-                    ):  # Use set to avoid deleting twice if mapping was redundant
-                        if key_to_del in current_final_gen_config:
-                            del current_final_gen_config[key_to_del]  # type: ignore
-                            logger.debug(
-                                f"Google Vision: Removed unsupported parameter '{key_to_del}' from generationConfig."
-                            )
-
+                # 1. 构建最终的Payload骨架
                 payload = {
-                    "contents": [{"parts": content if isinstance(content, list) else [{"text": str(content)}]}],
                     "safetySettings": [
                         {"category": c, "threshold": "BLOCK_NONE"}
                         for c in [
@@ -685,41 +644,63 @@ class LLMClient:
                             "HARM_CATEGORY_DANGEROUS_CONTENT",
                         ]
                     ],
-                    "generationConfig": current_final_gen_config,
+                    "generationConfig": final_generation_config.copy(),
                 }
+
+                # 2. 如果有system_prompt，就把它放在名为"system_instruction"的顶级王座上！
+                if system_prompt:
+                    logger.debug(
+                        f"为 Google API 添加顶级的 system_instruction: {system_prompt[:50]}{'...' if len(system_prompt) > 50 else ''}"
+                    )
+                    # 这是全新的、绝对正确的体位！
+                    payload["system_instruction"] = {"parts": [{"text": system_prompt}]}
+
+                # 3. 构建用户的 "contents"
+                user_content_parts = self._build_content_for_style(request_type, prompt, processed_images)
+
+                # 4. 把用户的 contents 也放进Payload里
+                payload["contents"] = [{"role": "user", "parts": user_content_parts}]
+
+                # 5. 处理Vision不支持的参数 (逻辑保持)
+                is_vision_request_for_google = request_type == "vision" or (
+                    processed_images and len(processed_images) > 0
+                )
+                if is_vision_request_for_google:
+                    params_to_remove = ["topP", "topK", "candidateCount", "stopSequences"]
+                    gen_config = payload["generationConfig"]
+                    for param in params_to_remove:
+                        if param in gen_config:
+                            del gen_config[param]
+                            logger.debug(
+                                f"Google Vision: Removed unsupported parameter '{param}' from generationConfig."
+                            )
+
+                # 6. 处理工具 (逻辑保持)
                 if request_type == "tool_call" and tools:
                     payload["tools"] = tools
 
-                if system_prompt:
-                    logger.debug(
-                        f"为 Google API 添加 system_instruction: {system_prompt[:50]}{'...' if len(system_prompt) > 50 else ''}"
-                    )
-                    payload["system_instruction"] = {"parts": [{"text": system_prompt}]}
             url_path = f"/{self.model_name.strip('/')}{url_path}"
 
         elif self.api_endpoint_style == "openai":
+            # OpenAI的逻辑完全不变，它很乖，不像Gemini那么骚
             if request_type == "embedding":
                 payload = {"input": text_to_embed, "model": self.model_name}
-                if "encoding_format" in final_generation_config:  # TypedDict key
+                if "encoding_format" in final_generation_config:
                     payload["encoding_format"] = final_generation_config["encoding_format"]
-                if "dimensions" in final_generation_config:  # TypedDict key
+                if "dimensions" in final_generation_config:
                     payload["dimensions"] = final_generation_config["dimensions"]
             else:
                 messages_list: list[dict[str, Any]] = []
                 if system_prompt:
-                    logger.debug(
-                        f"为 OpenAI API 添加 system message: {system_prompt[:50]}{'...' if len(system_prompt) > 50 else ''}"
-                    )
                     messages_list.append({"role": "system", "content": system_prompt})
 
-                # For OpenAI, content is either a string (for text-only) or a list of parts (for multimodal)
+                content = self._build_content_for_style(request_type, prompt, processed_images)
                 messages_list.append({"role": "user", "content": content})
                 payload = {"model": self.model_name, "messages": messages_list}
 
                 if is_streaming:
                     payload["stream"] = True
 
-                # Map GenerationParams (TypedDict keys) to OpenAI API payload keys
                 for key, value in final_generation_config.items():
                     if key == "maxOutputTokens":
                         payload["max_tokens"] = value
@@ -728,19 +709,11 @@ class LLMClient:
                     elif key == "candidateCount":
                         payload["n"] = value
                     elif key == "topP":
-                        payload["top_p"] = value  # OpenAI uses top_p
+                        payload["top_p"] = value
                     elif key == "topK":
-                        pass  # OpenAI doesn't typically use top_k with top_p, often one or the other.
-                        # If top_k is critical, specific handling might be needed or ensure it's not set when top_p is.
-                    elif key in [
-                        "temperature",
-                        "presence_penalty",
-                        "frequency_penalty",
-                        "seed",
-                        "user",
-                    ]:  # Direct mapping
+                        pass
+                    elif key in ["temperature", "presence_penalty", "frequency_penalty", "seed", "user"]:
                         payload[key] = value
-                    # else: other params in GenerationParams might not be directly applicable or need specific mapping
 
                 if request_type == "tool_call" and tools:
                     payload["tools"] = tools
@@ -748,6 +721,7 @@ class LLMClient:
                         payload["tool_choice"] = tool_choice
         else:
             raise NotImplementedError(f"Request data prep for {self.api_endpoint_style} not implemented.")
+
         return url_path, headers, payload
 
     async def _handle_streaming_response_for_style(
@@ -847,14 +821,14 @@ class LLMClient:
                 if current_chunk_text is not None:
                     if self.stream_chunk_delay_seconds > 0:
                         await asyncio.sleep(self.stream_chunk_delay_seconds)
-                    logger.info(current_chunk_text, end="", flush=True)
+                    print(current_chunk_text, end="", flush=True)  # Changed from logger.info to print for stream
                     full_streamed_text += current_chunk_text
 
             if not interrupted_by_event:
-                logger.info()
+                print()  # Newline after stream finishes
                 logger.info(f"'{self.api_endpoint_style}' streaming complete ({chunk_count} data chunks).")
             else:
-                logger.info(" [STREAM INTERRUPTED]")
+                print(" [STREAM INTERRUPTED]")
 
             result = {
                 "streamed_text_summary": (
@@ -895,13 +869,13 @@ class LLMClient:
         parsed_result = {
             "text": None,
             "tool_calls": None,
-            "function_call": None,  # For Google single tool call
+            "function_call": None,
             "embedding": None,
             "raw_response": response_json,
             "usage": None,
-            "interrupted": False,  # Non-streaming responses are not interrupted in this way
+            "interrupted": False,
             "finish_reason": None,
-            "blocked_by_safety": False,  # Specific for safety filtering
+            "blocked_by_safety": False,
         }
         if self.api_endpoint_style == "google":
             if request_type == "embedding":
@@ -915,12 +889,8 @@ class LLMClient:
                     if text_parts:
                         parsed_result["text"] = "".join(text_parts)
 
-                    # Google's tool_call (functionCall) is singular within parts
                     for part in content_parts:
                         if "functionCall" in part and request_type == "tool_call":
-                            # Adapt to OpenAI's tool_calls list structure for consistency if possible,
-                            # or keep as function_call and handle upstream.
-                            # For now, storing as function_call.
                             parsed_result["function_call"] = part["functionCall"]
                             break
 
@@ -979,18 +949,37 @@ class LLMClient:
             f"URL: {full_request_url}, Params: {request_params}, "
             f"Headers: {loggable_headers}, Proxy: {self.proxy_url or 'No'}"
         )
-        # logger.debug(f"Payload: {json.dumps(payload, indent=2, ensure_ascii=False)}")
+
+        # --- 手术开始！这是最关键的改造！ ---
+
+        # 1. 我们不再相信 aiohttp 的 `json=` 参数！我们自己动手，丰衣足食！
+        #    用最标准的方式，把我们的Python字典(payload)序列化成UTF-8编码的JSON字节流。
+        #    这能确保我们发送的数据，和成功的测试脚本里requests库做的事情，是完全一致的！
+        try:
+            prepared_data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        except TypeError as e:
+            logger.error(f"Payload序列化为JSON时失败: {e}", exc_info=True)
+            logger.critical(f"【小色猫的探针】失败的Payload结构: {payload}")
+            raise LLMClientError(f"Payload序列化失败: {e}") from e
+
+        # 2. 打印我们亲手准备好的数据，进行最终确认！
+        #    我们甚至可以把它解码回来看看，确保它就是我们想要的骚样子。
+        # logger.critical(f"【小色猫的手术探针】准备发送的data (解码后用于对比): {prepared_data.decode('utf-8')}")
 
         http_response: aiohttp.ClientResponse | None = None
         try:
+            # 3. 在 post 请求里，我们用 `data=` 参数，把我们亲手准备好的字节流射出去！
+            #    而不是用那个鬼知道会做什么手脚的 `json=` 参数！
             http_response = await session.post(
                 full_request_url,
                 headers=final_headers,
-                json=payload,
+                data=prepared_data,  # <-- 看这里！用data=！
                 params=request_params,
                 proxy=self.proxy_url,
-                timeout=120,  # Consider making timeout configurable
+                timeout=120,
             )
+            # --- 手术结束！ ---
+
             status_code = http_response.status
             logger.debug(f"Request sent. Actual URL: {http_response.url}. Status: {status_code}")
 
@@ -1005,13 +994,14 @@ class LLMClient:
                     response_json = await http_response.json()
                     return self._parse_non_streaming_response_for_style(response_json, request_type)
             else:
+                # ... (下面的错误处理逻辑保持不变) ...
                 response_text = await http_response.text()
                 key_info = f"...{api_key[-4:]}" if api_key and len(api_key) > 4 else "INVALID_KEY_FORMAT"
                 if status_code == 413:
                     raise PayloadTooLargeError("请求体过大 (413)", status_code, response_text)
                 if status_code == 400:
                     logger.error(f"请求无效或参数错误 (400) - Key {key_info}. Response: {response_text[:500]}")
-                    raise PermissionDeniedError(  # Re-classify as PermissionDeniedError for key marking
+                    raise PermissionDeniedError(
                         f"请求无效或参数错误 (400) - Key {key_info}", status_code, response_text, key_identifier=api_key
                     )
                 if status_code == 401:
@@ -1036,7 +1026,7 @@ class LLMClient:
         except (aiohttp.ClientConnectorError, aiohttp.ServerDisconnectedError, aiohttp.ClientOSError) as e:
             logger.error(f"网络连接错误: {e}")
             raise NetworkError(f"网络连接错误: {e}", original_exception=e) from e
-        except TimeoutError as e:  # TimeoutError (covers both asyncio and built-in)
+        except TimeoutError as e:
             logger.error("请求超时")
             raise NetworkError("请求超时", original_exception=e) from e
         except json.JSONDecodeError as e:
@@ -1044,10 +1034,10 @@ class LLMClient:
             if http_response:
                 with contextlib.suppress(Exception):
                     response_text_for_error = await http_response.text(errors="ignore")
-                    pass  # Ignore if text() itself fails
+                    pass
             logger.error(f"JSON解码错误: {e}. Response text: {response_text_for_error[:200]}")
             raise APIResponseError(f"无法解析API响应为JSON: {e}", response_text=response_text_for_error) from e
-        except aiohttp.ClientError as e:  # Catch other aiohttp client errors
+        except aiohttp.ClientError as e:
             logger.exception(f"AIOHTTP客户端调用时发生意外错误: {e}")
             raise NetworkError(f"AIOHTTP客户端调用时发生意外错误: {e}", original_exception=e) from e
         except Exception as e:
@@ -1085,9 +1075,7 @@ class LLMClient:
                 request_type != "embedding"
                 and not prompt
                 and not current_processed_images
-                and not (
-                    isinstance(prompt, str) and not prompt.strip()
-                )  # Allow empty string prompt if images are present
+                and not (isinstance(prompt, str) and not prompt.strip())
             ):
                 raise ValueError("提示和图像不能都为空 (对于非嵌入请求)。")
             if request_type == "embedding" and not text_to_embed:
@@ -1292,7 +1280,7 @@ class LLMClient:
                     )
 
             if last_exception:
-                if isinstance(last_exception, (RateLimitError | PermissionDeniedError | PayloadTooLargeError)):
+                if isinstance(last_exception, RateLimitError | PermissionDeniedError | PayloadTooLargeError):
                     return {
                         "error": True,
                         "type": type(last_exception).__name__,
@@ -1333,9 +1321,6 @@ class LLMClient:
         if temp is not None:
             generation_params_override["temperature"] = temp
         if max_tokens is not None:
-            # Google API uses maxOutputTokens, OpenAI uses max_tokens
-            # The TypedDict GenerationParams uses maxOutputTokens.
-            # _prepare_request_data_for_style handles mapping to provider-specific names.
             generation_params_override["maxOutputTokens"] = max_tokens
 
         actual_enable_multimodal = is_multimodal and bool(image_inputs)
