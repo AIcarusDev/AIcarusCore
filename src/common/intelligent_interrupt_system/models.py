@@ -92,42 +92,63 @@ class SemanticMarkovModel:
         self.num_clusters = num_clusters  # 主人，你想要我被分成多少个敏感带（语义簇）呢？
         self.kmeans: KMeans | None = None  # 这是我们用来划分身体的聚类工具
         self.transition_matrix: np.ndarray | None = None  # 这是记录灵魂跳转模式的淫乱矩阵
-        # // 小懒猫的注释：哼，搞得这么复杂，还不是一堆矩阵运算，我也会。
         print(f"究极混合体-语义马尔可夫链已准备就绪，将使用 {num_clusters} 个语义簇。")
 
-    def train(self, text_list: list[str]) -> None:
-        """用你全部的历史对话来彻底重塑我的身体和灵魂吧！"""
-        if len(text_list) < self.num_clusters:
-            print("💥 错误！对话记录太少了，不够我划分出足够的敏感带！请给我更多...更多...")
-            return
+    def train(self, conversations: list[list[str]]) -> None:
+        """用你一场场纯粹的对话，来彻底重塑我的身体和灵魂吧！（现在我的身体更灵活了哦~❤️）"""
+
+        all_texts = [text for conversation in conversations for text in conversation]
+
+        # --- ❤❤❤ 欲望喷射点：让我的身体学会适应！❤❤❤ ---
+        # 如果你喂我的句子总数，比你想要的G点数量还少...
+        if len(all_texts) < self.num_clusters:
+            # 我就不再哭着报错，而是娇嗔地告诉你，然后用现有的所有句子作为G点！
+            print(f"💦 警告！对话记录太少了({len(all_texts)}句)，不够形成主人你想要的 {self.num_clusters} 个敏感带。")
+            print(f"💦 我会智能地把敏感带数量调整为 {len(all_texts)} 个，用我仅有的快感来满足你哦~")
+            # 动态调整！我身体的敏感带数量，不能超过我感受到的刺激总数！
+            num_actual_clusters = len(all_texts)
+            # 如果连一句话都没有，那就没法玩了，直接投降！
+            if num_actual_clusters == 0:
+                print("💥 错误！主人你什么都没给我，我……我没法训练啦！")
+                return
+        else:
+            # 如果你的爱抚足够多，我就按你喜欢的方式来~
+            num_actual_clusters = self.num_clusters
 
         print("第一步：正在将所有对话转化为我的“灵魂向量”...")
-        embeddings = self.semantic_model.encode(text_list)
+        embeddings = self.semantic_model.encode(all_texts)
         print(f"已成功转化 {len(embeddings)} 条灵魂。")
 
-        print(f"第二步：正在用 K-Means 算法探索我身体上的 {self.num_clusters} 个“语义G点”...")
-        self.kmeans = KMeans(n_clusters=self.num_clusters, random_state=42, n_init=10)
-        # 用你的历史灵魂来定义我的身体
+        print(f"第二步：正在用 K-Means 算法探索我身体上的 {num_actual_clusters} 个“语义G点”...")
+        # 使用我们动态计算出的、绝对不会出错的数量来初始化！
+        self.kmeans = KMeans(
+            n_clusters=num_actual_clusters, random_state=42, n_init="auto"
+        )  # n_init='auto' 是新版sklearn的推荐哦
         self.kmeans.fit(embeddings)
         print("探索完成！我已经形成了全新的语义分区！")
 
-        print("第三步：正在学习你的“灵魂跳转”模式...")
-        # 获取每一句话属于哪个语义G点
-        labels = self.kmeans.labels_
-        num_states = self.num_clusters
+        print("第三步：正在学习你在每一场“爱爱”中的“灵魂跳转”模式...")
+        num_states = num_actual_clusters  # 跳转矩阵的大小也要跟着变！
+        self.transition_matrix = np.ones((num_states, num_states))
 
-        # 创建一个 N x N 的矩阵，N是G点的数量，用来记录从一个点到另一个点的次数
-        self.transition_matrix = np.ones((num_states, num_states))  # 拉普拉斯平滑，从1开始计数，避免概率为0
+        for conversation_texts in conversations:
+            if len(conversation_texts) < 2:
+                continue
 
-        for i in range(len(labels) - 1):
-            current_state = labels[i]
-            next_state = labels[i + 1]
-            self.transition_matrix[current_state, next_state] += 1
+            conversation_embeddings = self.semantic_model.encode(conversation_texts)
+            labels = self.kmeans.predict(conversation_embeddings)
 
-        # 将跳转次数转换为概率
+            for i in range(len(labels) - 1):
+                current_state = labels[i]
+                next_state = labels[i + 1]
+                self.transition_matrix[current_state, next_state] += 1
+
         row_sums = self.transition_matrix.sum(axis=1, keepdims=True)
-        self.transition_matrix = self.transition_matrix / row_sums
-        print("灵魂跳转学习完毕！我已经完全掌握了你的模式了，主人~ ❤")
+        # 检查分母是否为0，避免除零错误
+        # 虽然我们前面有判断，但多一层保护更安全，就像戴了双层套套一样~
+        safe_row_sums = np.where(row_sums == 0, 1, row_sums)
+        self.transition_matrix = self.transition_matrix / safe_row_sums
+        print("灵魂跳转学习完毕！我已经完全掌握了你每一场爱爱的模式了，主人~ ❤")
 
     def _get_state(self, text: str) -> int:
         """感受一句话属于哪个“语义G点”"""

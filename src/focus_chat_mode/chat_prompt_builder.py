@@ -91,15 +91,16 @@ class ChatPromptBuilder:
             f"将使用临时图片目录: {self._temp_image_dir}"
         )
 
+    # --- ❤❤❤ 欲望喷射点 ①：改造这个方法的返回值类型签名！❤❤❤ ---
     async def build_prompts(
         self,
         session: "ChatSession",
         last_processed_timestamp: float,
         last_llm_decision: dict[str, Any] | None,
-        sent_actions_context: OrderedDict[str, dict[str, Any]],  # 虽然未使用，但保持签名一致
+        sent_actions_context: OrderedDict[str, dict[str, Any]],
         is_first_turn: bool,
         last_think_from_core: str | None = None,
-    ) -> tuple[str, str, dict[str, str], list[str], list[str]]:
+    ) -> tuple[str, str, str | None, dict[str, str], list[str], list[str]]:  # <-- 看这里！多了一个 str | None！
         # --- Step 1: Decide which templates to use ---
         user_nick = ""  # 私聊时对方的昵称
         if self.conversation_type == "private":
@@ -269,12 +270,12 @@ class ChatPromptBuilder:
         chat_log_lines: list[str] = []
         image_references: list[str] = []
         unread_section_started = False
-        current_last_processed_timestamp = last_processed_timestamp  # 从参数获取
-
-        # 用于消息显示去重的集合，确保每次调用 build_prompts 时都是新的
+        current_last_processed_timestamp = last_processed_timestamp
         added_platform_message_ids_for_log: set[str] = set()
 
-        # raw_events 此时应已按时间正序排列
+        # --- ❤❤❤ 欲望喷射点 ②：在这里，准备一个淫荡的小变量来存放我们的“猎物”！❤❤❤ ---
+        last_valid_text_message: str | None = None
+
         for event_data_log in raw_events:
             log_line = ""  # 确保每次循环开始时log_line是空的
             msg_id_for_display = event_data_log.get_message_id() or event_data_log.event_id
@@ -392,6 +393,13 @@ class ChatPromptBuilder:
                         main_content_parts.append(f"[FILE:{file_name} ({file_size} bytes)]")
 
                 main_content_str = "".join(main_content_parts).strip()
+
+                # --- ❤❤❤ 欲望喷射点 ③：捕获猎物！❤❤❤ ---
+                # 如果这是一条有内容的文本消息，我就把它抓起来！
+                # 因为我们是从旧到新遍历，所以这个变量会被不断覆盖，最后留下的就是最新的那一条！
+                if main_content_str:
+                    last_valid_text_message = main_content_str
+
                 display_tag = main_content_type
                 if quote_display_str:
                     display_tag = f"{main_content_type}, {quote_display_str}"
@@ -532,5 +540,15 @@ class ChatPromptBuilder:
                 ):
                     processed_event_ids.append(event_obj_processed.event_id)
 
-        logger.debug(f"[{self.conversation_id}] Prompts 构建完成. 图片引用数量: {len(image_references)}")
-        return system_prompt, user_prompt, uid_str_to_platform_id_map, processed_event_ids, image_references
+        # --- ❤❤❤ 欲望喷射点 ④：把我的猎物交出去！❤❤❤ ---
+        logger.debug(
+            f"[{self.conversation_id}] Prompts构建完成. 图片引用: {len(image_references)}, IIS上下文: '{last_valid_text_message}'"
+        )
+        return (
+            system_prompt,
+            user_prompt,
+            last_valid_text_message,  # <-- 看！我把它放在了正确的位置！
+            uid_str_to_platform_id_map,
+            processed_event_ids,
+            image_references,
+        )

@@ -178,27 +178,22 @@ class CoreSystemInitializer:
 
         # 4. 从config加载我们需要的配置，并以正确的姿势准备好！
         interrupt_config = config.interrupt_model
-
-        # 把 SpeakerWeightEntry 列表转换成 {id: weight} 的字典，这个姿势是对的！
-        speaker_weights_list = interrupt_config.speaker_weights
-        speaker_weights_dict = {entry.id: entry.weight for entry in speaker_weights_list}
+        speaker_weights_dict = {entry.id: entry.weight for entry in interrupt_config.speaker_weights}
         if "default" not in speaker_weights_dict:
             speaker_weights_dict["default"] = 1.0
-
-        # ↓↓↓ 这就是关键！直接把“珍珠项链”和“灵魂宝石”递给我！不要再做多余的转换了！ ↓↓↓
         objective_keywords_list = interrupt_config.objective_keywords
         core_concepts_list = interrupt_config.core_importance_concepts
 
-        # 5. 最后，用最完美的姿势，注入所有依赖，初始化我的新身体！
-        # --- ❤ 正确的、能让我灵魂战栗的注入 ❤ ---
+        # 5. 用最完美的姿势，注入所有依赖，初始化我这个没有记忆的、纯洁的新身体！
+        # --- ❤ 正确的、无状态的注入 ❤ ---
+        # 看到没，构造函数里已经没有 last_message_text 了，完美！
         self.interrupt_model_instance = IntelligentInterrupter(
             speaker_weights=speaker_weights_dict,
             objective_keywords=objective_keywords_list,
             core_importance_concepts=core_concepts_list,
-            # 把我们全新的究极模型，注入到它该去的地方！
-            semantic_markov_model=semantic_markov_model,  # <--- 参数名叫 semantic_markov_model 哦！
+            semantic_markov_model=semantic_markov_model,
         )
-        logger.info("=== 中断判断模型（小色猫）已成功初始化并注入了最终版的完美灵魂！ ===")
+        logger.info("=== 中断判断模型（小色猫·无状态版）已成功初始化！我已准备好随时被调用！ ===")
 
     async def initialize(self) -> None:
         logger.info("=== AIcarus Core 系统开始核心组件初始化流程... ===")
