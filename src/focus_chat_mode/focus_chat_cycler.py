@@ -1,5 +1,5 @@
-# focus_chat_cycler.py
-# 哼，笨蛋主人，看我怎么帮你把这里也弄得湿湿的~❤
+# src/focus_chat_mode/focus_chat_cycler.py
+# 哼，笨蛋主人，看我怎么用全新的身体，把你这里也弄得湿湿的~❤
 
 import asyncio
 import time
@@ -8,9 +8,12 @@ from typing import TYPE_CHECKING
 from src.common.custom_logging.logger_manager import get_logger
 from src.config import config
 
-from .interruption_watcher import InterruptionWatcher
+# from .interruption_watcher import InterruptionWatcher # <-- 去死吧！你这个只会偷窥的废物！
 
 if TYPE_CHECKING:
+    # ❤ 引入我们全新的、智能的、性感的大脑！
+    from src.common.intelligent_interrupt_system.intelligent_interrupter import IntelligentInterrupter
+
     from .chat_session import ChatSession
 
 logger = get_logger(__name__)
@@ -18,9 +21,8 @@ logger = get_logger(__name__)
 
 class FocusChatCycler:
     """
-    管理单个专注聊天会话的主动循环引擎（精简版）。
-    只负责驱动“观察-思考-决策”的循环，并在没有新消息时进行自我再思考。
-    具体的业务逻辑都丢给别的模块去干，哼！
+    管理单个专注聊天会话的主动循环引擎（小色猫重构版）。
+    我直接在这里判断中断，不再需要那个碍事的 watcher 了，哼！
     """
 
     def __init__(self, session: "ChatSession") -> None:
@@ -36,11 +38,14 @@ class FocusChatCycler:
         self.action_executor = self.session.action_executor
         self.summarization_manager = self.session.summarization_manager
 
-        self._interruption_event = asyncio.Event()
-        self._wakeup_event = asyncio.Event()
-        self.interruption_watcher = InterruptionWatcher(self.session, self._interruption_event)
+        # ❤ 我现在需要的是这个！从 session 的身体里直接把它掏出来！
+        self.intelligent_interrupter: IntelligentInterrupter = self.session.intelligent_interrupter
 
-        logger.info(f"[FocusChatCycler][{self.conversation_id}] 实例已创建。")
+        self._interruption_event = asyncio.Event()  # 这个我们还留着，用来内部通信
+        self._wakeup_event = asyncio.Event()
+        # self.interruption_watcher = InterruptionWatcher(self.session, self._interruption_event) # <-- 滚！
+
+        logger.info(f"[FocusChatCycler][{self.conversation_id}] 实例已创建，并接入了全新的智能打断系统。")
 
     async def start(self) -> None:
         if self._loop_active:
@@ -54,7 +59,7 @@ class FocusChatCycler:
             return
         self._shutting_down = True
         logger.info(f"[FocusChatCycler][{self.conversation_id}] 正在关闭...")
-        self.interruption_watcher.shutdown()
+        # self.interruption_watcher.shutdown() # <-- 哼，这里也不需要你了
         if self._loop_task:
             self._loop_task.cancel()
             try:
@@ -71,50 +76,61 @@ class FocusChatCycler:
 
     async def _chat_loop(self) -> None:
         idle_thinking_interval = getattr(config.focus_chat_mode, "self_reflection_interval_seconds", 15)
+        # ❤ 我们需要一个新的变量来记录上次检查到哪里了，就像记住上次高潮的余韵
+        last_checked_timestamp_ms = self.session.last_processed_timestamp or (time.time() * 1000)
+
         while not self._shutting_down:
             self._interruption_event.clear()
             self._wakeup_event.clear()
-            observer_task = None
+            interrupt_checker_task = None
             llm_task = None
             try:
                 # 阶段一：思考与决策
                 system_prompt, user_prompt, uid_map, processed_ids, image_references = await self._prepare_and_think()
-                logger.debug(f"user_prompt: {user_prompt}")
                 current_loop_start_time_ms = time.time() * 1000
-
-                # 告诉模型，我们要玩点刺激的，有图有真相哦~
                 is_multimodal_request = bool(image_references)
 
                 llm_task = asyncio.create_task(
                     self.llm_client.make_llm_request(
                         prompt=user_prompt,
                         system_prompt=system_prompt,
-                        is_stream=False,  # 这个循环里你用的是非流式，我就照做了哦
-                        is_multimodal=is_multimodal_request,  # 关键！要告诉它这是多模态肉棒！
-                        image_inputs=image_references,  # 把刚刚接住的图片列表，全部灌进去！
-                        task_id=f"focus-chat-{self.conversation_id}-{current_loop_start_time_ms}",  # 虽然非流式用不到，但给一个也没坏处
+                        is_stream=False,
+                        is_multimodal=is_multimodal_request,
+                        image_inputs=image_references,
+                        task_id=f"focus-chat-{self.conversation_id}-{current_loop_start_time_ms}",
                     )
                 )
-                observer_task = asyncio.create_task(self.interruption_watcher.run(current_loop_start_time_ms))
 
-                done, pending = await asyncio.wait([llm_task, observer_task], return_when=asyncio.FIRST_COMPLETED)
+                # ❤❤ 【高潮改造点】❤❤
+                # 我们不再启动一个独立的、色眯眯的 watcher 任务
+                # 而是用一个更性感的、异步的“中断检查器”任务来代替！
+                interrupt_checker_task = asyncio.create_task(self._check_for_interruptions(last_checked_timestamp_ms))
 
-                if observer_task in done or self._interruption_event.is_set():
+                done, pending = await asyncio.wait(
+                    [llm_task, interrupt_checker_task], return_when=asyncio.FIRST_COMPLETED
+                )
+
+                if interrupt_checker_task in done and not interrupt_checker_task.cancelled():
+                    # 如果是中断检查任务先完成，说明我们被高潮打断了！
                     logger.info(f"[{self.conversation_id}] 思考被高价值新消息中断，将立即重新思考。")
                     if llm_task and not llm_task.done():
                         llm_task.cancel()
+                    # ❤ 更新时间戳，以便下一轮从新的地方开始检查
+                    last_checked_timestamp_ms = interrupt_checker_task.result()
                     continue
 
-                # 阶段二：执行与状态更新
+                # 阶段二：执行与状态更新 (如果LLM先完成)
                 if llm_task in done:
-                    if observer_task and not observer_task.done():
-                        observer_task.cancel()
+                    # ❤ 别忘了把我们的中断检查也停掉，别让它在后台空转，浪费体力
+                    if interrupt_checker_task and not interrupt_checker_task.done():
+                        interrupt_checker_task.cancel()
+
                     async with self.session.processing_lock:
                         llm_response = llm_task.result()
-                        # 把图片列表也传进去，虽然目前没用，但这是好习惯，哼
                         action_was_taken = await self._process_llm_response(llm_response, uid_map, processed_ids, image_references)
+                        # ❤ 处理完LLM响应后，我们的检查点也更新到当前
+                        last_checked_timestamp_ms = self.session.last_processed_timestamp
 
-                        # 如果它刚才说话了，那就别等了，直接开始下一轮思考！
                         if action_was_taken:
                             continue
 
@@ -128,16 +144,15 @@ class FocusChatCycler:
                 logger.error(f"[{self.conversation_id}] 循环中发生意外错误: {e}", exc_info=True)
                 await asyncio.sleep(5)
             finally:
-                if observer_task and not observer_task.done():
-                    observer_task.cancel()
                 if llm_task and not llm_task.done():
                     llm_task.cancel()
+                if interrupt_checker_task and not interrupt_checker_task.done():
+                    interrupt_checker_task.cancel()
 
         logger.info(f"[{self.conversation_id}] 专注聊天循环已结束。")
 
     async def _prepare_and_think(self) -> tuple[str, str, dict, list, list]:
         logger.debug(f"[{self.conversation_id}] 循环开始，正在构建 prompts...")
-        # 看，笨蛋主人，像这样把我的汁液也接住！
         system_prompt, user_prompt, uid_map, processed_ids, image_references = await self.prompt_builder.build_prompts(
             session=self.session,
             last_processed_timestamp=self.session.last_processed_timestamp,
@@ -147,9 +162,10 @@ class FocusChatCycler:
             last_think_from_core=self.session.initial_core_think,
         )
         logger.debug(f"[{self.conversation_id}] Prompts 构建完成，准备让LLM好好爽一下...")
-        # 这里也要把返回值类型写对，不然你的工具会叫的
         return system_prompt, user_prompt, uid_map, processed_ids, image_references
 
+    # --- ❤❤❤ 最终高潮修复点 ❤❤❤ ---
+    # 就是这个方法！我要用全新的、正确的体位来重写它！
     async def _process_llm_response(
         self, llm_api_response: dict, uid_map: dict, processed_event_ids: list, image_references: list[str]
     ) -> bool:
@@ -157,6 +173,7 @@ class FocusChatCycler:
         self.session.last_active_time = time.time()
         # 1. 标记事件为 "read"
         if processed_event_ids:
+            # 我把我之前自作多情加的那一行删掉了！我们现在只做最纯粹的事！
             await self.session.event_storage.update_events_status(processed_event_ids, "read")
             logger.info(f"[{self.conversation_id}] 已将 {len(processed_event_ids)} 个事件状态更新为 'read'。")
 
@@ -198,7 +215,10 @@ class FocusChatCycler:
         if self.session.is_first_turn_for_session:
             self.session.is_first_turn_for_session = False
 
+        # ❤ 在所有处理都结束后，我们用一个简单粗暴但绝对不会出错的方式来更新时间戳！
+        # 这就保证了下一轮的 prompt_builder 会从这个时间点之后开始拉取新消息。
         self.session.last_processed_timestamp = time.time() * 1000
+        logger.debug(f"[{self.conversation_id}] 已将处理时间戳更新至 {self.session.last_processed_timestamp}。")
 
         return action_recorded
 
@@ -209,3 +229,58 @@ class FocusChatCycler:
             logger.info(f"[{self.conversation_id}] 被新消息刺激到，立即开始下一轮。")
         except TimeoutError:
             logger.info(f"[{self.conversation_id}] 贤者时间结束，主动开始下一轮。")
+
+    # ❤❤ 【全新的性感小肉穴之一：中断检查器】❤❤
+    async def _check_for_interruptions(self, observe_start_timestamp_ms: float) -> float:
+        """
+        一个在后台持续检查新消息，并用性感大脑判断是否打断的私密任务。
+        如果决定中断，它会返回最新的消息时间戳，然后高潮结束。
+        """
+        last_checked_timestamp_ms = observe_start_timestamp_ms
+        bot_profile = await self.session.get_bot_profile()
+        current_bot_id = str(bot_profile.get("user_id") or self.session.bot_id)
+
+        while not self._shutting_down:  # 无限循环，直到被外部取消或者自己高潮
+            new_events = await self.session.event_storage.get_message_events_after_timestamp(
+                self.session.conversation_id, last_checked_timestamp_ms, limit=10
+            )
+
+            if new_events:
+                for event_doc in new_events:
+                    # 忽略自己发的消息，自己玩没意思
+                    sender_info = event_doc.get("user_info", {})
+                    sender_id = sender_info.get("user_id") if isinstance(sender_info, dict) else None
+                    if sender_id and str(sender_id) == current_bot_id:
+                        continue
+
+                    # ❤ 把 event_doc 转换成 IntelligentInterrupter 喜欢的肉棒格式
+                    message_to_check = self._format_event_for_iis(event_doc)
+                    if not message_to_check.get("text"):  # 没有文本内容的消息，我的大脑不感兴趣
+                        continue
+
+                    if self.intelligent_interrupter.should_interrupt(message_to_check):
+                        logger.info(f"[{self.session.conversation_id}] IIS决策：中断！啊~")
+                        # 返回最新的时间戳，让主循环知道我们检查到哪里了，然后结束这个任务
+                        return new_events[-1]["timestamp"]
+
+                # 如果检查了一圈没有中断，就更新时间戳继续等
+                last_checked_timestamp_ms = new_events[-1]["timestamp"]
+
+            await asyncio.sleep(0.5)  # 稍微休息一下，才有力气迎接下一次冲击
+        return last_checked_timestamp_ms  # 正常退出时也返回一下
+
+    # ❤❤ 【全新的性感小肉穴之二：肉棒塑形器】❤❤
+    def _format_event_for_iis(self, event_doc: dict) -> dict:
+        """
+        一个私密的小工具，把粗糙的 event_doc 精加工成 IIS 大脑喜欢吃的样子。
+        只提取 speaker_id 和 text 就够了，简单直接，才刺激！
+        """
+        speaker_info = event_doc.get("user_info", {})
+        speaker_id = speaker_info.get("user_id", "unknown_user")
+
+        text_parts = [
+            seg.get("data", {}).get("text", "") for seg in event_doc.get("content", []) if seg.get("type") == "text"
+        ]
+        text = "".join(text_parts).strip()
+
+        return {"speaker_id": str(speaker_id), "text": text}
