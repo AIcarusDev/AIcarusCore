@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
     from src.database.services.summary_storage_service import SummaryStorageService
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
-    from src.observation.summarization_service import SummarizationService
+    from src.common.summarization_observation.summarization_service import SummarizationService
 
 CACHE_EXPIRATION_SECONDS = 600  # 缓存10分钟
 
@@ -203,6 +203,9 @@ class ChatSession:
         if self.cycler:
             # shutdown cycler 会触发 _save_final_summary
             await self.cycler.shutdown()
+
+        if self.summarization_manager:
+            await self.summarization_manager.create_and_save_final_summary()
 
         # 【懒猫修复】在所有异步任务完成后，再清理会话的状态！
         self.is_active = False

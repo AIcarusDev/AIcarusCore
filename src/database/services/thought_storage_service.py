@@ -30,7 +30,6 @@ class ThoughtStorageService:
 
     def __init__(self, conn_manager: ArangoDBConnectionManager) -> None:
         self.conn_manager = conn_manager
-        self.logger = logger
         # // 小懒猫的注释：哼，折腾了半天，终于搞对了吗？
         # 小色猫的反击：姐姐你等着瞧！这次我和主人的爱，是原生异步的，没有一丝杂质！
 
@@ -38,34 +37,34 @@ class ThoughtStorageService:
         """确保与思考相关的集合及其特定索引已按配置创建。"""
         main_thought_indexes = CoreDBCollections.INDEX_DEFINITIONS.get(self.MAIN_THOUGHTS_COLLECTION, [])
         await self.conn_manager.ensure_collection_with_indexes(self.MAIN_THOUGHTS_COLLECTION, main_thought_indexes)
-        self.logger.info(f"'{self.MAIN_THOUGHTS_COLLECTION}' 集合及其特定索引已初始化。")
+        logger.info(f"'{self.MAIN_THOUGHTS_COLLECTION}' 集合及其特定索引已初始化。")
 
         intrusive_indexes = CoreDBCollections.INDEX_DEFINITIONS.get(self.INTRUSIVE_POOL_COLLECTION, [])
         await self.conn_manager.ensure_collection_with_indexes(self.INTRUSIVE_POOL_COLLECTION, intrusive_indexes)
-        self.logger.info(f"'{self.INTRUSIVE_POOL_COLLECTION}' 集合及其特定索引已初始化。")
+        logger.info(f"'{self.INTRUSIVE_POOL_COLLECTION}' 集合及其特定索引已初始化。")
 
     async def get_main_thought_document_by_key(self, doc_key: str) -> dict[str, Any] | None:
         """获取指定 _key 的主意识思考文档。"""
         if not doc_key:
-            self.logger.warning("获取主思考文档需要一个有效的 doc_key，小猫咪舔不到东西啦。")
+            logger.warning("获取主思考文档需要一个有效的 doc_key，小猫咪舔不到东西啦。")
             return None
         try:
             collection = await self.conn_manager.get_collection(self.MAIN_THOUGHTS_COLLECTION)
             # ↓↓↓ 就是这样！直接 await！这才是原生异步的快感！不再需要 to_thread 了！ ↓↓↓
             doc = await collection.get(doc_key)
             if doc:
-                self.logger.debug(f"通过 key '{doc_key}' 成功获取到主思考文档的小穴内容。")
+                logger.debug(f"通过 key '{doc_key}' 成功获取到主思考文档的小穴内容。")
             else:
-                self.logger.warning(f"通过 key '{doc_key}' 未找到主思考文档，小猫咪舔了个寂寞。")
+                logger.warning(f"通过 key '{doc_key}' 未找到主思考文档，小猫咪舔了个寂寞。")
             return doc
         except Exception as e:
-            self.logger.error(f"通过 key '{doc_key}' 获取主思考文档时，小猫咪高潮失败了: {e}", exc_info=True)
+            logger.error(f"通过 key '{doc_key}' 获取主思考文档时，小猫咪高潮失败了: {e}", exc_info=True)
             return None
 
     async def save_main_thought_document(self, thought_document: dict[str, Any]) -> str | None:
         """保存一个主意识思考过程的文档。"""
         if not isinstance(thought_document, dict):
-            self.logger.error(f"保存主思考文档失败：输入数据不是有效的字典。得到类型: {type(thought_document)}")
+            logger.error(f"保存主思考文档失败：输入数据不是有效的字典。得到类型: {type(thought_document)}")
             return None
 
         if "_key" not in thought_document:
@@ -81,24 +80,24 @@ class ThoughtStorageService:
             result = await collection.insert(thought_document, overwrite=False)
 
             if result and result.get("_key"):
-                self.logger.debug(f"主思考文档 '{result.get('_key')}' 已成功保存。")
+                logger.debug(f"主思考文档 '{result.get('_key')}' 已成功保存。")
                 return result.get("_key")
             else:
-                self.logger.error(
+                logger.error(
                     f"保存主思考文档 '{doc_key_for_log}' 后未能从数据库返回结果中获取 _key。结果: {result}"
                 )
                 return None
         except DocumentInsertError:
-            self.logger.warning(f"尝试插入主思考文档失败，因为键 '{doc_key_for_log}' 可能已存在。操作被跳过。")
+            logger.warning(f"尝试插入主思考文档失败，因为键 '{doc_key_for_log}' 可能已存在。操作被跳过。")
             return doc_key_for_log
         except Exception as e:
-            self.logger.error(f"保存主思考文档 '{doc_key_for_log}' 到数据库时发生严重错误: {e}", exc_info=True)
+            logger.error(f"保存主思考文档 '{doc_key_for_log}' 到数据库时发生严重错误: {e}", exc_info=True)
             return None
 
     async def get_latest_main_thought_document(self, limit: int = 1) -> list[dict[str, Any]]:
         """获取最新的一个或多个主意识思考文档。"""
         if limit <= 0:
-            self.logger.warning("获取最新思考文档的 limit 参数必须为正整数。")
+            logger.warning("获取最新思考文档的 limit 参数必须为正整数。")
             return []
         query = """
             FOR doc IN @@collection
@@ -115,7 +114,7 @@ class ThoughtStorageService:
     ) -> bool:
         """更新特定思考文档中，内嵌的 `action_attempted` 对象里特定动作的状态。"""
         if not doc_key or not action_id or not status_update_dict:
-            self.logger.warning("更新动作状态需要有效的 doc_key, action_id 和 status_update_dict。")
+            logger.warning("更新动作状态需要有效的 doc_key, action_id 和 status_update_dict。")
             return False
 
         try:
@@ -124,21 +123,21 @@ class ThoughtStorageService:
             # ↓↓↓ 同样，直接 await，抛弃 to_thread！↓↓↓
             doc_to_update = await collection.get(doc_key)
             if not doc_to_update:
-                self.logger.error(f"无法更新动作状态：找不到思考文档 '{doc_key}'。")
+                logger.error(f"无法更新动作状态：找不到思考文档 '{doc_key}'。")
                 return False
 
             action_attempted_current = doc_to_update.get("action_attempted")
 
             if action_attempted_current is None:
                 if status_update_dict.get("status") == "COMPLETED_NO_TOOL":
-                    self.logger.info(f"文档 '{doc_key}' 无 action_attempted，符合 COMPLETED_NO_TOOL 状态。")
+                    logger.info(f"文档 '{doc_key}' 无 action_attempted，符合 COMPLETED_NO_TOOL 状态。")
                     return True
                 else:
-                    self.logger.error(f"文档 '{doc_key}' 无 'action_attempted' 字段，无法更新。")
+                    logger.error(f"文档 '{doc_key}' 无 'action_attempted' 字段，无法更新。")
                     return False
 
             if not isinstance(action_attempted_current, dict) or action_attempted_current.get("action_id") != action_id:
-                self.logger.error(f"文档 '{doc_key}' 中 'action_attempted' 的 action_id 不匹配。")
+                logger.error(f"文档 '{doc_key}' 中 'action_attempted' 的 action_id 不匹配。")
                 return False
 
             updated_action_data = {**action_attempted_current, **status_update_dict}
@@ -146,13 +145,13 @@ class ThoughtStorageService:
 
             # ↓↓↓ 啊~ 直接的、深入的更新，这才是原生异步的纯粹快感！↓↓↓
             await collection.update({"_key": doc_key, **patch_document_for_db})
-            self.logger.info(f"文档 '{doc_key}' 中动作 '{action_id}' 状态已更新为: {status_update_dict}。")
+            logger.info(f"文档 '{doc_key}' 中动作 '{action_id}' 状态已更新为: {status_update_dict}。")
             return True
         except DocumentUpdateError as e:
-            self.logger.error(f"更新文档 '{doc_key}' 数据库失败: {e}", exc_info=True)
+            logger.error(f"更新文档 '{doc_key}' 数据库失败: {e}", exc_info=True)
             return False
         except Exception as e:
-            self.logger.error(f"更新文档 '{doc_key}' 时发生意外错误: {e}", exc_info=True)
+            logger.error(f"更新文档 '{doc_key}' 时发生意外错误: {e}", exc_info=True)
             return False
 
     async def save_intrusive_thoughts_batch(self, thought_document_list: list[dict[str, Any]]) -> bool:
@@ -187,15 +186,15 @@ class ThoughtStorageService:
             successful_inserts = sum(1 for r in results if not r.get("error"))
             if successful_inserts < len(processed_documents_for_db):
                 errors = [r.get("errorMessage", "未知数据库错误") for r in results if r.get("error")]
-                self.logger.warning(
+                logger.warning(
                     f"批量保存侵入性思维：{successful_inserts}/{len(processed_documents_for_db)} 条成功。部分错误: {errors[:3]}"
                 )
             else:
-                self.logger.info(f"已成功批量保存 {successful_inserts} 条侵入性思维，啊~ 全都进来了。")
+                logger.info(f"已成功批量保存 {successful_inserts} 条侵入性思维，啊~ 全都进来了。")
             return successful_inserts > 0
         except Exception as e:
             # 现在，任何错误，包括可能的真实超时，都会在这里被捕获。
-            self.logger.error(f"批量保存侵入性思维时发生严重错误: {e}", exc_info=True)
+            logger.error(f"批量保存侵入性思维时发生严重错误: {e}", exc_info=True)
             return False
 
     async def get_random_unused_intrusive_thought_document(self) -> dict[str, Any] | None:
@@ -207,7 +206,7 @@ class ThoughtStorageService:
             count_result = await self.conn_manager.execute_query(count_query, bind_vars_count)
 
             if not count_result or count_result[0] == 0:
-                self.logger.info("侵入性思维池中当前没有未被使用过的思维。")
+                logger.info("侵入性思维池中当前没有未被使用过的思维。")
                 return None
 
             query = """
@@ -222,30 +221,30 @@ class ThoughtStorageService:
             return results[0] if results else None
 
         except Exception as e:
-            self.logger.error(f"获取随机未使用的侵入性思维失败: {e}", exc_info=True)
+            logger.error(f"获取随机未使用的侵入性思维失败: {e}", exc_info=True)
             return None
 
     async def mark_intrusive_thought_document_used(self, thought_doc_key: str) -> bool:
         """根据侵入性思维文档的 _key，将其标记为已使用。"""
         if not thought_doc_key:
-            self.logger.warning("标记已使用需要有效的 thought_doc_key。")
+            logger.warning("标记已使用需要有效的 thought_doc_key。")
             return False
         try:
             collection = await self.conn_manager.get_collection(self.INTRUSIVE_POOL_COLLECTION)
 
             # ↓↓↓ 原生异步的检查和更新，行云流水~ 告别 to_thread！ ↓↓↓
             if not await collection.has(thought_doc_key):
-                self.logger.warning(f"无法标记 '{thought_doc_key}' 为已使用：文档未找到。")
+                logger.warning(f"无法标记 '{thought_doc_key}' 为已使用：文档未找到。")
                 return False
 
             await collection.update({"_key": thought_doc_key, "used": True})
-            self.logger.debug(f"侵入性思维 '{thought_doc_key}' 已成功标记为已使用。")
+            logger.debug(f"侵入性思维 '{thought_doc_key}' 已成功标记为已使用。")
             return True
         except DocumentUpdateError as e:
-            self.logger.error(f"标记 '{thought_doc_key}' 为已使用时数据库更新失败: {e}", exc_info=True)
+            logger.error(f"标记 '{thought_doc_key}' 为已使用时数据库更新失败: {e}", exc_info=True)
             return False
         except Exception as e:
-            self.logger.error(f"标记 '{thought_doc_key}' 为已使用时发生意外错误: {e}", exc_info=True)
+            logger.error(f"标记 '{thought_doc_key}' 为已使用时发生意外错误: {e}", exc_info=True)
             return False
 
     async def mark_action_result_as_seen(self, action_id_to_mark: str) -> bool:
@@ -260,7 +259,7 @@ class ThoughtStorageService:
 
         found_keys = await self.conn_manager.execute_query(find_query, bind_vars_find)
         if not found_keys:
-            self.logger.warning(f"未找到 action_id 为 '{action_id_to_mark}' 的思考文档。")
+            logger.warning(f"未找到 action_id 为 '{action_id_to_mark}' 的思考文档。")
             return False
 
         doc_key_to_update = found_keys[0]
@@ -271,12 +270,12 @@ class ThoughtStorageService:
             doc_to_update = await collection.get(doc_key_to_update)
 
             if not doc_to_update:
-                self.logger.error(f"获取文档 '{doc_key_to_update}' 失败。")
+                logger.error(f"获取文档 '{doc_key_to_update}' 失败。")
                 return False
 
             action_attempted_current = doc_to_update.get("action_attempted")
             if not isinstance(action_attempted_current, dict):
-                self.logger.error(f"文档 '{doc_key_to_update}' 的 action_attempted 结构不正确。")
+                logger.error(f"文档 '{doc_key_to_update}' 的 action_attempted 结构不正确。")
                 return False
 
             if action_attempted_current.get("result_seen_by_shimo") is True:
@@ -286,8 +285,8 @@ class ThoughtStorageService:
             patch_for_db = {"action_attempted": action_attempted_updated}
 
             await collection.update({"_key": doc_key_to_update, **patch_for_db})
-            self.logger.info(f"已将文档 '{doc_key_to_update}' (action_id: {action_id_to_mark}) 的结果标记为已阅。")
+            logger.info(f"已将文档 '{doc_key_to_update}' (action_id: {action_id_to_mark}) 的结果标记为已阅。")
             return True
         except Exception as e:
-            self.logger.error(f"更新文档 '{doc_key_to_update}' 标记已阅时发生错误: {e}", exc_info=True)
+            logger.error(f"更新文档 '{doc_key_to_update}' 标记已阅时发生错误: {e}", exc_info=True)
             return False

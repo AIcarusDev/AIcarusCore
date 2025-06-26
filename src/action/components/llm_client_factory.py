@@ -6,6 +6,7 @@ from src.common.custom_logging.logger_manager import get_logger
 from src.config import config
 from src.llmrequest.llm_processor import Client as ProcessorClient
 
+logger = get_logger(__name__)
 
 class LLMClientFactory:
     """
@@ -14,8 +15,7 @@ class LLMClientFactory:
     """
 
     def __init__(self) -> None:
-        self.logger = get_logger(f"AIcarusCore.{self.__class__.__name__}")
-        self.logger.info(f"{self.__class__.__name__} instance created.")
+        logger.info(f"{self.__class__.__name__} instance created.")
 
     def create_client(self, purpose_key: str) -> ProcessorClient:
         """
@@ -33,7 +33,7 @@ class LLMClientFactory:
         try:
             if not config.llm_models:
                 msg = "配置错误：AlcarusRootConfig 中缺少 'llm_models' 配置段。"
-                self.logger.error(msg)
+                logger.error(msg)
                 raise RuntimeError(msg)
 
             model_params_cfg = getattr(config.llm_models, purpose_key, None)
@@ -41,14 +41,14 @@ class LLMClientFactory:
                 msg = (
                     f"配置错误：在 AlcarusRootConfig.llm_models 下未找到模型用途键 '{purpose_key}' 对应的有效模型配置。"
                 )
-                self.logger.error(msg)
+                logger.error(msg)
                 raise RuntimeError(msg)
 
             actual_provider_name_str: str = model_params_cfg.provider
             actual_model_name_str: str = model_params_cfg.model_name
             if not actual_provider_name_str or not actual_model_name_str:
                 msg = f"配置错误：模型 '{purpose_key}' 未指定 'provider' 或 'model_name'。"
-                self.logger.error(msg)
+                logger.error(msg)
                 raise RuntimeError(msg)
 
             general_llm_settings_obj = config.llm_client_settings
@@ -59,7 +59,7 @@ class LLMClientFactory:
             )
 
             if final_proxy_host and final_proxy_port:
-                self.logger.info(
+                logger.info(
                     f"LLM客户端工厂将为 '{purpose_key}' 使用环境变量中的代理: {final_proxy_host}:{final_proxy_port}"
                 )
 
@@ -85,16 +85,16 @@ class LLMClientFactory:
             final_args = {k: v for k, v in processor_args.items() if v is not None}
             client_instance = ProcessorClient(**final_args)
 
-            self.logger.info(
+            logger.info(
                 f"成功创建 ProcessorClient 实例用于 '{purpose_key}' (模型: {client_instance.llm_client.model_name}, 提供商: {client_instance.llm_client.provider})."
             )
             return client_instance
 
         except (AttributeError, TypeError) as e_conf:
             msg = f"配置访问或类型错误 (用途: {purpose_key}): {e_conf}"
-            self.logger.error(msg, exc_info=True)
+            logger.error(msg, exc_info=True)
             raise RuntimeError(msg) from e_conf
         except Exception as e:
             msg = f"创建LLM客户端时发生未知错误 (用途: {purpose_key}): {e}"
-            self.logger.error(msg, exc_info=True)
+            logger.error(msg, exc_info=True)
             raise RuntimeError(msg) from e

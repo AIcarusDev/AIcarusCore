@@ -18,13 +18,12 @@ class EventStorageService:
 
     def __init__(self, conn_manager: ArangoDBConnectionManager) -> None:
         self.conn_manager = conn_manager
-        self.logger = logger
 
     async def initialize_infrastructure(self) -> None:
         """确保事件集合及其特定索引已创建。应在系统启动时调用。"""
         index_definitions = CoreDBCollections.INDEX_DEFINITIONS.get(self.COLLECTION_NAME, [])
         await self.conn_manager.ensure_collection_with_indexes(self.COLLECTION_NAME, index_definitions)
-        self.logger.info(f"'{self.COLLECTION_NAME}' 集合及其特定索引已初始化。")
+        logger.info(f"'{self.COLLECTION_NAME}' 集合及其特定索引已初始化。")
 
     async def save_event_document(self, event_doc_data: dict[str, Any]) -> bool:
         """
@@ -33,11 +32,11 @@ class EventStorageService:
         会自动从 event_doc_data["conversation_info"]["conversation_id"] 提取并创建顶层字段 "conversation_id_extracted"。
         """
         if not self.conn_manager or not self.conn_manager.db:  # 新增数据库连接检查
-            self.logger.warning(f"数据库连接不可用，无法保存事件文档: {event_doc_data.get('event_id', '未知ID')}")
+            logger.warning(f"数据库连接不可用，无法保存事件文档: {event_doc_data.get('event_id', '未知ID')}")
             return False
 
         if not event_doc_data or not isinstance(event_doc_data, dict):
-            self.logger.warning("无效的 'event_doc_data' (空或非字典类型)。无法保存事件。")
+            logger.warning("无效的 'event_doc_data' (空或非字典类型)。无法保存事件。")
             return False
 
         event_id = event_doc_data.get("event_id")
@@ -55,28 +54,28 @@ class EventStorageService:
             conv_id = conversation_info.get("conversation_id")
             if isinstance(conv_id, str) and conv_id:
                 event_doc_data["conversation_id_extracted"] = conv_id
-                self.logger.debug(f"为事件 {event_id} 添加了 conversation_id_extracted: {conv_id}")
+                logger.debug(f"为事件 {event_id} 添加了 conversation_id_extracted: {conv_id}")
             else:
                 # 对于没有有效 conversation_id 的情况，可以考虑不添加 extracted 字段，
                 # 或者添加一个默认值如 "UNKNOWN_CONVERSATION_ID" 以便查询时能区分
                 # 但通常这类事件可能不按 conversation_id 查询，所以不添加可能更好
-                self.logger.debug(f"事件 {event_id} 的 conversation_info 中缺少有效的 conversation_id，未提取。")
+                logger.debug(f"事件 {event_id} 的 conversation_info 中缺少有效的 conversation_id，未提取。")
         # else: 如果没有 conversation_info 字典，则不提取
 
         try:
             collection = await self.conn_manager.get_collection(self.COLLECTION_NAME)
             if collection is None:  # 新增对 collection 对象的检查
-                self.logger.error(
+                logger.error(
                     f"无法获取到集合 '{self.COLLECTION_NAME}' (可能由于数据库连接问题)，无法保存事件文档: {event_id}"
                 )
                 return False
             await collection.insert(event_doc_data, overwrite=False)
             return True
         except DocumentInsertError:
-            self.logger.warning(f"尝试插入已存在的事件 Event ID: {event_id}。操作被跳过。")
+            logger.warning(f"尝试插入已存在的事件 Event ID: {event_id}。操作被跳过。")
             return True
         except Exception as e:
-            self.logger.error(f"保存事件文档 '{event_id}' 失败: {e}", exc_info=True)
+            logger.error(f"保存事件文档 '{event_id}' 失败: {e}", exc_info=True)
             return False
 
     async def stream_all_textual_messages_for_training(self) -> list[dict[str, Any]]:
@@ -165,11 +164,11 @@ class EventStorageService:
 
             bind_vars["@collection"] = self.COLLECTION_NAME
 
-            self.logger.debug(f"Executing query for recent events: {query} with bind_vars: {bind_vars}")
+            logger.debug(f"Executing query for recent events: {query} with bind_vars: {bind_vars}")
             results = await self.conn_manager.execute_query(query, bind_vars)
             return results if results is not None else []
         except Exception as e:
-            self.logger.error(
+            logger.error(
                 f"获取最近事件文档失败 (会话ID: {conversation_id}, 获取所有类型: {fetch_all_event_types}): {e}",
                 exc_info=True,
             )
@@ -211,17 +210,17 @@ class EventStorageService:
 
             results = await self.conn_manager.execute_query(query, bind_vars)
             if results and len(results) > 0:
-                self.logger.info(
+                logger.info(
                     f"太棒了主人！小猫咪成功为 platform='{platform}', conversation_id='{conversation_id}', bot_id='{bot_id}' 获取到上一个动作响应，快来享用吧！"
                 )
                 return results[0]  # 只返回最新的那一条，最新鲜的才好吃！
             else:
-                self.logger.info(
+                logger.info(
                     f"呜呜呜，主人，小猫咪没有找到 platform='{platform}', conversation_id='{conversation_id}', bot_id='{bot_id}' 的动作响应，是不是哪里弄错了呀？"
                 )
                 return None
         except Exception as e:
-            self.logger.error(
+            logger.error(
                 f"哎呀主人，获取 platform='{platform}', conversation_id='{conversation_id}', bot_id='{bot_id}' 的上一个动作响应时，小猫咪不小心弄坏了什么东西: {e}",
                 exc_info=True,
             )
@@ -263,7 +262,7 @@ class EventStorageService:
             results = await self.conn_manager.execute_query(query, bind_vars)
             return results if results is not None else []
         except Exception as e:
-            self.logger.error(
+            logger.error(
                 f"获取会话 '{conversation_id}' 在 {timestamp} 之后的消息事件失败: {e}",
                 exc_info=True,
             )
@@ -294,7 +293,7 @@ class EventStorageService:
             return bool(results)
 
         except Exception as e:
-            self.logger.error(
+            logger.error(
                 f"检查新事件失败 (会话ID: {conversation_id}): {e}",
                 exc_info=True,
             )
@@ -322,7 +321,7 @@ class EventStorageService:
             return results if results is not None else []
 
         except Exception as e:
-            self.logger.error(
+            logger.error(
                 f"根据ID列表获取事件失败: {e}",
                 exc_info=True,
             )
@@ -333,10 +332,10 @@ class EventStorageService:
         批量更新指定ID列表的事件的 status 字段。
         """
         if not event_ids:
-            self.logger.info("没有提供 event_ids，无需更新状态。")
+            logger.info("没有提供 event_ids，无需更新状态。")
             return True
         if not new_status:
-            self.logger.warning("没有提供 new_status，无法更新状态。")
+            logger.warning("没有提供 new_status，无法更新状态。")
             return False
 
         try:
@@ -352,12 +351,97 @@ class EventStorageService:
             }
 
             await self.conn_manager.execute_query(query, bind_vars)
-            self.logger.info(f"成功将 {len(event_ids)} 个事件的状态更新为 '{new_status}'。")
+            logger.info(f"成功将 {len(event_ids)} 个事件的状态更新为 '{new_status}'。")
             return True
 
         except Exception as e:
-            self.logger.error(
+            logger.error(
                 f"批量更新事件状态为 '{new_status}' 时失败: {e}",
                 exc_info=True,
             )
+            return False
+
+    async def get_summarizable_events_count(self, conversation_id: str) -> int:
+        """
+        高效地计算指定会话中，状态为 'read' 的事件数量。
+        哼，数个数而已，小菜一碟。
+        """
+        if not conversation_id:
+            return 0
+        try:
+            # 这个查询专门用来数数，非常快
+            query = """
+                RETURN COUNT(
+                    FOR doc IN @@collection
+                        FILTER doc.conversation_id_extracted == @conversation_id
+                        AND doc.status == 'read'
+                        RETURN 1
+                )
+            """
+            bind_vars = {
+                "@collection": self.COLLECTION_NAME,
+                "conversation_id": conversation_id,
+            }
+
+            # 执行查询
+            cursor = await self.conn_manager.execute_query(query, bind_vars)
+            
+            # 结果是个列表，里面只有一个数字
+            if cursor and isinstance(cursor, list) and len(cursor) > 0:
+                count = cursor[0]
+                logger.debug(f"会话 '{conversation_id}' 中找到 {count} 条可总结的 ('read') 事件。")
+                return int(count)
+            return 0
+        except Exception as e:
+            logger.error(f"计算会话 '{conversation_id}' 的可总结事件数量失败: {e}", exc_info=True)
+            return 0
+
+    async def get_summarizable_events(self, conversation_id: str, limit: int = 500) -> list[dict[str, Any]]:
+        """
+        获取指定会话中所有状态为 'read' 的事件。
+        这个方法我帮你优化一下，让它和原来的 get_message_events_after_timestamp 区分开。
+        """
+        try:
+            query = """
+                FOR doc IN @@collection
+                    FILTER doc.conversation_id_extracted == @conversation_id
+                    AND doc.status == 'read'
+                    SORT doc.timestamp ASC
+                    LIMIT @limit
+                    RETURN doc
+            """
+            bind_vars = {
+                "@collection": self.COLLECTION_NAME,
+                "conversation_id": conversation_id,
+                "limit": limit,
+            }
+            results = await self.conn_manager.execute_query(query, bind_vars)
+            return results if results is not None else []
+        except Exception as e:
+            logger.error(f"获取会话 '{conversation_id}' 的可总结事件失败: {e}", exc_info=True)
+            return []
+
+    async def update_events_status_to_summarized(self, event_ids: list[str]) -> bool:
+        """
+        批量将事件状态更新为 'summarized'。
+        这个是新技能，专门用来盖“已归档”的章。
+        """
+        # 这个方法就是我们之前讨论的 update_events_status，我们把它功能特定化
+        if not event_ids:
+            return True
+        try:
+            # AQL的UPDATE语句，非常高效
+            query = """
+                FOR doc_key IN @keys
+                    UPDATE doc_key WITH { status: 'summarized' } IN @@collection
+            """
+            bind_vars = {
+                "@collection": self.COLLECTION_NAME,
+                "keys": event_ids,
+            }
+            await self.conn_manager.execute_query(query, bind_vars)
+            logger.info(f"成功将 {len(event_ids)} 个事件的状态更新为 'summarized'。")
+            return True
+        except Exception as e:
+            logger.error(f"批量更新事件状态为 'summarized' 时失败: {e}", exc_info=True)
             return False

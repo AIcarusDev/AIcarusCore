@@ -27,20 +27,19 @@ class UnreadInfoService:
     def __init__(self, event_storage: EventStorageService, conversation_storage: ConversationStorageService) -> None:
         self.event_storage = event_storage
         self.conversation_storage = conversation_storage
-        self.logger = logger
 
     async def _get_unread_conversations_with_events(self) -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
         """
         内部核心方法，获取所有有新消息的会话及其对应的新消息事件列表。
         """
-        self.logger.debug("开始检查所有活跃会话的新消息...")
+        logger.debug("开始检查所有活跃会话的新消息...")
         try:
             all_conversations = await self.conversation_storage.get_all_active_conversations()
             if not all_conversations:
-                self.logger.info("没有找到任何活跃的会话。")
+                logger.info("没有找到任何活跃的会话。")
                 return []
         except Exception as e:
-            self.logger.error(f"获取所有活跃会话失败: {e}", exc_info=True)
+            logger.error(f"获取所有活跃会话失败: {e}", exc_info=True)
             return []
 
         unread_conversations_with_events = []
@@ -57,17 +56,17 @@ class UnreadInfoService:
                 )
 
                 if new_events:
-                    self.logger.info(f"会话 '{conv_id}' 发现 {len(new_events)} 条新消息 (已过滤)。")
+                    logger.info(f"会话 '{conv_id}' 发现 {len(new_events)} 条新消息 (已过滤)。")
                     unread_conversations_with_events.append((conv_doc, new_events))
             except Exception as e:
-                self.logger.error(
+                logger.error(
                     f"为会话 '{conv_id}' 检查新消息时出错: {e}",
                     exc_info=True,
                 )
         return unread_conversations_with_events
 
     async def generate_unread_summary_text(self) -> str:
-        self.logger.debug("开始生成未读消息摘要...")
+        logger.debug("开始生成未读消息摘要...")
         unread_convs_with_events = await self._get_unread_conversations_with_events()
 
         if not unread_convs_with_events:
@@ -127,7 +126,7 @@ class UnreadInfoService:
         return "\n".join(summary_lines).strip()
 
     async def get_structured_unread_conversations(self) -> list[dict[str, Any]]:
-        self.logger.debug("开始获取结构化的未读会话信息...")
+        logger.debug("开始获取结构化的未读会话信息...")
         unread_convs_with_events = await self._get_unread_conversations_with_events()
 
         if not unread_convs_with_events:
@@ -175,5 +174,5 @@ class UnreadInfoService:
                 }
             )
 
-        self.logger.debug(f"成功生成 {len(structured_conversations)} 条结构化未读会话信息。")
+        logger.debug(f"成功生成 {len(structured_conversations)} 条结构化未读会话信息。")
         return structured_conversations

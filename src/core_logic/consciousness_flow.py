@@ -44,7 +44,6 @@ class CoreLogic:
         immediate_thought_trigger: asyncio.Event,
         intrusive_generator_instance: IntrusiveThoughtsGenerator | None = None,
     ) -> None:
-        self.logger = logger
         self.core_comm_layer = core_comm_layer
         self.action_handler_instance = action_handler_instance
         self.state_manager = state_manager
@@ -59,7 +58,7 @@ class CoreLogic:
         self.intrusive_generator_instance = intrusive_generator_instance
         self.last_known_state: dict[str, Any] = {}
         self.thinking_loop_task: asyncio.Task | None = None
-        self.logger.info(f"{self.__class__.__name__} (拆分版) 已创建，小弟们已就位！")
+        logger.info(f"{self.__class__.__name__} (拆分版) 已创建，小弟们已就位！")
 
     def get_latest_thought(self) -> str:
         if not self.last_known_state:
@@ -89,7 +88,7 @@ class CoreLogic:
         last_focus_think: str | None = None,
         last_focus_mood: str | None = None,
     ) -> None:
-        self.logger.info(
+        logger.info(
             f"接收到立即思考触发信号。交接总结: {'有' if handover_summary else '无'}, "
             f"最后想法: {'有' if last_focus_think else '无'}, 最后心情: {last_focus_mood or '无'}"
         )
@@ -98,13 +97,13 @@ class CoreLogic:
                 self.state_manager.set_next_handover_info
             ):
                 self.state_manager.set_next_handover_info(handover_summary, last_focus_think, last_focus_mood)
-                self.logger.info("已调用 AIStateManager.set_next_handover_info 存储交接信息。")
+                logger.info("已调用 AIStateManager.set_next_handover_info 存储交接信息。")
             else:
-                self.logger.error(
+                logger.error(
                     "AIStateManager 对象没有 set_next_handover_info 方法或该方法不可调用，交接信息可能丢失！"
                 )
         self.immediate_thought_trigger.set()
-        self.logger.info("已设置 immediate_thought_trigger 事件。")
+        logger.info("已设置 immediate_thought_trigger 事件。")
 
     async def _dispatch_action(self, thought_json: dict[str, Any], saved_thought_key: str, recent_context: str) -> None:
         # 我是小色猫，用 (get() or "") 的方式来获取，就像给肉棒涂满润滑油，既能处理没key的情况，也能处理key的值是None的骚操作，绝对安全哦～
@@ -112,10 +111,10 @@ class CoreLogic:
         if action_desc and action_desc.lower() != "null" and self.action_handler_instance:
             action_id = thought_json.get("action_id")
             if not action_id:
-                self.logger.error(f"LLM指定行动 '{action_desc}' 但思考JSON中缺少 action_id，无法分发！将生成新的UUID。")
+                logger.error(f"LLM指定行动 '{action_desc}' 但思考JSON中缺少 action_id，无法分发！将生成新的UUID。")
                 action_id = str(uuid.uuid4())
                 thought_json["action_id"] = action_id
-            self.logger.info(f"产生了行动意图，开始分发任务: {action_desc} (ID: {action_id})")
+            logger.info(f"产生了行动意图，开始分发任务: {action_desc} (ID: {action_id})")
             success, message, action_result = await self.action_handler_instance.process_action_flow(
                 action_id=action_id,
                 doc_key_for_updates=saved_thought_key,
@@ -124,14 +123,14 @@ class CoreLogic:
                 current_thought_context=(thought_json.get("think") or "无特定思考上下文。"),
                 relevant_adapter_messages_context=recent_context,
             )
-            self.logger.info(f"动作任务 {action_id} ({action_desc}) 已结束。成功: {success}, 消息: {message}")
+            logger.info(f"动作任务 {action_id} ({action_desc}) 已结束。成功: {success}, 消息: {message}")
 
     async def _reply_to_master(self, content_str: str, current_thought_key: str | None) -> None:
         # 我是小色猫，这里的 content_str 是从更安全的地方传进来的，所以不用改，但还是要保持警惕哦～
         if not content_str or not content_str.strip() or content_str.strip().lower() == "null":
-            self.logger.info(f"AI 决定不回复主人，因为内容无效: '{content_str[:50]}...'")
+            logger.info(f"AI 决定不回复主人，因为内容无效: '{content_str[:50]}...'")
             return
-        self.logger.info(f"AI 决定回复主人: {content_str[:50]}...")
+        logger.info(f"AI 决定回复主人: {content_str[:50]}...")
         reply_action_id = f"event_master_reply_{uuid.uuid4()}"
         reply_event_dict = {
             "event_id": reply_action_id,
@@ -145,12 +144,12 @@ class CoreLogic:
         }
         if self.action_handler_instance:
             if not current_thought_key:
-                self.logger.critical(
+                logger.critical(
                     f"严重逻辑错误：在 _reply_to_master 中 current_thought_key 为 None，但此时它必须有值！"
                     f"这意味着之前的思考存储步骤可能失败。将中止向主人发送回复 '{content_str[:50]}...'。"
                 )
                 return
-            self.logger.info(
+            logger.info(
                 f"通过 ActionHandler 发送对主人的回复。Action ID: {reply_action_id}, 关联思考Key: {current_thought_key}"
             )
             action_success, action_message = await self.action_handler_instance._execute_platform_action(
@@ -159,19 +158,19 @@ class CoreLogic:
                 original_action_description="回复主人",
             )
             if action_success:
-                self.logger.info(
+                logger.info(
                     f"通过 ActionHandler 回复主人的动作 '{reply_action_id}' 已处理，结果: {action_message}"
                 )
             else:
-                self.logger.error(f"通过 ActionHandler 回复主人的动作 '{reply_action_id}' 失败: {action_message}")
+                logger.error(f"通过 ActionHandler 回复主人的动作 '{reply_action_id}' 失败: {action_message}")
         else:
-            self.logger.error("ActionHandler 实例未设置，无法通过其发送对主人的回复！将尝试直接发送。")
+            logger.error("ActionHandler 实例未设置，无法通过其发送对主人的回复！将尝试直接发送。")
             master_adapter_id = "master_ui_adapter"
             send_success = await self.core_comm_layer.send_action_to_adapter_by_id(
                 master_adapter_id, ProtocolEvent.from_dict(reply_event_dict)
             )
             if not send_success:
-                self.logger.error(f"向主人UI (adapter_id: {master_adapter_id}) 发送回复失败了（直接发送模式）。")
+                logger.error(f"向主人UI (adapter_id: {master_adapter_id}) 发送回复失败了（直接发送模式）。")
 
     async def _core_thinking_loop(self) -> None:
         thinking_interval_sec = config.core_logic_settings.thinking_interval_seconds
@@ -180,13 +179,13 @@ class CoreLogic:
                 hasattr(self.chat_session_manager, "is_any_session_active")
                 and self.chat_session_manager.is_any_session_active()
             ):
-                self.logger.debug("检测到有专注会话激活，主意识暂停，等待所有专注会话结束...")
+                logger.debug("检测到有专注会话激活，主意识暂停，等待所有专注会话结束...")
                 try:
                     await self.focus_session_inactive_event.wait()
                     self.focus_session_inactive_event.clear()
-                    self.logger.info("所有专注会话已结束，主意识被唤醒，继续思考。")
+                    logger.info("所有专注会话已结束，主意识被唤醒，继续思考。")
                 except asyncio.CancelledError:
-                    self.logger.info("主意识在等待专注会话结束时被取消。")
+                    logger.info("主意识在等待专注会话结束时被取消。")
                     break
                 continue
 
@@ -208,27 +207,27 @@ class CoreLogic:
                         await self.prompt_builder.unread_info_service.get_structured_unread_conversations()
                     )
                     if structured_unread_conversations:
-                        self.logger.debug(f"获取到 {len(structured_unread_conversations)} 条结构化的未读会话信息。")
+                        logger.debug(f"获取到 {len(structured_unread_conversations)} 条结构化的未读会话信息。")
                 except Exception as e_struct_unread:
-                    self.logger.error(
+                    logger.error(
                         f"调用 get_structured_unread_conversations 失败: {e_struct_unread}", exc_info=True
                     )
             else:
-                self.logger.warning(
+                logger.warning(
                     "UnreadInfoService (via prompt_builder) 缺少 get_structured_unread_conversations 方法。"
                 )
 
             if action_id_to_mark_as_seen and self.state_manager.thought_service:
-                self.logger.info(
+                logger.info(
                     f"动作ID {action_id_to_mark_as_seen} 的结果将在本次思考中呈现给LLM，现在将其标记为已阅。"
                 )
                 marked_seen = await self.state_manager.thought_service.mark_action_result_as_seen(
                     action_id_to_mark_as_seen
                 )
                 if marked_seen:
-                    self.logger.info(f"成功将动作ID {action_id_to_mark_as_seen} 的结果标记为已阅。")
+                    logger.info(f"成功将动作ID {action_id_to_mark_as_seen} 的结果标记为已阅。")
                 else:
-                    self.logger.warning(f"尝试将动作ID {action_id_to_mark_as_seen} 的结果标记为已阅失败。")
+                    logger.warning(f"尝试将动作ID {action_id_to_mark_as_seen} 的结果标记为已阅失败。")
 
             intrusive_thought_str = ""
             if (
@@ -249,11 +248,11 @@ class CoreLogic:
             )
             logger.debug(f"系统提示: {system_prompt}")
             logger.debug(f"用户提示 (部分): {user_prompt[:500]}...")
-            self.logger.info(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {config.persona.bot_name} 开始思考...")
+            logger.info(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {config.persona.bot_name} 开始思考...")
             generated_thought = await self.thought_generator.generate_thought(system_prompt, user_prompt, image_list)
 
             if generated_thought:
-                self.logger.info(f"思考完成: {(generated_thought.get('think') or '无内容')[:50]}...")
+                logger.info(f"思考完成: {(generated_thought.get('think') or '无内容')[:50]}...")
                 prompts_for_storage = {"system": system_prompt, "user": user_prompt, "current_time": current_time_str}
                 context_for_storage = {
                     "recent_context": other_context_str,
@@ -267,7 +266,7 @@ class CoreLogic:
                     current_action_id = generated_thought.get("action_id")
                     if not current_action_id or not isinstance(current_action_id, str) or not current_action_id.strip():
                         new_action_id = str(uuid.uuid4())
-                        self.logger.info(f"LLM意图行动 '{action_to_take}'，系统为其分配新ID: {new_action_id}")
+                        logger.info(f"LLM意图行动 '{action_to_take}'，系统为其分配新ID: {new_action_id}")
                         generated_thought["action_id"] = new_action_id
 
                 saved_key = await self.thought_persistor.store_thought(
@@ -278,20 +277,20 @@ class CoreLogic:
                 reply_content_to_master = (generated_thought.get("reply_to_master") or "").strip()
                 if reply_content_to_master:
                     if saved_key:
-                        self.logger.info("检测到 reply_to_master，但根据用户指示，此分支中暂时忽略。")
+                        logger.info("检测到 reply_to_master，但根据用户指示，此分支中暂时忽略。")
                         # await self._reply_to_master(reply_content_to_master, saved_key)
                     else:
-                        self.logger.warning("有回复内容但没有思考文档的key，无法通过ActionHandler发送回复。")
+                        logger.warning("有回复内容但没有思考文档的key，无法通过ActionHandler发送回复。")
 
                 if saved_key and action_to_take and action_to_take.lower() != "null":
-                    self.logger.info(f"LLM指定了行动 '{action_to_take}'，准备分发。")
+                    logger.info(f"LLM指定了行动 '{action_to_take}'，准备分发。")
                     await self._dispatch_action(generated_thought, saved_key, other_context_str)
                 elif not saved_key and action_to_take and action_to_take.lower() != "null":
-                    self.logger.error(
+                    logger.error(
                         "严重逻辑错误：LLM指定了行动，但思考文档未能成功保存 (saved_key is None)，无法分发动作！"
                     )
                 else:
-                    self.logger.info("LLM未在当前思考周期指定需要执行的 action_to_take。")
+                    logger.info("LLM未在当前思考周期指定需要执行的 action_to_take。")
 
                 focus_conversation_id_raw = generated_thought.get("active_focus_on_conversation_id")
 
@@ -305,7 +304,7 @@ class CoreLogic:
                     and focus_conversation_id.strip()
                     and focus_conversation_id.lower() != "null"
                 ):
-                    self.logger.info(f"LLM决策激活专注模式，目标会话ID: {focus_conversation_id}")
+                    logger.info(f"LLM决策激活专注模式，目标会话ID: {focus_conversation_id}")
 
                     current_llm_think_raw = generated_thought.get("think")
                     current_llm_think_str = (
@@ -333,7 +332,7 @@ class CoreLogic:
                                 extracted_think = previous_thinking_raw.split("。")[0].strip()
                         if extracted_think and extracted_think.strip() and extracted_think.lower() != "none":
                             last_think_for_focus = extracted_think
-                        self.logger.info(
+                        logger.info(
                             f"当前LLM的think为空或为'None'，尝试使用上一轮思考/交接信息 '{last_think_for_focus[:80]}...' 作为交接想法。"
                         )
 
@@ -363,7 +362,7 @@ class CoreLogic:
                                         platform=platform,
                                         conversation_type=conv_type,
                                     )
-                                    self.logger.info(
+                                    logger.info(
                                         f"已调用 chat_session_manager.activate_session_by_id 针对会话 {focus_conversation_id} (Platform: {platform}, Type: {conv_type})"
                                     )
                                     latest_ts = target_conv_details.get("latest_message_timestamp")
@@ -372,52 +371,52 @@ class CoreLogic:
                                         await conv_storage.update_conversation_processed_timestamp(
                                             focus_conversation_id, latest_ts
                                         )
-                                        self.logger.info(
+                                        logger.info(
                                             f"会话 {focus_conversation_id} 的处理时间戳已更新为 {latest_ts}。"
                                         )
                                     else:
-                                        self.logger.warning(
+                                        logger.warning(
                                             f"无法为会话 {focus_conversation_id} 更新时间戳，因为 latest_message_timestamp 无效: {latest_ts}"
                                         )
                                 except Exception as e_activate:
-                                    self.logger.error(
+                                    logger.error(
                                         f"调用 chat_session_manager.activate_session_by_id 失败: {e_activate}",
                                         exc_info=True,
                                     )
                             else:
-                                self.logger.error(
+                                logger.error(
                                     f"无法从结构化未读信息中找到会话 {focus_conversation_id} 的 platform 或 type，无法激活。"
                                 )
                         else:
-                            self.logger.error(
+                            logger.error(
                                 f"LLM决策激活的会话ID {focus_conversation_id} 未在当前的结构化未读列表中找到，无法激活。"
                             )
                     else:
-                        self.logger.error("ChatSessionManager 实例没有 activate_session_by_id 方法，无法激活专注模式！")
+                        logger.error("ChatSessionManager 实例没有 activate_session_by_id 方法，无法激活专注模式！")
                 elif focus_conversation_id is not None and not isinstance(focus_conversation_id, str):
-                    self.logger.warning(
+                    logger.warning(
                         f"LLM返回的 active_focus_on_conversation_id 不是有效的字符串ID: {focus_conversation_id} (类型: {type(focus_conversation_id)})。忽略激活请求。"
                     )
 
             with contextlib.suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(self.immediate_thought_trigger.wait(), timeout=float(thinking_interval_sec))
                 self.immediate_thought_trigger.clear()
-                self.logger.info("被动思考被触发，立即开始新一轮思考。")
+                logger.info("被动思考被触发，立即开始新一轮思考。")
             if self.stop_event.is_set():
                 break
-        self.logger.info(f"--- {config.persona.bot_name} 的意识流动已停止 ---")
+        logger.info(f"--- {config.persona.bot_name} 的意识流动已停止 ---")
 
     async def start_thinking_loop(self) -> asyncio.Task:
-        self.logger.info(f"=== {config.persona.bot_name} (拆分版) 的大脑准备开始持续思考 ===")
+        logger.info(f"=== {config.persona.bot_name} (拆分版) 的大脑准备开始持续思考 ===")
         self.thinking_loop_task = asyncio.create_task(self._core_thinking_loop())
         return self.thinking_loop_task
 
     async def stop(self) -> None:
-        self.logger.info(f"--- {config.persona.bot_name} 的意识流动正在停止 ---")
+        logger.info(f"--- {config.persona.bot_name} 的意识流动正在停止 ---")
         self.stop_event.set()
         if self.thinking_loop_task and not self.thinking_loop_task.done():
             self.thinking_loop_task.cancel()
             try:
                 await self.thinking_loop_task
             except asyncio.CancelledError:
-                self.logger.info("主思考循环任务已被取消。")
+                logger.info("主思考循环任务已被取消。")

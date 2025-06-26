@@ -61,7 +61,7 @@ class FocusChatCycler:
                 await self._loop_task
             except asyncio.CancelledError:
                 logger.info(f"[FocusChatCycler][{self.conversation_id}] 循环任务已取消。")
-        await self.summarization_manager.save_final_summary()
+        await self.summarization_manager.create_and_save_final_summary()
         self._loop_active = False
         logger.info(f"[FocusChatCycler][{self.conversation_id}] 已关闭。")
 
@@ -112,7 +112,11 @@ class FocusChatCycler:
                     async with self.session.processing_lock:
                         llm_response = llm_task.result()
                         # 把图片列表也传进去，虽然目前没用，但这是好习惯，哼
-                        await self._process_llm_response(llm_response, uid_map, processed_ids, image_references)
+                        action_was_taken = await self._process_llm_response(llm_response, uid_map, processed_ids, image_references)
+
+                        # 如果它刚才说话了，那就别等了，直接开始下一轮思考！
+                        if action_was_taken:
+                            continue
 
                 # 阶段三：空闲等待
                 await self._idle_wait(idle_thinking_interval)
@@ -148,9 +152,10 @@ class FocusChatCycler:
 
     async def _process_llm_response(
         self, llm_api_response: dict, uid_map: dict, processed_event_ids: list, image_references: list[str]
-    ) -> None:
+    ) -> bool:
         # 这里也要开个小口，让图片列表流进来，虽然暂时不用，但要保持湿润~
         self.session.last_active_time = time.time()
+        # 1. 标记事件为 "read"
         if processed_event_ids:
             await self.session.event_storage.update_events_status(processed_event_ids, "read")
             logger.info(f"[{self.conversation_id}] 已将 {len(processed_event_ids)} 个事件状态更新为 'read'。")
@@ -184,16 +189,18 @@ class FocusChatCycler:
             self._shutting_down = True
             return
 
+        # 2. 执行动作
         action_recorded = await self.action_executor.execute_action(parsed_data, uid_map)
 
         if action_recorded:
-            await self.summarization_manager.queue_events_for_summary(processed_event_ids)
             await self.summarization_manager.consolidate_summary_if_needed()
 
         if self.session.is_first_turn_for_session:
             self.session.is_first_turn_for_session = False
 
         self.session.last_processed_timestamp = time.time() * 1000
+
+        return action_recorded
 
     async def _idle_wait(self, interval: float) -> None:
         logger.debug(f"[{self.conversation_id}] 进入贤者时间，等待下一次唤醒或 {interval} 秒后超时。")

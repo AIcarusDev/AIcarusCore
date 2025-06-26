@@ -5,6 +5,7 @@ from typing import Any
 from src.action.action_provider import ActionProvider
 from src.common.custom_logging.logger_manager import get_logger
 
+logger = get_logger(__name__)
 
 class ActionRegistry:
     """
@@ -13,9 +14,8 @@ class ActionRegistry:
     """
 
     def __init__(self) -> None:
-        self.logger = get_logger(f"AIcarusCore.{self.__class__.__name__}")
         self._action_registry: dict[str, Callable[..., Coroutine[Any, Any, Any]]] = {}
-        self.logger.info(f"{self.__class__.__name__} instance created.")
+        logger.info(f"{self.__class__.__name__} instance created.")
 
     def register_provider(self, provider: ActionProvider) -> None:
         """
@@ -32,9 +32,9 @@ class ActionRegistry:
             )
 
             if full_action_name in self._action_registry:
-                self.logger.warning(f"动作 '{full_action_name}' 已存在，将被新的提供者 '{provider.name}' 覆盖。")
+                logger.warning(f"动作 '{full_action_name}' 已存在，将被新的提供者 '{provider.name}' 覆盖。")
             self._action_registry[full_action_name] = action_func
-            self.logger.info(f"成功注册动作: {full_action_name} (来自: {provider.name})")
+            logger.info(f"成功注册动作: {full_action_name} (来自: {provider.name})")
 
     def get_action(self, action_name: str) -> Callable[..., Coroutine[Any, Any, Any]] | None:
         """

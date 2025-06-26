@@ -11,6 +11,8 @@ from src.database.services.conversation_storage_service import ConversationStora
 from src.database.services.event_storage_service import EventStorageService
 from src.database.services.thought_storage_service import ThoughtStorageService
 
+logger = get_logger(__name__)
+
 ACTION_RESPONSE_TIMEOUT_SECONDS = 30
 
 
@@ -27,13 +29,12 @@ class PendingActionManager:
         event_storage_service: EventStorageService,
         conversation_service: ConversationStorageService,
     ) -> None:
-        self.logger = get_logger(f"AIcarusCore.{self.__class__.__name__}")
         self._pending_actions: dict[str, tuple[asyncio.Future, str | None, str, dict[str, Any]]] = {}
         self.action_log_service = action_log_service
         self.thought_storage_service = thought_storage_service
         self.event_storage_service = event_storage_service
         self.conversation_service = conversation_service
-        self.logger.info(f"{self.__class__.__name__} instance created.")
+        logger.info(f"{self.__class__.__name__} instance created.")
 
     async def add_and_wait_for_action(
         self,
@@ -68,7 +69,7 @@ class PendingActionManager:
         if action_id not in self._pending_actions:
             return
 
-        self.logger.warning(f"动作 '{action_id}' 超时未收到响应！")
+        logger.warning(f"动作 '{action_id}' 超时未收到响应！")
         pending_event, thought_doc_key, description, _ = self._pending_actions.pop(action_id)
         if not pending_event.done():
             pending_event.set_exception(TimeoutError())
@@ -99,17 +100,17 @@ class PendingActionManager:
             return
 
         if original_action_id not in self._pending_actions:
-            self.logger.warning(f"收到未知的或已处理/超时的 action_response，ID: {original_action_id}。")
+            logger.warning(f"收到未知的或已处理/超时的 action_response，ID: {original_action_id}。")
             return
 
         pending_future, thought_doc_key, description, sent_dict = self._pending_actions.pop(original_action_id)
-        self.logger.info(f"已匹配到等待中的动作 '{original_action_id}' ({description})。")
+        logger.info(f"已匹配到等待中的动作 '{original_action_id}' ({description})。")
 
         # 解析响应
         successful, status, error_msg, details = self._parse_response_content(response_event_data)
         original_action_type = sent_dict.get("event_type")
         if successful and original_action_type == "action.bot.get_profile" and details:
-            self.logger.info(f"收到来自适配器 '{sent_dict.get('platform')}' 的档案同步报告，开始处理...")
+            logger.info(f"收到来自适配器 '{sent_dict.get('platform')}' 的档案同步报告，开始处理...")
             # 把处理报告这个脏活累活，单独丢给一个新方法去做！
             await self._process_bot_profile_report(details)
         final_result = self._create_final_result_message(description, successful, error_msg, details)
@@ -153,7 +154,7 @@ class PendingActionManager:
         新版：使用 upsert 逻辑，确保即使会话档案不存在也能正确创建和更新。
         """
         if not isinstance(report_data, dict):
-            self.logger.warning("收到的机器人档案报告不是一个有效的字典。")
+            logger.warning("收到的机器人档案报告不是一个有效的字典。")
             return
 
         bot_id = report_data.get("user_id")
@@ -161,10 +162,10 @@ class PendingActionManager:
         groups_info = report_data.get("groups")
 
         if not bot_id or not groups_info or not isinstance(groups_info, dict):
-            self.logger.warning(f"机器人档案报告缺少 bot_id、platform 或 groups 信息。报告内容: {report_data}")
+            logger.warning(f"机器人档案报告缺少 bot_id、platform 或 groups 信息。报告内容: {report_data}")
             return
 
-        self.logger.info(f"正在处理机器人(ID: {bot_id})的 {len(groups_info)} 个群聊档案更新...")
+        logger.info(f"正在处理机器人(ID: {bot_id})的 {len(groups_info)} 个群聊档案更新...")
 
         update_tasks = []
         for group_id, group_profile in groups_info.items():
@@ -202,9 +203,9 @@ class PendingActionManager:
             results = await asyncio.gather(*update_tasks, return_exceptions=True)
             success_count = sum(1 for r in results if r is not None and not isinstance(r, Exception))
             failure_count = len(results) - success_count
-            self.logger.info(f"机器人档案同步完成。成功 upsert {success_count} 个会话，失败 {failure_count} 个。")
+            logger.info(f"机器人档案同步完成。成功 upsert {success_count} 个会话，失败 {failure_count} 个。")
         else:
-            self.logger.info("机器人档案报告中没有需要更新的群聊信息。")
+            logger.info("机器人档案报告中没有需要更新的群聊信息。")
 
     def _get_original_id_from_response(self, data: dict[str, Any]) -> str | None:
         content = data.get("content", [])
@@ -212,7 +213,7 @@ class PendingActionManager:
             first_seg = content[0]
             if isinstance(first_seg, dict) and "data" in first_seg:
                 return first_seg.get("data", {}).get("original_event_id")
-        self.logger.error(f"无法从响应事件 {data.get('event_id')} 中解析出 original_event_id。")
+        logger.error(f"无法从响应事件 {data.get('event_id')} 中解析出 original_event_id。")
         return None
 
     def _parse_response_content(self, data: dict[str, Any]) -> tuple[bool, str, str, dict | None]:
@@ -258,7 +259,7 @@ class PendingActionManager:
             "user_nickname": config.persona.bot_name,
         }
         await self.event_storage_service.save_event_document(event_to_save)
-        self.logger.info(f"成功的平台动作 '{action_id}' 已作为事件存入 events 表。")
+        logger.info(f"成功的平台动作 '{action_id}' 已作为事件存入 events 表。")
 
     async def _get_sent_message_id_safe(self, event_data: dict[str, Any]) -> str:
         default_id = "unknow_message_id"
