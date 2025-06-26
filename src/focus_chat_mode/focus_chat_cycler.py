@@ -60,8 +60,8 @@ class FocusChatCycler:
             try:
                 await self._loop_task
             except asyncio.CancelledError:
-                logger.info(f"[FocusChatCycler][{self.session.conversation_id}] 循环任务已取消。")
-        await self.session.summarization_manager.save_final_summary()
+                logger.info(f"[FocusChatCycler][{self.conversation_id}] 循环任务已取消。")
+        await self.summarization_manager.create_and_save_final_summary()
         self._loop_active = False
         logger.info(f"[FocusChatCycler][{self.session.conversation_id}] 已关闭。")
 
@@ -129,12 +129,16 @@ class FocusChatCycler:
                     async with self.session.processing_lock:
                         llm_response = llm_task.result()
                         # 这个处理过程，不会再影响当前循环的中断判断了
-                        await self._process_llm_response(llm_response, uid_map, processed_ids)
+                        action_was_taken = await self._process_llm_response(llm_response, uid_map, processed_ids)
 
                         # 注意：这里我们不再更新 self.context_for_iis 了！
                         # 因为它的生命周期仅限于本轮循环的开始，下一轮循环会重新生成。
                         # 我们只更新 last_llm_decision，给下一轮的 prompt_builder 使用。
                         last_decision = self.session.last_llm_decision
+
+                        if action_was_taken:
+                            continue
+
                         if last_decision:
                             logger.debug(f"[{self.session.conversation_id}] LLM响应处理完毕，决策已更新。")
 
@@ -176,6 +180,7 @@ class FocusChatCycler:
     async def _process_llm_response(self, llm_api_response: dict, uid_map: dict, processed_event_ids: list) -> None:
         """这个方法负责完整地处理LLM的响应，它是我身体的一部分，而不是别人的！"""
         self.session.last_active_time = time.time()
+        # 1. 标记事件为 "read"
         if processed_event_ids:
             await self.session.event_storage.update_events_status(processed_event_ids, "read")
             logger.info(f"[{self.session.conversation_id}] 已将 {len(processed_event_ids)} 个事件状态更新为 'read'。")
@@ -189,7 +194,7 @@ class FocusChatCycler:
                 "reply_willing": False,
                 "motivation": "系统错误导致无法思考",
             }
-            return
+            return False
 
         parsed_data = self.llm_response_handler.parse(response_text)
         if not parsed_data:
@@ -199,7 +204,7 @@ class FocusChatCycler:
                 "reply_willing": False,
                 "motivation": "系统错误导致无法解析LLM的胡言乱语",
             }
-            return
+            return False
 
         if "mood" not in parsed_data:
             parsed_data["mood"] = "平静"
@@ -207,12 +212,12 @@ class FocusChatCycler:
 
         if await self.llm_response_handler.handle_end_focus_chat_if_needed(parsed_data):
             self._shutting_down = True
-            return
+            return True
 
+        # 2. 执行动作
         action_recorded = await self.action_executor.execute_action(parsed_data, uid_map)
 
         if action_recorded:
-            await self.summarization_manager.queue_events_for_summary(processed_event_ids)
             await self.summarization_manager.consolidate_summary_if_needed()
 
         if self.session.is_first_turn_for_session:
@@ -220,6 +225,10 @@ class FocusChatCycler:
 
         self.session.last_processed_timestamp = time.time() * 1000
         logger.debug(f"[{self.session.conversation_id}] 已将处理时间戳更新至 {self.session.last_processed_timestamp}。")
+
+        return action_recorded
+
+        return action_recorded
 
     async def _idle_wait(self, interval: float) -> None:
         logger.debug(f"[{self.session.conversation_id}] 进入贤者时间，等待下一次唤醒或 {interval} 秒后超时。")

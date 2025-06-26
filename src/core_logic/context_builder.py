@@ -21,8 +21,7 @@ class ContextBuilder:
         self.event_storage = event_storage
         self.core_comm = core_comm
         self.state_manager = state_manager
-        self.logger = logger
-        self.logger.info("ContextBuilder 已初始化。")
+        logger.info("ContextBuilder 已初始化。")
 
     async def gather_context_for_core_thought(self) -> tuple[str, str, list[str]]:
         """
@@ -50,13 +49,13 @@ class ContextBuilder:
                 )
                 or []
             )
-            self.logger.debug(f"获取到 {len(system_lifecycle_events_raw)} 条用于状态摘要的系统事件。")
+            logger.debug(f"获取到 {len(system_lifecycle_events_raw)} 条用于状态摘要的系统事件。")
             if system_lifecycle_events_raw:
-                self.logger.debug(
+                logger.debug(
                     f"【调试】获取到的 system_lifecycle_events_raw 内容 (前3条): {json.dumps(system_lifecycle_events_raw[:3], ensure_ascii=False, indent=2)}"
                 )
             else:
-                self.logger.debug("【调试】system_lifecycle_events_raw 为空或None。")
+                logger.debug("【调试】system_lifecycle_events_raw 为空或None。")
 
             all_other_events_excluding_master: list[dict[str, Any]] = (
                 await self.event_storage.get_recent_chat_message_documents(
@@ -73,7 +72,7 @@ class ContextBuilder:
                     conv_info = event_dict.get("conversation_info")
                     if not (isinstance(conv_info, dict) and conv_info.get("conversation_id") == "system_events"):
                         other_chat_events_for_yaml_raw.append(event_dict)
-            self.logger.debug(
+            logger.debug(
                 f"获取到 {len(other_chat_events_for_yaml_raw)} 条用于YAML的其他聊天事件 (已手动排除system_events)。"
             )
 
@@ -83,7 +82,7 @@ class ContextBuilder:
             ):
                 current_connections_info = self.core_comm.adapter_clients_info
             else:
-                self.logger.warning(
+                logger.warning(
                     "CoreWebsocketServer 实例没有 adapter_clients_info 属性或其类型不正确，无法获取实时连接状态。"
                 )
 
@@ -129,7 +128,7 @@ class ContextBuilder:
                 formatted_recent_contextual_info = "\n\n".join(final_context_parts)
 
         except Exception as e:
-            self.logger.error(f"收集上下文信息时出错: {e}", exc_info=True)
+            logger.error(f"收集上下文信息时出错: {e}", exc_info=True)
             # 即使出错，也返回默认值，避免主循环中断
             formatted_recent_contextual_info = initial_empty_context_info
 

@@ -20,8 +20,9 @@ from .chat_session import ChatSession
 if TYPE_CHECKING:
     # ❤ 引入我们性感的新大脑，为了类型提示~
     from src.common.intelligent_interrupt_system.intelligent_interrupter import IntelligentInterrupter
-    from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
-    from src.observation.summarization_service import SummarizationService
+    from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow  # 用于类型提示
+    from src.database.services.summary_storage_service import SummaryStorageService
+    from src.common.summarization_observation.summarization_service import SummarizationService  # 用于类型提示
 
 logger = get_logger(__name__)
 
@@ -52,7 +53,6 @@ class ChatSessionManager:
         self.event_storage = event_storage
         self.action_handler = action_handler
         self.bot_id = bot_id
-        self.logger = logger
 
         self.conversation_service = conversation_service
         self.summarization_service = summarization_service
@@ -67,19 +67,19 @@ class ChatSessionManager:
         self.sessions: dict[str, ChatSession] = {}
         self.lock = asyncio.Lock()
 
-        self.logger.info("ChatSessionManager (小色猫重构版) 初始化完成，并已注入智能打断系统。")
+        logger.info("ChatSessionManager (小色猫重构版) 初始化完成，并已注入智能打断系统。")
 
     def set_core_logic(self, core_logic_instance: "CoreLogicFlow") -> None:
         """延迟注入 CoreLogic 实例，解决循环依赖。"""
         self.core_logic = core_logic_instance
-        self.logger.info("CoreLogic 实例已成功注入到 ChatSessionManager。")
+        logger.info("CoreLogic 实例已成功注入到 ChatSessionManager。")
 
         # 哼，顺便把那个唤醒主意识的事件也拿过来
         if hasattr(core_logic_instance, "focus_session_inactive_event"):
             self.focus_session_inactive_event = core_logic_instance.focus_session_inactive_event
-            self.logger.info("已从 CoreLogic 获取 focus_session_inactive_event。")
+            logger.info("已从 CoreLogic 获取 focus_session_inactive_event。")
         else:
-            self.logger.error("CoreLogic 实例中没有找到 focus_session_inactive_event！这会导致主意识无法被正确唤醒！")
+            logger.error("CoreLogic 实例中没有找到 focus_session_inactive_event！这会导致主意识无法被正确唤醒！")
             self.focus_session_inactive_event = None
 
     def _get_conversation_id(self, event: Event) -> str:
@@ -131,18 +131,18 @@ class ChatSessionManager:
             if conversation_id in self.sessions:
                 session = self.sessions.pop(conversation_id)  # 使用 pop 原子地移除并获取
                 session.deactivate()  # 调用会话自己的停用方法
-                self.logger.info(f"[SessionManager] 会话 '{conversation_id}' 已被停用并从管理器中移除。")
+                logger.info(f"[SessionManager] 会话 '{conversation_id}' 已被停用并从管理器中移除。")
 
                 # 检查是否所有会话都已停用
                 if not self.is_any_session_active():
-                    self.logger.info("[SessionManager] 所有专注会话均已结束。")
+                    logger.info("[SessionManager] 所有专注会话均已结束。")
                     if hasattr(self, "focus_session_inactive_event") and self.focus_session_inactive_event:
-                        self.logger.info("[SessionManager] 正在设置 focus_session_inactive_event 以唤醒主意识。")
+                        logger.info("[SessionManager] 正在设置 focus_session_inactive_event 以唤醒主意识。")
                         self.focus_session_inactive_event.set()
                     else:
-                        self.logger.error("[SessionManager] 无法唤醒主意识：focus_session_inactive_event 未设置！")
+                        logger.error("[SessionManager] 无法唤醒主意识：focus_session_inactive_event 未设置！")
             else:
-                self.logger.warning(f"[SessionManager] 尝试停用一个不存在或已被移除的会话 '{conversation_id}'。")
+                logger.warning(f"[SessionManager] 尝试停用一个不存在或已被移除的会话 '{conversation_id}'。")
 
     async def _is_bot_mentioned(self, event: Event) -> bool:
         """
@@ -154,7 +154,7 @@ class ChatSessionManager:
             return False
 
         if not event.content:
-            self.logger.debug(f"[_is_bot_mentioned] Event content is empty for event {event.event_id}")
+            logger.debug(f"[_is_bot_mentioned] Event content is empty for event {event.event_id}")
             return False
 
         current_bot_id = str(self.bot_id)
@@ -164,12 +164,12 @@ class ChatSessionManager:
             if seg.type == "at":
                 at_user_id_raw = seg.data.get("user_id")
                 if at_user_id_raw is not None and str(at_user_id_raw) == current_bot_id:
-                    self.logger.info(
+                    logger.info(
                         f"[_is_bot_mentioned] Bot (ID: {current_bot_id}) was mentioned in event {event.event_id}."
                     )
                     return True
 
-        self.logger.debug(
+        logger.debug(
             f"[_is_bot_mentioned] Bot (ID: {current_bot_id}) was NOT mentioned in event {event.event_id}."
         )
         return False
@@ -192,14 +192,14 @@ class ChatSessionManager:
             if hasattr(session.cycler, "wakeup"):
                 session.cycler.wakeup()
             else:
-                self.logger.warning(f"会话 '{conv_id}' 的 cycler 没有 wakeup 方法，无法唤醒。")
+                logger.warning(f"会话 '{conv_id}' 的 cycler 没有 wakeup 方法，无法唤醒。")
 
         # 激活逻辑：如果被@或收到私聊消息，则激活会话
         # 这里是为了方便测试硬编码的逻辑，未来会进一步优化激活逻辑
         # TODO
         is_mentioned = await self._is_bot_mentioned(event)
         if (is_mentioned or event.event_type.startswith("message.private")) and not session.is_active:
-            self.logger.info(f"会话 '{conv_id}' 满足激活条件 (被@或私聊)，准备激活。")
+            logger.info(f"会话 '{conv_id}' 满足激活条件 (被@或私聊)，准备激活。")
             # 从 CoreLogic 获取最新的思考和心情
             last_think = self.core_logic.get_latest_thought() if self.core_logic else None
             last_mood = self.core_logic.get_latest_mood() if self.core_logic else "平静"
@@ -243,7 +243,7 @@ class ChatSessionManager:
         如果会话不存在，则会使用提供的platform和type创建它。
         哼，这是大老板直接下达的命令，得赶紧办！
         """
-        self.logger.info(
+        logger.info(
             f"[SessionManager] 收到激活会话 '{conversation_id}' 的请求。"
             f" Platform: {platform}, Type: {conversation_type}, 主意识想法: '{core_last_think[:50]}...', "
             f"主意识心情: {core_last_mood}"
@@ -259,12 +259,12 @@ class ChatSessionManager:
 
             if session:
                 session.activate(core_last_think=core_last_think, core_last_mood=core_last_mood)
-                self.logger.info(f"[SessionManager] 会话 '{conversation_id}' 已成功激活，并传递了主意识的想法和心情。")
+                logger.info(f"[SessionManager] 会话 '{conversation_id}' 已成功激活，并传递了主意识的想法和心情。")
             else:
                 # get_or_create_session 内部如果因为 core_logic 未注入等原因创建失败会抛异常，理论上不会到这里
-                self.logger.error(f"[SessionManager] 激活会话 '{conversation_id}' 失败：未能获取或创建会话实例。")
+                logger.error(f"[SessionManager] 激活会话 '{conversation_id}' 失败：未能获取或创建会话实例。")
         except Exception as e:
-            self.logger.error(f"[SessionManager] 激活会话 '{conversation_id}' 时发生错误: {e}", exc_info=True)
+            logger.error(f"[SessionManager] 激活会话 '{conversation_id}' 时发生错误: {e}", exc_info=True)
 
     def is_any_session_active(self) -> bool:
         """
@@ -280,14 +280,14 @@ class ChatSessionManager:
         关闭所有活动的聊天会话。
         这会触发每个会话保存其最终总结。
         """
-        self.logger.info("[SessionManager] 正在开始关闭所有活动会话...")
+        logger.info("[SessionManager] 正在开始关闭所有活动会话...")
         active_sessions: list[ChatSession]
         async with self.lock:
             # 创建一个当前活动会话的副本进行操作，避免在迭代时修改字典
             active_sessions = list(self.sessions.values())
 
         if not active_sessions:
-            self.logger.info("[SessionManager] 没有活动的会话需要关闭。")
+            logger.info("[SessionManager] 没有活动的会话需要关闭。")
             return
 
         shutdown_tasks = [session.shutdown() for session in active_sessions]
@@ -295,11 +295,11 @@ class ChatSessionManager:
 
         for session, result in zip(active_sessions, results, strict=False):
             if isinstance(result, Exception):
-                self.logger.error(
+                logger.error(
                     f"[SessionManager] 关闭会话 '{session.conversation_id}' 时发生错误: {result}",
                     exc_info=result,
                 )
             else:
-                self.logger.info(f"[SessionManager] 会话 '{session.conversation_id}' 已成功关闭。")
+                logger.info(f"[SessionManager] 会话 '{session.conversation_id}' 已成功关闭。")
 
-        self.logger.info("[SessionManager] 所有活动会话的关闭流程已完成。")
+        logger.info("[SessionManager] 所有活动会话的关闭流程已完成。")

@@ -35,15 +35,13 @@ from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.llmrequest.utils_model import GenerationParams
 from src.message_processing.default_message_processor import DefaultMessageProcessor
-from src.observation.summarization_service import SummarizationService
+from src.common.summarization_observation.summarization_service import SummarizationService
 
 logger = get_logger("AIcarusCore.MainInitializer")
 
 
 class CoreSystemInitializer:
     def __init__(self) -> None:
-        self.logger = get_logger("AIcarusCore.MainInitializer")
-
         self.conn_manager: ArangoDBConnectionManager | None = None
         self.event_storage_service: EventStorageService | None = None
         self.conversation_storage_service: ConversationStorageService | None = None
@@ -395,7 +393,7 @@ class CoreSystemInitializer:
 
     async def start(self) -> None:
         if not self.core_logic_instance or not self.core_comm_layer:
-            self.logger.critical("核心组件未完全初始化，系统无法启动。")
+            logger.critical("核心组件未完全初始化，系统无法启动。")
             return
 
         all_tasks: list[asyncio.Task] = []
@@ -417,7 +415,7 @@ class CoreSystemInitializer:
                 )
 
             if not all_tasks:
-                self.logger.warning("没有核心异步任务启动。")
+                logger.warning("没有核心异步任务启动。")
                 return
 
             logger.info(f"已启动 {len(all_tasks)} 个核心异步任务。")
@@ -425,14 +423,14 @@ class CoreSystemInitializer:
             for task in done:
                 task_name = task.get_name()
                 if task.cancelled():
-                    self.logger.info(f"任务 '{task_name}' 被取消。")
+                    logger.info(f"任务 '{task_name}' 被取消。")
                 elif task.exception():
                     exc = task.exception()
-                    self.logger.critical(f"关键任务 '{task_name}' 异常终止: {exc!r}", exc_info=exc)
+                    logger.critical(f"关键任务 '{task_name}' 异常终止: {exc!r}", exc_info=exc)
                     if exc:
                         raise exc  # Re-raise to trigger shutdown
                 else:
-                    self.logger.info(f"任务 '{task_name}' 正常结束。")
+                    logger.info(f"任务 '{task_name}' 正常结束。")
 
             for task in pending:
                 if not task.done():
@@ -440,17 +438,17 @@ class CoreSystemInitializer:
                 try:
                     await task
                 except asyncio.CancelledError:
-                    self.logger.info(f"挂起任务 '{task.get_name()}' 已取消。")
+                    logger.info(f"挂起任务 '{task.get_name()}' 已取消。")
                 except Exception as e:
-                    self.logger.error(f"取消挂起任务 '{task.get_name()}' 时出错: {e}", exc_info=True)
+                    logger.error(f"取消挂起任务 '{task.get_name()}' 时出错: {e}", exc_info=True)
 
         except asyncio.CancelledError:
-            self.logger.info("AIcarus Core 主启动流程被取消。")
+            logger.info("AIcarus Core 主启动流程被取消。")
         except Exception as e:
-            self.logger.critical(f"AIcarus Core 系统运行期间发生严重错误: {e}", exc_info=True)
+            logger.critical(f"AIcarus Core 系统运行期间发生严重错误: {e}", exc_info=True)
             raise
         finally:
-            self.logger.info("--- AIcarus Core 系统正在进入关闭流程 (从start finally触发)... ---")
+            logger.info("--- AIcarus Core 系统正在进入关闭流程 (从start finally触发)... ---")
             await self.shutdown()
 
     async def shutdown(self) -> None:

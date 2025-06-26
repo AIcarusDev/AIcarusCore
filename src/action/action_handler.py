@@ -22,7 +22,7 @@ from src.llmrequest.llm_processor import Client as ProcessorClient
 
 if TYPE_CHECKING:
     pass
-
+logger = get_logger(__name__)
 ACTION_RESPONSE_TIMEOUT_SECONDS = 30
 
 
@@ -36,7 +36,6 @@ class ActionHandler:
     """
 
     def __init__(self) -> None:
-        self.logger = get_logger(f"AIcarusCore.{self.__class__.__name__}")
         self.action_llm_client: ProcessorClient | None = None
         self.summary_llm_client: ProcessorClient | None = None
         self.action_sender: ActionSender | None = None
@@ -47,7 +46,7 @@ class ActionHandler:
         self.thought_trigger: asyncio.Event | None = None
         self.pending_action_manager: PendingActionManager | None = None
         self.action_registry = ActionRegistry()
-        self.logger.info(f"{self.__class__.__name__} instance created.")
+        logger.info(f"{self.__class__.__name__} instance created.")
 
     def set_dependencies(
         self,
@@ -69,7 +68,7 @@ class ActionHandler:
             event_storage_service=event_service,
             conversation_service=conversation_service,
         )
-        self.logger.info("ActionHandler 的依赖已成功设置，PendingActionManager 已创建。")
+        logger.info("ActionHandler 的依赖已成功设置，PendingActionManager 已创建。")
 
     def register_provider(self, provider: ActionProvider) -> None:
         """将动作提供者注册到 ActionRegistry。"""
@@ -77,30 +76,30 @@ class ActionHandler:
 
     def set_thought_trigger(self, trigger_event: asyncio.Event | None) -> None:
         if trigger_event is not None and not isinstance(trigger_event, asyncio.Event):
-            self.logger.error(f"set_thought_trigger 收到一个无效的事件类型: {type(trigger_event)}。")
+            logger.error(f"set_thought_trigger 收到一个无效的事件类型: {type(trigger_event)}。")
             self.thought_trigger = None
             return
         self.thought_trigger = trigger_event
         if trigger_event:
-            self.logger.info("ActionHandler 的主思维触发器已成功设置。")
+            logger.info("ActionHandler 的主思维触发器已成功设置。")
 
     async def initialize_llm_clients(self) -> None:
         if self.action_llm_client and self.summary_llm_client:
-            self.logger.debug("ActionHandler 的 LLM 客户端均已存在，无需重新初始化。")
+            logger.debug("ActionHandler 的 LLM 客户端均已存在，无需重新初始化。")
             return
 
-        self.logger.info("正在为行动处理模块按需初始化LLM客户端...")
+        logger.info("正在为行动处理模块按需初始化LLM客户端...")
         factory = LLMClientFactory()
         try:
             if not self.action_llm_client:
                 self.action_llm_client = factory.create_client(purpose_key="action_decision")
-                self.logger.info("ActionHandler: action_llm_client 已初始化。")
+                logger.info("ActionHandler: action_llm_client 已初始化。")
             if not self.summary_llm_client:
                 self.summary_llm_client = factory.create_client(purpose_key="information_summary")
-                self.logger.info("ActionHandler: summary_llm_client 已初始化。")
-            self.logger.info("行动处理模块的LLM客户端按需初始化检查完成。")
+                logger.info("ActionHandler: summary_llm_client 已初始化。")
+            logger.info("行动处理模块的LLM客户端按需初始化检查完成。")
         except RuntimeError as e:
-            self.logger.critical(f"为 ActionHandler 初始化LLM客户端失败: {e}")
+            logger.critical(f"为 ActionHandler 初始化LLM客户端失败: {e}")
             raise
 
     async def handle_action_response(self, response_event_data: dict[str, Any]) -> None:
@@ -108,14 +107,14 @@ class ActionHandler:
         if self.pending_action_manager:
             await self.pending_action_manager.handle_response(response_event_data)
         else:
-            self.logger.error("PendingActionManager 未初始化，无法处理动作响应。")
+            logger.error("PendingActionManager 未初始化，无法处理动作响应。")
 
     async def system_get_bot_profile(self, adapter_id: str) -> None:
         """
         由系统（如WebSocket服务器）调用的，用于触发机器人档案获取的特定方法。
         它不返回结果，只负责发送动作并让 PendingActionManager 等待。
         """
-        self.logger.info(f"系统触发为适配器 '{adapter_id}' 获取机器人档案。")
+        logger.info(f"系统触发为适配器 '{adapter_id}' 获取机器人档案。")
         action_event = {
             "event_id": f"core_get_profile_{adapter_id}_{uuid.uuid4().hex[:6]}",
             "event_type": "action.bot.get_profile",
@@ -134,7 +133,7 @@ class ActionHandler:
                 original_action_description="系统：上线安检",
             )
         )
-        self.logger.info(f"已为适配器 '{adapter_id}' 创建并派发“上线安检”任务。")
+        logger.info(f"已为适配器 '{adapter_id}' 创建并派发“上线安检”任务。")
 
     async def _execute_platform_action(
         self,
@@ -143,17 +142,17 @@ class ActionHandler:
         original_action_description: str,
     ) -> tuple[bool, Any]:
         if not self.action_sender or not self.action_log_service or not self.pending_action_manager:
-            self.logger.error("核心服务 (ActionSender, ActionLogService, or PendingActionManager) 未设置!")
+            logger.error("核心服务 (ActionSender, ActionLogService, or PendingActionManager) 未设置!")
             return False, {"error": "内部错误：核心服务不可用。"}
 
         is_direct_reply_action = original_action_description in [
             "回复主人",
-            "发送子意识聊天回复",
+            "发送专注模式回复",
             "internal_tool_call",
             "系统：上线安检",
         ]
         if not is_direct_reply_action and not thought_doc_key:
-            self.logger.error(f"严重错误：动作 '{original_action_description}' 缺少 thought_doc_key。")
+            logger.error(f"严重错误：动作 '{original_action_description}' 缺少 thought_doc_key。")
             return False, {"error": "内部错误：执行动作缺少必要的思考文档关联。"}
 
         core_action_id = action_to_send.setdefault("event_id", str(uuid.uuid4()))
@@ -184,11 +183,11 @@ class ActionHandler:
             send_success = await self.action_sender.send_action_to_adapter_by_id(target_adapter_id, action_to_send)
             if not send_success:
                 err_msg = f"发送到适配器 '{target_adapter_id}' 失败。"
-                self.logger.error(err_msg)
+                logger.error(err_msg)
                 return False, {"error": err_msg}
         except Exception as e:
             err_msg = f"发送平台动作时发生意外异常: {e}"
-            self.logger.error(err_msg, exc_info=True)
+            logger.error(err_msg, exc_info=True)
             return False, {"error": err_msg}
 
         return await self.pending_action_manager.add_and_wait_for_action(
@@ -207,14 +206,14 @@ class ActionHandler:
         current_thought_context: str,
         relevant_adapter_messages_context: str = "无相关外部消息或请求。",
     ) -> tuple[bool, str, Any]:
-        self.logger.info(f"--- [Action ID: {action_id}, DocKey: {doc_key_for_updates}] 开始处理行动流程 ---")
+        logger.info(f"--- [Action ID: {action_id}, DocKey: {doc_key_for_updates}] 开始处理行动流程 ---")
 
         # 强制检查并初始化LLM客户端
         await self.initialize_llm_clients()
 
         if not self.thought_storage_service or not self.action_llm_client or not self.summary_llm_client:
             error_msg = "核心服务 (ThoughtStorageService, ActionLLMClient, 或 SummaryLLMClient) 未初始化。"
-            self.logger.error(error_msg)
+            logger.error(error_msg)
             return False, error_msg, None
 
         decision_maker = ActionDecisionMaker(self.action_llm_client)
@@ -291,7 +290,7 @@ class ActionHandler:
             )
             return False, final_result, None
 
-        self.logger.info(f"从注册表找到动作 '{tool_name_chosen}'，准备执行。")
+        logger.info(f"从注册表找到动作 '{tool_name_chosen}'，准备执行。")
         try:
             if tool_name_chosen.startswith("platform."):
                 tool_arguments["thought_doc_key"] = doc_key_for_updates
@@ -305,15 +304,15 @@ class ActionHandler:
                 tool_result_data = await action_func(**tool_arguments)
 
                 # 诊断日志
-                self.logger.info(
+                logger.info(
                     f"【诊断】准备进行摘要判断。summary_llm_client 是否存在: {bool(self.summary_llm_client)}"
                 )
                 if self.summary_llm_client:
-                    self.logger.info(f"【诊断】summary_llm_client 实例类型: {type(self.summary_llm_client)}")
+                    logger.info(f"【诊断】summary_llm_client 实例类型: {type(self.summary_llm_client)}")
 
                 # 如果是网络搜索，并且能摘要，那就摘要它
                 if tool_name_chosen == "search_web" and tool_result_data and self.summary_llm_client:
-                    self.logger.info(f"工具 '{tool_name_chosen}' 返回了数据，将尝试进行摘要。")
+                    logger.info(f"工具 '{tool_name_chosen}' 返回了数据，将尝试进行摘要。")
                     summarizer = ToolResultSummarizer(self.summary_llm_client)
                     final_result = await summarizer.summarize(
                         original_query=tool_arguments.get("query", action_description),
@@ -322,7 +321,7 @@ class ActionHandler:
                     )
                 # 如果是别的工具，或者摘要失败了，但它返回了数据
                 elif tool_result_data:
-                    self.logger.info(f"工具 '{tool_name_chosen}' 返回了原始数据，将直接格式化后使用。")
+                    logger.info(f"工具 '{tool_name_chosen}' 返回了原始数据，将直接格式化后使用。")
                     try:
                         result_str = json.dumps(tool_result_data, ensure_ascii=False, indent=2)
                         final_result = (
@@ -342,7 +341,7 @@ class ActionHandler:
                 return True, final_result, tool_result_data
         except Exception as e_exec:
             final_result = f"执行动作 '{tool_name_chosen}' 时出错: {e_exec}"
-            self.logger.error(final_result, exc_info=True)
+            logger.error(final_result, exc_info=True)
             await self.thought_storage_service.update_action_status_in_thought_document(
                 doc_key_for_updates,
                 action_id,
@@ -359,7 +358,7 @@ class ActionHandler:
         """
         # 确保核心服务已设置
         if not self.pending_action_manager:
-            self.logger.error("PendingActionManager 未初始化，无法发送和等待动作。")
+            logger.error("PendingActionManager 未初始化，无法发送和等待动作。")
             return False, {"error": "PendingActionManager is not initialized."}
 
         # 确保动作有平台ID
@@ -383,7 +382,7 @@ class ActionHandler:
     ) -> tuple[bool, str]:
         if not self.action_sender or not self.action_log_service:
             critical_error_msg = "核心服务 (ActionSender 或动作日志服务) 未设置!"
-            self.logger.critical(critical_error_msg)
+            logger.critical(critical_error_msg)
             return False, critical_error_msg
 
         if "event_id" not in action_event_dict:

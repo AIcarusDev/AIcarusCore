@@ -30,8 +30,7 @@ class ActionLogStorageService:
         """
         self.conn_manager = conn_manager
         self.collection_name = CoreDBCollections.ACTION_LOGS
-        self.logger = logger
-        self.logger.info(f"ActionLogStorageService 初始化完毕，将操作集合 '{self.collection_name}'。")
+        logger.info(f"ActionLogStorageService 初始化完毕，将操作集合 '{self.collection_name}'。")
 
     async def _get_collection(self) -> StandardCollection:
         """获取 ActionLog 集合的实例。"""
@@ -74,13 +73,13 @@ class ActionLogStorageService:
         try:
             # 这个姿势依然是最高效的，直接插入，让数据库告诉我们是不是已经有了。
             await collection.insert(action_log_doc, overwrite=False)
-            self.logger.info(f"动作尝试 '{action_id}' ({action_type}) 已记录到 ActionLog，状态：executing。")
+            logger.info(f"动作尝试 '{action_id}' ({action_type}) 已记录到 ActionLog，状态：executing。")
             return True
         except DocumentInsertError:
-            self.logger.info(f"动作尝试 '{action_id}' 的记录已存在，无需重复插入。")
+            logger.info(f"动作尝试 '{action_id}' 的记录已存在，无需重复插入。")
             return True
         except Exception as e:
-            self.logger.error(f"保存动作尝试 '{action_id}' 到 ActionLog 失败: {e}", exc_info=True)
+            logger.error(f"保存动作尝试 '{action_id}' 到 ActionLog 失败: {e}", exc_info=True)
             return False
 
     async def update_action_log_with_response(
@@ -113,7 +112,7 @@ class ActionLogStorageService:
         final_doc_to_update = {k: v for k, v in doc_fields_to_update.items() if v is not None}
 
         if not final_doc_to_update:
-            self.logger.info(f"没有为 action_id '{action_id}' 提供有效的更新字段，跳过更新。")
+            logger.info(f"没有为 action_id '{action_id}' 提供有效的更新字段，跳过更新。")
             return True
 
         # 构建传递给 collection.update 的文档参数，这次要温柔一点，不乱传参数了。
@@ -124,19 +123,19 @@ class ActionLogStorageService:
             result = await collection.update(document_for_update_api)
 
             if result and result.get("_id"):
-                self.logger.info(f"ActionLog 中动作 '{action_id}' 的状态已更新为 '{status}'。")
+                logger.info(f"ActionLog 中动作 '{action_id}' 的状态已更新为 '{status}'。")
                 return True
             else:
-                self.logger.warning(
+                logger.warning(
                     f"尝试更新 ActionLog 中动作 '{action_id}' 未生效，可能记录不存在。Update result: {result}"
                 )
                 return False
         except DocumentUpdateError as e:
             # 专门捕捉更新失败的异常，这样就知道是插错洞了。
-            self.logger.error(f"严重错误：尝试更新一个不存在的 ActionLog 记录 '{action_id}'。 ArangoError: {e}")
+            logger.error(f"严重错误：尝试更新一个不存在的 ActionLog 记录 '{action_id}'。 ArangoError: {e}")
             return False
         except Exception as e:
-            self.logger.error(f"更新 ActionLog 中动作 '{action_id}' 时发生未知错误: {e}", exc_info=True)
+            logger.error(f"更新 ActionLog 中动作 '{action_id}' 时发生未知错误: {e}", exc_info=True)
             return False
 
     async def get_action_log(self, action_id: str) -> dict[str, Any] | None:
@@ -148,5 +147,5 @@ class ActionLogStorageService:
             doc = await collection.get(action_id)
             return doc
         except Exception as e:
-            self.logger.error(f"获取 ActionLog 记录 '{action_id}' 失败: {e}", exc_info=True)
+            logger.error(f"获取 ActionLog 记录 '{action_id}' 失败: {e}", exc_info=True)
             return None

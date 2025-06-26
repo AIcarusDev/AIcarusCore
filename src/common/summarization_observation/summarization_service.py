@@ -20,7 +20,6 @@ class SummarizationService:
         :param llm_client: LLMProcessorClient 的实例。
         """
         self.llm_client = llm_client
-        self.logger = logger
         logger.info("SummarizationService (重构版) 已初始化。")
 
     def _format_events_for_summary_prompt(
@@ -202,12 +201,12 @@ class SummarizationService:
         :param user_map: 当前会话的用户映射表。
         :return: 新的、更新后的第一人称总结文本。
         """
-        self.logger.debug(
+        logger.debug(
             f"开始整合摘要。之前摘要是否存在: {'是' if previous_summary else '否'}, 新事件数: {len(recent_events)}"
         )
 
         if not recent_events:
-            self.logger.info("没有新的事件，直接返回之前的摘要。")
+            logger.info("没有新的事件，直接返回之前的摘要。")
             return previous_summary or "我刚才好像走神了，什么也没记住。"
 
         system_prompt, user_prompt = await self._build_summary_prompt(
@@ -215,7 +214,7 @@ class SummarizationService:
         )
 
         try:
-            self.logger.debug(
+            logger.debug(
                 f"调用LLM进行摘要整合。System Prompt (部分): {system_prompt[:100]}... User Prompt (部分): {user_prompt[:200]}..."
             )
             response_data = await self.llm_client.make_llm_request(
@@ -225,10 +224,10 @@ class SummarizationService:
             if response_data and not response_data.get("error"):
                 new_summary_text = response_data.get("text", "").strip()
                 if new_summary_text:
-                    self.logger.info(f"成功生成整合后的摘要 (部分): {new_summary_text[:100]}...")
+                    logger.info(f"成功生成整合后的摘要 (部分): {new_summary_text[:100]}...")
                     return new_summary_text
                 else:
-                    self.logger.warning("LLM为摘要整合返回了空内容。将保留之前的摘要（如果存在）。")
+                    logger.warning("LLM为摘要整合返回了空内容。将保留之前的摘要（如果存在）。")
                     return previous_summary or "我努力回忆了一下，但脑子一片空白，什么也没想起来。"
             else:
                 error_msg = response_data.get("message", "未知错误") if response_data else "LLM无响应"
@@ -240,5 +239,5 @@ class SummarizationService:
                     return f"我试图开始我的回忆，但是失败了（错误: {error_msg}）。"
 
         except Exception as e:
-            self.logger.error(f"生成整合摘要时发生意外错误: {e}", exc_info=True)
+            logger.error(f"生成整合摘要时发生意外错误: {e}", exc_info=True)
             return previous_summary or f"我在更新回忆时遇到了一个意想不到的问题（错误: {str(e)}）。"
