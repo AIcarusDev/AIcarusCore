@@ -101,15 +101,7 @@ class ActionExecutor:
                 else None,
             }
 
-            # 在把动作射出去之前，先把它变成一个DBEventDocument，然后标记为'read'
-            db_event_doc = DBEventDocument.from_protocol(ProtocolEvent.from_dict(action_event_dict))
-            db_event_doc.status = "read"  # 因为是我自己说的，当然是已读啦
-
-            # 把这条我自己说的、已读的消息，立刻存进数据库！
-            await self.event_storage.save_event_document(db_event_doc.to_dict())
-            logger.info(f"机器人自身的消息 '{db_event_doc.event_id}' 已作为 'read' 状态存入数据库。")
-
-            # 然后再把原始的动作字典发出去
+            # 把原始的动作字典发出去
             success, msg = await self.action_handler.submit_constructed_action(action_event_dict, "发送专注模式回复")
 
             if success and "执行失败" not in msg:

@@ -58,7 +58,7 @@ class LLMResponseHandler:
                 # 在停用会话前，保存最终的总结
                 # 注意：这里需要调用 session 里的 summarization_manager
                 if self.session.summarization_manager:
-                    await self.session.summarization_manager.save_final_summary()
+                    await self.session.summarization_manager.create_and_save_final_summary()
                 await self.chat_session_manager.deactivate_session(self.session.conversation_id)
 
             return True

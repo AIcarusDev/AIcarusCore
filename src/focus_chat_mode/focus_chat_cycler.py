@@ -228,8 +228,6 @@ class FocusChatCycler:
 
         return action_recorded
 
-        return action_recorded
-
     async def _idle_wait(self, interval: float) -> None:
         logger.debug(f"[{self.session.conversation_id}] 进入贤者时间，等待下一次唤醒或 {interval} 秒后超时。")
         try:

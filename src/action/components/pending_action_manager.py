@@ -248,6 +248,7 @@ class PendingActionManager:
         event_to_save = sent_dict.copy()
         event_to_save["event_id"] = action_id
         event_to_save["timestamp"] = int(time.time() * 1000)
+        event_to_save["status"] = "read"
 
         message_id = await self._get_sent_message_id_safe(resp_data)
         metadata = [{"type": "message_metadata", "data": {"message_id": message_id}}]
