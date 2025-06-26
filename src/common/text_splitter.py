@@ -3,6 +3,8 @@ import re
 
 import regex
 
+from src.config import config
+
 # --- 全局常量和预编译正则表达式 ---
 # \p{L} 匹配任何语言中的任何种类的字母字符。
 _L_REGEX = regex.compile(r"\p{L}")
@@ -625,10 +627,10 @@ def get_western_ratio(paragraph: str) -> float:
 
 def process_llm_response(
     text: str,
-    enable_kaomoji_protection: bool = True,
-    enable_splitter: bool = True,
-    max_length: int = 100,
-    max_sentence_num: int = 5,
+    enable_kaomoji_protection: bool = config.focus_chat_mode.enable_kaomoji_protection,
+    enable_splitter: bool = config.focus_chat_mode.enable_splitter,
+    max_length: int = config.focus_chat_mode.max_length,
+    max_sentence_num: int = config.focus_chat_mode.max_sentence_num,
 ) -> list[str]:
     """
     处理LLM的响应文本，包括可选的颜文字保护、文本清洗和句子分割。
