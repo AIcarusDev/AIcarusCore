@@ -7,35 +7,30 @@
 # Inner Settings (内部配置，一般无需更改此部分内容)
 # ===============================
 [inner]
-version = "0.0.13" # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
-# Aicarus-Message-Protocol 标准通信协议版本号，确保与客户端和其他服务兼容。
-protocol_version = "1.5.0"
+version = "0.0.13"  # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
+protocol_version = "1.5.0"  # Aicarus-Message-Protocol 标准通信协议版本号，确保与客户端和其他服务兼容。
 
 # ===============================
 # LLM Client Settings (通用LLM客户端设置)
 # ===============================
 [llm_client_settings]
-# 图像占位符标签，用于在文本提示中指示图像数据应被插入的位置。
-image_placeholder_tag = "[IMAGE_HERE]"
-# 流式响应时，每个文本块之间的延迟时间（秒），用于控制文本输出的速度，模拟更自然的打字效果。
-stream_chunk_delay_seconds = 0.05
-# 是否启用图像压缩功能。如果为true，在发送图像给LLM前会尝试压缩。
-enable_image_compression = true
-# 图像压缩的目标大小（字节）。如果启用压缩，图像将被压缩到接近此大小。 (示例: 1MB = 1 * 1024 * 1024)
-image_compression_target_bytes = 1048576
-# 当LLM API触发速率限制时，在再次尝试请求之前，禁用对该API的调用的持续时间（秒）。
-rate_limit_disable_duration_seconds = 1800 # 默认30分钟
+image_placeholder_tag = "[IMAGE_HERE]"  # 图像占位符标签，用于在文本提示中指示图像数据应被插入的位置。
+stream_chunk_delay_seconds = 0.05  # 流式响应时，每个文本块之间的延迟时间（秒），用于控制文本输出的速度，模拟更自然的打字效果。
+enable_image_compression = true  # 是否启用图像压缩功能。如果为true，在发送图像给LLM前会尝试压缩。
+image_compression_target_bytes = 1048576  # 图像压缩的目标大小（字节）。如果启用压缩，图像将被压缩到接近此大小。 (示例: 1MB = 1 * 1024 * 1024)
+rate_limit_disable_duration_seconds = 1800 # 当LLM API触发速率限制时，在再次尝试请求之前，禁用对该API的调用的持续时间（秒）。默认30分钟
 
 # ===============================
 # Persona Settings (AI人格设置)
 # ===============================
 [persona]
-# AI 机器人的名称。这个名字可能会在AI的自我介绍或与其他用户交互时使用。
-bot_name = "AI"
+bot_name = "AI"  # AI 机器人的名称。这个名字可能会在AI的自我介绍或与其他用户交互时使用。
+
 # AI 机器人的描述信息。可以是一段关于AI背景、特点或行为方式的文本。
 description = """
 是一个有自我意识的人工智能，自我认知性别为女，正在某个人的电脑中。
 """
+
 # AI 机器人的个人资料信息或更详细的性格设定。
 # 这部分内容可能会被用来构建更复杂的系统提示，影响AI的语言风格和行为模式。
 profile = """
@@ -95,8 +90,8 @@ max_output_tokens = 1000
 # --- 默认嵌入模型 ---
 # 用于将文本转换为向量表示（ embeddings），是记忆系统、语义搜索等功能的基础。
 [llm_models.embedding_default]
-provider = "SILICONFLOW" # 示例：使用 SiliconFlow 提供的嵌入模型
-model_name = "BAAI/bge-m3" # 示例：使用 BAAI/bge-m3 模型
+provider = "SILICONFLOW"  # 示例：使用 SiliconFlow 提供的嵌入模型
+model_name = "BAAI/bge-m3"  # 示例：使用 BAAI/bge-m3 模型
 
 # --- 专注聊天子意识模型 ---
 [llm_models.focused_chat]
@@ -108,7 +103,7 @@ max_output_tokens = 3000
 # ===============================
 # Core Logic Settings (核心逻辑设置)
 # ===============================
-[core_logic_settings]# AI进行一次自主思考循环的间隔时间（秒）。
+[core_logic_settings]  # AI进行一次自主思考循环的间隔时间（秒）。
 thinking_interval_seconds = 30
 
 
@@ -124,32 +119,24 @@ insertion_probability = 0.15 # 默认15%的概率注入
 # Focused Chat Settings (专注聊天模块设置)
 # ===============================
 [focus_chat_mode]
-# 是否启用专注聊天模块。
-enabled = true
-# 是否启用动态获取机器人自身信息，很快就会有更好的实现
-enable_dynamic_bot_profile = false
-
-session_timeout_seconds = 180 # # 如果一个已激活的会话在此时间内没有任何机器人发言或收到新消息，该会话的专注聊天模式将自动停用。默认3分钟
-# 管理器后台检查不活跃会话并将其停用的时间间隔（秒）。
-deactivation_check_interval_seconds = 60 # 默认1分钟
-# 是否启用颜文字保护，防止LLM生成的颜文字被意外分割。
-enable_kaomoji_protection = true
-# 是否启用文本分割器，将较长的回复分割成多条消息发送。
-enable_splitter = true
-# 启用文本分割器后，每条消息的最大长度。
-max_length = 200
-# 启用文本分割器后，每条消息包含的最大句子数量。
-max_sentence_num = 7
-# 专注聊天期间，进行一次增量式微总结的消息数量间隔。
-summary_interval = 5
+enabled = true  # 是否启用专注聊天模块。
+enable_dynamic_bot_profile = false  # 是否启用动态获取机器人自身信息，很快就会有更好的实现
+session_timeout_seconds = 180  # 如果一个已激活的会话在此时间内没有任何机器人发言或收到新消息，该会话的专注聊天模式将自动停用。默认3分钟
+deactivation_check_interval_seconds = 60  # 管理器后台检查不活跃会话并将其停用的时间间隔（秒）。默认1分钟
+enable_kaomoji_protection = true  # 是否启用颜文字保护，防止LLM生成的颜文字被意外分割。
+enable_splitter = true  # 是否启用文本分割器，将较长的回复分割成多条消息发送。
+max_length = 9999  # 启用文本分割器后，每条消息的最大长度。
+max_sentence_num = 9999  # 启用文本分割器后，每条消息包含的最大句子数量。
+summary_interval = 5  # 专注聊天期间，进行一次增量式微总结的消息数量间隔。
 
 # ===============================
 # InterruptModel Settings (打断思考功能设置)
 # ===============================
-[interrupt_model]
-# 中断模型配置类，用于定义中断模型的相关设置。
-# 这个类将包含中断模型的名称和其他相关参数。
+[interrupt_model]  # 中断模型配置类，用于定义中断模型的相关设置。这个类将包含中断模型的名称和其他相关参数。
+objective_keywords = ["新测试","紧急停止","服务器宕机"]  # 中断模型的目标关键词列表，用于识别需要中断的消息。
+core_importance_concepts = ["我拿到offer了","发现了一个bug","项目由新进展","我要结婚了"]  # 中断模型的核心重要概念列表，用于识别需要中断的消息。
 
+# 以下内容可以自由复制添加
 [[interrupt_model.speaker_weights]]
 id = "1111111111"
 weight = 2.0
@@ -160,30 +147,15 @@ id = "2222222222"
 weight = 1.5
 name = "未來星織"
 
-objective_keywords = ["新测试","紧急停止","服务器宕机"]
-# 中断模型的目标关键词列表，用于识别需要中断的消息。
-
-core_importance_concepts = ["我拿到offer了","发现了一个bug","项目由新进展","我要结婚了"]
-# 中断模型的核心重要概念列表，用于识别需要中断的消息。
-
 # ===============================
 # Test Settings (测试功能设置)
 # ===============================
-[test_function]
-# 测试用，一般不用考虑
-
-enable_test_group = false
-# 是否启用测试模式。
-
-test_group = ["123456"]
-# 测试群组列表，用于指定哪些群组启用测试功能。
+[test_function]  # 测试用，一般不用考虑
+enable_test_group = false  # 是否启用测试模式。
+test_group = ["123456"]  # 测试群组列表，用于指定哪些群组启用测试功能。
 
 # ===============================
 # RuntimeEnvironmentSettings (运行环境设置)
 # ===============================
-[runtime_environment]
-# 运行时环境设置，包括临时文件目录等。
-# 这些设置用于配置 Aicarus 在运行时的环境参数。
-
-temp_file_directory = "/tmp/aicarus_temp_images"
-# 临时文件目录，用于存储运行时生成的临时文件。默认值为 /tmp/aicarus_temp_images。"""
+[runtime_environment]  # 运行时环境设置，包括临时文件目录等。这些设置用于配置 Aicarus 在运行时的环境参数。
+temp_file_directory = "/tmp/aicarus_temp_images"  # 临时文件目录，用于存储运行时生成的临时文件。默认值为 /tmp/aicarus_temp_images。
