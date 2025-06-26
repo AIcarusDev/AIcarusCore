@@ -3,12 +3,12 @@ import datetime
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 
 if TYPE_CHECKING:
     from src.database.services.thought_storage_service import ThoughtStorageService
 
-logger = get_logger("AIcarusCore.CoreLogic.ThoughtPersistor")
+logger = get_logger(__name__)
 
 
 class ThoughtPersistor:

@@ -6,12 +6,12 @@ from typing import TYPE_CHECKING, Any
 from aicarus_protocols import Event as ProtocolEvent
 from websockets.server import WebSocketServerProtocol
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 
 if TYPE_CHECKING:
     from src.action.action_handler import ActionHandler
 
-logger = get_logger("AIcarusCore.EventReceiver")
+logger = get_logger(__name__)
 
 # 定义回调函数的类型别名，以便清晰地表示其期望的签名
 AdapterEventCallback = Callable[[ProtocolEvent, WebSocketServerProtocol, bool], Awaitable[None]]

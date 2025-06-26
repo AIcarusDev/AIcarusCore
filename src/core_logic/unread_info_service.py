@@ -1,11 +1,11 @@
 # src/core_logic/unread_info_service.py
 from typing import Any
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 from src.database.services.conversation_storage_service import ConversationStorageService
 from src.database.services.event_storage_service import EventStorageService
 
-logger = get_logger("AIcarusCore.CoreLogic.UnreadInfoService")
+logger = get_logger(__name__)
 
 
 def _extract_text_from_dict_content(content: list[dict[str, Any]]) -> str:

@@ -15,13 +15,13 @@ from aicarus_protocols import Event as ProtocolEvent
 from websockets.exceptions import ConnectionClosed, ConnectionClosedError, ConnectionClosedOK
 from websockets.server import WebSocketServerProtocol
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 from src.config import config
 from src.core_communication.action_sender import ActionSender
 from src.core_communication.event_receiver import EventReceiver
 from src.database.services.event_storage_service import EventStorageService
 
-logger = get_logger("AIcarusCore.ws_server")
+logger = get_logger(__name__)
 
 
 class CoreWebsocketServer:

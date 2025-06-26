@@ -5,10 +5,10 @@ from typing import Any
 
 from arangoasync.exceptions import DocumentInsertError  # ArangoDB 特定异常
 
-from src.common.custom_logging.logger_manager import get_logger  # 日志记录器
+from src.common.custom_logging.logging_config import get_logger  # 日志记录器
 from src.database.core.connection_manager import ArangoDBConnectionManager, CoreDBCollections  # 使用 CoreDBCollections
 
-logger = get_logger("AIcarusCore.DB.EventService")
+logger = get_logger(__name__)
 
 
 class EventStorageService:

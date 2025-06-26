@@ -14,10 +14,10 @@ from aicarus_protocols import (
     Event as ProtocolEvent,
 )
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 from src.core_communication.core_ws_server import CoreWebsocketServer
 
-logger = get_logger("AIcarusCore.tools.platform_actions")
+logger = get_logger(__name__)
 
 
 async def send_reply_message(

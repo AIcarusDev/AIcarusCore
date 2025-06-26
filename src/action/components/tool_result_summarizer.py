@@ -1,7 +1,7 @@
 # src/action/components/tool_result_summarizer.py
 import json
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 from src.llmrequest.llm_processor import Client as ProcessorClient
 
 from ..prompts import INFORMATION_SUMMARY_PROMPT_TEMPLATE

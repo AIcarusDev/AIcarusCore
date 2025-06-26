@@ -11,9 +11,9 @@ from aicarus_protocols import ConversationType as ProtocolConversationType  # �
 # 这些是AI核心与适配器之间通信时使用的数据结构
 from aicarus_protocols import Event as ProtocolEvent
 
-from src.common.custom_logging.logger_manager import get_logger  # 日志记录器
+from src.common.custom_logging.logging_config import get_logger  # 日志记录器
 
-logger = get_logger("AIcarusCore.DB.Models")  # 获取日志实例
+logger = get_logger(__name__)  # 获取日志实例
 
 
 @dataclass

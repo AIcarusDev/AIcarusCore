@@ -11,7 +11,7 @@ from src.action.components.action_registry import ActionRegistry
 from src.action.components.llm_client_factory import LLMClientFactory
 from src.action.components.pending_action_manager import PendingActionManager
 from src.action.components.tool_result_summarizer import ToolResultSummarizer
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 from src.config import config
 from src.core_communication.action_sender import ActionSender
 from src.database.services.action_log_storage_service import ActionLogStorageService

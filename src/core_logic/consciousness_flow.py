@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 from aicarus_protocols import Event as ProtocolEvent
 
 from src.action.action_handler import ActionHandler
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 from src.config import config
 from src.core_communication.core_ws_server import CoreWebsocketServer
 from src.core_logic.context_builder import ContextBuilder
@@ -26,7 +26,7 @@ from src.core_logic.thought_persistor import ThoughtPersistor
 if TYPE_CHECKING:
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 
-logger = get_logger("AIcarusCore.CoreLogicFlow")
+logger = get_logger(__name__)
 
 
 class CoreLogic:

@@ -16,10 +16,10 @@ from typing import Any, TypedDict, Unpack
 import aiohttp
 from PIL import Image
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 
 # --- 日志配置 ---
-logger = get_logger("AIcarusCore.llm.utils")
+logger = get_logger(__name__)
 
 
 # --- 定义 TypedDict 用于 default_generation_config ---

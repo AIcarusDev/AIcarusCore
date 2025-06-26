@@ -8,7 +8,7 @@ from aicarus_protocols import Event as ProtocolEvent  # 重命名以区分数据
 from aicarus_protocols import Seg, UserInfo
 from websockets.server import WebSocketServerProtocol
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 from src.config import config
 from src.database.models import DBEventDocument, EnrichedConversationInfo  # 导入我们定义的数据模型
 from src.database.services.conversation_storage_service import ConversationStorageService

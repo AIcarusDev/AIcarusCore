@@ -5,7 +5,7 @@ import asyncio
 import time
 from typing import TYPE_CHECKING
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 from src.config import config
 
 # from .interruption_watcher import InterruptionWatcher # <-- 去死吧！你这个只会偷窥的废物！

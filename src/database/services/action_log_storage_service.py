@@ -4,14 +4,14 @@ from typing import Any
 # 哼，既然是 arangoasync，那就要用它的专属异常！
 from arangoasync.exceptions import DocumentInsertError, DocumentUpdateError
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 from src.database.core.connection_manager import (
     ArangoDBConnectionManager,
     CoreDBCollections,
     StandardCollection,
 )
 
-logger = get_logger("AIcarusCore.DB.ActionLogStorageService")
+logger = get_logger(__name__)
 
 
 class ActionLogStorageService:

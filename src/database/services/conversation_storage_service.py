@@ -9,7 +9,7 @@ from arangoasync.exceptions import (
     DocumentUpdateError,
 )
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 from src.database.core.connection_manager import (
     ArangoDBConnectionManager,
     CoreDBCollections,
@@ -17,7 +17,7 @@ from src.database.core.connection_manager import (
 
 # from src.database.models import AttentionProfile # 将从 models 导入
 
-logger = get_logger("AIcarusCore.DB.ConversationService")
+logger = get_logger(__name__)
 
 
 class ConversationStorageService:

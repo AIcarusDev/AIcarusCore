@@ -8,7 +8,7 @@ from collections import OrderedDict
 from typing import TYPE_CHECKING, Any
 
 from src.action.action_handler import ActionHandler
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 from src.config import config
 from src.database.services.conversation_storage_service import ConversationStorageService
 from src.database.services.event_storage_service import EventStorageService

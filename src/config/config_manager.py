@@ -5,14 +5,14 @@ import traceback
 
 from dotenv import load_dotenv
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 
 from .aicarus_configs import AlcarusRootConfig
 from .config_io import ConfigIOHandler
 from .config_paths import PROJECT_ROOT
 from .config_updater import perform_config_update_check, substitute_env_vars_recursive
 
-logger = get_logger("AIcarusCore.config_manager")
+logger = get_logger(__name__)
 
 _loaded_settings_dict = None
 _loaded_typed_settings = None

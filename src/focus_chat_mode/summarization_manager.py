@@ -2,14 +2,14 @@
 
 from typing import TYPE_CHECKING, List, Dict, Any, Tuple
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 from src.common.summarization_observation.summarization_service import SummarizationService
 from src.config import config
 
 if TYPE_CHECKING:
     from .chat_session import ChatSession
 
-logger = get_logger("AIcarusCore.FocusChat.SummarizationManager")
+logger = get_logger(__name__)
 
 
 class SummarizationManager:

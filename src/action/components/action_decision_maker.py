@@ -2,7 +2,7 @@
 import json
 from dataclasses import dataclass
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 from src.llmrequest.llm_processor import Client as ProcessorClient
 
 from ..prompts import ACTION_DECISION_PROMPT_TEMPLATE

@@ -1,12 +1,12 @@
 # src/core_logic/thought_generator.py
 from typing import TYPE_CHECKING, Any
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 
 if TYPE_CHECKING:
     from src.llmrequest.llm_processor import Client as ProcessorClient
 
-logger = get_logger("AIcarusCore.CoreLogic.ThoughtGenerator")
+logger = get_logger(__name__)
 
 
 class ThoughtGenerator:

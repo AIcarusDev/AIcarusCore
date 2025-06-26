@@ -2,7 +2,7 @@
 import os
 from typing import Any
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 from src.config import config
 from src.llmrequest.llm_processor import Client as ProcessorClient
 

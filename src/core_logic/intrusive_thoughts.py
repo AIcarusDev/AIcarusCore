@@ -4,7 +4,7 @@ import asyncio
 import json
 import threading
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 from src.config import config
 from src.database.core.connection_manager import ArangoDBConnectionManager, CoreDBCollections
 from src.database.services.thought_storage_service import ThoughtStorageService

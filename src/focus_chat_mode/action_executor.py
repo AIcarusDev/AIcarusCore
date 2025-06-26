@@ -11,7 +11,7 @@ from aicarus_protocols.conversation_info import ConversationInfo
 from aicarus_protocols.seg import SegBuilder
 from aicarus_protocols.user_info import UserInfo
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 from src.common.text_splitter import process_llm_response
 from src.config import config
 from src.database.models import DBEventDocument # <-- 哼，把这个也请过来！

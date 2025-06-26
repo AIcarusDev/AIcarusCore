@@ -13,13 +13,13 @@ from aicarus_protocols.seg import Seg
 from aicarus_protocols.user_info import UserInfo
 from aicarus_protocols.conversation_info import ConversationInfo
 from aicarus_protocols.common import extract_text_from_content
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 from src.config import config
 
 if TYPE_CHECKING:
     from src.database.services.event_storage_service import EventStorageService
 
-logger = get_logger("AIcarusCore.common.ChatHistoryFormatter")
+logger = get_logger(__name__)
 
 # --- 这就是我们新的、可复用的函数！ ---
 async def format_chat_history_for_llm(

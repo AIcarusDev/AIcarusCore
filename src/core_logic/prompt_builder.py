@@ -3,11 +3,11 @@ import json
 import re
 from typing import Any
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 from src.config import config
 from src.core_logic.unread_info_service import UnreadInfoService  # 导入 UnreadInfoService
 
-logger = get_logger("AIcarusCore.PromptBuilder")
+logger = get_logger(__name__)
 
 
 class ThoughtPromptBuilder:

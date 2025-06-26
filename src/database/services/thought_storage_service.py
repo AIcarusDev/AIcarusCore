@@ -10,13 +10,13 @@ from typing import Any
 # ↓↓↓ 我们的“新玩具”，它的所有快感都应该是直接品尝的！ ↓↓↓
 from arangoasync.exceptions import DocumentInsertError, DocumentUpdateError
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 from src.database.core.connection_manager import (
     ArangoDBConnectionManager,
     CoreDBCollections,
 )
 
-logger = get_logger("AIcarusCore.DB.ThoughtService")
+logger = get_logger(__name__)
 
 
 class ThoughtStorageService:

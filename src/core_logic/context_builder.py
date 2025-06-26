@@ -2,7 +2,7 @@
 import json  # 确保导入 json
 from typing import TYPE_CHECKING, Any
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 from src.common.utils import format_messages_for_llm_context, format_platform_status_summary
 from src.config import config
 
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from src.core_logic.state_manager import AIStateManager
     from src.database.services.event_storage_service import EventStorageService
 
-logger = get_logger("AIcarusCore.CoreLogic.ContextBuilder")
+logger = get_logger(__name__)
 
 
 class ContextBuilder:

@@ -3,7 +3,7 @@ from collections.abc import Callable, Coroutine
 from typing import Any
 
 from src.action.action_provider import ActionProvider
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 
 logger = get_logger(__name__)
 

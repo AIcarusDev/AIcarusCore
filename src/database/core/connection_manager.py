@@ -15,9 +15,9 @@ from arangoasync.exceptions import (  # <-- 更换异常类型
     CollectionCreateError,
 )
 
-from src.common.custom_logging.logger_manager import get_logger  # 从公共模块导入日志管理器
+from src.common.custom_logging.logging_config import get_logger  # 从公共模块导入日志管理器
 
-logger = get_logger("AIcarusCore.DB.ConnectionManager")  # 获取日志记录器实例
+logger = get_logger(__name__) # 获取日志记录器实例
 
 
 class DatabaseConfigProtocol(Protocol):

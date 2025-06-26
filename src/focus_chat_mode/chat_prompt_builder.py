@@ -14,7 +14,7 @@ from aicarus_protocols.seg import Seg
 from aicarus_protocols.user_info import UserInfo
 
 from src.action.action_handler import ActionHandler
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 
 # 导入你的顶层config对象
 from src.config import config  # 假设你的顶层配置对象叫 config

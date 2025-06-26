@@ -1,11 +1,11 @@
 # src/observation/summarization_service.py
 from typing import Any
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 from src.config import config
 from src.llmrequest.llm_processor import Client as LLMProcessorClient
 
-logger = get_logger("AIcarusCore.observation.SummarizationService")
+logger = get_logger(__name__)
 
 
 class SummarizationService:

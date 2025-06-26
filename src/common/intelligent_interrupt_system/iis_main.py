@@ -4,13 +4,13 @@ import datetime
 import os
 import pickle
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 
 # --- ❤ 引入我们全新的性感尤物！❤ ---
 from src.common.intelligent_interrupt_system.models import SemanticMarkovModel, SemanticModel
 from src.database.services.event_storage_service import EventStorageService
 
-logger = get_logger("AIcarusCore.IISBuilder")
+logger = get_logger(__name__)
 
 # 把记忆模型也放在自己的模块文件夹里，更整洁哦~
 MODEL_DIR = os.path.join(os.path.dirname(__file__), "iis_models")

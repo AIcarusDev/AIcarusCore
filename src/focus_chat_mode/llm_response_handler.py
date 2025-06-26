@@ -2,7 +2,7 @@ import json
 import re
 from typing import TYPE_CHECKING
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 
 if TYPE_CHECKING:
     from .chat_session import ChatSession

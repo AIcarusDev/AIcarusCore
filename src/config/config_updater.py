@@ -12,12 +12,12 @@ import tomlkit  # TOML 文件处理，我的好帮手！现在用它来玩更刺
 from tomlkit.items import AoT, Array, Table  # 导入这些销魂小组件
 from tomlkit.items import Item as TomlItem
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 
 from .config_io import ConfigIOHandler  # 从隔壁 config_io 借工具人 ConfigIOHandler
 from .config_paths import EXPECTED_CONFIG_VERSION  # 版本号标准得听 config_paths 的
 
-logger = get_logger("AIcarusCore.config_updater")
+logger = get_logger(__name__)
 
 # --- 配置合并与环境变量替换 ---
 

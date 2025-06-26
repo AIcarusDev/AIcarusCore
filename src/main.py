@@ -7,7 +7,7 @@ import threading
 from src.action.action_handler import ActionHandler
 from src.action.providers.internal_tools_provider import InternalToolsProvider
 from src.action.providers.platform_action_provider import PlatformActionProvider
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 from src.common.intelligent_interrupt_system.iis_main import IISBuilder
 from src.common.intelligent_interrupt_system.intelligent_interrupter import IntelligentInterrupter
 from src.common.intelligent_interrupt_system.models import SemanticModel
@@ -37,7 +37,7 @@ from src.llmrequest.utils_model import GenerationParams
 from src.message_processing.default_message_processor import DefaultMessageProcessor
 from src.common.summarization_observation.summarization_service import SummarizationService
 
-logger = get_logger("AIcarusCore.MainInitializer")
+logger = get_logger(__name__)
 
 
 class CoreSystemInitializer:
