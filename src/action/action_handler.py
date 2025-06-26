@@ -15,10 +15,10 @@ from src.common.custom_logging.logger_manager import get_logger
 from src.config import config
 from src.core_communication.action_sender import ActionSender
 from src.database.services.action_log_storage_service import ActionLogStorageService
+from src.database.services.conversation_storage_service import ConversationStorageService
 from src.database.services.event_storage_service import EventStorageService
 from src.database.services.thought_storage_service import ThoughtStorageService
 from src.llmrequest.llm_processor import Client as ProcessorClient
-from src.database.services.conversation_storage_service import ConversationStorageService
 
 if TYPE_CHECKING:
     pass
@@ -121,17 +121,17 @@ class ActionHandler:
             "event_type": "action.bot.get_profile",
             "platform": adapter_id,
             "bot_id": config.persona.bot_name,
-            "content": [{"type": "action.bot.get_profile", "data": {}}]
+            "content": [{"type": "action.bot.get_profile", "data": {}}],
         }
-        
+
         # 我们调用 _execute_platform_action，因为它会正确地在 PendingActionManager 中注册等待！
         # 我们不关心它的返回值，因为它会自己处理超时和响应。
         # 我们用 asyncio.create_task 把它丢到后台去执行，不阻塞当前任务。
         asyncio.create_task(
             self._execute_platform_action(
                 action_to_send=action_event,
-                thought_doc_key=None, # 系统级动作没有关联的思考文档
-                original_action_description="系统：上线安检"
+                thought_doc_key=None,  # 系统级动作没有关联的思考文档
+                original_action_description="系统：上线安检",
             )
         )
         self.logger.info(f"已为适配器 '{adapter_id}' 创建并派发“上线安检”任务。")
@@ -146,7 +146,12 @@ class ActionHandler:
             self.logger.error("核心服务 (ActionSender, ActionLogService, or PendingActionManager) 未设置!")
             return False, {"error": "内部错误：核心服务不可用。"}
 
-        is_direct_reply_action = original_action_description in ["回复主人", "发送子意识聊天回复", "internal_tool_call", "系统：上线安检"]
+        is_direct_reply_action = original_action_description in [
+            "回复主人",
+            "发送子意识聊天回复",
+            "internal_tool_call",
+            "系统：上线安检",
+        ]
         if not is_direct_reply_action and not thought_doc_key:
             self.logger.error(f"严重错误：动作 '{original_action_description}' 缺少 thought_doc_key。")
             return False, {"error": "内部错误：执行动作缺少必要的思考文档关联。"}

@@ -1,7 +1,6 @@
 # src/tools/platform_actions.py
 import time
 import uuid
-from typing import Any
 
 from aicarus_protocols import (
     ConversationInfo as ProtocolConversationInfo,
@@ -15,7 +14,6 @@ from aicarus_protocols import (
     Event as ProtocolEvent,
 )
 
-from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logger_manager import get_logger
 from src.core_communication.core_ws_server import CoreWebsocketServer
 
@@ -107,5 +105,3 @@ async def send_reply_message(
         logger.error(error_msg, exc_info=True)
 
         return {"status": "failure", "reason": error_msg}
-
-

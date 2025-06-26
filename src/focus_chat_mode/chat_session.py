@@ -3,9 +3,9 @@
 
 import asyncio
 import time
+import uuid
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Any
-import uuid
 
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logger_manager import get_logger
@@ -13,7 +13,6 @@ from src.config import config
 from src.database.services.conversation_storage_service import ConversationStorageService
 from src.database.services.event_storage_service import EventStorageService
 from src.llmrequest.llm_processor import Client as LLMProcessorClient
-from src.action.action_handler import ActionHandler
 
 from .action_executor import ActionExecutor
 from .chat_prompt_builder import ChatPromptBuilder
@@ -137,7 +136,7 @@ class ChatSession:
             "event_type": "action.bot.get_profile",
             "platform": self.platform,
             "bot_id": self.bot_id,
-            "content": [{"type": "action.bot.get_profile", "data": {"group_id": self.conversation_id}}]
+            "content": [{"type": "action.bot.get_profile", "data": {"group_id": self.conversation_id}}],
         }
         success, result = await self.action_handler.send_action_and_wait_for_response(action_event_dict)
         profile = result if success and result else None

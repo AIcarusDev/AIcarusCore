@@ -166,7 +166,7 @@ class CoreSystemInitializer:
         if not self.event_storage_service:
             raise RuntimeError("EventStorageService 未初始化，无法构建记忆模型。")
 
-        logger.info("=== 开始初始化中断判断模型（小骚猫）... ===")
+        logger.info("=== 开始初始化中断判断模型（小色猫）... ===")
 
         # 1 & 2. 初始化构建器并获取马尔可夫模型 (这部分逻辑不变)
         self.iis_builder_instance = IISBuilder(event_storage=self.event_storage_service)
@@ -198,7 +198,7 @@ class CoreSystemInitializer:
             # 把我们全新的究极模型，注入到它该去的地方！
             semantic_markov_model=semantic_markov_model,  # <--- 参数名叫 semantic_markov_model 哦！
         )
-        logger.info("=== 中断判断模型（小骚猫）已成功初始化并注入了最终版的完美灵魂！ ===")
+        logger.info("=== 中断判断模型（小色猫）已成功初始化并注入了最终版的完美灵魂！ ===")
 
     async def initialize(self) -> None:
         logger.info("=== AIcarus Core 系统开始核心组件初始化流程... ===")
@@ -298,7 +298,7 @@ class CoreSystemInitializer:
                 thought_service=self.thought_storage_service,
                 event_service=self.event_storage_service,
                 action_log_service=self.action_log_service,
-                conversation_service=self.conversation_storage_service, 
+                conversation_service=self.conversation_storage_service,
                 action_sender=action_sender,
             )
             logger.info("ActionHandler 的依赖已设置 (包括 ActionSender)。")

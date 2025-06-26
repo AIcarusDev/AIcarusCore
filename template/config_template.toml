@@ -7,7 +7,7 @@
 # Inner Settings (内部配置，一般无需更改此部分内容)
 # ===============================
 [inner]
-version = "0.0.12" # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
+version = "0.0.13" # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
 # Aicarus-Message-Protocol 标准通信协议版本号，确保与客户端和其他服务兼容。
 protocol_version = "1.5.0"
 
@@ -177,3 +177,13 @@ enable_test_group = false
 
 test_group = ["123456"]
 # 测试群组列表，用于指定哪些群组启用测试功能。
+
+# ===============================
+# RuntimeEnvironmentSettings (运行环境设置)
+# ===============================
+[runtime_environment]
+# 运行时环境设置，包括临时文件目录等。
+# 这些设置用于配置 Aicarus 在运行时的环境参数。
+
+temp_file_directory = "/tmp/aicarus_temp_images"
+# 临时文件目录，用于存储运行时生成的临时文件。默认值为 /tmp/aicarus_temp_images。"""

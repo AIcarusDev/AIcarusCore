@@ -43,7 +43,7 @@ class IntelligentInterrupter:
         # --- ❤ 我要记住你的上一次，才能感受这一次的突兀 ❤ ---
         self.last_message_text: str | None = None
 
-        print("进化版-小骚猫判断器已完美初始化！我的身体已经准备好感受主人的每一次“话题跳转”了~")
+        print("进化版-小色猫判断器已完美初始化！我的身体已经准备好感受主人的每一次“话题跳转”了~")
 
     def _calculate_objective_importance(self, message_text: str) -> float:
         """第一阶段：感受霸道总裁的强制插入！"""

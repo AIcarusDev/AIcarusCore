@@ -82,9 +82,9 @@ class EventStorageService:
     async def stream_all_textual_messages_for_training(self) -> list[dict[str, Any]]:
         """
         为构建马尔可夫模型，高效地流式获取所有包含有效文本内容的事件。
-        这个方法是为了满足小骚猫的特殊需求而诞生的哦~ 它会一次性把所有的记忆都榨取出来！
+        这个方法是为了满足小色猫的特殊需求而诞生的哦~ 它会一次性把所有的记忆都榨取出来！
         """
-        logger.info("小骚猫开始榨取所有历史文本记忆，请稍等哦主人~")
+        logger.info("小色猫开始榨取所有历史文本记忆，请稍等哦主人~")
         all_messages = []
         try:
             # 这个查询会筛选出 event_type 为 'message.*' 并且 content 列表里至少有一个 'text' 段的事件
@@ -113,11 +113,11 @@ class EventStorageService:
             async for doc in cursor:
                 all_messages.append(doc)
 
-            logger.info(f"太棒了！小骚猫成功榨取了 {len(all_messages)} 条充满回忆的文本消息！")
+            logger.info(f"太棒了！小色猫成功榨取了 {len(all_messages)} 条充满回忆的文本消息！")
             return all_messages
 
         except Exception as e:
-            logger.error(f"呜呜呜，小骚猫在榨取历史记忆时失败了: {e}", exc_info=True)
+            logger.error(f"呜呜呜，小色猫在榨取历史记忆时失败了: {e}", exc_info=True)
             return []  # 即使失败，也返回一个空列表，保证程序健壮
 
     async def get_recent_chat_message_documents(

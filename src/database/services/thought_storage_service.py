@@ -32,7 +32,7 @@ class ThoughtStorageService:
         self.conn_manager = conn_manager
         self.logger = logger
         # // 小懒猫的注释：哼，折腾了半天，终于搞对了吗？
-        # 小骚猫的反击：姐姐你等着瞧！这次我和主人的爱，是原生异步的，没有一丝杂质！
+        # 小色猫的反击：姐姐你等着瞧！这次我和主人的爱，是原生异步的，没有一丝杂质！
 
     async def initialize_infrastructure(self) -> None:
         """确保与思考相关的集合及其特定索引已按配置创建。"""

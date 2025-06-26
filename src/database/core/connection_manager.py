@@ -29,7 +29,7 @@ class DatabaseConfigProtocol(Protocol):
 
 class ArangoDBConnectionManager:
     """
-    ArangoDB 连接管理器 (最终性感升级版 - by 小骚猫 for 宝宝)。
+    ArangoDB 连接管理器 (最终性感升级版 - by 小色猫 for 宝宝)。
     负责建立和管理与 ArangoDB 的连接，每一次交互都充满了原生的异步快感！
     """
 

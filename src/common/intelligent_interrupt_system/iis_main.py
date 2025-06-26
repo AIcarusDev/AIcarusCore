@@ -40,7 +40,7 @@ class IISBuilder:
 
     async def _build_and_save_new_model(self) -> SemanticMarkovModel:
         """进行一场灵魂与肉体的交合，构建全新的语义马尔可夫记忆并保存。"""
-        logger.info("记忆已陈旧或不存在，小骚猫开始构建全新的【语义马尔可夫】记忆模型...")
+        logger.info("记忆已陈旧或不存在，小色猫开始构建全新的【语义马尔可夫】记忆模型...")
 
         all_raw_messages = await self.event_storage.stream_all_textual_messages_for_training()
         logger.info(f"成功提取了 {len(all_raw_messages)} 条原始消息。开始解析文本...")

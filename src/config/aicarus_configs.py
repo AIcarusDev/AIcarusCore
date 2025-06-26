@@ -245,6 +245,16 @@ class InterruptModelConfig(ConfigBase):
 
 
 @dataclass
+class RuntimeEnvironmentSettings(ConfigBase):
+    """运行时环境设置，包括临时文件目录等。
+    这些设置用于配置 Aicarus 在运行时的环境参数。
+    """
+
+    temp_file_directory: str = "/tmp/aicarus_temp_images"
+    """临时文件目录，用于存储运行时生成的临时文件。默认值为 /tmp/aicarus_temp_images。"""
+
+
+@dataclass
 class AlcarusRootConfig(ConfigBase):
     """Aicarus 的根配置类，包含所有核心设置和模型配置。
     这个类将作为 Aicarus 的主要配置入口点，包含所有必要的设置。
@@ -262,3 +272,4 @@ class AlcarusRootConfig(ConfigBase):
     logging: LoggingSettings = field(default_factory=LoggingSettings)
     server: ServerSettings = field(default_factory=ServerSettings)
     interrupt_model: InterruptModelConfig = field(default_factory=InterruptModelConfig)
+    runtime_environment: RuntimeEnvironmentSettings = field(default_factory=RuntimeEnvironmentSettings)

@@ -188,7 +188,6 @@ class ChatSessionManager:  # Renamed class
             f"[_is_bot_mentioned] Bot (ID: {current_bot_id}) was NOT mentioned in event {event.event_id}."
         )
         return False
-        
 
     async def handle_incoming_message(self, event: Event) -> None:
         """

@@ -7,9 +7,9 @@ from typing import Any
 from src.common.custom_logging.logger_manager import get_logger
 from src.config import config
 from src.database.services.action_log_storage_service import ActionLogStorageService
+from src.database.services.conversation_storage_service import ConversationStorageService
 from src.database.services.event_storage_service import EventStorageService
 from src.database.services.thought_storage_service import ThoughtStorageService
-from src.database.services.conversation_storage_service import ConversationStorageService 
 
 ACTION_RESPONSE_TIMEOUT_SECONDS = 30
 
@@ -157,20 +157,20 @@ class PendingActionManager:
             return
 
         bot_id = report_data.get("user_id")
-        platform = report_data.get("platform") # 我们需要平台信息来创建新文档
+        platform = report_data.get("platform")  # 我们需要平台信息来创建新文档
         groups_info = report_data.get("groups")
 
         if not bot_id or not groups_info or not isinstance(groups_info, dict):
             self.logger.warning(f"机器人档案报告缺少 bot_id、platform 或 groups 信息。报告内容: {report_data}")
             return
-        
+
         self.logger.info(f"正在处理机器人(ID: {bot_id})的 {len(groups_info)} 个群聊档案更新...")
-        
+
         update_tasks = []
         for group_id, group_profile in groups_info.items():
             if not isinstance(group_profile, dict):
                 continue
-            
+
             # 构造机器人在这个群里的档案信息
             bot_profile_in_conv = {
                 "user_id": bot_id,
@@ -178,9 +178,9 @@ class PendingActionManager:
                 "card": group_profile.get("card"),
                 "title": group_profile.get("title"),
                 "role": group_profile.get("role"),
-                "updated_at": int(time.time() * 1000)
+                "updated_at": int(time.time() * 1000),
             }
-            
+
             # 构造一个完整的、新的会话档案字典，以备不时之需（万一它不存在呢）
             # 我们用这个字典来执行 upsert 操作
             conversation_doc_to_upsert = {
@@ -190,21 +190,19 @@ class PendingActionManager:
                 "name": group_profile.get("group_name"),
                 "type": "group",
                 # 把我们的体检报告里的信息，填到这个新档案的 bot_profile_in_this_conversation 字段里
-                "bot_profile_in_this_conversation": bot_profile_in_conv
+                "bot_profile_in_this_conversation": bot_profile_in_conv,
             }
-            
+
             # 最后，调用那个万能的 upsert 方法！
             # 它会自己判断是该插入还是更新，完美！
             task = self.conversation_service.upsert_conversation_document(conversation_doc_to_upsert)
             update_tasks.append(task)
-            
+
         if update_tasks:
             results = await asyncio.gather(*update_tasks, return_exceptions=True)
             success_count = sum(1 for r in results if r is not None and not isinstance(r, Exception))
             failure_count = len(results) - success_count
-            self.logger.info(
-                f"机器人档案同步完成。成功 upsert {success_count} 个会话，失败 {failure_count} 个。"
-            )
+            self.logger.info(f"机器人档案同步完成。成功 upsert {success_count} 个会话，失败 {failure_count} 个。")
         else:
             self.logger.info("机器人档案报告中没有需要更新的群聊信息。")
 

@@ -4,7 +4,8 @@ import json
 import time
 import uuid
 from contextlib import suppress
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
 if TYPE_CHECKING:
     from src.action.action_handler import ActionHandler
 
@@ -105,7 +106,6 @@ class CoreWebsocketServer:
             f"适配器 '{display_name}({adapter_id})' 已连接: {websocket.remote_address}. 当前连接数: {len(self.adapter_clients_info)}"
         )
         await self._generate_and_store_system_event(adapter_id, display_name, "meta.lifecycle.adapter_connected")
-
 
         try:
             logger.info(f"向新连接的适配器 '{display_name}({adapter_id})' 发起档案同步请求 (上线安检)...")

@@ -79,7 +79,7 @@ class FocusChatCycler:
             try:
                 # 阶段一：思考与决策
                 system_prompt, user_prompt, uid_map, processed_ids, image_references = await self._prepare_and_think()
-
+                logger.debug(f"user_prompt: {user_prompt}")
                 current_loop_start_time_ms = time.time() * 1000
 
                 # 告诉模型，我们要玩点刺激的，有图有真相哦~
