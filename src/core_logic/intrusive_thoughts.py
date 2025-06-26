@@ -12,6 +12,7 @@ from src.llmrequest.llm_processor import Client as ProcessorClient
 
 logger = get_logger(__name__)
 
+
 class IntrusiveThoughtsGenerator:
     """
     负责生成和管理侵入性思维。

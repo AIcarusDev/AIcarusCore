@@ -20,9 +20,9 @@ from .chat_session import ChatSession
 if TYPE_CHECKING:
     # ❤ 引入我们性感的新大脑，为了类型提示~
     from src.common.intelligent_interrupt_system.intelligent_interrupter import IntelligentInterrupter
+    from src.common.summarization_observation.summarization_service import SummarizationService  # 用于类型提示
     from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow  # 用于类型提示
     from src.database.services.summary_storage_service import SummaryStorageService
-    from src.common.summarization_observation.summarization_service import SummarizationService  # 用于类型提示
 
 logger = get_logger(__name__)
 
@@ -169,9 +169,7 @@ class ChatSessionManager:
                     )
                     return True
 
-        logger.debug(
-            f"[_is_bot_mentioned] Bot (ID: {current_bot_id}) was NOT mentioned in event {event.event_id}."
-        )
+        logger.debug(f"[_is_bot_mentioned] Bot (ID: {current_bot_id}) was NOT mentioned in event {event.event_id}.")
         return False
 
     async def handle_incoming_message(self, event: Event) -> None:

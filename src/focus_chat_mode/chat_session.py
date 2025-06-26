@@ -23,10 +23,10 @@ from .summarization_manager import SummarizationManager
 if TYPE_CHECKING:
     # ❤ 引入我们性感的新大脑，为了类型提示~
     from src.common.intelligent_interrupt_system.intelligent_interrupter import IntelligentInterrupter
+    from src.common.summarization_observation.summarization_service import SummarizationService
     from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
     from src.database.services.summary_storage_service import SummaryStorageService
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
-    from src.common.summarization_observation.summarization_service import SummarizationService
 
 CACHE_EXPIRATION_SECONDS = 600
 

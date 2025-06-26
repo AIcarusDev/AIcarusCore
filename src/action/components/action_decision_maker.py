@@ -9,6 +9,7 @@ from ..prompts import ACTION_DECISION_PROMPT_TEMPLATE
 
 logger = get_logger(__name__)
 
+
 @dataclass
 class ActionDecision:
     """

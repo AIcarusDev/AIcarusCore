@@ -24,6 +24,7 @@ from src.focus_chat_mode.chat_session_manager import ChatSessionManager  # Updat
 
 logger = get_logger(__name__)
 
+
 class DefaultMessageProcessor:
     """
     默认的消息处理器。

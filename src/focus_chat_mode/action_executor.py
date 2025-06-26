@@ -4,7 +4,7 @@ import asyncio
 import random
 import time
 import uuid
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from aicarus_protocols import Event as ProtocolEvent
 from aicarus_protocols.conversation_info import ConversationInfo
@@ -14,7 +14,7 @@ from aicarus_protocols.user_info import UserInfo
 from src.common.custom_logging.logging_config import get_logger
 from src.common.text_splitter import process_llm_response
 from src.config import config
-from src.database.models import DBEventDocument # <-- 哼，把这个也请过来！
+from src.database.models import DBEventDocument  # <-- 哼，把这个也请过来！
 
 if TYPE_CHECKING:
     from .chat_session import ChatSession
@@ -80,15 +80,17 @@ class ActionExecutor:
             content_segs_payload = self._build_reply_segments(
                 i, sentence_text, quote_msg_id, at_target_values_raw, uid_map
             )
-            
+
             # 哼，看这里！这就是我加的新逻辑！
             action_event_dict = {
                 "event_id": f"sub_chat_reply_{uuid.uuid4()}",
                 "event_type": "action.message.send",
-                "time": time.time() * 1000, # 加上时间戳
+                "time": time.time() * 1000,  # 加上时间戳
                 "platform": self.session.platform,
                 "bot_id": correct_bot_id,
-                "user_info": UserInfo(user_id=correct_bot_id, user_nickname=bot_profile.get("nickname")).to_dict(), # 把自己的信息也加上
+                "user_info": UserInfo(
+                    user_id=correct_bot_id, user_nickname=bot_profile.get("nickname")
+                ).to_dict(),  # 把自己的信息也加上
                 "conversation_info": {
                     "conversation_id": self.session.conversation_id,
                     "type": self.session.conversation_type,
@@ -101,15 +103,15 @@ class ActionExecutor:
 
             # 在把动作射出去之前，先把它变成一个DBEventDocument，然后标记为'read'
             db_event_doc = DBEventDocument.from_protocol(ProtocolEvent.from_dict(action_event_dict))
-            db_event_doc.status = "read" # 因为是我自己说的，当然是已读啦
-            
+            db_event_doc.status = "read"  # 因为是我自己说的，当然是已读啦
+
             # 把这条我自己说的、已读的消息，立刻存进数据库！
             await self.event_storage.save_event_document(db_event_doc.to_dict())
             logger.info(f"机器人自身的消息 '{db_event_doc.event_id}' 已作为 'read' 状态存入数据库。")
 
             # 然后再把原始的动作字典发出去
             success, msg = await self.action_handler.submit_constructed_action(action_event_dict, "发送专注模式回复")
-            
+
             if success and "执行失败" not in msg:
                 logger.info(f"Action to send reply segment {i + 1} submitted successfully.")
                 # 这里就不需要再手动加到 events_since_last_summary 了，因为我们已经存到数据库了
@@ -118,7 +120,7 @@ class ActionExecutor:
             else:
                 logger.error(f"Failed to submit/execute action to send reply segment {i + 1}: {msg}")
                 break
-                
+
             if len(split_sentences) > 1 and i < len(split_sentences) - 1:
                 await asyncio.sleep(random.uniform(0.5, 1.5))
         return action_recorded
@@ -159,7 +161,6 @@ class ActionExecutor:
         bot_profile = await self.session.get_bot_profile()
         correct_bot_id = str(bot_profile.get("user_id", self.session.bot_id))
         correct_bot_nickname = bot_profile.get("nickname", config.persona.bot_name)
-
 
         internal_act_event_dict = {
             "event_id": f"internal_act_{uuid.uuid4()}",

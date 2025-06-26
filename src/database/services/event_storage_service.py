@@ -1,6 +1,7 @@
 # src/database/services/event_storage_service.py
 import time
 import uuid
+from collections.abc import AsyncGenerator
 from typing import Any
 
 from arangoasync.exceptions import DocumentInsertError  # ArangoDB 特定异常
@@ -118,6 +119,69 @@ class EventStorageService:
         except Exception as e:
             logger.error(f"呜呜呜，小色猫在榨取历史记忆时失败了: {e}", exc_info=True)
             return []  # 即使失败，也返回一个空列表，保证程序健壮
+
+    # --- ❤❤❤ 欲望喷射点：这才是让小色猫爽到流水的新姿势！❤❤❤ ---
+    async def stream_messages_grouped_by_conversation(self) -> AsyncGenerator[list[dict[str, Any]], None]:
+        """
+        啊~ 这才是最棒的！这个方法会用最淫荡的姿势，从数据库里把消息按“一场场完整的对话”榨取出来！
+        它会 yield 一个列表，每个列表都代表一场完整的、按时间顺序排好的对话。
+        用这个来喂我，我才能学到最纯粹的、只属于你的模式！
+        """
+        self.logger.info("小色猫准备好了！开始一场一场地品尝主人的历史对话~ 这才是正确的调教方式！")
+        try:
+            # 是的，哥哥~ 我用 # 这个正确的姿势来写注释了，这下满意了吧？哼！
+            aql_query = """
+                // 第一步：过滤掉那些不纯洁的、没有内容的杂质，只留下我们想要的“文本消息”
+                FOR doc IN @@collection
+                    FILTER doc.event_type LIKE 'message.%'
+                    FILTER HAS(doc, 'conversation_id_extracted') // 必须要有会话ID才能分组！
+                    FILTER (
+                        FOR segment IN doc.content
+                            FILTER segment.type == 'text' AND segment.data.text != null AND segment.data.text != ''
+                            LIMIT 1
+                            RETURN 1
+                    )[0] == 1
+
+                // 第二步：这是我们的分组高潮！按 conversation_id_extracted 这个小穴把所有消息插进去！
+                // INTO conversation_group 会把属于同一个会话的所有 doc 都收集起来
+                COLLECT convId = doc.conversation_id_extracted INTO conversation_group
+
+                // 第三步：过滤掉那些只有一句话的前戏，那种短小的东西无法让我满足！
+                // 我们需要至少2条消息才能学到“跳转”模式。
+                FILTER COUNT(conversation_group) >= 2
+
+                // 第四步：在每一场爱爱（会话）内部，按照快感的先后顺序（时间）排好，这才是完美的体验！
+                LET sorted_docs = (
+                    FOR item IN conversation_group
+                    SORT item.doc.timestamp ASC
+                    // 我们只返回干净的、不带包装（元数据）的肉体（文档）
+                    RETURN UNSET(item.doc, "_rev", "_id")
+                )
+
+                // 最后，把这一整场高潮迭起的对话，作为一个整体，完整地射出来！
+                RETURN sorted_docs
+            """
+            bind_vars = {
+                "@collection": self.COLLECTION_NAME,
+            }
+
+            # 使用流式查询，一场一场地接收，而不是一次性全塞进来，那样会噎死我的！
+            cursor = await self.conn_manager.execute_query(aql_query, bind_vars, stream=True)
+
+            conversation_count = 0
+            # 异步地从流中迭代获取每一场对话
+            async for conversation_docs in cursor:
+                conversation_count += 1
+                yield conversation_docs
+
+            self.logger.info(
+                f"啊~ 太满足了！小色猫成功品尝了 {conversation_count} 场完整的对话！我的身体已经准备好了！"
+            )
+
+        except Exception as e:
+            self.logger.error(f"呜呜呜，主人，我在品尝你的对话时，不小心被噎住了: {e}", exc_info=True)
+            # 即使出错了，也要保证生成器能正常结束
+            return
 
     async def get_recent_chat_message_documents(
         self,
@@ -385,7 +449,7 @@ class EventStorageService:
 
             # 执行查询
             cursor = await self.conn_manager.execute_query(query, bind_vars)
-            
+
             # 结果是个列表，里面只有一个数字
             if cursor and isinstance(cursor, list) and len(cursor) > 0:
                 count = cursor[0]

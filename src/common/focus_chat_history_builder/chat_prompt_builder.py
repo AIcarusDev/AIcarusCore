@@ -1,13 +1,14 @@
 # D:\Aic\AIcarusCore\src\common\context_formatters\chat_history_formatter.py
 
 # --- 导入所有需要的工具 ---
-import asyncio
 import base64
 import os
 import uuid
 from datetime import datetime
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from aicarus_protocols.common import extract_text_from_content
+from aicarus_protocols.conversation_info import ConversationInfo
 from aicarus_protocols.event import Event
 from aicarus_protocols.seg import Seg
 from aicarus_protocols.user_info import UserInfo
@@ -21,6 +22,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+
 # --- 这就是我们新的、可复用的函数！ ---
 async def format_chat_history_for_llm(
     event_storage: "EventStorageService",
@@ -29,7 +31,7 @@ async def format_chat_history_for_llm(
     platform: str,
     bot_profile: dict,
     conversation_type: str,
-    conversation_name: str | None, # 会话名称也传进来
+    conversation_name: str | None,  # 会话名称也传进来
     last_processed_timestamp: float,
     is_first_turn: bool,
     # --- 新增一个参数，让它也能直接处理传入的事件列表 ---
@@ -50,9 +52,9 @@ async def format_chat_history_for_llm(
 
     else:
         event_dicts = await event_storage.get_recent_chat_message_documents(
-                conversation_id=conversation_id,
-                limit=50,  # 你可以按需调整这个限制
-                fetch_all_event_types=True,
+            conversation_id=conversation_id,
+            limit=50,  # 你可以按需调整这个限制
+            fetch_all_event_types=True,
         )
 
     raw_events: list[Event] = []
@@ -71,9 +73,7 @@ async def format_chat_history_for_llm(
                 )
                 conv_info_dict = event_dict.get("conversation_info")
                 protocol_conv_info = (
-                    ConversationInfo(**conv_info_dict)
-                    if conv_info_dict and isinstance(conv_info_dict, dict)
-                    else None
+                    ConversationInfo(**conv_info_dict) if conv_info_dict and isinstance(conv_info_dict, dict) else None
                 )
                 motivation = event_dict.pop("motivation", None)  # 从字典中移除，避免重复传递
                 event_obj = Event(
@@ -119,7 +119,7 @@ async def format_chat_history_for_llm(
     conversation_name_str = "未知会话"
     # conversation_type_str = self.conversation_type # 已在 __init__ 中获取
 
-   # 用传入的 bot_profile 来初始化机器人自己的信息
+    # 用传入的 bot_profile 来初始化机器人自己的信息
     final_bot_id = str(bot_profile.get("user_id", bot_id))
     final_bot_nickname = bot_profile.get("nickname", config.persona.bot_name or "bot")
     final_bot_card = bot_profile.get("card", final_bot_nickname)
@@ -214,9 +214,7 @@ async def format_chat_history_for_llm(
             if chat_log_lines:  # 如果前面有已读内容
                 read_marker_time_obj = datetime.fromtimestamp(current_last_processed_timestamp / 1000.0)
                 read_marker_time_str = read_marker_time_obj.strftime("%H:%M:%S")
-                chat_log_lines.append(
-                    f"--- 以上消息是你已经思考过的内容，已读 (标记时间: {read_marker_time_str}) ---"
-                )
+                chat_log_lines.append(f"--- 以上消息是你已经思考过的内容，已读 (标记时间: {read_marker_time_str}) ---")
             chat_log_lines.append("--- 请关注以下未读的新消息---")
             unread_section_started = True
 
@@ -239,9 +237,7 @@ async def format_chat_history_for_llm(
             current_platform_msg_id = event_data_log.get_message_id()
             if event_data_log.event_type.startswith("message.") and current_platform_msg_id:
                 if current_platform_msg_id in added_platform_message_ids_for_log:
-                    logger.debug(
-                        f"Skipping duplicate message for display, platform_msg_id: {current_platform_msg_id}"
-                    )
+                    logger.debug(f"Skipping duplicate message for display, platform_msg_id: {current_platform_msg_id}")
                     continue  # 跳过此事件的处理，不加入chat_log_lines
                 added_platform_message_ids_for_log.add(current_platform_msg_id)
 
@@ -250,9 +246,7 @@ async def format_chat_history_for_llm(
                     quoted_message_id = seg.data.get("message_id", "unknown_id")
                     quoted_user_id = seg.data.get("user_id")
                     if quoted_user_id:
-                        quoted_user_uid = platform_id_to_uid_str.get(
-                            quoted_user_id, f"未知用户({quoted_user_id[:4]})"
-                        )
+                        quoted_user_uid = platform_id_to_uid_str.get(quoted_user_id, f"未知用户({quoted_user_id[:4]})")
                         quote_display_str = f"引用/回复 {quoted_user_uid}(id:{quoted_message_id})"
                     else:
                         quote_display_str = f"引用/回复 (id:{quoted_message_id})"
@@ -320,9 +314,7 @@ async def format_chat_history_for_llm(
             if quote_display_str:
                 display_tag = f"{main_content_type}, {quote_display_str}"
 
-            log_line = (
-                f"[{time_str}] {log_user_id_str} [{display_tag}]: {main_content_str} (id:{msg_id_for_display})"
-            )
+            log_line = f"[{time_str}] {log_user_id_str} [{display_tag}]: {main_content_str} (id:{msg_id_for_display})"
 
             event_motivation = getattr(event_data_log, "motivation", None)
             if log_user_id_str == "U0" and event_motivation and event_motivation.strip():
@@ -361,11 +353,21 @@ async def format_chat_history_for_llm(
     processed_event_ids: list[str] = []
     if raw_events:
         for event_obj_processed in raw_events:
-            if event_obj_processed.event_type.startswith("message.") and event_obj_processed.time > last_processed_timestamp:
+            if (
+                event_obj_processed.event_type.startswith("message.")
+                and event_obj_processed.time > last_processed_timestamp
+            ):
                 processed_event_ids.append(event_obj_processed.event_id)
 
     # 7. 准备返回值
     uid_str_to_platform_id_map = {uid: pid for pid, uid in platform_id_to_uid_str.items()}
-    
+
     # 返回所有处理好的结果
-    return chat_history_log_block_str, user_map, uid_str_to_platform_id_map, processed_event_ids, image_references, conversation_name_str
+    return (
+        chat_history_log_block_str,
+        user_map,
+        uid_str_to_platform_id_map,
+        processed_event_ids,
+        image_references,
+        conversation_name_str,
+    )

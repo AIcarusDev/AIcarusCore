@@ -7,6 +7,7 @@ from src.common.custom_logging.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+
 class ActionRegistry:
     """
     负责管理和注册所有可用的动作。

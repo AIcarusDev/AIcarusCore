@@ -304,9 +304,7 @@ class ActionHandler:
                 tool_result_data = await action_func(**tool_arguments)
 
                 # 诊断日志
-                logger.info(
-                    f"【诊断】准备进行摘要判断。summary_llm_client 是否存在: {bool(self.summary_llm_client)}"
-                )
+                logger.info(f"【诊断】准备进行摘要判断。summary_llm_client 是否存在: {bool(self.summary_llm_client)}")
                 if self.summary_llm_client:
                     logger.info(f"【诊断】summary_llm_client 实例类型: {type(self.summary_llm_client)}")
 
