@@ -126,30 +126,4 @@ async def get_bot_profile(
         一个包含机器人信息的字典，如果成功。
         如果失败或超时，则返回 None。
     """
-    if not action_handler:
-        logger.error("ActionHandler 未提供，无法获取机器人信息。")
-        return None
-
-    action_data = {}
-    if group_id:
-        action_data["group_id"] = group_id
-
-    action_event = ProtocolEvent(
-        event_id=f"action_get_profile_{uuid.uuid4()}",
-        event_type="action.bot.get_profile",
-        time=int(time.time() * 1000.0),
-        platform=adapter_id,  # platform 字段用于路由到正确的适配器
-        bot_id=config.persona.bot_name,  # 这里的 bot_id 是 Core 的身份，可以随意
-        content=[Seg(type="action.bot.get_profile", data=action_data)],
-    )
-
-    success, result = await action_handler.send_action_and_wait_for_response(action_event.to_dict())
-
-    if success and result:
-        logger.info(f"成功从适配器 '{adapter_id}' 获取机器人信息: {result}")
-        return result
-    else:
-        # 这样处理就安全多了
-        error_info = result.get("error") if isinstance(result, dict) else "未知错误或无响应"
-        logger.warning(f"从适配器 '{adapter_id}' 获取机器人信息失败: {error_info}")
-        return None
+    return None
