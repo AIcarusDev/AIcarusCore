@@ -186,7 +186,7 @@ class FocusChatCycler:
                 "reply_willing": False,
                 "motivation": "系统错误导致无法思考",
             }
-            return
+            return False
 
         parsed_data = self.llm_response_handler.parse(response_text)
         if not parsed_data:
@@ -196,7 +196,7 @@ class FocusChatCycler:
                 "reply_willing": False,
                 "motivation": "系统错误导致无法解析LLM的胡言乱语",
             }
-            return
+            return False
 
         if "mood" not in parsed_data:
             parsed_data["mood"] = "平静"
@@ -204,7 +204,7 @@ class FocusChatCycler:
 
         if await self.llm_response_handler.handle_end_focus_chat_if_needed(parsed_data):
             self._shutting_down = True
-            return
+            return True
 
         # 2. 执行动作
         action_recorded = await self.action_executor.execute_action(parsed_data, uid_map)

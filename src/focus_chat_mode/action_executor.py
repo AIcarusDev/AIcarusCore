@@ -184,7 +184,7 @@ class ActionExecutor:
 
             # 这里也不需要再加到内存列表里了
             self.session.message_count_since_last_summary += 1
-            return True
+            return False
         except Exception as e:
             logger.error(f"Failed to save internal ACT event: {e}", exc_info=True)
             return False
