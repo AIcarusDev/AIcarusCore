@@ -4,7 +4,9 @@ import json
 import time
 import uuid
 from contextlib import suppress
-from typing import Any
+from typing import Any, TYPE_CHECKING
+if TYPE_CHECKING:
+    from src.action.action_handler import ActionHandler
 
 import websockets
 from aicarus_protocols import ConversationInfo, SegBuilder
@@ -38,6 +40,7 @@ class CoreWebsocketServer:
         event_receiver: EventReceiver,
         action_sender: ActionSender,
         event_storage_service: EventStorageService,
+        action_handler_instance: "ActionHandler",
     ) -> None:
         self.host: str = host
         self.port: int = port
@@ -45,6 +48,7 @@ class CoreWebsocketServer:
         self.event_storage_service = event_storage_service
         self.event_receiver = event_receiver
         self.action_sender = action_sender
+        self.action_handler_instance = action_handler_instance
 
         # 连接状态信息由 CoreWebsocketServer 统一管理
         self.adapter_clients_info: dict[str, dict[str, Any]] = {}
@@ -101,6 +105,15 @@ class CoreWebsocketServer:
             f"适配器 '{display_name}({adapter_id})' 已连接: {websocket.remote_address}. 当前连接数: {len(self.adapter_clients_info)}"
         )
         await self._generate_and_store_system_event(adapter_id, display_name, "meta.lifecycle.adapter_connected")
+
+
+        try:
+            logger.info(f"向新连接的适配器 '{display_name}({adapter_id})' 发起档案同步请求 (上线安检)...")
+            # 调用我们给 ActionHandler 新加的 VIP 通道！
+            await self.action_handler_instance.system_get_bot_profile(adapter_id)
+            logger.info(f"已通过 ActionHandler 为适配器 '{adapter_id}' 派发档案同步任务。")
+        except Exception as e:
+            logger.error(f"在为适配器 '{adapter_id}' 派发上线安检任务时发生错误: {e}", exc_info=True)
 
     async def _unregister_adapter(self, websocket: WebSocketServerProtocol, reason: str = "连接关闭") -> None:
         """注销一个适配器，并通知 ActionSender。"""

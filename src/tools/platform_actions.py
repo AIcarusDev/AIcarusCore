@@ -105,24 +105,7 @@ async def send_reply_message(
     except Exception as e:
         error_msg = f"发送消息时发生错误: {e}"
         logger.error(error_msg, exc_info=True)
+
         return {"status": "failure", "reason": error_msg}
 
 
-async def get_bot_profile(
-    action_handler: ActionHandler,
-    adapter_id: str,
-    group_id: str | None = None,
-) -> dict[str, Any] | None:
-    """
-    获取指定适配器上机器人的详细信息。
-
-    Args:
-        action_handler: ActionHandler 的实例。
-        adapter_id: 目标适配器的ID。
-        group_id: (可选) 如果要获取在特定群聊中的信息，提供群组ID。
-
-    Returns:
-        一个包含机器人信息的字典，如果成功。
-        如果失败或超时，则返回 None。
-    """
-    return None

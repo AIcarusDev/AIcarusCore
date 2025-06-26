@@ -152,25 +152,21 @@ class ChatPromptBuilder:
         conversation_name_str = "未知会话"
         conversation_type_str = "未知类型"
 
-        persona_config = config.persona
-        bot_profile = None
-        final_bot_id = self.bot_id
-        final_bot_nickname = persona_config.bot_name or "bot"
-        final_bot_card = final_bot_nickname
 
-        if config.focus_chat_mode.enable_dynamic_bot_profile:
-            bot_profile = await session.get_bot_profile()
-            if bot_profile and bot_profile.get("user_id"):
-                final_bot_id = str(bot_profile["user_id"])
-                final_bot_nickname = bot_profile.get("nickname", final_bot_nickname)
-                final_bot_card = bot_profile.get("card", final_bot_nickname)
-                logger.info(
-                    f"动态获取机器人信息成功: ID={final_bot_id}, Nick={final_bot_nickname}, Card={final_bot_card}"
-                )
-            else:
-                logger.warning("动态获取机器人信息失败或信息不完整，将回退到使用配置文件中的信息。")
-        else:
-            logger.info("动态获取机器人信息功能已禁用，使用静态配置。")
+        # --- 智能获取机器人信息 (新版) ---
+        # 我们不再直接调用 get_bot_profile，而是通过 session 去拿，让 session 自己决定怎么获取最高效！
+        bot_profile = await session.get_bot_profile()
+
+        # 准备最终用于 prompt 的变量，并设置好后备值，防止接口调用失败
+        final_bot_id = str(bot_profile.get("user_id", self.bot_id))
+        final_bot_nickname = bot_profile.get("nickname", persona_config.bot_name or "bot")
+        final_bot_card = bot_profile.get("card", final_bot_nickname)
+        
+        logger.info(
+            f"[{self.conversation_id}] PromptBuilder 使用的机器人档案: "
+            f"ID={final_bot_id}, Nick={final_bot_nickname}, Card={final_bot_card}"
+        )
+        # --- 智能获取结束 ---
 
         platform_id_to_uid_str[final_bot_id] = "U0"
         user_map[final_bot_id] = {
