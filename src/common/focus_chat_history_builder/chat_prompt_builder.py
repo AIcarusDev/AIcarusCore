@@ -12,8 +12,6 @@ from aicarus_protocols.conversation_info import ConversationInfo
 from aicarus_protocols.event import Event
 from aicarus_protocols.seg import Seg
 from aicarus_protocols.user_info import UserInfo
-from aicarus_protocols.conversation_info import ConversationInfo
-from aicarus_protocols.common import extract_text_from_content
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
 
