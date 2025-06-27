@@ -1332,16 +1332,16 @@ class LLMClient:
                         current_pass_last_exception = e_unexpected
 
                     if key_idx < len(available_keys_this_pass) - 1:
-                        logger.info(f"密钥 {key_display} 尝试失败。将尝试本轮中的下一个可用密钥。")
+                        logger.warning(f"密钥 {key_display} 尝试失败。将尝试本轮中的下一个可用密钥。")
                     else:
-                        logger.info(f"密钥 {key_display} (本轮最后一个) 尝试失败。")
+                        logger.warning(f"密钥 {key_display} (本轮最后一个) 尝试失败。")
 
                 if current_pass_last_exception:
                     last_exception = current_pass_last_exception
 
                 if attempt_pass < max_retries:
                     wait_duration = INITIAL_RETRY_PASS_DELAY_SECONDS * (2**attempt_pass)
-                    logger.info(
+                    logger.warning(
                         f"第 {attempt_pass + 1} 次请求尝试轮未成功。"
                         f"等待 {wait_duration:.2f} 秒后进行下一次尝试轮 (如果适用)。"
                         f"本轮最后遇到的错误: {type(current_pass_last_exception).__name__ if current_pass_last_exception else '未明确记录'}"
