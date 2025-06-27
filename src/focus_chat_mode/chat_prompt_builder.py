@@ -94,13 +94,12 @@ class ChatPromptBuilder:
     ) -> tuple[str, str, str | None, dict[str, str], list[str], list[str]]:
         """
         构建专注聊天模式下给LLM的System Prompt和User Prompt。
-        返回值是一个元组，包含了所有需要的东西：
-        (system_prompt, user_prompt, last_valid_text_message, uid_to_pid_map, processed_event_ids, image_references)
+        哼，看好了，这才叫专业的组装方式！
         """
         # --- 步骤1：准备模板和一些通用信息 ---
         logger.debug(f"[{self.session.conversation_id}] 开始构建Prompt...")
 
-        user_nick = ""  # 私聊时对方的昵称，后面会填充
+        # 决定用哪个模板
         if self.session.conversation_type == "private":
             system_prompt_template = prompt_templates.PRIVATE_SYSTEM_PROMPT
             user_prompt_template = prompt_templates.PRIVATE_USER_PROMPT
@@ -156,8 +155,8 @@ class ChatPromptBuilder:
         )
 
         # --- 步骤3：使用新玩具返回的结果，准备剩下的Prompt零件 ---
-
-        # 如果是私聊，我们还需要从返回的 user_map 里找到对方的昵称
+        
+        user_nick = ""
         if self.session.conversation_type == "private":
             final_bot_id = str(bot_profile.get("user_id", self.bot_id))
             for p_id, user_data_val in user_map.items():
@@ -180,7 +179,7 @@ class ChatPromptBuilder:
             user_list_lines.append(user_line)
         user_list_block_str = "\n".join(user_list_lines)
 
-        # 构建上一轮思考的块 (这部分逻辑不变，因为它特定于专注聊天模式)
+        # 构建上一轮思考的块
         previous_thoughts_block_str = ""
         if is_first_turn:
             mood_part = f'你刚才的心情是"{session.initial_core_mood}"。\n' if session.initial_core_mood else ""
@@ -189,9 +188,7 @@ class ChatPromptBuilder:
                 if last_think_from_core
                 else "你已进入专注模式，开始处理此会话。\n"
             )
-            previous_thoughts_block_str = (
-                f"<previous_thoughts_and_actions>\n{mood_part}{think_part}</previous_thoughts_and_actions>"
-            )
+            previous_thoughts_block_str = f"{mood_part}{think_part}"
         elif last_llm_decision:
             think_content = last_llm_decision.get("think", "")
             mood_content = last_llm_decision.get("mood", "平静")
@@ -210,23 +207,24 @@ class ChatPromptBuilder:
                 action_desc = f"戳一戳 {poked_user_display}"
 
             prev_parts = [
-                f'<previous_thoughts_and_actions>\n刚刚你的心情是："{mood_content}"\n刚刚你的内心想法是："{think_content}"'
+                f'刚刚你的心情是："{mood_content}"\n刚刚你的内心想法是："{think_content}"'
             ]
             if action_desc:
                 prev_parts.append(f"出于这个想法，你刚才做了：{action_desc}")
             if motivation_content:
                 prev_parts.append(f"因为：{motivation_content}")
 
-            prev_parts.append("</previous_thoughts_and_actions>")
             previous_thoughts_block_str = "\n".join(prev_parts)
         else:
-            previous_thoughts_block_str = "<previous_thoughts_and_actions>\n我正在处理当前会话，但上一轮的思考信息似乎丢失了。\n</previous_thoughts_and_actions>"
+            previous_thoughts_block_str = "我正在处理当前会话，但上一轮的思考信息似乎丢失了。"
 
-        # --- 步骤4：组装最终的Prompt ---
+        # --- 步骤4：看好了！这里是核心改造！分别组装！ ---
+        
         final_bot_id = str(bot_profile.get("user_id", self.bot_id))
         final_bot_nickname = bot_profile.get("nickname", persona_config.bot_name or "bot")
         final_bot_card = bot_profile.get("card", final_bot_nickname)
 
+        # 组装 System Prompt
         if self.session.conversation_type == "group":
             system_prompt = system_prompt_template.format(
                 current_time=current_time_str,
@@ -237,7 +235,6 @@ class ChatPromptBuilder:
                 bot_nickname=final_bot_nickname,
                 conversation_name=self.session.conversation_name or "未知群聊",
                 bot_card=final_bot_card,
-                no_action_guidance=no_action_guidance_str,
             )
         else:  # private
             system_prompt = system_prompt_template.format(
@@ -246,15 +243,16 @@ class ChatPromptBuilder:
                 bot_id=final_bot_id,
                 optional_description=bot_description_str,
                 optional_profile=bot_profile_str,
-                no_action_guidance=no_action_guidance_str,
                 user_nick=user_nick,
             )
-
+        
+        # 组装 User Prompt
         user_prompt = user_prompt_template.format(
             conversation_info_block=conversation_info_block_str,
             user_list_block=user_list_block_str,
             chat_history_log_block=chat_history_log_block_str,
             previous_thoughts_block=previous_thoughts_block_str,
+            no_action_guidance=no_action_guidance_str, # 把这个塞到 <notice> 块里
         )
 
         logger.debug(f"[{self.session.conversation_id}] Prompts构建完成 (使用通用格式化工具)。")
