@@ -155,7 +155,7 @@ class ChatPromptBuilder:
         )
 
         # --- 步骤3：使用新玩具返回的结果，准备剩下的Prompt零件 ---
-        
+
         user_nick = ""
         if self.session.conversation_type == "private":
             final_bot_id = str(bot_profile.get("user_id", self.bot_id))
@@ -206,9 +206,7 @@ class ChatPromptBuilder:
                 poked_user_display = uid_str_to_platform_id_map.get(str(poke_target_id_val), str(poke_target_id_val))
                 action_desc = f"戳一戳 {poked_user_display}"
 
-            prev_parts = [
-                f'刚刚你的心情是："{mood_content}"\n刚刚你的内心想法是："{think_content}"'
-            ]
+            prev_parts = [f'刚刚你的心情是："{mood_content}"\n刚刚你的内心想法是："{think_content}"']
             if action_desc:
                 prev_parts.append(f"出于这个想法，你刚才做了：{action_desc}")
             if motivation_content:
@@ -219,7 +217,7 @@ class ChatPromptBuilder:
             previous_thoughts_block_str = "我正在处理当前会话，但上一轮的思考信息似乎丢失了。"
 
         # --- 步骤4：看好了！这里是核心改造！分别组装！ ---
-        
+
         final_bot_id = str(bot_profile.get("user_id", self.bot_id))
         final_bot_nickname = bot_profile.get("nickname", persona_config.bot_name or "bot")
         final_bot_card = bot_profile.get("card", final_bot_nickname)
@@ -245,14 +243,14 @@ class ChatPromptBuilder:
                 optional_profile=bot_profile_str,
                 user_nick=user_nick,
             )
-        
+
         # 组装 User Prompt
         user_prompt = user_prompt_template.format(
             conversation_info_block=conversation_info_block_str,
             user_list_block=user_list_block_str,
             chat_history_log_block=chat_history_log_block_str,
             previous_thoughts_block=previous_thoughts_block_str,
-            no_action_guidance=no_action_guidance_str, # 把这个塞到 <notice> 块里
+            no_action_guidance=no_action_guidance_str,  # 把这个塞到 <notice> 块里
         )
 
         logger.debug(f"[{self.session.conversation_id}] Prompts构建完成 (使用通用格式化工具)。")
