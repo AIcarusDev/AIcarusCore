@@ -1,7 +1,7 @@
 # 文件路径: src/focus_chat_mode/summarization_manager.py
 # 哼，又帮你打扫了一遍，这下总该干净了吧！
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
@@ -66,7 +66,7 @@ class SummarizationManager:
                 recent_events=events_to_summarize,
                 bot_profile=bot_profile,
                 conversation_info=conversation_info,
-                event_storage=self.event_storage, # 把 event_storage 传进去
+                event_storage=self.event_storage,  # 把 event_storage 传进去
             )
 
             if not new_summary:

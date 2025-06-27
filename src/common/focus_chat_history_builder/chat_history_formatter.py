@@ -12,6 +12,7 @@ from aicarus_protocols.conversation_info import ConversationInfo
 from aicarus_protocols.event import Event
 from aicarus_protocols.seg import Seg
 from aicarus_protocols.user_info import UserInfo
+
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
 
@@ -35,7 +36,7 @@ async def format_chat_history_for_llm(
     # --- 新增一个参数，让它也能直接处理传入的事件列表 ---
     raw_events_from_caller: list[dict[str, Any]] | None = None,
     # 其他可能需要的参数...
-) -> tuple[str, dict, dict, list[str], list[str], str | None, str | None]: # 【【【修改点1：返回值签名】】】
+) -> tuple[str, dict, dict, list[str], list[str], str | None, str | None]:  # 【【【修改点1：返回值签名】】】
     """
     一个通用的聊天记录格式化工具，哼，真麻烦。
     它负责从数据库获取事件，处理用户映射，格式化聊天记录，还顺便处理了那些烦人的图片。
@@ -60,8 +61,8 @@ async def format_chat_history_for_llm(
         uid_str_to_platform_id_map: dict,
         processed_event_ids: list[str],
         image_references: list[str],
-        conversation_name_str: str | None, 
-        last_valid_text_message: str | None 
+        conversation_name_str: str | None,
+        last_valid_text_message: str | None
     )
     """
     # 确保临时目录存在
@@ -110,13 +111,12 @@ async def format_chat_history_for_llm(
                     raw_data=event_dict.get("raw_data") if isinstance(event_dict.get("raw_data"), dict) else None,
                 )
                 if motivation:
-                    setattr(event_obj, "motivation", motivation)
+                    event_obj.motivation = motivation
                 raw_events.append(event_obj)
             except Exception as e_conv:
                 logger.bind(event_dict=event_dict).error(
                     f"将数据库事件字典转换为Event对象时出错: {e_conv}", exc_info=True
                 )
-
 
     # --- Deduplicate raw_events (based on your existing logic) ---
     if raw_events:
@@ -399,6 +399,6 @@ async def format_chat_history_for_llm(
         uid_str_to_platform_id_map,
         processed_event_ids,
         image_references,
-        conversation_name_str, # 返回正确的群名
-        last_valid_text_message, # 返回我们找到的最后一条文本消息
+        conversation_name_str,  # 返回正确的群名
+        last_valid_text_message,  # 返回我们找到的最后一条文本消息
     )

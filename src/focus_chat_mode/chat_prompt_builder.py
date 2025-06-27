@@ -1,21 +1,12 @@
 # chat_prompt_builder.py
 
-import base64
 import os
-import uuid
-from collections import OrderedDict
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from src.common.focus_chat_history_builder.chat_history_formatter import format_chat_history_for_llm
-from aicarus_protocols.common import extract_text_from_content
-from aicarus_protocols.conversation_info import ConversationInfo
-from aicarus_protocols.event import Event
-from aicarus_protocols.seg import Seg
-from aicarus_protocols.user_info import UserInfo
-
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logging_config import get_logger
+from src.common.focus_chat_history_builder.chat_history_formatter import format_chat_history_for_llm
 
 # 导入你的顶层config对象
 from src.config import config  # 假设你的顶层配置对象叫 config
@@ -108,7 +99,7 @@ class ChatPromptBuilder:
         """
         # --- 步骤1：准备模板和一些通用信息 ---
         logger.debug(f"[{self.session.conversation_id}] 开始构建Prompt...")
-        
+
         user_nick = ""  # 私聊时对方的昵称，后面会填充
         if self.session.conversation_type == "private":
             system_prompt_template = prompt_templates.PRIVATE_SYSTEM_PROMPT
@@ -134,7 +125,7 @@ class ChatPromptBuilder:
         # --- 步骤2：调用新玩具，获取所有格式化好的聊天记录相关信息 ---
         logger.debug(f"[{self.session.conversation_id}] 调用通用聊天记录格式化工具...")
         bot_profile = await session.get_bot_profile()
-        
+
         # 喊一声新玩具的名字，它就把所有脏活累活都干完了！
         (
             chat_history_log_block_str,
@@ -160,10 +151,12 @@ class ChatPromptBuilder:
         if conversation_name_from_formatter and self.session.conversation_name != conversation_name_from_formatter:
             self.session.conversation_name = conversation_name_from_formatter
             logger.info(f"[{self.session.conversation_id}] 会话名称已更新为: '{self.session.conversation_name}'")
-        logger.debug(f"[{self.session.conversation_id}] 通用格式化工具执行完毕，获取到 {len(processed_event_ids)} 个新事件ID。")
+        logger.debug(
+            f"[{self.session.conversation_id}] 通用格式化工具执行完毕，获取到 {len(processed_event_ids)} 个新事件ID。"
+        )
 
         # --- 步骤3：使用新玩具返回的结果，准备剩下的Prompt零件 ---
-        
+
         # 如果是私聊，我们还需要从返回的 user_map 里找到对方的昵称
         if self.session.conversation_type == "private":
             final_bot_id = str(bot_profile.get("user_id", self.bot_id))
@@ -171,12 +164,10 @@ class ChatPromptBuilder:
                 if user_data_val.get("uid_str") == "U1" and p_id != final_bot_id:
                     user_nick = user_data_val.get("nick", "对方")
                     break
-        
+
         # 构建会话信息和用户列表块
-        conversation_info_block_str = (
-            f'- conversation_name: "{self.session.conversation_name or "未知会话"}"\n- conversation_type: "{self.session.conversation_type}"'
-        )
-        
+        conversation_info_block_str = f'- conversation_name: "{self.session.conversation_name or "未知会话"}"\n- conversation_type: "{self.session.conversation_type}"'
+
         user_list_lines = []
         sorted_user_platform_ids = sorted(user_map.keys(), key=lambda pid_sort: int(user_map[pid_sort]["uid_str"][1:]))
         for p_id_list in sorted_user_platform_ids:
@@ -193,8 +184,14 @@ class ChatPromptBuilder:
         previous_thoughts_block_str = ""
         if is_first_turn:
             mood_part = f'你刚才的心情是"{session.initial_core_mood}"。\n' if session.initial_core_mood else ""
-            think_part = f"你刚才的想法是：{last_think_from_core}\n\n现在你刚刚把注意力放到这个会话中；\n\n原因是：你对当前聊天内容有点兴趣\n" if last_think_from_core else "你已进入专注模式，开始处理此会话。\n"
-            previous_thoughts_block_str = f"<previous_thoughts_and_actions>\n{mood_part}{think_part}</previous_thoughts_and_actions>"
+            think_part = (
+                f"你刚才的想法是：{last_think_from_core}\n\n现在你刚刚把注意力放到这个会话中；\n\n原因是：你对当前聊天内容有点兴趣\n"
+                if last_think_from_core
+                else "你已进入专注模式，开始处理此会话。\n"
+            )
+            previous_thoughts_block_str = (
+                f"<previous_thoughts_and_actions>\n{mood_part}{think_part}</previous_thoughts_and_actions>"
+            )
         elif last_llm_decision:
             think_content = last_llm_decision.get("think", "")
             mood_content = last_llm_decision.get("mood", "平静")
@@ -211,7 +208,7 @@ class ChatPromptBuilder:
             elif poke_target_id_val:
                 poked_user_display = uid_str_to_platform_id_map.get(str(poke_target_id_val), str(poke_target_id_val))
                 action_desc = f"戳一戳 {poked_user_display}"
-            
+
             prev_parts = [
                 f'<previous_thoughts_and_actions>\n刚刚你的心情是："{mood_content}"\n刚刚你的内心想法是："{think_content}"'
             ]
@@ -229,7 +226,7 @@ class ChatPromptBuilder:
         final_bot_id = str(bot_profile.get("user_id", self.bot_id))
         final_bot_nickname = bot_profile.get("nickname", persona_config.bot_name or "bot")
         final_bot_card = bot_profile.get("card", final_bot_nickname)
-        
+
         if self.session.conversation_type == "group":
             system_prompt = system_prompt_template.format(
                 current_time=current_time_str,
@@ -242,7 +239,7 @@ class ChatPromptBuilder:
                 bot_card=final_bot_card,
                 no_action_guidance=no_action_guidance_str,
             )
-        else: # private
+        else:  # private
             system_prompt = system_prompt_template.format(
                 current_time=current_time_str,
                 bot_name=bot_name_str,
@@ -270,7 +267,7 @@ class ChatPromptBuilder:
             f"{user_prompt}\n"
             f"=================================================================="
         )
-        
+
         # --- 步骤5：把所有需要的东西都吐出去，一个都不能少！ ---
         return (
             system_prompt,

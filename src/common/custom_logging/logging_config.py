@@ -1,10 +1,10 @@
 # src/common/custom_logging/logging_config.py (小懒猫·最终防线版)
 import os
 import sys
-import threading # <--- 把它请进来！
+import threading  # <--- 把它请进来！
 import zipfile
+from datetime import datetime, timedelta
 from pathlib import Path
-from datetime import date, datetime, timedelta
 
 from loguru import logger
 
@@ -16,7 +16,6 @@ MODULE_CONFIG_MAP = {
     # 根模块
     "main": ("主程序", "white"),
     "__main__": ("主程序", "white"),
-
     # AIcarusCore 顶级模块
     "action": ("动作处理", "light-magenta"),
     "common": ("通用模块", "white"),
@@ -29,12 +28,10 @@ MODULE_CONFIG_MAP = {
     "message_processing": ("消息处理", "magenta"),
     "plugins": ("插件", "purple"),
     "tools": ("工具箱", "blue"),
-
     # 动作处理
     "action.action_handler": ("动作处理", "light-magenta"),
     "action.providers.internal_tools_provider": ("内部工具提供", "magenta"),
     "action.components.action_decision_maker": ("动作决策", "magenta"),
-
     # 通用模块
     "common.custom_logging.logging_config": ("日志配置", "white"),
     "common.custom_logging.logger_manager": ("日志管理", "white"),
@@ -43,17 +40,14 @@ MODULE_CONFIG_MAP = {
     "common.summarization_observation.summarization_service": ("观察摘要", "light-black"),
     "common.utils": ("通用工具", "white"),
     "common.summarization_observation": ("观察摘要", "light-black"),
-
     # 配置
     "config.config_io": ("配置IO", "yellow"),
     "config.config_manager": ("配置管理", "yellow"),
     "config.config_updater": ("配置更新", "yellow"),
-
     # 核心通信
     "core_communication.action_sender": ("动作发送", "yellow"),
     "core_communication.core_ws_server": ("核心WS服务", "yellow"),
     "core_communication.event_receiver": ("事件接收", "yellow"),
-
     # 核心逻辑
     "core_logic.consciousness_flow": ("核心循环", "yellow"),
     "core_logic.context_builder": ("上下文构建", "yellow"),
@@ -63,7 +57,6 @@ MODULE_CONFIG_MAP = {
     "core_logic.thought_generator": ("思考生成", "yellow"),
     "core_logic.thought_persistor": ("思考持久化", "yellow"),
     "core_logic.unread_info_service": ("未读服务", "yellow"),
-
     # 数据库
     "database.core.connection_manager": ("数据库核心", "cyan"),
     "database.models": ("数据库模型", "cyan"),
@@ -73,7 +66,6 @@ MODULE_CONFIG_MAP = {
     "database.services.summary_storage_service": ("摘要存储", "cyan"),
     "database.services.thought_storage_service": ("思考存储", "cyan"),
     "database.services": ("数据库服务", "cyan"),
-
     # 专注聊天
     "focus_chat_mode.action_executor": ("动作执行", "green"),
     "focus_chat_mode.chat_session": ("专注会话", "light-green"),
@@ -81,7 +73,6 @@ MODULE_CONFIG_MAP = {
     "focus_chat_mode.focus_chat_cycler": ("专注循环", "green"),
     "focus_chat_mode.llm_response_handler": ("LLM响应处理", "green"),
     "focus_chat_mode.summarization_manager": ("摘要管理", "green"),
-
     # LLM & 工具
     "llmrequest.llm_processor": ("LLM处理", "light-blue"),
     "llmrequest.utils_model": ("LLM底层", "blue"),
@@ -89,7 +80,6 @@ MODULE_CONFIG_MAP = {
     "tools.platform_actions": ("平台动作", "blue"),
     "tools.web_searcher": ("网页搜索", "blue"),
     "tools.search": ("搜索工具", "blue"),
-
     # 消息处理
     "message_processing.default_message_processor": ("默认消息处理", "magenta"),
     "message_processing": ("消息处理器", "white"),
@@ -100,7 +90,8 @@ logger.remove()
 
 # --- 全局状态与锁 ---
 _handlers_created = set()
-_lock = threading.Lock() # <--- 这就是我们的贞操锁！
+_lock = threading.Lock()  # <--- 这就是我们的贞操锁！
+
 
 def _perform_daily_compression(log_file: Path) -> None:
     """哼，就是把昨天的日志文件打包成zip。小事一桩。"""
@@ -114,6 +105,7 @@ def _perform_daily_compression(log_file: Path) -> None:
         logger.trace(f"日志文件 '{log_file.name}' 已压缩至 '{zip_path.name}'。")
     except Exception as e:
         logger.error(f"压缩日志 '{log_file.name}' 时失败了: {e}")
+
 
 def _perform_monthly_archival(log_directory: Path, year: int, month: int) -> None:
     """把指定月份的每日压缩包都吃掉，打包成一个月度大礼包。"""
@@ -139,6 +131,7 @@ def _perform_monthly_archival(log_directory: Path, year: int, month: int) -> Non
     except Exception as e:
         logger.error(f"月度归档 {year_month_str} 失败: {e}")
 
+
 def custom_log_rotation_handler(file_path_to_compress_str: str, _: str) -> None:
     """
     这就是我们给 Loguru 的新玩具！它会在半夜被叫醒。
@@ -154,10 +147,9 @@ def custom_log_rotation_handler(file_path_to_compress_str: str, _: str) -> None:
         last_month_date = today - timedelta(days=1)
         logger.info(f"检测到月初，开始对 {last_month_date.year}年{last_month_date.month}月 的日志进行月度归档...")
         _perform_monthly_archival(
-            log_directory=file_to_compress.parent,
-            year=last_month_date.year,
-            month=last_month_date.month
+            log_directory=file_to_compress.parent, year=last_month_date.year, month=last_month_date.month
         )
+
 
 # --- 核心获取函数 (修改点在这里！) ---
 def get_logger(module_name: str):
@@ -174,7 +166,7 @@ def get_logger(module_name: str):
     if best_match_key:
         alias, color = MODULE_CONFIG_MAP[best_match_key]
     else:
-        alias = module_name.split('.')[-1]
+        alias = module_name.split(".")[-1]
         color = "white"
 
     handler_key = f"{alias}_{color}"
@@ -183,13 +175,13 @@ def get_logger(module_name: str):
     # 1. 计算最大显示宽度（考虑汉字占2个字符）
     max_width = 0
     for a, _ in MODULE_CONFIG_MAP.values():
-        width = sum(2 if '\u4e00' <= char <= '\u9fff' else 1 for char in a)
+        width = sum(2 if "\u4e00" <= char <= "\u9fff" else 1 for char in a)
         if width > max_width:
             max_width = width
             max_width -= 2  # ✨ 在这里手动减小总宽度！✨
-    
+
     # 2. 计算当前别名的显示宽度
-    current_alias_width = sum(2 if '\u4e00' <= char <= '\u9fff' else 1 for char in alias)
+    current_alias_width = sum(2 if "\u4e00" <= char <= "\u9fff" else 1 for char in alias)
 
     # 3. 计算总共需要填充的空格数
     total_padding = max_width - current_alias_width
@@ -197,7 +189,7 @@ def get_logger(module_name: str):
     # 4. 把空格一分为二，塞到两边
     left_padding = total_padding // 2
     right_padding = total_padding - left_padding
-    
+
     # 5. 生成我们最终用于显示的、带两边空格的别名
     padded_alias = f"{' ' * left_padding}{alias}{' ' * right_padding}"
     # ✨✨✨ 魔法结束 ✨✨✨
@@ -224,7 +216,7 @@ def get_logger(module_name: str):
 
             log_file_path = LOG_DIR / alias / "{time:YYYY-MM-DD}.log"
             log_file_path.parent.mkdir(parents=True, exist_ok=True)
-            
+
             # 文件日志也用同样的方式对齐
             file_format_str = "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <7} | {extra[padded_alias]} | {message}"
 
@@ -237,7 +229,7 @@ def get_logger(module_name: str):
                 compression=custom_log_rotation_handler,
                 encoding="utf-8",
                 enqueue=True,
-                filter=lambda record: record["extra"].get("padded_alias") == padded_alias
+                filter=lambda record: record["extra"].get("padded_alias") == padded_alias,
             )
 
             _handlers_created.add(handler_key)

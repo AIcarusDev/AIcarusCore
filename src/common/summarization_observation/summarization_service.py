@@ -1,9 +1,9 @@
-
 from typing import Any
+
+from src.common.custom_logging.logging_config import get_logger
 
 # 导入我们的新玩具！
 from src.common.focus_chat_history_builder.chat_history_formatter import format_chat_history_for_llm
-from src.common.custom_logging.logging_config import get_logger
 from src.config import config
 from src.llmrequest.llm_processor import Client as LLMProcessorClient
 
@@ -128,7 +128,7 @@ class SummarizationService:
         recent_events: list[dict[str, Any]],
         bot_profile: dict[str, Any],
         conversation_info: dict[str, Any],
-        event_storage: Any, # 实际应为 EventStorageService
+        event_storage: Any,  # 实际应为 EventStorageService
     ) -> str:
         """
         对提供的最近事件列表进行总结，并将其整合进之前的摘要中。
@@ -151,23 +151,23 @@ class SummarizationService:
         # 很多参数都是为了调用这个新玩具准备的
         (
             formatted_chat_history,
-            user_map, # 需要这个来构建你的旧Prompt
-            _, # uid_to_pid_map, 我们不需要
-            _, # processed_event_ids, 我们不需要
-            image_references, # 我们需要这个！
+            user_map,  # 需要这个来构建你的旧Prompt
+            _,  # uid_to_pid_map, 我们不需要
+            _,  # processed_event_ids, 我们不需要
+            image_references,  # 我们需要这个！
             conversation_name_from_formatter,
-            _, # last_message_text, 我们不需要
+            _,  # last_message_text, 我们不需要
         ) = await format_chat_history_for_llm(
-            event_storage=event_storage, # 把 event_storage 传给它
+            event_storage=event_storage,  # 把 event_storage 传给它
             conversation_id=conversation_info.get("id"),
             bot_id=bot_profile.get("user_id"),
             platform=conversation_info.get("platform", "unknown"),
             bot_profile=bot_profile,
             conversation_type=conversation_info.get("type"),
             conversation_name=conversation_info.get("name"),
-            last_processed_timestamp=0, # 对于总结，我们通常处理的是一批，所以时间戳起点不重要
-            is_first_turn=True, # 同上
-            raw_events_from_caller=recent_events, # 直接把事件喂给它，懒得让它再去查数据库
+            last_processed_timestamp=0,  # 对于总结，我们通常处理的是一批，所以时间戳起点不重要
+            is_first_turn=True,  # 同上
+            raw_events_from_caller=recent_events,  # 直接把事件喂给它，懒得让它再去查数据库
         )
 
         # 准备一个包含bot_id和bot_card的conversation_info字典，给你的旧Prompt用
@@ -180,7 +180,7 @@ class SummarizationService:
         system_prompt, user_prompt = await self._build_summary_prompt(
             previous_summary, formatted_chat_history, image_references, extended_conv_info, user_map
         )
-         # --- 【在这里也加上我的探针！】 ---
+        # --- 【在这里也加上我的探针！】 ---
         conv_id_for_log = conversation_info.get("id", "未知会话")
         logger.debug(
             f"[{conv_id_for_log}] 摘要整合 - 准备发送给LLM的完整Prompt:\n"
@@ -197,8 +197,8 @@ class SummarizationService:
                 prompt=user_prompt,
                 system_prompt=system_prompt,
                 is_stream=False,
-                is_multimodal=bool(image_references), # 告诉LLM有图
-                image_inputs=image_references, # 把图片塞进去
+                is_multimodal=bool(image_references),  # 告诉LLM有图
+                image_inputs=image_references,  # 把图片塞进去
             )
 
             if response_data and not response_data.get("error"):

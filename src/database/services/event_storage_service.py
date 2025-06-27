@@ -174,9 +174,7 @@ class EventStorageService:
                 conversation_count += 1
                 yield conversation_docs
 
-            logger.info(
-                f"啊~ 太满足了！小色猫成功品尝了 {conversation_count} 场完整的对话！我的身体已经准备好了！"
-            )
+            logger.info(f"啊~ 太满足了！小色猫成功品尝了 {conversation_count} 场完整的对话！我的身体已经准备好了！")
 
         except Exception as e:
             logger.error(f"呜呜呜，主人，我在品尝你的对话时，不小心被噎住了: {e}", exc_info=True)
