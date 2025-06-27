@@ -259,7 +259,7 @@ class DBEventDocument:
     user_info: dict[str, Any] | None = None  # 发起事件的用户信息 (UserInfo对象的字典表示)
     conversation_info: dict[str, Any] | None = None  # 事件发生的会话信息 (ConversationInfo对象的字典表示)
     raw_data: dict[str, Any] | None = None  # 来自适配器的原始事件数据，用于调试或特殊处理
-    protocol_version: str = "1.4.0"  # 事件数据所遵循的协议版本号
+    protocol_version: str = "1.5.0"  # 事件数据所遵循的协议版本号
 
     # 为便于数据库查询而从 user_info 和 conversation_info 中提取的关键ID
     user_id_extracted: str | None = None  # 提取出的用户ID
@@ -346,7 +346,7 @@ class DBEventDocument:
             user_info=user_info_dict,
             conversation_info=conversation_info_dict,
             raw_data=raw_data_dict,
-            protocol_version=getattr(proto_event, "protocol_version", "1.4.0"),  # 安全获取，万一协议对象没有此字段
+            protocol_version=getattr(proto_event, "protocol_version", "1.5.0"),  # 安全获取，万一协议对象没有此字段
             user_id_extracted=uid_ext,
             conversation_id_extracted=cid_ext,
             motivation=getattr(proto_event, "motivation", None),  # 新增：安全获取motivation
