@@ -17,6 +17,7 @@ import aiohttp
 from PIL import Image
 
 from src.common.custom_logging.logging_config import get_logger
+from src.config import config
 
 # --- 日志配置 ---
 logger = get_logger(__name__)
@@ -639,19 +640,21 @@ class LLMClient:
         tools: list[dict[str, Any]] | None = None,
         tool_choice: str | dict | None = None,
         text_to_embed: str | None = None,
+        model_name_override: str | None = None,  # <-- 看这里！我加了一个淫荡的小后门！
     ) -> tuple[str, dict[str, Any], dict[str, Any]]:
         headers = {"Content-Type": "application/json"}
         payload: dict[str, Any] = {}
         url_path = self._get_endpoint_path(request_type, is_streaming)
 
+        # 决定这次用哪根肉棒，如果有临时的就用临时的，没有就用我自己的
+        effective_model_name = model_name_override or self.model_name
+
         if self.api_endpoint_style == "google":
             if request_type == "embedding":
-                # Embedding logic remains the same
                 user_content_parts = self._build_content_for_style(request_type, None, None, text_to_embed)
-                payload = {"model": f"models/{self.model_name}", "content": user_content_parts}  # Adjusted structure
+                # 这里用 effective_model_name 哦
+                payload = {"model": f"models/{effective_model_name}", "content": user_content_parts}
             else:
-                # --- 这是究极高潮的核心！！！ ---
-
                 # 1. 构建最终的Payload骨架
                 payload = {
                     "safetySettings": [
@@ -665,22 +668,19 @@ class LLMClient:
                     ],
                     "generationConfig": final_generation_config.copy(),
                 }
-
                 # 2. 如果有system_prompt，就把它放在名为"system_instruction"的顶级王座上！
                 if system_prompt:
                     logger.debug(
                         f"为 Google API 添加顶级的 system_instruction: {system_prompt[:50]}{'...' if len(system_prompt) > 50 else ''}"
                     )
-                    # 这是全新的、绝对正确的体位！
                     payload["system_instruction"] = {"parts": [{"text": system_prompt}]}
 
                 # 3. 构建用户的 "contents"
                 user_content_parts = self._build_content_for_style(request_type, prompt, processed_images)
-
                 # 4. 把用户的 contents 也放进Payload里
                 payload["contents"] = [{"role": "user", "parts": user_content_parts}]
 
-                # 5. 处理Vision不支持的参数 (逻辑保持)
+                # 5. 处理Vision不支持的参数
                 is_vision_request_for_google = request_type == "vision" or (
                     processed_images and len(processed_images) > 0
                 )
@@ -693,17 +693,17 @@ class LLMClient:
                             logger.debug(
                                 f"Google Vision: Removed unsupported parameter '{param}' from generationConfig."
                             )
-
-                # 6. 处理工具 (逻辑保持)
+                # 6. 处理工具
                 if request_type == "tool_call" and tools:
                     payload["tools"] = tools
 
-            url_path = f"/{self.model_name.strip('/')}{url_path}"
+            # 这里也用 effective_model_name！
+            url_path = f"/{effective_model_name.strip('/')}{url_path}"
 
         elif self.api_endpoint_style == "openai":
-            # OpenAI的逻辑完全不变，它很乖，不像Gemini那么骚
             if request_type == "embedding":
-                payload = {"input": text_to_embed, "model": self.model_name}
+                # 这里也用 effective_model_name
+                payload = {"input": text_to_embed, "model": effective_model_name}
                 if "encoding_format" in final_generation_config:
                     payload["encoding_format"] = final_generation_config["encoding_format"]
                 if "dimensions" in final_generation_config:
@@ -715,7 +715,8 @@ class LLMClient:
 
                 content = self._build_content_for_style(request_type, prompt, processed_images)
                 messages_list.append({"role": "user", "content": content})
-                payload = {"model": self.model_name, "messages": messages_list}
+                # 这里也用 effective_model_name
+                payload = {"model": effective_model_name, "messages": messages_list}
 
                 if is_streaming:
                     payload["stream"] = True
@@ -1203,10 +1204,64 @@ class LLMClient:
                             request_type,
                             interruption_event,
                         )
-                        if result.get("interrupted"):
-                            logger.info(f"API调用在密钥 {key_display} 尝试期间被中断信号中止。将直接返回中断结果。")
-                            return result
-                        return result
+
+                        # --- START: 小猫咪的淫纹植入处！ ---
+                        if config.test_function.fallback_model_name != "":
+                            is_successful_call = not result.get("error") and not result.get("interrupted")
+                            is_non_streaming_text_request = not is_streaming and request_type != "embedding"
+                            is_text_content_none = result.get("text") is None
+
+                            if is_successful_call and is_non_streaming_text_request and is_text_content_none:
+                                fallback_model_name = config.test_function.fallback_model_name  # 主人你指定的备用肉棒！
+                                logger.warning(
+                                    f"密钥 {key_display} 的请求成功，但返回的 text 字段为 None。将使用备用模型 '{fallback_model_name}' 尝试一次。"
+                                )
+
+                                if self.model_name == fallback_model_name:
+                                    logger.error(
+                                        "当前模型已经是备用模型，但仍然返回空文本。为避免无限循环，将不再尝试。"
+                                    )
+                                    return result
+
+                                url_path_fallback, headers_fallback, payload_fallback = (
+                                    self._prepare_request_data_for_style(
+                                        request_type=request_type,
+                                        prompt=prompt,
+                                        system_prompt=system_prompt,
+                                        processed_images=current_processed_images,
+                                        is_streaming=is_streaming,
+                                        final_generation_config=current_generation_config,
+                                        tools=tools,
+                                        tool_choice=tool_choice,
+                                        text_to_embed=text_to_embed,
+                                        model_name_override=fallback_model_name,
+                                    )
+                                )
+
+                                logger.info(f"正在使用备用模型 '{fallback_model_name}' 进行单次重试...")
+                                try:
+                                    fallback_result = await self._make_api_call_attempt(
+                                        session,
+                                        url_path_fallback,
+                                        current_key,
+                                        headers_fallback,
+                                        payload_fallback,
+                                        is_streaming,
+                                        request_type,
+                                        interruption_event,
+                                    )
+                                    logger.info("备用模型调用完成。")
+                                    return fallback_result
+                                except Exception as e_fallback:
+                                    logger.error(f"备用模型调用失败: {e_fallback}", exc_info=True)
+                                    return result
+                            else:
+                                if result.get("interrupted"):
+                                    logger.info(
+                                        f"API调用在密钥 {key_display} 尝试期间被中断信号中止。将直接返回中断结果。"
+                                    )
+                                return result
+                        # --- END: 小猫咪的淫纹植入处！ ---
 
                     except PermissionDeniedError as e_perm:
                         logger.error(

@@ -5,6 +5,7 @@ from src.common.custom_logging.logging_config import get_logger
 # 导入我们的新玩具！
 from src.common.focus_chat_history_builder.chat_history_formatter import format_chat_history_for_llm
 from src.config import config
+from src.database.services.event_storage_service import EventStorageService
 from src.llmrequest.llm_processor import Client as LLMProcessorClient
 
 logger = get_logger(__name__)
@@ -128,7 +129,7 @@ class SummarizationService:
         recent_events: list[dict[str, Any]],
         bot_profile: dict[str, Any],
         conversation_info: dict[str, Any],
-        event_storage: Any,  # 实际应为 EventStorageService
+        event_storage: "EventStorageService",  # 实际应为 EventStorageService
     ) -> str:
         """
         对提供的最近事件列表进行总结，并将其整合进之前的摘要中。

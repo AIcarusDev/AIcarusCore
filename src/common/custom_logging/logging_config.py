@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from loguru import logger
+from loguru._logger import Logger
 
 # --- 核心配置 (不变) ---
 LOG_DIR = Path(os.getcwd()) / "logs"
@@ -82,7 +83,6 @@ MODULE_CONFIG_MAP = {
     "tools.search": ("搜索工具", "blue"),
     # 消息处理
     "message_processing.default_message_processor": ("默认消息处理", "magenta"),
-    "message_processing": ("消息处理器", "white"),
 }
 
 # --- Loguru 初始化 (不变) ---
@@ -151,8 +151,7 @@ def custom_log_rotation_handler(file_path_to_compress_str: str, _: str) -> None:
         )
 
 
-# --- 核心获取函数 (修改点在这里！) ---
-def get_logger(module_name: str):
+def get_logger(module_name: str) -> Logger:
     """
     获取一个为指定模块配置好的 logger 实例 (小懒猫·视觉居中完美版)。
     """
