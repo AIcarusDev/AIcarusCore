@@ -195,7 +195,7 @@ async def format_chat_history_for_llm(
             if not user_nick:
                 user_nick = "对方"  # 最终后备
 
-    conversation_info_block_str = (
+    _conversation_info_block_str = (
         f'- conversation_name: "{conversation_name_str}"\n- conversation_type: "{conversation_type}"'
     )
 
@@ -210,7 +210,7 @@ async def format_chat_history_for_llm(
         else:  # group
             user_line = f"{user_data_item['uid_str']}: {p_id_list}{user_identity_suffix} [nick:{user_data_item['nick']}, card:{user_data_item['card']}, title:{user_data_item['title']}, perm:{user_data_item['perm']}]"
         user_list_lines.append(user_line)
-    user_list_block_str = "\n".join(user_list_lines)
+    _user_list_block_str = "\n".join(user_list_lines)
 
     # --- Step 5: Build chat history log ---
     chat_log_lines: list[str] = []

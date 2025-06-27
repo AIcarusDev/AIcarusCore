@@ -7,7 +7,7 @@
 # Inner Settings (内部配置，一般无需更改此部分内容)
 # ===============================
 [inner]
-version = "0.0.13"  # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
+version = "0.0.14"  # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
 protocol_version = "1.5.0"  # Aicarus-Message-Protocol 标准通信协议版本号，确保与客户端和其他服务兼容。
 
 # ===============================
@@ -153,6 +153,7 @@ name = "未來星織"
 [test_function]  # 测试用，一般不用考虑
 enable_test_group = false  # 是否启用测试模式。
 test_group = ["123456"]  # 测试群组列表，用于指定哪些群组启用测试功能。
+fallback_model_name = ""  # 用于给审查严格的 gemini-2.5-flash 兜底函数，如不启用留空即可。
 
 # ===============================
 # RuntimeEnvironmentSettings (运行环境设置)

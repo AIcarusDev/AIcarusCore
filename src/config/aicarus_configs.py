@@ -215,6 +215,9 @@ class TestFunctionConfig(ConfigBase):
     test_group: list[str] = field(default_factory=list)
     """测试群组列表，用于指定哪些群组启用测试功能。"""
 
+    fallback_model_name: str = ""
+    """用于给审查严格的 gemini-2.5-flash 兜底函数，如不启用留空即可。"""
+
 
 @dataclass
 class SpeakerWeightEntry(ConfigBase):
