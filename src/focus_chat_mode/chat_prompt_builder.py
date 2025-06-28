@@ -125,8 +125,10 @@ class ChatPromptBuilder:
         unread_summary_str = "所有其他会话均无未读消息。"
         if self.session.core_logic and self.session.core_logic.prompt_builder:
             try:
-                unread_summary_str = await self.session.core_logic.prompt_builder.unread_info_service.generate_unread_summary_text(
-                    exclude_conversation_id=self.session.conversation_id
+                unread_summary_str = (
+                    await self.session.core_logic.prompt_builder.unread_info_service.generate_unread_summary_text(
+                        exclude_conversation_id=self.session.conversation_id
+                    )
                 )
             except Exception as e:
                 logger.error(f"[{self.session.conversation_id}] 获取未读消息摘要失败: {e}", exc_info=True)

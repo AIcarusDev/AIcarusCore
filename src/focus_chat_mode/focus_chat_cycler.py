@@ -11,6 +11,7 @@ from src.config import config
 
 if TYPE_CHECKING:
     from src.common.intelligent_interrupt_system.intelligent_interrupter import IntelligentInterrupter
+
     from .chat_session import ChatSession
 
 logger = get_logger(__name__)
@@ -57,7 +58,7 @@ class FocusChatCycler:
             return
         self._shutting_down = True
         logger.info(f"[FocusChatCycler][{self.session.conversation_id}] 正在关闭...")
-        self._wakeup_event.set() # 唤醒可能在等待的循环，让它能立刻检查到关闭状态
+        self._wakeup_event.set()  # 唤醒可能在等待的循环，让它能立刻检查到关闭状态
         if self._loop_task:
             self._loop_task.cancel()
             try:
@@ -131,7 +132,7 @@ class FocusChatCycler:
                     async with self.session.processing_lock:
                         llm_response = await llm_task
                         should_terminate = await self.llm_response_handler.handle_decision(llm_response)
-                        
+
                         if should_terminate:
                             logger.info(f"[{self.session.conversation_id}] 根据LLM决策或转移指令，本会话即将终止。")
                             break
@@ -159,7 +160,7 @@ class FocusChatCycler:
 
         logger.info(f"[{self.session.conversation_id}] 专注聊天循环已结束。")
         if not self._shutting_down:
-             await self.session.chat_session_manager.deactivate_session(self.session.conversation_id)
+            await self.session.chat_session_manager.deactivate_session(self.session.conversation_id)
 
     async def _prepare_and_think(self) -> tuple[str, str, str | None, dict, list, list]:
         """准备Prompt，并返回所有需要的数据。"""
@@ -188,7 +189,7 @@ class FocusChatCycler:
             self._wakeup_event.clear()
             await asyncio.wait_for(self._wakeup_event.wait(), timeout=interval)
             logger.info(f"[{self.session.conversation_id}] 被新消息刺激到，立即开始下一轮。")
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.info(f"[{self.session.conversation_id}] 贤者时间结束，主动开始下一轮。")
 
     async def _check_for_interruptions_internal(self) -> bool:
@@ -219,16 +220,20 @@ class FocusChatCycler:
 
                         if not text_to_check:
                             continue
-                        
+
                         pure_text_to_check = re.sub(r"@\S+\s*", "", text_to_check).strip()
                         trigger_text = self.current_trigger_message_text or ""
 
-                        if (pure_text_to_check and trigger_text and (pure_text_to_check in trigger_text or trigger_text in pure_text_to_check)):
+                        if (
+                            pure_text_to_check
+                            and trigger_text
+                            and (pure_text_to_check in trigger_text or trigger_text in pure_text_to_check)
+                        ):
                             logger.debug(
                                 f"[{self.session.conversation_id}] IIS跳过了触发思考的自身事件 (净化后包含): '{text_to_check}'"
                             )
                             continue
-                        
+
                         # 这就是核心判断！
                         if self.intelligent_interrupter.should_interrupt(
                             new_message=message_to_check,
@@ -237,18 +242,18 @@ class FocusChatCycler:
                             logger.info(
                                 f"[{self.session.conversation_id}] IIS决策：中断！啊~ (基于初始上下文 '{self.context_for_iis}')"
                             )
-                            return True # 发现需要中断，立刻返回True
+                            return True  # 发现需要中断，立刻返回True
 
                     # 如果检查了一圈没有中断，就更新时间戳，以免重复检查旧消息
                     last_checked_timestamp_ms = new_events[-1]["timestamp"]
 
-                await asyncio.sleep(0.5) # 稍微休息一下，别那么累
+                await asyncio.sleep(0.5)  # 稍微休息一下，别那么累
             except asyncio.CancelledError:
                 # 如果被取消了，说明LLM那边完事了，我们也该结束了
                 return False
             except Exception as e:
                 logger.error(f"[{self.session.conversation_id}] 中断检查器内部发生错误: {e}", exc_info=True)
-                await asyncio.sleep(2) # 出错了就多睡一会儿
+                await asyncio.sleep(2)  # 出错了就多睡一会儿
 
         return False  # 正常结束（比如_shutting_down被设置），没有中断
 

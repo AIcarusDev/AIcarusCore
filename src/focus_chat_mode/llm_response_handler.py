@@ -54,7 +54,7 @@ class LLMResponseHandler:
         if parsed_data.get("end_focused_chat") is True:
             logger.info(f"[{self.session.conversation_id}] LLM决策结束专注模式。")
             await self._trigger_session_deactivation(parsed_data)
-            return True # 会话结束，返回True
+            return True  # 会话结束，返回True
 
         # 2. 检查是否要转移专注
         # 我用我最喜欢的 .get() 姿势，安全又舒服
@@ -63,12 +63,12 @@ class LLMResponseHandler:
             logger.info(f"[{self.session.conversation_id}] LLM决策转移专注到: {target_conv_id}")
             # 执行转移逻辑
             await self._handle_focus_shift(parsed_data, target_conv_id)
-            return True # 成功发起转移后，当前会话也算结束了，返回True
+            return True  # 成功发起转移后，当前会话也算结束了，返回True
 
         # 3. 如果既不结束也不转移，那就继续执行常规动作（发言或记录思考）
         # 这个动作的执行结果不再决定循环是否终止
         await self.session.action_executor.execute_action(parsed_data, self.session.cycler.uid_map)
-        return False # 常规操作，会话继续，返回False
+        return False  # 常规操作，会话继续，返回False
 
     async def _handle_focus_shift(self, parsed_data: dict, target_conv_id: str) -> None:
         """处理专注模式的转移。"""
@@ -81,8 +81,7 @@ class LLMResponseHandler:
         logger.info(f"[{self.session.conversation_id}] 准备执行最终总结，为转移做准备。")
         shift_motivation = parsed_data.get("motivation_for_shift", "看到一个更有趣的话题。")
         await self.session.summarization_manager.create_and_save_final_summary(
-            shift_motivation=shift_motivation,
-            target_conversation_id=target_conv_id
+            shift_motivation=shift_motivation, target_conversation_id=target_conv_id
         )
 
         # c. 准备交接的“灵魂包裹”
@@ -97,13 +96,12 @@ class LLMResponseHandler:
                 last_focus_think=last_session_think,
                 last_focus_mood=last_session_mood,
                 # 把新的目标也告诉主意识，让它去激活
-                activate_new_focus_id=target_conv_id
+                activate_new_focus_id=target_conv_id,
             )
-        
+
         # e. 让自己这个会话安乐死
         if hasattr(self.chat_session_manager, "deactivate_session"):
             await self.chat_session_manager.deactivate_session(self.session.conversation_id)
-
 
     async def _trigger_session_deactivation(self, parsed_data: dict) -> None:
         """触发会话的正常关闭流程。"""
@@ -117,6 +115,6 @@ class LLMResponseHandler:
         # 在停用会anagement_managerager
         if self.session.summarization_manager:
             await self.session.summarization_manager.create_and_save_final_summary()
-        
+
         if hasattr(self.chat_session_manager, "deactivate_session"):
             await self.chat_session_manager.deactivate_session(self.session.conversation_id)

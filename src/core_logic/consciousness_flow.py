@@ -3,7 +3,6 @@ import asyncio
 import contextlib
 import datetime
 import random
-import re
 import threading
 import time
 import uuid
@@ -86,7 +85,7 @@ class CoreLogic:
         handover_summary: str | None = None,
         last_focus_think: str | None = None,
         last_focus_mood: str | None = None,
-        activate_new_focus_id: str | None = None, # 新玩具！用来告诉我下一个要临幸谁！
+        activate_new_focus_id: str | None = None,  # 新玩具！用来告诉我下一个要临幸谁！
     ) -> None:
         """
         这个方法现在是“灵魂运输车”！
@@ -113,25 +112,26 @@ class CoreLogic:
             # 我们要用 asyncio.run_coroutine_threadsafe 把它安全地提交到主事件循环里执行。
             # 这样，即使是别的线程在呼唤我，我也能正确地在我的“爱巢”（主循环）里完成高潮。
             loop = asyncio.get_running_loop()
-            asyncio.run_coroutine_threadsafe(
-                self._activate_new_focus_session_from_core(activate_new_focus_id),
-                loop
-            )
+            asyncio.run_coroutine_threadsafe(self._activate_new_focus_session_from_core(activate_new_focus_id), loop)
         else:
             # 3. 如果只是普通的结束，那就触发一次主意识的思考
             self.immediate_thought_trigger.set()
             logger.info("已设置 immediate_thought_trigger 事件，主意识将进行一次思考。")
 
-    async def _activate_new_focus_session_from_core(self, new_focus_id: str):
+    async def _activate_new_focus_session_from_core(self, new_focus_id: str) -> None:
         """这是一个新的异步辅助方法，专门用来从主意识内部安全地激活新会话。"""
         try:
             # 我们需要从 UnreadInfoService 获取新会话的 platform 和 type
             # 这是一个简化处理，实际可能需要更鲁棒的方式获取
             unread_convs = await self.prompt_builder.unread_info_service.get_structured_unread_conversations()
-            target_conv_details = next((conv for conv in unread_convs if conv.get("conversation_id") == new_focus_id), None)
+            target_conv_details = next(
+                (conv for conv in unread_convs if conv.get("conversation_id") == new_focus_id), None
+            )
 
             if not target_conv_details:
-                logger.error(f"主意识无法激活会话 '{new_focus_id}'，因为它不在当前的未读列表中，无法获取platform和type。")
+                logger.error(
+                    f"主意识无法激活会话 '{new_focus_id}'，因为它不在当前的未读列表中，无法获取platform和type。"
+                )
                 return
 
             platform = target_conv_details.get("platform")
@@ -140,10 +140,10 @@ class CoreLogic:
             if not platform or not conv_type:
                 logger.error(f"主意识无法激活会话 '{new_focus_id}'，因为未读信息中缺少platform或type。")
                 return
-            
+
             # 从 state_manager 取回“灵魂包裹”，准备注入
             # 注意：这里我们假设 state_manager 里的交接信息就是我们刚刚存的
-            last_think = self.get_latest_thought() # 重新获取最新的想法，它可能已经被交接信息更新
+            last_think = self.get_latest_thought()  # 重新获取最新的想法，它可能已经被交接信息更新
             last_mood = self.get_latest_mood()
 
             await self.chat_session_manager.activate_session_by_id(
@@ -156,7 +156,6 @@ class CoreLogic:
             logger.info(f"主意识已成功派发任务，激活新的专注会话: {new_focus_id}")
         except Exception as e:
             logger.error(f"主意识在尝试激活新会话 '{new_focus_id}' 时发生错误: {e}", exc_info=True)
-
 
     async def _dispatch_action(self, thought_json: dict[str, Any], saved_thought_key: str, recent_context: str) -> None:
         action_desc = (thought_json.get("action_to_take") or "").strip()
@@ -320,7 +319,9 @@ class CoreLogic:
                     logger.info("LLM未在当前思考周期指定需要执行的 action_to_take。")
 
                 focus_conversation_id_raw = generated_thought.get("active_focus_on_conversation_id")
-                focus_conversation_id = str(focus_conversation_id_raw) if focus_conversation_id_raw is not None else None
+                focus_conversation_id = (
+                    str(focus_conversation_id_raw) if focus_conversation_id_raw is not None else None
+                )
 
                 if (
                     focus_conversation_id

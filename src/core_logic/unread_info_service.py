@@ -15,7 +15,7 @@ def _create_message_preview(content: list[dict[str, Any]]) -> str:
     """
     if not isinstance(content, list):
         return ""
-    
+
     preview_parts = []
     text_buffer = []
 
@@ -25,14 +25,14 @@ def _create_message_preview(content: list[dict[str, Any]]) -> str:
 
         seg_type = seg.get("type")
         data = seg.get("data", {})
-        
+
         if seg_type == "text":
             text_buffer.append(data.get("text", ""))
         else:
             if text_buffer:
                 preview_parts.append("".join(text_buffer))
                 text_buffer = []
-            
+
             if seg_type == "at":
                 at_user_id = data.get("user_id", "all")
                 if at_user_id == "all":
@@ -53,7 +53,7 @@ def _create_message_preview(content: list[dict[str, Any]]) -> str:
 
     if len(full_preview) > 50:
         return full_preview[:47] + "..."
-    
+
     return full_preview or "无法预览内容"
 
 
@@ -84,7 +84,7 @@ class UnreadInfoService:
             conv_id = conv_doc.get("conversation_id")
             if not conv_id:
                 continue
-            
+
             if conv_id == exclude_conversation_id:
                 logger.trace(f"已根据 exclude_conversation_id 排除会话: {conv_id}")
                 continue
@@ -126,9 +126,8 @@ class UnreadInfoService:
         user_id = user_info.get("user_id")
         if user_id and isinstance(user_id, str):
             return f"用户({user_id[-4:]})"
-            
-        return "未知用户"
 
+        return "未知用户"
 
     async def generate_unread_summary_text(self, exclude_conversation_id: str | None = None) -> str:
         """
@@ -155,7 +154,7 @@ class UnreadInfoService:
             unread_count = len(events_in_conv)
 
             latest_message_preview = _create_message_preview(latest_event.get("content", []))
-            
+
             # ✨✨✨ 看这里！我用新的智慧核心来决定用哪个名字！ ✨✨✨
             display_name = self._get_display_name_from_event(latest_event, conversation_type)
 
@@ -181,7 +180,9 @@ class UnreadInfoService:
 
         return "\n".join(summary_lines).strip()
 
-    async def get_structured_unread_conversations(self, exclude_conversation_id: str | None = None) -> list[dict[str, Any]]:
+    async def get_structured_unread_conversations(
+        self, exclude_conversation_id: str | None = None
+    ) -> list[dict[str, Any]]:
         """
         获取结构化的未读会话信息。
         这个也得能排除当前会话才行。
@@ -216,7 +217,7 @@ class UnreadInfoService:
                     "type": conversation_type,
                     "unread_count": unread_count,
                     "latest_message_preview": latest_message_preview,
-                    "latest_sender_nickname": sender_display_name, # 注意，字段名还是nickname，但内容已经是我们想要的了
+                    "latest_sender_nickname": sender_display_name,  # 注意，字段名还是nickname，但内容已经是我们想要的了
                     "latest_message_timestamp": latest_message_timestamp,
                 }
             )

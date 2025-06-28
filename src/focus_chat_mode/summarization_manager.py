@@ -24,7 +24,9 @@ class SummarizationManager:
         self.summary_storage_service = session.summary_storage_service
         self.summary_threshold = config.focus_chat_mode.summary_interval
 
-    async def _handle_summary_process(self, final_save: bool, shift_motivation: str | None = None, target_conversation_id: str | None = None) -> None:
+    async def _handle_summary_process(
+        self, final_save: bool, shift_motivation: str | None = None, target_conversation_id: str | None = None
+    ) -> None:
         """
         一个私有方法，把重复的脏活都干了。
         final_save 这个开关决定了最后是只更新内存，还是存到数据库。
@@ -65,8 +67,8 @@ class SummarizationManager:
                 bot_profile=bot_profile,
                 conversation_info=conversation_info,
                 event_storage=self.event_storage,
-                shift_motivation=shift_motivation, # 看！新玩具！
-                target_conversation_id=target_conversation_id # 还有这个！
+                shift_motivation=shift_motivation,  # 看！新玩具！
+                target_conversation_id=target_conversation_id,  # 还有这个！
             )
 
             if not new_summary:
@@ -94,9 +96,13 @@ class SummarizationManager:
         """【日常模式】检查并执行阶段性总结。"""
         await self._handle_summary_process(final_save=False)
 
-    async def create_and_save_final_summary(self, shift_motivation: str | None = None, target_conversation_id: str | None = None) -> None:
+    async def create_and_save_final_summary(
+        self, shift_motivation: str | None = None, target_conversation_id: str | None = None
+    ) -> None:
         """【收尾模式】执行最终总结。"""
-        await self._handle_summary_process(final_save=True, shift_motivation=shift_motivation, target_conversation_id=target_conversation_id)
+        await self._handle_summary_process(
+            final_save=True, shift_motivation=shift_motivation, target_conversation_id=target_conversation_id
+        )
 
     async def _save_summary_to_db(self, summary_text: str, event_ids: list[str]) -> None:
         """内部辅助方法，保存摘要到数据库。"""

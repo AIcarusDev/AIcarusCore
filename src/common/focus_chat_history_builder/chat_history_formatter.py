@@ -1,4 +1,4 @@
-# D:\Aic\AIcarusCore\src\common\context_formatters\chat_history_formatter.py
+# src\common\context_formatters\chat_history_formatter.py
 
 # --- 导入所有需要的工具 ---
 import base64
@@ -139,7 +139,8 @@ async def format_chat_history_for_llm(
     user_map: dict[str, dict[str, Any]] = {}  # platform_id -> user_data_dict
     platform_id_to_uid_str: dict[str, str] = {}  # platform_id -> "U0", "U1", ...
     uid_counter = 0
-    conversation_name_str = "未知会话"
+    # ❤❤❤ 先用哥哥你插进来的名字作为默认值，如果哥哥没给，才用“未知会话”这个后备小玩具 ❤❤❤
+    conversation_name_str = conversation_name or "未知会话"
     # conversation_type_str = self.conversation_type # 已在 __init__ 中获取
 
     # 用传入的 bot_profile 来初始化机器人自己的信息
@@ -156,12 +157,14 @@ async def format_chat_history_for_llm(
         "perm": bot_profile.get("role", "成员"),
     }
 
-    # 更新 conversation_name 和 session
-    if raw_events and raw_events[0].conversation_info:  # 取最早的事件（排序后）或最新的（如果之前是反向排序）
-        conv_info = raw_events[0].conversation_info  # 假设raw_events已按时间正序排列
-        # conversation_type_str = conv_info.type # 已有 self.conversation_type
-        if conv_info.name:
-            conversation_name_str = conv_info.name
+    # ❤❤❤ 然后再看看事件里有没有更新、更湿润的名字，有的话就换掉 ❤❤❤
+    if raw_events:
+        # 从最新的事件开始找，名字通常更准哦~
+        for event in reversed(raw_events):
+            if event.conversation_info and event.conversation_info.name:
+                # 啊~ 找到了一个更新鲜的，那就用这个！
+                conversation_name_str = event.conversation_info.name
+                break  # 找到一个就够了，不用再深入了，好爽！
 
     for event_data in raw_events:
         if event_data.user_info and event_data.user_info.user_id:

@@ -26,7 +26,6 @@ class SummarizationService:
         self.llm_client = llm_client
         logger.info("SummarizationService (重构版) 已初始化。")
 
-
     async def _build_summary_prompt(
         self,
         previous_summary: str | None,
@@ -35,7 +34,7 @@ class SummarizationService:
         conversation_info: dict[str, Any],
         user_map: dict[str, Any],
         shift_motivation: str | None = None,
-        target_conversation_id: str | None = None, 
+        target_conversation_id: str | None = None,
     ) -> tuple[str, str]:
         """
         构建用于整合摘要的 System Prompt 和 User Prompt。
@@ -44,19 +43,20 @@ class SummarizationService:
         # --- System Prompt ---
         persona_config = config.persona
         from datetime import datetime
+
         current_time_str = datetime.now().strftime("%Y年%m月%d日 %H点%M分%S秒")
 
         # 构造“跳槽动机”的文本块
         shift_motivation_block = ""
         if shift_motivation and target_conversation_id:
             # 尝试从 user_map 获取目标会话的名称，哼，虽然不一定有
-            target_conv_name = target_conversation_id # 默认用ID
-            for _, u_info in user_map.items():
+            _target_conv_name = target_conversation_id  # 默认用ID
+            for _, _u_info in user_map.items():
                 # 这个逻辑不完全对，因为user_map是当前会话的，不一定有目标会话的信息
                 # 但我们可以先这么写，以后再优化。或者直接让调用者传名字进来。
                 # 这里我们简化，就用ID。
-                pass # 暂时找不到好办法，就用ID吧
-            
+                pass  # 暂时找不到好办法，就用ID吧
+
             shift_motivation_block = f"\n此刻，你因为“{shift_motivation}”，决定将注意力转移到另一个会话 (ID: {target_conversation_id})。请在总结中自然地体现出这个转折点。"
 
         system_prompt = f"""
@@ -80,7 +80,7 @@ class SummarizationService:
         # Part 1: 已有总结
         summary_block = previous_summary or "暂时无总结，这是你专注于该群聊的首次总结"
 
-         # Part 2: 聊天记录格式提示
+        # Part 2: 聊天记录格式提示
         user_list_lines = []
         for p_id, u_info in user_map.items():
             user_list_lines.append(
@@ -144,8 +144,8 @@ class SummarizationService:
         bot_profile: dict[str, Any],
         conversation_info: dict[str, Any],
         event_storage: "EventStorageService",
-        shift_motivation: str | None = None, # 新玩具
-        target_conversation_id: str | None = None, # 新玩具
+        shift_motivation: str | None = None,  # 新玩具
+        target_conversation_id: str | None = None,  # 新玩具
     ) -> str:
         """
         对提供的最近事件列表进行总结，并将其整合进之前的摘要中。
@@ -180,7 +180,7 @@ class SummarizationService:
             is_first_turn=True,
             raw_events_from_caller=recent_events,
         )
-        
+
         # 如果没有新事件，聊天记录就是空的，这没关系
         if not recent_events:
             formatted_chat_history = "（无新的聊天记录）"
@@ -191,10 +191,15 @@ class SummarizationService:
         extended_conv_info["name"] = conversation_name_from_formatter or conversation_info.get("name")
 
         system_prompt, user_prompt = await self._build_summary_prompt(
-            previous_summary, formatted_chat_history, image_references, extended_conv_info, user_map,
-            shift_motivation, target_conversation_id # 把新玩具传进去
+            previous_summary,
+            formatted_chat_history,
+            image_references,
+            extended_conv_info,
+            user_map,
+            shift_motivation,
+            target_conversation_id,  # 把新玩具传进去
         )
-        
+
         conv_id_for_log = conversation_info.get("id", "未知会话")
         logger.debug(
             f"[{conv_id_for_log}] 摘要整合 - 准备发送给LLM的完整Prompt:\n"

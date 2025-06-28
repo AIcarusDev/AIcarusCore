@@ -120,7 +120,7 @@ class ChatSessionManager:
         """
         async with self.lock:
             if conversation_id in self.sessions:
-                session = self.sessions.pop(conversation_id, None) # 用pop，更安全
+                session = self.sessions.pop(conversation_id, None)  # 用pop，更安全
                 if session:
                     # 不再由这里调用 shutdown，而是由 session 内部的 deactivate 触发
                     session.deactivate()
@@ -173,9 +173,8 @@ class ChatSessionManager:
             conversation_id=conv_id, platform=platform, conversation_type=conv_type
         )
 
-        if session.is_active:
-            if hasattr(session.cycler, "wakeup"):
-                session.cycler.wakeup()
+        if session.is_active and hasattr(session.cycler, "wakeup"):
+            session.cycler.wakeup()
         # 激活逻辑：如果被@或收到私聊消息，则激活会话
         # 这里是为了方便测试硬编码的逻辑，未来会进一步优化激活逻辑
         # TODO
@@ -203,7 +202,10 @@ class ChatSessionManager:
                 inactive_session_ids = []
                 current_time = time.time()
                 for conv_id, session in self.sessions.items():
-                    if session.is_active and (current_time - session.last_active_time) > self.config.session_timeout_seconds:
+                    if (
+                        session.is_active
+                        and (current_time - session.last_active_time) > self.config.session_timeout_seconds
+                    ):
                         inactive_session_ids.append(conv_id)
             for conv_id in inactive_session_ids:
                 logger.info(f"会话 '{conv_id}' 因超时不活跃，将被系统停用。")
