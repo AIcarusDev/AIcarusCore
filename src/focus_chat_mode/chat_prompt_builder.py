@@ -121,6 +121,20 @@ class ChatPromptBuilder:
                 no_action_guidance_str = f"\n你已经决定连续不发言/没有互动 {session.no_action_count} 次了，观察一下目前群内话题是不是已经告一段落了，如果是，可以考虑暂时先不专注于群聊的消息了。"
             logger.info(f"[{self.session.conversation_id}] 添加无互动提示, count: {session.no_action_count}")
 
+        # ✨✨✨ 修复核心：在这里调用 unread_info_service ✨✨✨
+        unread_summary_str = "所有其他会话均无未读消息。"
+        if self.session.core_logic and self.session.core_logic.prompt_builder:
+            try:
+                unread_summary_str = await self.session.core_logic.prompt_builder.unread_info_service.generate_unread_summary_text(
+                    exclude_conversation_id=self.session.conversation_id
+                )
+            except Exception as e:
+                logger.error(f"[{self.session.conversation_id}] 获取未读消息摘要失败: {e}", exc_info=True)
+                unread_summary_str = "获取其他会话摘要时出错。"
+        else:
+            logger.warning(f"[{self.session.conversation_id}] 无法获取 unread_info_service，未读消息摘要将为空。")
+        # ✨✨✨ 修复结束 ✨✨✨
+
         # --- 步骤2：调用新玩具，获取所有格式化好的聊天记录相关信息 ---
         logger.debug(f"[{self.session.conversation_id}] 调用通用聊天记录格式化工具...")
         bot_profile = await session.get_bot_profile()
@@ -246,6 +260,7 @@ class ChatPromptBuilder:
 
         # 组装 User Prompt
         user_prompt = user_prompt_template.format(
+            unread_summary=unread_summary_str,
             conversation_info_block=conversation_info_block_str,
             user_list_block=user_list_block_str,
             chat_history_log_block=chat_history_log_block_str,

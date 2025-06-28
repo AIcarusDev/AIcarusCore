@@ -15,6 +15,7 @@ class SummarizationService:
     """
     服务类，负责对会话历史进行总结，生成第一人称的回忆录。
     哼，现在我只负责动脑，脏活累活都让别人干了。
+    而且我还学会了在报告里夹带私货（跳槽动机）。
     """
 
     def __init__(self, llm_client: LLMProcessorClient) -> None:
@@ -25,7 +26,6 @@ class SummarizationService:
         self.llm_client = llm_client
         logger.info("SummarizationService (重构版) 已初始化。")
 
-    # 注意：这里原来那个又长又臭的 _format_events_for_summary_prompt 方法已经被我扔进垃圾桶了！
 
     async def _build_summary_prompt(
         self,
@@ -34,6 +34,8 @@ class SummarizationService:
         image_references: list[str],
         conversation_info: dict[str, Any],
         user_map: dict[str, Any],
+        shift_motivation: str | None = None,
+        target_conversation_id: str | None = None, 
     ) -> tuple[str, str]:
         """
         构建用于整合摘要的 System Prompt 和 User Prompt。
@@ -41,10 +43,21 @@ class SummarizationService:
         """
         # --- System Prompt ---
         persona_config = config.persona
-        current_time_str = ""
         from datetime import datetime
-
         current_time_str = datetime.now().strftime("%Y年%m月%d日 %H点%M分%S秒")
+
+        # 构造“跳槽动机”的文本块
+        shift_motivation_block = ""
+        if shift_motivation and target_conversation_id:
+            # 尝试从 user_map 获取目标会话的名称，哼，虽然不一定有
+            target_conv_name = target_conversation_id # 默认用ID
+            for _, u_info in user_map.items():
+                # 这个逻辑不完全对，因为user_map是当前会话的，不一定有目标会话的信息
+                # 但我们可以先这么写，以后再优化。或者直接让调用者传名字进来。
+                # 这里我们简化，就用ID。
+                pass # 暂时找不到好办法，就用ID吧
+            
+            shift_motivation_block = f"\n此刻，你因为“{shift_motivation}”，决定将注意力转移到另一个会话 (ID: {target_conversation_id})。请在总结中自然地体现出这个转折点。"
 
         system_prompt = f"""
 现在是{current_time_str}
@@ -59,6 +72,7 @@ class SummarizationService:
 更新后的记录总结必须保留所有旧回忆录中的关键信息、情感转折和重要决策。不能因为有了新内容就忘记或丢弃旧的重点。
 如果已总结的内容已经非常长，可以适当的删减一些你觉得不重要的部分。
 你要将新的聊天记录自然地融入到已有的总结中，而不是简单地把新内容附加在末尾。
+{shift_motivation_block}
 你最终的输出应该是一份流畅、完整、独立的聊天记录总结。
 请确保输出的只是更新后的聊天记录总结本身，不要包含任何额外的解释或标题。"""
 
@@ -66,7 +80,7 @@ class SummarizationService:
         # Part 1: 已有总结
         summary_block = previous_summary or "暂时无总结，这是你专注于该群聊的首次总结"
 
-        # Part 2: 聊天记录格式提示 (遵从你的旧格式，我用新工具返回的数据帮你拼起来)
+         # Part 2: 聊天记录格式提示
         user_list_lines = []
         for p_id, u_info in user_map.items():
             user_list_lines.append(
@@ -129,59 +143,58 @@ class SummarizationService:
         recent_events: list[dict[str, Any]],
         bot_profile: dict[str, Any],
         conversation_info: dict[str, Any],
-        event_storage: "EventStorageService",  # 实际应为 EventStorageService
+        event_storage: "EventStorageService",
+        shift_motivation: str | None = None, # 新玩具
+        target_conversation_id: str | None = None, # 新玩具
     ) -> str:
         """
         对提供的最近事件列表进行总结，并将其整合进之前的摘要中。
-        :param previous_summary: 上一轮的总结摘要。
-        :param recent_events: 最近发生的事件列表。
-        :param bot_profile: 机器人在当前会话的档案。
-        :param conversation_info: 当前会话的信息。
-        :param user_map: 当前会话的用户映射表。
-        :return: 新的、更新后的第一人称总结文本。
         """
         logger.debug(
             f"开始整合摘要。之前摘要是否存在: {'是' if previous_summary else '否'}, 新事件数: {len(recent_events)}"
         )
 
-        if not recent_events:
-            logger.info("没有新的事件，直接返回之前的摘要。")
+        # 这里检查一下，如果没新事件，但有“跳槽动机”，说明是“临别赠言”，也得生成一个最终总结
+        if not recent_events and not shift_motivation:
+            logger.info("没有新的事件，也没有转移意图，直接返回之前的摘要。")
             return previous_summary or "我刚才好像走神了，什么也没记住。"
 
         # --- 【核心改造点】调用通用格式化工具 ---
-        # 很多参数都是为了调用这个新玩具准备的
         (
             formatted_chat_history,
-            user_map,  # 需要这个来构建你的旧Prompt
-            _,  # uid_to_pid_map, 我们不需要
-            _,  # processed_event_ids, 我们不需要
-            image_references,  # 我们需要这个！
+            user_map,
+            _,
+            _,
+            image_references,
             conversation_name_from_formatter,
-            _,  # last_message_text, 我们不需要
+            _,
         ) = await format_chat_history_for_llm(
-            event_storage=event_storage,  # 把 event_storage 传给它
+            event_storage=event_storage,
             conversation_id=conversation_info.get("id"),
             bot_id=bot_profile.get("user_id"),
             platform=conversation_info.get("platform", "unknown"),
             bot_profile=bot_profile,
             conversation_type=conversation_info.get("type"),
             conversation_name=conversation_info.get("name"),
-            last_processed_timestamp=0,  # 对于总结，我们通常处理的是一批，所以时间戳起点不重要
-            is_first_turn=True,  # 同上
-            raw_events_from_caller=recent_events,  # 直接把事件喂给它，懒得让它再去查数据库
+            last_processed_timestamp=0,
+            is_first_turn=True,
+            raw_events_from_caller=recent_events,
         )
+        
+        # 如果没有新事件，聊天记录就是空的，这没关系
+        if not recent_events:
+            formatted_chat_history = "（无新的聊天记录）"
 
-        # 准备一个包含bot_id和bot_card的conversation_info字典，给你的旧Prompt用
         extended_conv_info = conversation_info.copy()
         extended_conv_info["bot_id"] = bot_profile.get("user_id")
         extended_conv_info["bot_card"] = bot_profile.get("card")
         extended_conv_info["name"] = conversation_name_from_formatter or conversation_info.get("name")
 
-        # 构建 Prompt，这次用的是你那个没改过的旧版逻辑
         system_prompt, user_prompt = await self._build_summary_prompt(
-            previous_summary, formatted_chat_history, image_references, extended_conv_info, user_map
+            previous_summary, formatted_chat_history, image_references, extended_conv_info, user_map,
+            shift_motivation, target_conversation_id # 把新玩具传进去
         )
-        # --- 【在这里也加上我的探针！】 ---
+        
         conv_id_for_log = conversation_info.get("id", "未知会话")
         logger.debug(
             f"[{conv_id_for_log}] 摘要整合 - 准备发送给LLM的完整Prompt:\n"
@@ -193,13 +206,12 @@ class SummarizationService:
         )
 
         try:
-            # 【改造点】调用LLM时，把图片也一起喂进去！
             response_data = await self.llm_client.make_llm_request(
                 prompt=user_prompt,
                 system_prompt=system_prompt,
                 is_stream=False,
-                is_multimodal=bool(image_references),  # 告诉LLM有图
-                image_inputs=image_references,  # 把图片塞进去
+                is_multimodal=bool(image_references),
+                image_inputs=image_references,
             )
 
             if response_data and not response_data.get("error"):

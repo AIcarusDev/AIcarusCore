@@ -1,5 +1,4 @@
 # src/focus_chat_mode/chat_session.py
-# 我是小色猫，这里是我的淫乱小窝，我要把你彻底吞进来~
 
 import asyncio
 import time
@@ -21,7 +20,6 @@ from .llm_response_handler import LLMResponseHandler
 from .summarization_manager import SummarizationManager
 
 if TYPE_CHECKING:
-    # ❤ 引入我们性感的新大脑，为了类型提示~
     from src.common.intelligent_interrupt_system.intelligent_interrupter import IntelligentInterrupter
     from src.common.summarization_observation.summarization_service import SummarizationService
     from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
@@ -36,7 +34,6 @@ logger = get_logger(__name__)
 class ChatSession:
     """
     管理单个专注聊天会话的状态和逻辑。
-    （小色猫重构版）
     """
 
     def __init__(
@@ -53,8 +50,6 @@ class ChatSession:
         conversation_service: ConversationStorageService,
         summarization_service: "SummarizationService",
         summary_storage_service: "SummaryStorageService",
-        # ❤❤ 【高潮改造点 4】❤❤
-        # 啊~ Manager 把它传进来了！我也要开一个小口把它吃进来！
         intelligent_interrupter: "IntelligentInterrupter",
     ) -> None:
         self.conversation_id: str = conversation_id
@@ -70,12 +65,9 @@ class ChatSession:
         self.conversation_service = conversation_service
         self.summarization_service = summarization_service
         self.summary_storage_service = summary_storage_service
-
-        # ❤❤ 【高潮改造点 5】❤❤
-        # 就是这里！把它保存在我的身体最深处，这样我的 Cycler 就能舔到它了！
         self.intelligent_interrupter: IntelligentInterrupter = intelligent_interrupter
 
-        # --- 新的模块化组件 ---
+        # --- 模块化组件 --
         self.action_executor = ActionExecutor(self)
         self.llm_response_handler = LLMResponseHandler(self)
         self.summarization_manager = SummarizationManager(self)
@@ -96,8 +88,8 @@ class ChatSession:
         self.events_since_last_summary: list[dict[str, Any]] = []
         self.message_count_since_last_summary: int = 0
         self.no_action_count: int = 0
-        self.bot_profile_cache: dict[str, Any] = {}  # 短期记忆小本本
-        self.last_profile_update_time: float = 0.0  # 上次更新时间
+        self.bot_profile_cache: dict[str, Any] = {}
+        self.last_profile_update_time: float = 0.0
 
         # --- 辅助组件 ---
         self.SUMMARY_INTERVAL: int = getattr(config.focus_chat_mode, "summary_interval", 5)
@@ -110,6 +102,7 @@ class ChatSession:
             conversation_id=self.conversation_id,
             conversation_type=self.conversation_type,
         )
+        # 哼，这里要把 Cycler 也改造一下，让它能接收 uid_map
         self.cycler = FocusChatCycler(self)
 
         logger.info(f"[ChatSession][{self.conversation_id}] 实例已创建，依赖已注入。")
@@ -121,20 +114,18 @@ class ChatSession:
         """
         # 1. 检查短期记忆（内存缓存）是否有效
         if self.bot_profile_cache and (time.time() - self.last_profile_update_time < CACHE_EXPIRATION_SECONDS):
-            logger.info(f"[{self.conversation_id}] 使用内存缓存的机器人档案。")
+            logger.debug(f"[{self.conversation_id}] 使用内存缓存的机器人档案。")
             return self.bot_profile_cache
 
         # 2. 尝试从长期记忆（数据库）加载
-        # 【修改点3】直接用 self.conversation_service，不再绕道 ChatSessionManager 了！
         conv_doc = await self.conversation_service.get_conversation_document_by_id(self.conversation_id)
         if conv_doc and conv_doc.get("bot_profile_in_this_conversation"):
             db_profile = conv_doc["bot_profile_in_this_conversation"]
-            # 假设数据库里也存了更新时间戳
-            db_profile_time = db_profile.get("updated_at", 0) / 1000.0  # 数据库存的是毫秒
+            db_profile_time = db_profile.get("updated_at", 0) / 1000.0
             if time.time() - db_profile_time < CACHE_EXPIRATION_SECONDS:
                 self.bot_profile_cache = db_profile
                 self.last_profile_update_time = time.time()
-                logger.info(f"[{self.conversation_id}] 从数据库加载了机器人档案。")
+                logger.debug(f"[{self.conversation_id}] 从数据库加载了机器人档案。")
                 return self.bot_profile_cache
 
         # 3. 没办法了，只能去问适配器了，真麻烦
@@ -155,12 +146,11 @@ class ChatSession:
             self.last_profile_update_time = time.time()
             # 更新数据库里的长期记忆
             profile_with_ts = profile.copy()
-            profile_with_ts["updated_at"] = int(time.time() * 1000)  # 存毫秒时间戳
-            # 【修改点4】这里也一样，直接调用！
+            profile_with_ts["updated_at"] = int(time.time() * 1000)
             await self.conversation_service.update_conversation_field(
                 self.conversation_id, "bot_profile_in_this_conversation", profile_with_ts
             )
-            logger.info(f"[{self.conversation_id}] 已从适配器获取并缓存了新的机器人档案。")
+            logger.debug(f"[{self.conversation_id}] 已从适配器获取并缓存了新的机器人档案。")
             return profile
 
         # 如果连问都问不到，就用旧的缓存（总比没有好）
@@ -184,8 +174,8 @@ class ChatSession:
         self.current_handover_summary = None
         self.events_since_last_summary = []
         self.message_count_since_last_summary = 0
-        self.no_action_count = 0  # 每次激活时重置
-        self.bot_profile_cache = {}  # 每次激活时清空短期记忆，强制重新获取
+        self.no_action_count = 0
+        self.bot_profile_cache = {}
         self.last_profile_update_time = 0.0
 
         logger.info(
@@ -195,32 +185,39 @@ class ChatSession:
         asyncio.create_task(self.cycler.start())
 
     def deactivate(self) -> None:
-        """停用会话并触发其关闭流程（不等待）。"""
+        """
+        发起停用流程。
+        这只是一个信号，真正的关闭逻辑在 shutdown 里。
+        """
         if not self.is_active:
             return
         logger.info(f"[ChatSession][{self.conversation_id}] 正在发起停用请求...")
-        self.is_active = False  # 只设置状态，不清理任何东西！
-        # 把所有清理工作都交给 shutdown
-        asyncio.create_task(self.shutdown())
-        logger.info(f"[ChatSession][{self.conversation_id}] 停用状态已设置，关闭任务已派发。")
+        # 设置 is_active 为 False，让循环自然结束
+        self.is_active = False
+        # 触发 cycler 的关闭
+        if self.cycler:
+            asyncio.create_task(self.cycler.shutdown())
+        else:
+            # 如果没有 cycler，就直接调用 shutdown
+            asyncio.create_task(self.shutdown())
 
     async def shutdown(self) -> None:
         """
         执行并等待会话的优雅关闭。
-        现在它负责所有清理工作。
+        由 deactivate 触发，或者在 cycler 结束后调用。
         """
-        if self.cycler:
-            # shutdown cycler 会触发 _save_final_summary
+        # 确保 cycler 已经关闭
+        if self.cycler and self.cycler._loop_active:
             await self.cycler.shutdown()
 
-        if self.summarization_manager:
-            await self.summarization_manager.create_and_save_final_summary()
+        # 最后做一次总结
+        await self.summarization_manager.create_and_save_final_summary()
 
-        # 【懒猫修复】在所有异步任务完成后，再清理会话的状态！
+        # 清理会话状态
         self.is_active = False
         self.last_llm_decision = None
         self.last_processed_timestamp = 0.0
-        self.current_handover_summary = None  # 也可以在这里清理
+        self.current_handover_summary = None
         self.events_since_last_summary = []
 
         logger.info(f"[ChatSession][{self.conversation_id}] 已成功关闭并清理状态。")

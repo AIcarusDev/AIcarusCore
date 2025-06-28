@@ -8,19 +8,53 @@ from src.database.services.event_storage_service import EventStorageService
 logger = get_logger(__name__)
 
 
-def _extract_text_from_dict_content(content: list[dict[str, Any]]) -> str:
+def _create_message_preview(content: list[dict[str, Any]]) -> str:
     """
-    从 content (Seg 字典列表) 中安全地提取所有文本内容。
+    哼，这是我的新玩具，专门从消息的 content 字典里提取一个好看的预览。
+    它现在能看到 @、图片和表情了，不像以前那个瞎子。
     """
-    text_parts = []
     if not isinstance(content, list):
         return ""
+    
+    preview_parts = []
+    text_buffer = []
+
     for seg in content:
-        if isinstance(seg, dict) and seg.get("type") == "text":
-            data = seg.get("data", {})
-            if isinstance(data, dict) and "text" in data:
-                text_parts.append(str(data["text"]))
-    return "".join(text_parts)
+        if not isinstance(seg, dict):
+            continue
+
+        seg_type = seg.get("type")
+        data = seg.get("data", {})
+        
+        if seg_type == "text":
+            text_buffer.append(data.get("text", ""))
+        else:
+            if text_buffer:
+                preview_parts.append("".join(text_buffer))
+                text_buffer = []
+            
+            if seg_type == "at":
+                at_user_id = data.get("user_id", "all")
+                if at_user_id == "all":
+                    preview_parts.append("@全体成员")
+                else:
+                    preview_parts.append(f"@{data.get('display_name', at_user_id)}")
+            elif seg_type == "image":
+                preview_parts.append("[图片]")
+            elif seg_type == "face":
+                preview_parts.append("[表情]")
+            elif seg_type == "file":
+                preview_parts.append("[文件]")
+
+    if text_buffer:
+        preview_parts.append("".join(text_buffer))
+
+    full_preview = "".join(preview_parts).strip()
+
+    if len(full_preview) > 50:
+        return full_preview[:47] + "..."
+    
+    return full_preview or "无法预览内容"
 
 
 class UnreadInfoService:
@@ -28,11 +62,14 @@ class UnreadInfoService:
         self.event_storage = event_storage
         self.conversation_storage = conversation_storage
 
-    async def _get_unread_conversations_with_events(self) -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
+    async def _get_unread_conversations_with_events(
+        self, exclude_conversation_id: str | None = None
+    ) -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
         """
         内部核心方法，获取所有有新消息的会话及其对应的新消息事件列表。
+        哼，我在这里加了个“门禁”，可以把某个讨厌鬼关在门外。
         """
-        logger.debug("开始检查所有活跃会话的新消息...")
+        logger.debug(f"开始检查所有活跃会话的新消息... (将排除: {exclude_conversation_id})")
         try:
             all_conversations = await self.conversation_storage.get_all_active_conversations()
             if not all_conversations:
@@ -47,10 +84,13 @@ class UnreadInfoService:
             conv_id = conv_doc.get("conversation_id")
             if not conv_id:
                 continue
+            
+            if conv_id == exclude_conversation_id:
+                logger.trace(f"已根据 exclude_conversation_id 排除会话: {conv_id}")
+                continue
 
             last_processed_ts = conv_doc.get("last_processed_timestamp") or 0
             try:
-                # 只获取状态为 "unread" 的新事件
                 new_events = await self.event_storage.get_message_events_after_timestamp(
                     conversation_id=conv_id, timestamp=last_processed_ts, status="unread"
                 )
@@ -59,20 +99,49 @@ class UnreadInfoService:
                     logger.info(f"会话 '{conv_id}' 发现 {len(new_events)} 条新消息 (已过滤)。")
                     unread_conversations_with_events.append((conv_doc, new_events))
             except Exception as e:
-                logger.error(
-                    f"为会话 '{conv_id}' 检查新消息时出错: {e}",
-                    exc_info=True,
-                )
+                logger.error(f"为会话 '{conv_id}' 检查新消息时出错: {e}", exc_info=True)
         return unread_conversations_with_events
 
-    async def generate_unread_summary_text(self) -> str:
-        logger.debug("开始生成未读消息摘要...")
-        unread_convs_with_events = await self._get_unread_conversations_with_events()
+    def _get_display_name_from_event(self, event: dict, conversation_type: str) -> str:
+        """
+        根据事件和会话类型，智能地获取最佳的显示名称。
+        这就是我新加的“智慧核心”！
+        """
+        user_info = event.get("user_info", {})
+        if not isinstance(user_info, dict):
+            return "未知用户"
+
+        # 如果是群聊，优先用群名片
+        if conversation_type == "group":
+            card = user_info.get("user_cardname")
+            if card and isinstance(card, str) and card.strip():
+                return card
+
+        # 如果没有群名片，或者不是群聊，就用昵称
+        nickname = user_info.get("user_nickname")
+        if nickname and isinstance(nickname, str) and nickname.strip():
+            return nickname
+
+        # 如果连昵称都没有，就用ID做最后的保底
+        user_id = user_info.get("user_id")
+        if user_id and isinstance(user_id, str):
+            return f"用户({user_id[-4:]})"
+            
+        return "未知用户"
+
+
+    async def generate_unread_summary_text(self, exclude_conversation_id: str | None = None) -> str:
+        """
+        生成未读消息摘要。
+        现在它能选择性地忽略一个会话了，哼。
+        """
+        logger.debug(f"开始生成未读消息摘要... (将排除: {exclude_conversation_id})")
+        unread_convs_with_events = await self._get_unread_conversations_with_events(exclude_conversation_id)
 
         if not unread_convs_with_events:
-            return "所有消息均已读。"
+            return "所有其他会话均无未读消息。"
 
-        summary_lines: list[str] = ["你有以下未读的会话新消息:\n"]
+        summary_lines: list[str] = ["你有以下其他会话的未读消息:\n"]
         group_chat_summaries: list[str] = []
         private_chat_summaries: list[str] = []
 
@@ -82,26 +151,13 @@ class UnreadInfoService:
             platform = conv_doc.get("platform", "unknown_platform")
             conversation_type = conv_doc.get("type", "unknown")
 
-            latest_event = events_in_conv[-1]  # 因为是升序，所以最新消息在最后
+            latest_event = events_in_conv[-1]
             unread_count = len(events_in_conv)
 
-            raw_content_segs = latest_event.get("content", [])
-            latest_message_preview = _extract_text_from_dict_content(raw_content_segs)
-            if not latest_message_preview:
-                if any(isinstance(seg, dict) and seg.get("type") == "image" for seg in raw_content_segs):
-                    latest_message_preview = "[图片]"
-                elif any(isinstance(seg, dict) and seg.get("type") == "face" for seg in raw_content_segs):
-                    latest_message_preview = "[表情]"
-                elif any(isinstance(seg, dict) and seg.get("type") == "file" for seg in raw_content_segs):
-                    latest_message_preview = "[文件]"
-                else:
-                    latest_message_preview = "无法预览内容"
-            if len(latest_message_preview) > 50:
-                latest_message_preview = latest_message_preview[:47] + "..."
-
-            user_info_dict = latest_event.get("user_info", {})
-            sender_nickname_val = user_info_dict.get("user_nickname") if isinstance(user_info_dict, dict) else None
-            sender_nickname = sender_nickname_val if isinstance(sender_nickname_val, str) else "未知用户"
+            latest_message_preview = _create_message_preview(latest_event.get("content", []))
+            
+            # ✨✨✨ 看这里！我用新的智慧核心来决定用哪个名字！ ✨✨✨
+            display_name = self._get_display_name_from_event(latest_event, conversation_type)
 
             type_display = "群聊" if conversation_type == "group" else "私聊"
             line_parts = [
@@ -109,7 +165,7 @@ class UnreadInfoService:
                 f"[ID]: {conv_id}",
                 f"[Platform]: {platform}",
                 f"[Type]: {conversation_type}",
-                f'[最新消息]: "{sender_nickname}：{latest_message_preview}"',
+                f'[最新消息]: "{display_name}：{latest_message_preview}"',
                 f"(此会话共有 {unread_count} 条新消息)",
             ]
             line = " ".join(line_parts)
@@ -125,9 +181,13 @@ class UnreadInfoService:
 
         return "\n".join(summary_lines).strip()
 
-    async def get_structured_unread_conversations(self) -> list[dict[str, Any]]:
-        logger.debug("开始获取结构化的未读会话信息...")
-        unread_convs_with_events = await self._get_unread_conversations_with_events()
+    async def get_structured_unread_conversations(self, exclude_conversation_id: str | None = None) -> list[dict[str, Any]]:
+        """
+        获取结构化的未读会话信息。
+        这个也得能排除当前会话才行。
+        """
+        logger.debug(f"开始获取结构化的未读会话信息... (将排除: {exclude_conversation_id})")
+        unread_convs_with_events = await self._get_unread_conversations_with_events(exclude_conversation_id)
 
         if not unread_convs_with_events:
             return []
@@ -143,23 +203,10 @@ class UnreadInfoService:
             unread_count = len(events_in_conv)
             latest_message_timestamp = latest_event.get("timestamp", 0)
 
-            raw_content_segs = latest_event.get("content", [])
-            latest_message_preview = _extract_text_from_dict_content(raw_content_segs)
-            if not latest_message_preview:
-                if any(isinstance(seg, dict) and seg.get("type") == "image" for seg in raw_content_segs):
-                    latest_message_preview = "[图片]"
-                elif any(isinstance(seg, dict) and seg.get("type") == "face" for seg in raw_content_segs):
-                    latest_message_preview = "[表情]"
-                elif any(isinstance(seg, dict) and seg.get("type") == "file" for seg in raw_content_segs):
-                    latest_message_preview = "[文件]"
-                else:
-                    latest_message_preview = "无法预览内容"
-            if len(latest_message_preview) > 50:
-                latest_message_preview = latest_message_preview[:47] + "..."
+            latest_message_preview = _create_message_preview(latest_event.get("content", []))
 
-            user_info_dict = latest_event.get("user_info", {})
-            sender_nickname_val = user_info_dict.get("user_nickname") if isinstance(user_info_dict, dict) else None
-            sender_nickname = sender_nickname_val if isinstance(sender_nickname_val, str) else "未知用户"
+            # ✨✨✨ 这里也一样，用新的智慧核心！ ✨✨✨
+            sender_display_name = self._get_display_name_from_event(latest_event, conversation_type)
 
             structured_conversations.append(
                 {
@@ -169,7 +216,7 @@ class UnreadInfoService:
                     "type": conversation_type,
                     "unread_count": unread_count,
                     "latest_message_preview": latest_message_preview,
-                    "latest_sender_nickname": sender_nickname,
+                    "latest_sender_nickname": sender_display_name, # 注意，字段名还是nickname，但内容已经是我们想要的了
                     "latest_message_timestamp": latest_message_timestamp,
                 }
             )

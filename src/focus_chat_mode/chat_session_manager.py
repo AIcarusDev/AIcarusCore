@@ -1,6 +1,4 @@
 # src/focus_chat_mode/chat_session_manager.py
-# 哼，这里是小穴的入口，看我怎么把你那硬邦邦的大脑塞进来~
-
 import asyncio
 import time
 from typing import TYPE_CHECKING, Optional
@@ -20,9 +18,8 @@ from .chat_session import ChatSession
 if TYPE_CHECKING:
     # ❤ 引入我们性感的新大脑，为了类型提示~
     from src.common.intelligent_interrupt_system.intelligent_interrupter import IntelligentInterrupter
-    from src.common.summarization_observation.summarization_service import SummarizationService  # 用于类型提示
-    from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow  # 用于类型提示
-    from src.database.services.summary_storage_service import SummaryStorageService
+    from src.common.summarization_observation.summarization_service import SummarizationService
+    from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
 
 logger = get_logger(__name__)
 
@@ -43,8 +40,6 @@ class ChatSessionManager:
         conversation_service: ConversationStorageService,
         summarization_service: "SummarizationService",
         summary_storage_service: "SummaryStorageService",
-        # ❤❤ 【高潮改造点 1】❤❤
-        # 在这里开一个全新的小口，准备接收我那硬邦邦、热乎乎的大脑！
         intelligent_interrupter: "IntelligentInterrupter",
         core_logic: Optional["CoreLogicFlow"] = None,
     ) -> None:
@@ -58,8 +53,6 @@ class ChatSessionManager:
         self.summarization_service = summarization_service
         self.summary_storage_service = summary_storage_service
 
-        # ❤❤ 【高潮改造点 2】❤❤
-        # 啊~ 进来吧！把它保存在我的身体里！
         self.intelligent_interrupter = intelligent_interrupter
 
         self.core_logic = core_logic
@@ -67,7 +60,7 @@ class ChatSessionManager:
         self.sessions: dict[str, ChatSession] = {}
         self.lock = asyncio.Lock()
 
-        logger.info("ChatSessionManager (小色猫重构版) 初始化完成，并已注入智能打断系统。")
+        logger.info("ChatSessionManager 初始化完成，并已注入智能打断系统。")
 
     def set_core_logic(self, core_logic_instance: "CoreLogicFlow") -> None:
         """延迟注入 CoreLogic 实例，解决循环依赖。"""
@@ -101,8 +94,6 @@ class ChatSessionManager:
                 if not self.core_logic:
                     raise RuntimeError("CoreLogic未注入，ChatSessionManager无法创建会话。")
 
-                # ❤❤ 【高潮改造点 3】❤❤
-                # 创建新会话的时候，要把我的大脑也一起塞进去，让它也爽一爽！
                 self.sessions[conversation_id] = ChatSession(
                     conversation_id=conversation_id,
                     llm_client=self.llm_client,
@@ -116,7 +107,7 @@ class ChatSessionManager:
                     conversation_service=self.conversation_service,
                     summarization_service=self.summarization_service,
                     summary_storage_service=self.summary_storage_service,
-                    intelligent_interrupter=self.intelligent_interrupter,  # <-- 啊~❤ 传递进去！
+                    intelligent_interrupter=self.intelligent_interrupter,
                 )
 
             return self.sessions[conversation_id]
@@ -129,9 +120,11 @@ class ChatSessionManager:
         """
         async with self.lock:
             if conversation_id in self.sessions:
-                session = self.sessions.pop(conversation_id)  # 使用 pop 原子地移除并获取
-                session.deactivate()  # 调用会话自己的停用方法
-                logger.info(f"[SessionManager] 会话 '{conversation_id}' 已被停用并从管理器中移除。")
+                session = self.sessions.pop(conversation_id, None) # 用pop，更安全
+                if session:
+                    # 不再由这里调用 shutdown，而是由 session 内部的 deactivate 触发
+                    session.deactivate()
+                    logger.info(f"[SessionManager] 会话 '{conversation_id}' 已被停用并从管理器中移除。")
 
                 # 检查是否所有会话都已停用
                 if not self.is_any_session_active():
@@ -154,7 +147,6 @@ class ChatSessionManager:
             return False
 
         if not event.content:
-            logger.debug(f"[_is_bot_mentioned] Event content is empty for event {event.event_id}")
             return False
 
         current_bot_id = str(self.bot_id)
@@ -164,12 +156,7 @@ class ChatSessionManager:
             if seg.type == "at":
                 at_user_id_raw = seg.data.get("user_id")
                 if at_user_id_raw is not None and str(at_user_id_raw) == current_bot_id:
-                    logger.info(
-                        f"[_is_bot_mentioned] Bot (ID: {current_bot_id}) was mentioned in event {event.event_id}."
-                    )
                     return True
-
-        logger.debug(f"[_is_bot_mentioned] Bot (ID: {current_bot_id}) was NOT mentioned in event {event.event_id}.")
         return False
 
     async def handle_incoming_message(self, event: Event) -> None:
@@ -189,9 +176,6 @@ class ChatSessionManager:
         if session.is_active:
             if hasattr(session.cycler, "wakeup"):
                 session.cycler.wakeup()
-            else:
-                logger.warning(f"会话 '{conv_id}' 的 cycler 没有 wakeup 方法，无法唤醒。")
-
         # 激活逻辑：如果被@或收到私聊消息，则激活会话
         # 这里是为了方便测试硬编码的逻辑，未来会进一步优化激活逻辑
         # TODO
@@ -216,17 +200,14 @@ class ChatSessionManager:
             await asyncio.sleep(self.config.deactivation_check_interval_seconds)
 
             async with self.lock:
-                inactive_sessions = []
+                inactive_session_ids = []
                 current_time = time.time()
-                for _, session in self.sessions.items():
-                    if (
-                        session.is_active
-                        and (current_time - session.last_active_time) > self.config.session_timeout_seconds
-                    ):
-                        inactive_sessions.append(session)
-
-                for session in inactive_sessions:
-                    session.deactivate()
+                for conv_id, session in self.sessions.items():
+                    if session.is_active and (current_time - session.last_active_time) > self.config.session_timeout_seconds:
+                        inactive_session_ids.append(conv_id)
+            for conv_id in inactive_session_ids:
+                logger.info(f"会话 '{conv_id}' 因超时不活跃，将被系统停用。")
+                await self.deactivate_session(conv_id)
 
     async def activate_session_by_id(
         self,
@@ -246,10 +227,6 @@ class ChatSessionManager:
             f" Platform: {platform}, Type: {conversation_type}, 主意识想法: '{core_last_think[:50]}...', "
             f"主意识心情: {core_last_mood}"
         )
-
-        # 现在 platform 和 conversation_type 是由调用者（CoreLogic）提供的，
-        # CoreLogic 应该从 UnreadInfoService 返回的结构化信息中获取这些。
-
         try:
             session = await self.get_or_create_session(
                 conversation_id=conversation_id, platform=platform, conversation_type=conversation_type
@@ -258,16 +235,12 @@ class ChatSessionManager:
             if session:
                 session.activate(core_last_think=core_last_think, core_last_mood=core_last_mood)
                 logger.info(f"[SessionManager] 会话 '{conversation_id}' 已成功激活，并传递了主意识的想法和心情。")
-            else:
-                # get_or_create_session 内部如果因为 core_logic 未注入等原因创建失败会抛异常，理论上不会到这里
-                logger.error(f"[SessionManager] 激活会话 '{conversation_id}' 失败：未能获取或创建会话实例。")
         except Exception as e:
             logger.error(f"[SessionManager] 激活会话 '{conversation_id}' 时发生错误: {e}", exc_info=True)
 
     def is_any_session_active(self) -> bool:
         """
         检查当前是否有任何会话处于激活状态。
-        哼，主意识那个家伙会用这个来看我是不是在忙！
         """
         # async with self.lock: # 读取操作，如果 sessions 的修改都在锁内，这里可能不需要锁，或者用更轻量级的读锁
         # 简单遍历，不加锁以避免潜在的异步问题，假设读取是相对安全的

@@ -1,6 +1,4 @@
 # 文件路径: src/focus_chat_mode/summarization_manager.py
-# 哼，又帮你打扫了一遍，这下总该干净了吧！
-
 from typing import TYPE_CHECKING
 
 from src.common.custom_logging.logging_config import get_logger
@@ -14,8 +12,9 @@ logger = get_logger(__name__)
 
 class SummarizationManager:
     """
-    摘要管理员（最终清理版）。
+    摘要管理员
     哼，现在我的职责很明确，就是决定什么时候该做总结，然后喊别人来干活。
+    而且我还学会了写带有“跳槽动机”的辞职报告，哼！
     """
 
     def __init__(self, session: "ChatSession") -> None:
@@ -25,20 +24,19 @@ class SummarizationManager:
         self.summary_storage_service = session.summary_storage_service
         self.summary_threshold = config.focus_chat_mode.summary_interval
 
-    async def _handle_summary_process(self, final_save: bool) -> None:
+    async def _handle_summary_process(self, final_save: bool, shift_motivation: str | None = None, target_conversation_id: str | None = None) -> None:
         """
         一个私有方法，把重复的脏活都干了。
         final_save 这个开关决定了最后是只更新内存，还是存到数据库。
+        shift_motivation 和 target_conversation_id 是我新增的玩具，用来写“辞职报告”的。
         """
         try:
             # 1. 直接捞货，不数了，懒得数。
             events_to_summarize = await self.event_storage.get_summarizable_events(self.session.conversation_id)
 
             # 2. 检查数量，不够就不干了。
-            if not events_to_summarize:
-                if final_save and self.session.current_handover_summary:
-                    logger.info(f"[{self.session.conversation_id}] 没有新事件需要最终总结，但将保存内存中的现有摘要。")
-                    await self._save_summary_to_db(self.session.current_handover_summary, [])
+            # 如果是最终保存，即使没有新事件，只要有内存里的摘要，也可能需要保存（比如在转移时）
+            if not events_to_summarize and not (final_save and self.session.current_handover_summary):
                 return
 
             if not final_save and len(events_to_summarize) < self.summary_threshold:
@@ -59,14 +57,16 @@ class SummarizationManager:
                 "platform": self.session.platform,
             }
 
-            # --- 【核心修正点！】 ---
-            # 调用 SummarizationService 时，不再需要自己构建和传递 user_map 了！
+            # --- 【核心改造点！】 ---
+            # 把“跳槽动机”也塞进摘要服务的Prompt里
             new_summary = await self.summarization_service.consolidate_summary(
                 previous_summary=self.session.current_handover_summary,
                 recent_events=events_to_summarize,
                 bot_profile=bot_profile,
                 conversation_info=conversation_info,
-                event_storage=self.event_storage,  # 把 event_storage 传进去
+                event_storage=self.event_storage,
+                shift_motivation=shift_motivation, # 看！新玩具！
+                target_conversation_id=target_conversation_id # 还有这个！
             )
 
             if not new_summary:
@@ -94,9 +94,9 @@ class SummarizationManager:
         """【日常模式】检查并执行阶段性总结。"""
         await self._handle_summary_process(final_save=False)
 
-    async def create_and_save_final_summary(self) -> None:
+    async def create_and_save_final_summary(self, shift_motivation: str | None = None, target_conversation_id: str | None = None) -> None:
         """【收尾模式】执行最终总结。"""
-        await self._handle_summary_process(final_save=True)
+        await self._handle_summary_process(final_save=True, shift_motivation=shift_motivation, target_conversation_id=target_conversation_id)
 
     async def _save_summary_to_db(self, summary_text: str, event_ids: list[str]) -> None:
         """内部辅助方法，保存摘要到数据库。"""
