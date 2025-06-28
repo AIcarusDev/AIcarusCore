@@ -1263,6 +1263,12 @@ class LLMClient:
                                 return result
                         # --- END: 小猫咪的淫纹植入处！ ---
 
+                        # 尝试修复无返回导致响应无处理状况
+                        if result.get("interrupted"):
+                            logger.info(f"API调用在密钥 {key_display} 尝试期间被中断信号中止。将直接返回中断结果。")
+                            return result
+                        return result
+
                     except PermissionDeniedError as e_perm:
                         logger.error(
                             f"密钥 {key_display} 遇到权限拒绝 ({e_perm.status_code}): "
