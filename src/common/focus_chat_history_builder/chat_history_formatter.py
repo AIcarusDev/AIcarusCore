@@ -36,7 +36,7 @@ async def format_chat_history_for_llm(
     # --- 新增一个参数，让它也能直接处理传入的事件列表 ---
     raw_events_from_caller: list[dict[str, Any]] | None = None,
     # 其他可能需要的参数...
-) -> tuple[str, dict, dict, list[str], list[str], str | None, str | None]:  # 【【【修改点1：返回值签名】】】
+) -> tuple[str, str, str, dict, dict, list[str], list[str], str | None, str | None]:
     """
     一个通用的聊天记录格式化工具，哼，真麻烦。
     它负责从数据库获取事件，处理用户映射，格式化聊天记录，还顺便处理了那些烦人的图片。
@@ -214,6 +214,8 @@ async def format_chat_history_for_llm(
             user_line = f"{user_data_item['uid_str']}: {p_id_list}{user_identity_suffix} [nick:{user_data_item['nick']}, card:{user_data_item['card']}, title:{user_data_item['title']}, perm:{user_data_item['perm']}]"
         user_list_lines.append(user_line)
     _user_list_block_str = "\n".join(user_list_lines)
+
+    _conversation_info_block_str = f'- conversation_name: "{conversation_name_str or "未知会话"}"\n- conversation_type: "{conversation_type}"'
 
     # --- Step 5: Build chat history log ---
     chat_log_lines: list[str] = []
@@ -398,6 +400,8 @@ async def format_chat_history_for_llm(
     # 返回所有处理好的结果
     return (
         chat_history_log_block_str,
+        _user_list_block_str,
+        _conversation_info_block_str,
         user_map,
         uid_str_to_platform_id_map,
         processed_event_ids,

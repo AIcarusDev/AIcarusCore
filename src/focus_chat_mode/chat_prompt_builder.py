@@ -144,11 +144,12 @@ class ChatPromptBuilder:
         # 喊一声新玩具的名字，它就把所有脏活累活都干完了！
         (
             chat_history_log_block_str,
+            user_list_block_str,
+            conversation_info_block_str,
             user_map,
             uid_str_to_platform_id_map,
             processed_event_ids,
             image_references,
-            conversation_name_from_formatter,
             last_valid_text_message,
         ) = await format_chat_history_for_llm(
             event_storage=self.event_storage,
@@ -162,14 +163,6 @@ class ChatPromptBuilder:
             is_first_turn=is_first_turn,
         )
 
-        # 更新会话的名称，这样下次就不用再费劲了
-        if conversation_name_from_formatter and self.session.conversation_name != conversation_name_from_formatter:
-            self.session.conversation_name = conversation_name_from_formatter
-            logger.info(f"[{self.session.conversation_id}] 会话名称已更新为: '{self.session.conversation_name}'")
-        logger.debug(
-            f"[{self.session.conversation_id}] 通用格式化工具执行完毕，获取到 {len(processed_event_ids)} 个新事件ID。"
-        )
-
         # --- 步骤3：使用新玩具返回的结果，准备剩下的Prompt零件 ---
 
         user_nick = ""
@@ -179,21 +172,6 @@ class ChatPromptBuilder:
                 if user_data_val.get("uid_str") == "U1" and p_id != final_bot_id:
                     user_nick = user_data_val.get("nick", "对方")
                     break
-
-        # 构建会话信息和用户列表块
-        conversation_info_block_str = f'- conversation_name: "{self.session.conversation_name or "未知会话"}"\n- conversation_type: "{self.session.conversation_type}"'
-
-        user_list_lines = []
-        sorted_user_platform_ids = sorted(user_map.keys(), key=lambda pid_sort: int(user_map[pid_sort]["uid_str"][1:]))
-        for p_id_list in sorted_user_platform_ids:
-            user_data_item = user_map[p_id_list]
-            user_identity_suffix = "（你）" if user_data_item["uid_str"] == "U0" else ""
-            if self.session.conversation_type == "private":
-                user_line = f"{user_data_item['uid_str']}: {p_id_list}{user_identity_suffix} [nick:{user_data_item['nick']}, card:{user_data_item['card']}]"
-            else:
-                user_line = f"{user_data_item['uid_str']}: {p_id_list}{user_identity_suffix} [nick:{user_data_item['nick']}, card:{user_data_item['card']}, title:{user_data_item['title']}, perm:{user_data_item['perm']}]"
-            user_list_lines.append(user_line)
-        user_list_block_str = "\n".join(user_list_lines)
 
         # 构建上一轮思考的块
         previous_thoughts_block_str = ""

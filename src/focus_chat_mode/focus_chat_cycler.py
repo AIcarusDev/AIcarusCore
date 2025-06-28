@@ -88,7 +88,13 @@ class FocusChatCycler:
                     uid_map,
                     processed_ids,
                     image_references,
+                    conversation_name_from_formatter,
                 ) = await self._prepare_and_think()
+
+                # --- 就是这里！由主管亲自更新会话状态！ ---
+                if conversation_name_from_formatter and self.session.conversation_name != conversation_name_from_formatter:
+                    self.session.conversation_name = conversation_name_from_formatter
+                    logger.info(f"[{self.session.conversation_id}] 会话名称已由Cycler更新为: '{self.session.conversation_name}'")
 
                 self.uid_map = uid_map
                 # ❤ 把这个初始上下文，同时喂给LLM（通过prompt）和中断检查器（通过成员变量）
@@ -162,7 +168,7 @@ class FocusChatCycler:
         if not self._shutting_down:
             await self.session.chat_session_manager.deactivate_session(self.session.conversation_id)
 
-    async def _prepare_and_think(self) -> tuple[str, str, str | None, dict, list, list]:
+    async def _prepare_and_think(self) -> tuple[str, str, str | None, dict, list, list, str | None]:
         """准备Prompt，并返回所有需要的数据。"""
         logger.debug(f"[{self.session.conversation_id}] 循环开始，正在构建 prompts...")
         (
@@ -172,6 +178,7 @@ class FocusChatCycler:
             uid_map,
             processed_ids,
             image_references,
+            conversation_name_from_formatter,
         ) = await self.prompt_builder.build_prompts(
             session=self.session,
             last_processed_timestamp=self.session.last_processed_timestamp,
@@ -180,7 +187,15 @@ class FocusChatCycler:
             last_think_from_core=self.session.initial_core_think,
         )
         logger.debug(f"[{self.session.conversation_id}] Prompts 构建完成。")
-        return system_prompt, user_prompt, last_message_text, uid_map, processed_ids, image_references
+        return (
+            system_prompt, 
+            user_prompt, 
+            last_message_text, 
+            uid_map, 
+            processed_ids, 
+            image_references,
+            conversation_name_from_formatter,
+        )
 
     async def _idle_wait(self, interval: float) -> None:
         """等待下一次唤醒或超时。"""
