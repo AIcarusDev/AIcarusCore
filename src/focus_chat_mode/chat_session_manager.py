@@ -175,9 +175,9 @@ class ChatSessionManager:
 
         if session.is_active and hasattr(session.cycler, "wakeup"):
             session.cycler.wakeup()
+        # TODO:
         # 激活逻辑：如果被@或收到私聊消息，则激活会话
         # 这里是为了方便测试硬编码的逻辑，未来会进一步优化激活逻辑
-        # TODO
         is_mentioned = await self._is_bot_mentioned(event)
         if (is_mentioned or event.event_type.startswith("message.private")) and not session.is_active:
             logger.info(f"会话 '{conv_id}' 满足激活条件 (被@或私聊)，准备激活。")
