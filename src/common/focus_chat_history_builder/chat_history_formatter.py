@@ -215,7 +215,9 @@ async def format_chat_history_for_llm(
         user_list_lines.append(user_line)
     _user_list_block_str = "\n".join(user_list_lines)
 
-    _conversation_info_block_str = f'- conversation_name: "{conversation_name_str or "未知会话"}"\n- conversation_type: "{conversation_type}"'
+    _conversation_info_block_str = (
+        f'- conversation_name: "{conversation_name_str or "未知会话"}"\n- conversation_type: "{conversation_type}"'
+    )
 
     # --- Step 5: Build chat history log ---
     chat_log_lines: list[str] = []

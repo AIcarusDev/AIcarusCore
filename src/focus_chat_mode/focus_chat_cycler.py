@@ -92,9 +92,14 @@ class FocusChatCycler:
                 ) = await self._prepare_and_think()
 
                 # --- 就是这里！由主管亲自更新会话状态！ ---
-                if conversation_name_from_formatter and self.session.conversation_name != conversation_name_from_formatter:
+                if (
+                    conversation_name_from_formatter
+                    and self.session.conversation_name != conversation_name_from_formatter
+                ):
                     self.session.conversation_name = conversation_name_from_formatter
-                    logger.info(f"[{self.session.conversation_id}] 会话名称已由Cycler更新为: '{self.session.conversation_name}'")
+                    logger.info(
+                        f"[{self.session.conversation_id}] 会话名称已由Cycler更新为: '{self.session.conversation_name}'"
+                    )
 
                 self.uid_map = uid_map
                 # ❤ 把这个初始上下文，同时喂给LLM（通过prompt）和中断检查器（通过成员变量）
@@ -188,11 +193,11 @@ class FocusChatCycler:
         )
         logger.debug(f"[{self.session.conversation_id}] Prompts 构建完成。")
         return (
-            system_prompt, 
-            user_prompt, 
-            last_message_text, 
-            uid_map, 
-            processed_ids, 
+            system_prompt,
+            user_prompt,
+            last_message_text,
+            uid_map,
+            processed_ids,
             image_references,
             conversation_name_from_formatter,
         )
