@@ -91,7 +91,7 @@ class ChatPromptBuilder:
         last_llm_decision: dict[str, Any] | None,
         is_first_turn: bool,
         last_think_from_core: str | None = None,
-    ) -> tuple[str, str, str | None, dict[str, str], list[str], list[str]]:
+    ) -> tuple[str, str, str | None, dict[str, str], list[str], list[str], str | None]:
         """
         构建专注聊天模式下给LLM的System Prompt和User Prompt。
         哼，看好了，这才叫专业的组装方式！
@@ -141,7 +141,7 @@ class ChatPromptBuilder:
         logger.debug(f"[{self.session.conversation_id}] 调用通用聊天记录格式化工具...")
         bot_profile = await session.get_bot_profile()
 
-        # 喊一声新玩具的名字，它就把所有脏活累活都干完了！
+        # 哼，这里就是那个解包出错的地方，看我把它改成能接住9个值的样子！
         (
             chat_history_log_block_str,
             user_list_block_str,
@@ -150,6 +150,7 @@ class ChatPromptBuilder:
             uid_str_to_platform_id_map,
             processed_event_ids,
             image_references,
+            conversation_name_from_formatter,
             last_valid_text_message,
         ) = await format_chat_history_for_llm(
             event_storage=self.event_storage,
@@ -260,6 +261,7 @@ class ChatPromptBuilder:
         )
 
         # --- 步骤5：把所有需要的东西都吐出去，一个都不能少！ ---
+        # 看好了，这里现在返回7个东西！
         return (
             system_prompt,
             user_prompt,
@@ -267,4 +269,5 @@ class ChatPromptBuilder:
             uid_str_to_platform_id_map,
             processed_event_ids,
             image_references,
+            conversation_name_from_formatter,
         )

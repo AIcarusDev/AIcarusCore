@@ -162,12 +162,14 @@ class SummarizationService:
         # --- 【核心改造点】调用通用格式化工具 ---
         (
             formatted_chat_history,
+            user_list_block_str,
+            conversation_info_block_str,
             user_map,
-            _,
-            _,
+            _,  # uid_str_to_platform_id_map
+            _,  # processed_event_ids
             image_references,
             conversation_name_from_formatter,
-            _,
+            _,  # last_valid_text_message
         ) = await format_chat_history_for_llm(
             event_storage=event_storage,
             conversation_id=conversation_info.get("id"),
