@@ -82,7 +82,7 @@ class AIStateManager:
             prev_think_db = latest_thought_document.get("think_output")
             previous_thinking_for_prompt = (
                 f"你的上一轮思考是：{prev_think_db}"
-                if prev_think_db and prev_think_db.strip()
+                if prev_think_db and str(prev_think_db).strip()
                 else state_from_initial["previous_thinking"]
             )
 
