@@ -281,7 +281,20 @@ class CoreLogic:
             generated_thought = await self.thought_generator.generate_thought(system_prompt, user_prompt, image_list)
 
             if generated_thought:
-                logger.info(f"思考完成: {(generated_thought.get('think') or '无内容')[:50]}...")
+                # 先把 think 的内容拿出来，别在 f-string 里搞那么复杂的操作
+                think_output = generated_thought.get('think')
+                # 检查一下它的类型，做好万全准备
+                if isinstance(think_output, str):
+                    # 如果是字符串，就直接切片
+                    think_preview = think_output[:50]
+                elif think_output is not None:
+                    # 如果不是字符串（比如是个字典），就先粗暴地转成字符串再切片，至少不会崩
+                    think_preview = str(think_output)[:50]
+                else:
+                    # 如果是 None，就用默认值
+                    think_preview = "无内容"
+
+                logger.info(f"思考完成: {think_preview}...")
                 prompts_for_storage = {"system": system_prompt, "user": user_prompt, "current_time": current_time_str}
                 context_for_storage = {
                     "recent_context": other_context_str,
