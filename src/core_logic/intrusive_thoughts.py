@@ -174,5 +174,5 @@ class IntrusiveThoughtsGenerator:
 
         except Exception as e:
             logger.error(f"错误：调用或解析侵入性思维时失败: {e}", exc_info=True)
-            logger.debug(f"出错时的原始文本: {raw_text if raw_text else 'N/A'}")
+            logger.debug(f"出错时的原始文本: {raw_text or 'N/A'}")
             return None
