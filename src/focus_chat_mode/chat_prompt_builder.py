@@ -226,7 +226,7 @@ class ChatPromptBuilder:
                 optional_profile=bot_profile_str,
                 bot_id=final_bot_id,
                 bot_nickname=final_bot_nickname,
-                conversation_name=self.session.conversation_name or "未知群聊",
+                conversation_name=conversation_name_from_formatter or "未知群聊",
                 bot_card=final_bot_card,
             )
         else:  # private
