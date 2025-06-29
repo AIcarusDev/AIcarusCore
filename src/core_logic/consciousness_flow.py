@@ -283,7 +283,7 @@ class CoreLogic:
 
             if generated_thought:
                 # 先把 think 的内容拿出来，别在 f-string 里搞那么复杂的操作
-                think_output = generated_thought.get('think')
+                think_output = generated_thought.get("think")
                 # 检查一下它的类型，做好万全准备
                 if isinstance(think_output, str):
                     # 如果是字符串，就直接切片
