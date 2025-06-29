@@ -384,7 +384,6 @@ async def format_chat_history_for_llm(
     # 6. 拼接最终的字符串
     chat_history_log_block_str = "\n".join(chat_log_lines) or "当前没有聊天记录。"
 
-
     # 【改造点6】processed_event_ids 的逻辑
     processed_event_ids: list[str] = []
     if raw_events:
