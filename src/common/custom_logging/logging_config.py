@@ -228,14 +228,13 @@ def get_logger(module_name: str) -> Logger:
                 sink=log_file_path,
                 level=os.getenv("FILE_LOG_LEVEL", "DEBUG").upper(),
                 format=file_format_str,
-                rotation="00:00",
+                rotation=custom_log_rotation_handler, # <-- 看这里！把你的宝贝函数放到 rotation 这里来！
                 retention="90 days",
-                compression=custom_log_rotation_handler,
+                compression=None, # <-- 这个就不要了，或者设成 None，免得它俩打架！
                 encoding="utf-8",
                 enqueue=True,
                 filter=lambda record: record["extra"].get("padded_alias") == padded_alias,
-            )
-
+        )
             _handlers_created.add(handler_key)
             logger.debug(f"已为别名 '{alias}' 创建专属日志处理器(视觉居中完美版)。")
 
