@@ -175,6 +175,6 @@ cython_debug/
 config/config.toml
 config/old/
 logs/
-src/common/intelligent_interrupt_system/iis_models/
+src/common/intelligent_interrupt_system/iis_models/*
 tests/
 start.bat

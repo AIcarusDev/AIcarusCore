@@ -97,4 +97,5 @@ class LLMClientFactory:
             raise RuntimeError(msg) from e_conf
         except Exception as e:
             msg = f"创建LLM客户端时发生未知错误 (用途: {purpose_key}): {type(e).__name__} - {e}"
+            logger.error(msg, exc_info=True)
             raise RuntimeError(msg) from e
