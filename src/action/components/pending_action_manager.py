@@ -265,6 +265,7 @@ class PendingActionManager:
     async def _get_sent_message_id_safe(self, event_data: dict[str, Any]) -> str:
         default_id = "unknow_message_id"
         if not isinstance(event_data, dict):
+            logger.error(f"事件数据不是一个字典，无法从中安全地提取 sent_message_id。事件数据类型: {type(event_data)}")
             return default_id
         content_list = event_data.get("content")
         if isinstance(content_list, list) and len(content_list) > 0:
