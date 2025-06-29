@@ -41,14 +41,18 @@ MODULE_CONFIG_MAP = {
     "common.summarization_observation.summarization_service": ("观察摘要", "light-black"),
     "common.utils": ("通用工具", "white"),
     "common.summarization_observation": ("观察摘要", "light-black"),
+    "common.json_parser.json_parser": ("JSON 解析", "white"),
     # 配置
     "config.config_io": ("配置IO", "yellow"),
     "config.config_manager": ("配置管理", "yellow"),
     "config.config_updater": ("配置更新", "yellow"),
+    "config.config_validator": ("配置验证", "yellow"),
     # 核心通信
     "core_communication.action_sender": ("动作发送", "yellow"),
     "core_communication.core_ws_server": ("核心WS服务", "yellow"),
     "core_communication.event_receiver": ("事件接收", "yellow"),
+    "core_communication.event_sender": ("事件发送", "yellow"),
+    "core_communication.message_receiver": ("消息接收", "yellow"),
     # 核心逻辑
     "core_logic.consciousness_flow": ("核心循环", "yellow"),
     "core_logic.context_builder": ("上下文构建", "yellow"),
@@ -58,6 +62,8 @@ MODULE_CONFIG_MAP = {
     "core_logic.thought_generator": ("思考生成", "yellow"),
     "core_logic.thought_persistor": ("思考持久化", "yellow"),
     "core_logic.unread_info_service": ("未读服务", "yellow"),
+    "core_logic": ("核心逻辑", "light-yellow"),
+    # 插件
     # 数据库
     "database.core.connection_manager": ("数据库核心", "cyan"),
     "database.models": ("数据库模型", "cyan"),

@@ -1,6 +1,7 @@
 # src/core_logic/thought_generator.py
 from typing import TYPE_CHECKING, Any
 
+from src.common.json_parser.json_parser import parse_llm_json_response
 from src.common.custom_logging.logging_config import get_logger
 
 if TYPE_CHECKING:
@@ -39,11 +40,7 @@ class ThoughtGenerator:
                 logger.error("LLM响应中缺少文本内容。")
                 return None
 
-            # 使用 ThoughtPromptBuilder 的静态方法来解析响应
-            # 需要从 .prompt_builder 导入 ThoughtPromptBuilder 类本身
-            from .prompt_builder import ThoughtPromptBuilder  # 局部导入或在文件顶部导入
-
-            parsed_json = ThoughtPromptBuilder.parse_llm_response(raw_text)
+            parsed_json = parse_llm_json_response(raw_text)
 
             if parsed_json is None:
                 logger.error("解析LLM的JSON响应失败，它返回了None。")

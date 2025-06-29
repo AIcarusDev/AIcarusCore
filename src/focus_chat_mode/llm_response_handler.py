@@ -2,6 +2,7 @@ import json
 import re
 from typing import TYPE_CHECKING
 
+from src.common.json_parser.json_parser import parse_llm_json_response
 from src.common.custom_logging.logging_config import get_logger
 
 if TYPE_CHECKING:
@@ -23,26 +24,7 @@ class LLMResponseHandler:
 
     def parse(self, response_text: str) -> dict | None:
         """从LLM的文本响应中解析出JSON数据。"""
-        if not response_text:
-            return None
-        match = re.search(r"```json\s*(\{[\s\S]*?\})\s*```", response_text, re.DOTALL)
-        if match:
-            json_str = match.group(1)
-            try:
-                return json.loads(json_str)
-            except json.JSONDecodeError as e:
-                logger.error(
-                    f"[{self.session.conversation_id}] 解析被```json包裹的响应时JSONDecodeError: {e}. JSON string: {json_str[:200]}..."
-                )
-                return None
-        else:
-            try:
-                return json.loads(response_text)
-            except json.JSONDecodeError:
-                logger.warning(
-                    f"[{self.session.conversation_id}] LLM响应不是有效的JSON，且未被```json包裹: {response_text[:200]}"
-                )
-                return None
+        return parse_llm_json_response(response_text)
 
     async def handle_decision(self, parsed_data: dict) -> bool:
         """

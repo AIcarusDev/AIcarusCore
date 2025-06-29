@@ -454,23 +454,28 @@ class CoreSystemInitializer:
     async def shutdown(self) -> None:
         logger.info("--- 正在执行 AIcarus Core 系统关闭流程 ---")
         self.stop_event.set()
+
+        # 1. 停止主逻辑循环，这会停止产生新的数据库写入需求
         if self.core_logic_instance:
             await self.core_logic_instance.stop()
 
+        # 2. 停止侵入性思维线程
         if self.intrusive_thread and self.intrusive_thread.is_alive():
             self.intrusive_thread.join(timeout=10.0)
             if self.intrusive_thread.is_alive():
                 logger.warning("侵入性思维线程超时未结束。")
 
-        # 确保在关闭数据库连接之前，处理完所有需要数据库的清理工作
+        # 3. 停止专注聊天会话，这可能会写入最后的总结到数据库
         if self.qq_chat_session_manager:
             logger.info("正在关闭 ChatSessionManager...")
             await self.qq_chat_session_manager.shutdown()
             logger.info("ChatSessionManager 已关闭。")
 
+        # 4. 停止WebSocket服务器，这将触发适配器断开连接的事件，并可能写入数据库
         if self.core_comm_layer:
             await self.core_comm_layer.stop()
 
+        # 5. 关闭LLM客户端会话（这通常不涉及我们的数据库）
         llm_clients = [
             self.main_consciousness_llm_client,
             self.summary_llm_client,
@@ -484,6 +489,7 @@ class CoreSystemInitializer:
                 except Exception as e:
                     logger.warning(f"关闭LLM客户端会话时出错: {e}")
 
+        # 6. 最后，当所有可能使用数据库的操作都结束后，再关闭数据库连接
         if self.conn_manager:
             await self.conn_manager.close_client()
 

@@ -4,6 +4,7 @@ import asyncio
 import json
 import threading
 
+from src.common.json_parser.json_parser import parse_llm_json_response
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
 from src.database.core.connection_manager import ArangoDBConnectionManager, CoreDBCollections
@@ -164,24 +165,15 @@ class IntrusiveThoughtsGenerator:
 
             logger.debug(f"LLM API 原始响应: {raw_text[:300]}...")
 
-            if raw_text.strip().startswith("```json"):
-                json_str = raw_text.strip()[7:-3].strip()
-            elif raw_text.strip().startswith("```"):
-                json_str = raw_text.strip()[3:-3].strip()
-            else:
-                json_str = raw_text.strip()
+            thoughts_json = parse_llm_json_response(raw_text)
 
-            thoughts_json = json.loads(json_str)
             generated_thoughts = [
                 thoughts_json[key] for key in thoughts_json if thoughts_json[key] and thoughts_json[key].strip()
             ]
             logger.info(f"成功生成 {len(generated_thoughts)} 条侵入性思维。")
             return generated_thoughts
 
-        except json.JSONDecodeError as e:
-            logger.error(f"错误：解析侵入性思维 JSON 响应失败: {e}")
-            logger.error(f"未能解析的文本内容: {raw_text if 'raw_text' in locals() else 'N/A'}")
-            return None
         except Exception as e:
-            logger.error(f"错误：调用 Client 生成侵入性思维失败: {e}", exc_info=True)
+            logger.error(f"错误：调用或解析侵入性思维时失败: {e}", exc_info=True)
+            logger.debug(f"出错时的原始文本: {raw_text if raw_text else 'N/A'}")
             return None

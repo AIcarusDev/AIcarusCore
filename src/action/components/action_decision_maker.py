@@ -1,7 +1,7 @@
 # src/action/components/action_decision_maker.py
-import json
 from dataclasses import dataclass
 
+from src.common.json_parser.json_parser import parse_llm_json_response
 from src.common.custom_logging.logging_config import get_logger
 from src.llmrequest.llm_processor import Client as ProcessorClient
 
@@ -75,24 +75,21 @@ class ActionDecisionMaker:
             logger.warning(error_msg)
             return ActionDecision(None, {}, raw_text, error=error_msg)
 
-        try:
-            json_string = raw_text
-            if json_string.startswith("```json"):
-                json_string = json_string[7:]
-            if json_string.startswith("```"):
-                json_string = json_string[3:]
-            if json_string.endswith("```"):
-                json_string = json_string[:-3]
-            json_string = json_string.strip()
+        parsed_decision = parse_llm_json_response(raw_text)
 
-            parsed_decision = json.loads(json_string)
+
+        if parsed_decision:
             tool_name = parsed_decision.get("tool_to_use")
             arguments = parsed_decision.get("arguments", {})
 
+            if not isinstance(arguments, dict):
+            # 有时候LLM不听话，arguments不是个字典，我们得温柔地处理一下
+                logger.warning(f"LLM返回的arguments不是一个字典，而是 {type(arguments)}。将使用空字典代替。")
+                arguments = {}
+
             logger.info(f"LLM决策完成。选择的工具: '{tool_name}'")
             return ActionDecision(tool_name, arguments, raw_text)
-
-        except (json.JSONDecodeError, TypeError) as e:
-            error_msg = f"解析LLM决策JSON失败: {e}. 原始文本: {raw_text[:200]}..."
+        else:
+            error_msg = f"解析LLM决策JSON失败。 原始文本: {raw_text[:200]}..."
             logger.error(error_msg)
             return ActionDecision(None, {}, raw_text, error=error_msg)
