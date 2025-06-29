@@ -111,8 +111,14 @@ class ThoughtStorageService:
         self, doc_key: str, action_id: str, status_update_dict: dict[str, Any]
     ) -> bool:
         """更新特定思考文档中，内嵌的 `action_attempted` 对象里特定动作的状态。"""
-        if not doc_key or not action_id or not status_update_dict:
-            logger.warning("更新动作状态需要有效的 doc_key, action_id 和 status_update_dict。")
+        if not doc_key:
+            logger.warning("更新动作状态时缺少有效的 doc_key。")
+            return False
+        if not action_id:
+            logger.warning("更新动作状态时缺少有效的 action_id。")
+            return False
+        if not status_update_dict:
+            logger.warning("更新动作状态时缺少有效的 status_update_dict。")
             return False
 
         try:
