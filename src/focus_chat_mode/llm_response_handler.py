@@ -92,7 +92,7 @@ class LLMResponseHandler:
         if hasattr(self.core_logic, "trigger_immediate_thought_cycle"):
             self.core_logic.trigger_immediate_thought_cycle(handover_summary, last_session_think, last_session_mood)
 
-        # 在停用会anagement_managerager
+        # 在停用会话时，调用 summarization_manager
         if self.session.summarization_manager:
             await self.session.summarization_manager.create_and_save_final_summary()
 
