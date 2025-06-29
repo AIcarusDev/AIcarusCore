@@ -1,11 +1,10 @@
 # src/core_logic/intrusive_thoughts.py
 
 import asyncio
-import json
 import threading
 
-from src.common.json_parser.json_parser import parse_llm_json_response
 from src.common.custom_logging.logging_config import get_logger
+from src.common.json_parser.json_parser import parse_llm_json_response
 from src.config import config
 from src.database.core.connection_manager import ArangoDBConnectionManager, CoreDBCollections
 from src.database.services.thought_storage_service import ThoughtStorageService

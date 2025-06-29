@@ -1,9 +1,7 @@
-import json
-import re
 from typing import TYPE_CHECKING
 
-from src.common.json_parser.json_parser import parse_llm_json_response
 from src.common.custom_logging.logging_config import get_logger
+from src.common.json_parser.json_parser import parse_llm_json_response
 
 if TYPE_CHECKING:
     from .chat_session import ChatSession

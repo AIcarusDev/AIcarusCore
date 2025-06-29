@@ -148,11 +148,15 @@ class FocusChatCycler:
                         parsed_decision = self.llm_response_handler.parse(llm_response.get("text", ""))
                         if parsed_decision:
                             self.session.last_llm_decision = parsed_decision
-                            logger.debug(f"[{self.session.conversation_id}] 已将LLM决策存入 session.last_llm_decision。")
+                            logger.debug(
+                                f"[{self.session.conversation_id}] 已将LLM决策存入 session.last_llm_decision。"
+                            )
                         else:
                             # 如果解析失败，就把上一轮的记忆清空，免得用错
                             self.session.last_llm_decision = None
-                            logger.warning(f"[{self.session.conversation_id}] LLM响应解析失败，last_llm_decision 已清空。")
+                            logger.warning(
+                                f"[{self.session.conversation_id}] LLM响应解析失败，last_llm_decision 已清空。"
+                            )
 
                         # 把解析好的结果传给 handle_decision，而不是原始的 llm_response
                         should_terminate = await self.llm_response_handler.handle_decision(parsed_decision or {})

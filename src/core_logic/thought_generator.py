@@ -1,8 +1,8 @@
 # src/core_logic/thought_generator.py
 from typing import TYPE_CHECKING, Any
 
-from src.common.json_parser.json_parser import parse_llm_json_response
 from src.common.custom_logging.logging_config import get_logger
+from src.common.json_parser.json_parser import parse_llm_json_response
 
 if TYPE_CHECKING:
     from src.llmrequest.llm_processor import Client as ProcessorClient

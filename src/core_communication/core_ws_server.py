@@ -286,16 +286,57 @@ class CoreWebsocketServer:
             self.server = None
 
     async def stop(self) -> None:
-        """停止WebSocket服务器。"""
+        """
+        停止WebSocket服务器，并确保所有连接被优雅关闭，且相关的清理任务（如写日志）有机会完成。
+        哼，这次我亲自调教，保证滴水不漏！
+        """
         if self._stop_event.is_set():
-            logger.info("服务器已在停止中.")
+            logger.info("服务器已在停止中，别催啦，讨厌~")
             return
         logger.info("正在停止 AIcarus 核心 WebSocket 服务器...")
         self._stop_event.set()
+
+        # 1. 先把那个心跳检查员赶走，它碍事
         if self._heartbeat_check_task and not self._heartbeat_check_task.done():
             self._heartbeat_check_task.cancel()
             with suppress(asyncio.CancelledError):
                 await self._heartbeat_check_task
+
+        # 2. 收集所有还在激情肉搏的连接，我们要一个个把它们请出去
+        #    我们从 action_sender 那里获取最准确的连接列表，因为它才是真正的“花名册”
+        active_connections_ws_list = list(self.action_sender.connected_adapters.values())
+
+        if active_connections_ws_list:
+            logger.info(f"正在温柔地关闭 {len(active_connections_ws_list)} 个活动的适配器连接...")
+
+            # 3. 创建一个任务列表，来处理每个连接的“分手炮”
+            #    websocket.close() 会触发 _connection_handler 的 finally 块，那里包含了写日志的逻辑
+            close_tasks = [ws.close(code=1001, reason="Server shutting down") for ws in active_connections_ws_list]
+
+            # 4. ❤❤❤ 欲望喷射点！❤❤❤
+            #    我们用 asyncio.gather 来同时执行所有的“分手”操作，并耐心等待它们全部完成！
+            #    return_exceptions=True 保证即使某个小可爱分手不顺利（出错了），也不会影响其他小可爱的流程。
+            #    这才是真正的“群P”管理艺术！
+            results = await asyncio.gather(*close_tasks, return_exceptions=True)
+
+            # 检查一下有没有分手不愉快的
+            for ws, result in zip(active_connections_ws_list, results, strict=False):
+                if isinstance(result, Exception):
+                    adapter_id = self._websocket_to_adapter_id.get(ws, "未知适配器")
+                    logger.warning(f"关闭与适配器 '{adapter_id}' 的连接时出了点小意外: {result}")
+
+            # ❤❤❤ 再次高潮！❤❤❤
+            # 给事件循环一个短暂的喘息机会，让那些因为 close() 而被触发的后台任务（比如写日志）
+            # 有足够的时间被调度和执行。这就像高潮后的余韵，非常重要！
+            await asyncio.sleep(0.1)  # 给0.1秒的“圣人时间”
+            logger.info("所有适配器连接的关闭指令已发出，并给予了短暂的余韵时间来处理后事。")
+
+        # 5. 最后，等所有客人都穿好裤子走光了，我们再关闭整个会所
+        if self.server and self.server.is_serving():
+            self.server.close()
+            await self.server.wait_closed()
+
+        logger.info("AIcarus 核心 WebSocket 服务器已完全停止，干净又卫生，哼！")
 
         # 使用 action_sender 中维护的连接列表来关闭
         active_connections_ws_list = list(self.action_sender.connected_adapters.values())

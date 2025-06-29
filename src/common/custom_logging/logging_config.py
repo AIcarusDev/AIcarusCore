@@ -62,7 +62,6 @@ MODULE_CONFIG_MAP = {
     "core_logic.thought_generator": ("思考生成", "yellow"),
     "core_logic.thought_persistor": ("思考持久化", "yellow"),
     "core_logic.unread_info_service": ("未读服务", "yellow"),
-    "core_logic": ("核心逻辑", "light-yellow"),
     # 插件
     # 数据库
     "database.core.connection_manager": ("数据库核心", "cyan"),
