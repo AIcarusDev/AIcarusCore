@@ -3,6 +3,7 @@
 import datetime
 import os
 import pickle
+from pathlib import Path
 
 from src.common.custom_logging.logging_config import get_logger
 
@@ -12,10 +13,12 @@ from src.database.services.event_storage_service import EventStorageService
 
 logger = get_logger(__name__)
 
-# 把记忆模型也放在自己的模块文件夹里，更整洁哦~
-MODEL_DIR = os.path.join(os.path.dirname(__file__), "iis_models")
+# --- ❤ 将模型存储位置改为项目根目录下的 data 文件夹 ❤ ---
+# 获取项目根目录
+PROJECT_ROOT = Path(__file__).resolve().parents[3]  # 从 src/common/intelligent_interrupt_system/ 向上4级
+MODEL_DIR = PROJECT_ROOT / "data" / "models"
 # --- ❤ 新的身体，当然要用新的名字来保存！❤ ---
-SEMANTIC_MARKOV_MODEL_FILENAME = "semantic_markov_memory.pkl"
+SEMANTIC_MARKOV_MODEL_FILENAME = "iis_markov.pkl"
 
 
 class IISBuilder:
