@@ -10,7 +10,7 @@ from pathlib import Path  # 面向对象的路径操作，让路径处理更优�
 
 import tomlkit  # 用来和 TOML 文件玩耍，还能保留注释和格式哦
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 
 from .config_paths import (
     ACTUAL_CONFIG_FILENAME,
@@ -20,7 +20,7 @@ from .config_paths import (
     TEMPLATE_DIR,
 )
 
-logger = get_logger("AIcarusCore.config_io")
+logger = get_logger(__name__)
 
 
 class ConfigIOHandler:

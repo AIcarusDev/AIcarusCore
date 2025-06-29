@@ -5,13 +5,13 @@ import asyncio
 from collections.abc import Callable, Coroutine
 from typing import Any, Unpack  # 确保 Unpack 被导入
 
-from src.common.custom_logging.logger_manager import get_logger  # type: ignore # 假设这个导入是有效的，但找不到存根
+from src.common.custom_logging.logging_config import get_logger  # type: ignore # 假设这个导入是有效的，但找不到存根
 
 from .utils_model import APIKeyError, GenerationParams, LLMClientError, NetworkError
 from .utils_model import LLMClient as UnderlyingLLMClient
 
 # 获取日志记录器实例
-logger = get_logger("AIcarusCore.llm.processor")
+logger = get_logger(__name__)
 
 # 定义回调函数类型，用于处理流式数据的块
 # 参数：块数据，块类型（例如 'chunk', 'finish', 'error'），元数据字典

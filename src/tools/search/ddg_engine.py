@@ -4,7 +4,7 @@ from typing import Any
 
 from duckduckgo_search import DDGS
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 
 from .base_engine import SearchEngineBase
 

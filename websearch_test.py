@@ -1,6 +1,6 @@
 import asyncio
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 from src.tools.web_searcher import search_web
 
 logger = get_logger("web_searcher.test")

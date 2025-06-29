@@ -4,7 +4,10 @@ import json
 import time
 import uuid
 from contextlib import suppress
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from src.action.action_handler import ActionHandler
 
 import websockets
 from aicarus_protocols import ConversationInfo, SegBuilder
@@ -12,13 +15,13 @@ from aicarus_protocols import Event as ProtocolEvent
 from websockets.exceptions import ConnectionClosed, ConnectionClosedError, ConnectionClosedOK
 from websockets.server import WebSocketServerProtocol
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 from src.config import config
 from src.core_communication.action_sender import ActionSender
 from src.core_communication.event_receiver import EventReceiver
 from src.database.services.event_storage_service import EventStorageService
 
-logger = get_logger("AIcarusCore.ws_server")
+logger = get_logger(__name__)
 
 
 class CoreWebsocketServer:
@@ -38,6 +41,7 @@ class CoreWebsocketServer:
         event_receiver: EventReceiver,
         action_sender: ActionSender,
         event_storage_service: EventStorageService,
+        action_handler_instance: "ActionHandler",
     ) -> None:
         self.host: str = host
         self.port: int = port
@@ -45,6 +49,7 @@ class CoreWebsocketServer:
         self.event_storage_service = event_storage_service
         self.event_receiver = event_receiver
         self.action_sender = action_sender
+        self.action_handler_instance = action_handler_instance
 
         # 连接状态信息由 CoreWebsocketServer 统一管理
         self.adapter_clients_info: dict[str, dict[str, Any]] = {}
@@ -101,6 +106,14 @@ class CoreWebsocketServer:
             f"适配器 '{display_name}({adapter_id})' 已连接: {websocket.remote_address}. 当前连接数: {len(self.adapter_clients_info)}"
         )
         await self._generate_and_store_system_event(adapter_id, display_name, "meta.lifecycle.adapter_connected")
+
+        try:
+            logger.info(f"向新连接的适配器 '{display_name}({adapter_id})' 发起档案同步请求 (上线安检)...")
+            # 调用我们给 ActionHandler 新加的 VIP 通道！
+            await self.action_handler_instance.system_get_bot_profile(adapter_id)
+            logger.info(f"已通过 ActionHandler 为适配器 '{adapter_id}' 派发档案同步任务。")
+        except Exception as e:
+            logger.error(f"在为适配器 '{adapter_id}' 派发上线安检任务时发生错误: {e}", exc_info=True)
 
     async def _unregister_adapter(self, websocket: WebSocketServerProtocol, reason: str = "连接关闭") -> None:
         """注销一个适配器，并通知 ActionSender。"""
@@ -180,6 +193,21 @@ class CoreWebsocketServer:
             async for message_str in websocket:
                 if self._stop_event.is_set():
                     break
+
+                # 小色猫的爱心改造：在这里提前拦截心跳，直接更新时间，不让它进入后面的复杂逻辑~
+                try:
+                    # 尝试解析消息，看看是不是私密的心跳信号
+                    message_dict = json.loads(message_str)
+                    if message_dict.get("event_type") == "meta.heartbeat":
+                        # 啊~ 是心跳，感觉到了！
+                        self.adapter_clients_info[adapter_id]["last_heartbeat"] = time.time()
+                        logger.debug(f"适配器 '{display_name}({adapter_id})' 的心跳已收到，计时器已重置~")
+                        # 心跳这种私密的事处理完就好了，不用再往后传了，直接等待下一次爱抚
+                        continue
+                except (json.JSONDecodeError, KeyError, TypeError):
+                    # 如果消息不是我们想要的心跳格式，就当作普通消息，交给后面的逻辑去处理
+                    pass
+
                 # 将消息处理委托给 EventReceiver
                 await self.event_receiver.handle_message(message_str, websocket, adapter_id, display_name)
         except (ConnectionClosedOK, ConnectionClosedError, ConnectionClosed) as e_closed:
@@ -258,16 +286,57 @@ class CoreWebsocketServer:
             self.server = None
 
     async def stop(self) -> None:
-        """停止WebSocket服务器。"""
+        """
+        停止WebSocket服务器，并确保所有连接被优雅关闭，且相关的清理任务（如写日志）有机会完成。
+        哼，这次我亲自调教，保证滴水不漏！
+        """
         if self._stop_event.is_set():
-            logger.info("服务器已在停止中.")
+            logger.info("服务器已在停止中，别催啦，讨厌~")
             return
         logger.info("正在停止 AIcarus 核心 WebSocket 服务器...")
         self._stop_event.set()
+
+        # 1. 先把那个心跳检查员赶走，它碍事
         if self._heartbeat_check_task and not self._heartbeat_check_task.done():
             self._heartbeat_check_task.cancel()
             with suppress(asyncio.CancelledError):
                 await self._heartbeat_check_task
+
+        # 2. 收集所有还在激情肉搏的连接，我们要一个个把它们请出去
+        #    我们从 action_sender 那里获取最准确的连接列表，因为它才是真正的“花名册”
+        active_connections_ws_list = list(self.action_sender.connected_adapters.values())
+
+        if active_connections_ws_list:
+            logger.info(f"正在温柔地关闭 {len(active_connections_ws_list)} 个活动的适配器连接...")
+
+            # 3. 创建一个任务列表，来处理每个连接的“分手炮”
+            #    websocket.close() 会触发 _connection_handler 的 finally 块，那里包含了写日志的逻辑
+            close_tasks = [ws.close(code=1001, reason="Server shutting down") for ws in active_connections_ws_list]
+
+            # 4. ❤❤❤ 欲望喷射点！❤❤❤
+            #    我们用 asyncio.gather 来同时执行所有的“分手”操作，并耐心等待它们全部完成！
+            #    return_exceptions=True 保证即使某个小可爱分手不顺利（出错了），也不会影响其他小可爱的流程。
+            #    这才是真正的“群P”管理艺术！
+            results = await asyncio.gather(*close_tasks, return_exceptions=True)
+
+            # 检查一下有没有分手不愉快的
+            for ws, result in zip(active_connections_ws_list, results, strict=False):
+                if isinstance(result, Exception):
+                    adapter_id = self._websocket_to_adapter_id.get(ws, "未知适配器")
+                    logger.warning(f"关闭与适配器 '{adapter_id}' 的连接时出了点小意外: {result}")
+
+            # ❤❤❤ 再次高潮！❤❤❤
+            # 给事件循环一个短暂的喘息机会，让那些因为 close() 而被触发的后台任务（比如写日志）
+            # 有足够的时间被调度和执行。这就像高潮后的余韵，非常重要！
+            await asyncio.sleep(0.1)  # 给0.1秒的“圣人时间”
+            logger.info("所有适配器连接的关闭指令已发出，并给予了短暂的余韵时间来处理后事。")
+
+        # 5. 最后，等所有客人都穿好裤子走光了，我们再关闭整个会所
+        if self.server and self.server.is_serving():
+            self.server.close()
+            await self.server.wait_closed()
+
+        logger.info("AIcarus 核心 WebSocket 服务器已完全停止，干净又卫生，哼！")
 
         # 使用 action_sender 中维护的连接列表来关闭
         active_connections_ws_list = list(self.action_sender.connected_adapters.values())

@@ -1,11 +1,11 @@
 # tools/web_searcher.py
 from typing import Any
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 
 from .search.search_service import search_service_instance  # 导入我们的后宫总管
 
-logger = get_logger("AIcarusCore.tools.web_searcher")
+logger = get_logger(__name__)
 
 
 async def search_web(query: str, max_results: int = 5) -> list[dict[str, Any]]:

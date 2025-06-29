@@ -8,12 +8,12 @@ from typing import Any
 
 import yaml
 
-from src.common.custom_logging.logger_manager import get_logger  # type: ignore
+from src.common.custom_logging.logging_config import get_logger  # type: ignore
 
 # 确保 config 被正确导入，如果 format_messages_for_llm_context 中用到了
 from src.config import config  # type: ignore
 
-logger = get_logger("AIcarusCore.utils")
+logger = get_logger(__name__)
 
 
 # --- 自定义YAML处理类 ---

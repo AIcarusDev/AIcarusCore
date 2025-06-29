@@ -1,3 +1,0 @@
-@echo off
-echo Starting AIcarus Core Backend...
-start "AIcarus Backend" cmd /k python run_core_logic.py

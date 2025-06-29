@@ -6,9 +6,9 @@ from typing import Any
 from websockets.exceptions import ConnectionClosed
 from websockets.server import WebSocketServerProtocol
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 
-logger = get_logger("AIcarusCore.ActionSender")
+logger = get_logger(__name__)
 
 
 class ActionSender:
