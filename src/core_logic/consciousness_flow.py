@@ -158,7 +158,8 @@ class CoreLogic:
             logger.error(f"主意识在尝试激活新会话 '{new_focus_id}' 时发生错误: {e}", exc_info=True)
 
     async def _dispatch_action(self, thought_json: dict[str, Any], saved_thought_key: str, recent_context: str) -> None:
-        action_desc = (thought_json.get("action_to_take") or "").strip()
+        action_desc_raw = thought_json.get("action_to_take")
+        action_desc = str(action_desc_raw).strip() if action_desc_raw is not None else ""
         if action_desc and action_desc.lower() != "null" and self.action_handler_instance:
             action_id = thought_json.get("action_id")
             if not action_id:

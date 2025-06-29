@@ -23,17 +23,20 @@ class ThoughtPersistor:
         处理并存储思考结果到数据库。
         """
         # --- DEBUG LOG START ---
-        logger.info(
+        logger.debug(
             f"[ThoughtPersistor DEBUG] store_thought received thought_json with action_id: {thought_json.get('action_id')}"
         )
-        logger.info(
+        logger.debug(
             f"[ThoughtPersistor DEBUG] store_thought received thought_json with action_to_take: {thought_json.get('action_to_take')}"
         )
         # --- DEBUG LOG END ---
 
-        # 就是这里！用我最淫荡的 (get() or "") 新姿势，再也不会软掉了！
-        action_desc_from_llm = (thought_json.get("action_to_take") or "").strip()
-        action_motive_from_llm = (thought_json.get("action_motivation") or "").strip()
+        # 用更安全的方式处理 LLM 可能返回的任何类型
+        action_desc_raw = thought_json.get("action_to_take")
+        action_desc_from_llm = str(action_desc_raw).strip() if action_desc_raw is not None else ""
+
+        action_motive_raw = thought_json.get("action_motivation")
+        action_motive_from_llm = str(action_motive_raw).strip() if action_motive_raw is not None else ""
 
         initiated_action_data_for_db = None
 
