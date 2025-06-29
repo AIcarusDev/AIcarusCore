@@ -47,7 +47,7 @@ GROUP_SYSTEM_PROMPT = """
 </input_format_description>
 
 <output_format>
-你的输出**必须**是 JSON 格式。不要添加任何 markdown 标记或者其他多余的文字，只输出纯粹的 JSON 对象。
+你的输出**必须**是 JSON 格式。并且将整个JSON对象包裹在json代码块中，不要添加其它任何多余内容。
 
 具体输出字段介绍：
 "mood":"**必填**，这个字段需要写入你当前的心情，和造成这个心情的原因，可以适当衔接在`<previous_thoughts_and_actions>`中你之前的心情",
@@ -119,7 +119,7 @@ GROUP_USER_PROMPT = """
 
 <output_now>
 现在请你请输出你现在的心情，内心想法，是否要发言，发言的动机，和要发言的内容等等。
-请严格使用以下 json 格式输出内容，不需要输出 markdown 语句等多余内容，仅输出纯 json 内容：
+请严格使用以下 json 格式输出内容。请务必将整个JSON对象包裹在json代码块中，并且除此之外，不要包含任何解释、注释或其他任何多余的文本：
 ```json
 {{
     "mood":"string",
@@ -136,8 +136,8 @@ GROUP_USER_PROMPT = """
     "motivation_for_shift": null,
     "end_focused_chat":false
 }}
-</output_now>
 ```
+</output_now>
 """
 
 # ============================= 专注模式私聊system_prompt =============================
@@ -182,7 +182,7 @@ PRIVATE_SYSTEM_PROMPT = """
 </input_format_description>
 
 <output_format>
-你的输出**必须**是 JSON 格式。不要添加任何 markdown 标记或者其他多余的文字，只输出纯粹的 JSON 对象。
+你的输出**必须**是 JSON 格式。并且将整个JSON对象包裹在json代码块中，不要添加其它任何多余内容。
 
 具体输出字段介绍：
 "mood":"**必填**，这个字段需要写入你当前的心情，和造成这个心情的原因，可以适当衔接在`<previous_thoughts_and_actions>`中你之前的心情",
@@ -248,7 +248,7 @@ PRIVATE_USER_PROMPT = """
 
 <output_now>
 现在请你请输出你现在的心情，内心想法，是否要发言，发言的动机，和要发言的内容等等。
-请严格使用以下 json 格式输出内容，不需要输出 markdown 语句等多余内容，仅输出纯 json 内容：
+请严格使用以下 json 格式输出内容。请务必将整个JSON对象包裹在json代码块中，并且除此之外，不要包含任何解释、注释或其他任何多余的文本：
 ```json
 {{
     "mood":"string",
@@ -264,6 +264,6 @@ PRIVATE_USER_PROMPT = """
     "motivation_for_shift": null,
     "end_focused_chat":false
 }}
-</output_now>
 ```
+</output_now>
 """
