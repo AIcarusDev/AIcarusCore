@@ -1,3 +1,4 @@
+# src/focus_chat_mode/action_executor.py
 import asyncio
 import random
 import re
@@ -37,6 +38,32 @@ class ActionExecutor:
             return False
         # // 正则表达式，用来匹配 "text_数字" 这种无聊的占位符
         return not re.fullmatch(r"text_\d+", msg.strip())
+
+    def _calculate_typing_delay(self, text: str) -> float:
+        """
+        计算模拟打字需要的时间。哼，就是个简单的数学题。
+        """
+        # 定义哪些标点需要停顿久一点，假装在思考
+        punctuation_to_pause = "，。！？；、,."
+        # 普通字/字母的打字延迟
+        char_delay_min = 0.05
+        char_delay_max = 0.15
+        # 遇到标点符号的额外停顿
+        punc_delay_min = 0.3
+        punc_delay_max = 0.5
+        # 封顶延迟，免得一句话等半天
+        max_total_delay = 5.0
+
+        total_delay = 0.0
+        for char in text:
+            if char in punctuation_to_pause:
+                total_delay += random.uniform(punc_delay_min, punc_delay_max)
+            else:
+                total_delay += random.uniform(char_delay_min, char_delay_max)
+
+        # 别睡太久了，懒鬼！
+        final_delay = min(total_delay, max_total_delay)
+        return final_delay
 
     async def execute_action(self, parsed_data: dict, uid_map: dict) -> bool:
         """根据LLM的决策执行回复或记录内部思考。"""
@@ -90,6 +117,15 @@ class ActionExecutor:
         action_recorded = False
         # 烦人的循环开始了
         for i, sentence_text in enumerate(valid_sentences):
+            # 1. 计算这条消息的“模拟打字”时间
+            typing_delay = self._calculate_typing_delay(sentence_text)
+            logger.debug(
+                f"[{self.session.conversation_id}] 模拟打字: '{sentence_text[:20]}...'，预计耗时 {typing_delay:.2f} 秒..."
+            )
+
+            # 2. 假装在打字，睡一会儿
+            await asyncio.sleep(typing_delay)
+
             # 只有第一条消息才带 @ 和引用，后面的都是纯洁的肉体
             content_segs_payload = self._build_reply_segments(
                 i, sentence_text, quote_msg_id, at_target_values_raw, uid_map
