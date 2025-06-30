@@ -73,7 +73,7 @@ class ActionExecutor:
             if parsed_data.get(field) == "":
                 parsed_data[field] = None
         # --- End sanitization ---
-        
+
         # --- 改造点在这里！ ---
         reply_text_list = parsed_data.get("reply_text", [])
         # 先确保它是个列表，免得出错
@@ -89,7 +89,7 @@ class ActionExecutor:
         if has_interaction:
             # 获取要发送消息的数量
             num_messages_to_send = len(valid_sentences)
-    
+
             # 我决定说话了，话痨计数器就加上我实际要说的条数，沉默计数器清零
             self.session.consecutive_bot_messages_count += num_messages_to_send
             self.session.no_action_count = 0
