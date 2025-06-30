@@ -197,6 +197,7 @@ def perform_global_log_housekeeping(root_log_dir: Path) -> None:
             catch_up_and_archive_logs(module_dir)
     logger.info("所有房间都已检查完毕，哼，现在干净多了~")
 
+
 def compress_log_on_rotation(file_path_to_compress_str: str, _: str) -> None:
     """
     在 loguru 轮替日志文件时被调用的函数。
