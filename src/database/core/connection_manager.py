@@ -243,7 +243,7 @@ class ArangoDBConnectionManager:
 
                 # 检查这个“签名”是否已经存在
                 if desired_index_signature in existing_indexes_set:
-                    logger.debug(
+                    logger.trace(
                         f"索引 {fields} (type={index_type}, unique={unique}, sparse={sparse}) 在 '{collection_name}' 上已存在。跳过创建。"
                     )
                     continue
