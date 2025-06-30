@@ -36,9 +36,7 @@ class ActionExecutor:
         if not msg or not isinstance(msg, str) or msg.strip().lower() == "null":
             return False
         # // 正则表达式，用来匹配 "text_数字" 这种无聊的占位符
-        if re.fullmatch(r"text_\d+", msg.strip()):
-            return False
-        return True
+        return not re.fullmatch(r"text_\d+", msg.strip())
 
     async def execute_action(self, parsed_data: dict, uid_map: dict) -> bool:
         """根据LLM的决策执行回复或记录内部思考。"""

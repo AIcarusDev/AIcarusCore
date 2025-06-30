@@ -201,21 +201,22 @@ class ChatPromptBuilder:
             # 处理上一轮的心情、想法、动机和回复内容
             action_desc = "暂时不发言"
             if reply_willing_flag and isinstance(reply_text_list, list) and reply_text_list:
-                valid_messages = [msg for msg in reply_text_list if msg and isinstance(msg, str) and msg.strip().lower() != "null"]
+                valid_messages = [
+                    msg for msg in reply_text_list if msg and isinstance(msg, str) and msg.strip().lower() != "null"
+                ]
                 if len(valid_messages) == 1:
-
-                # 只有一条有效消息时，示例：发言（发言内容为：你好）
+                    # 只有一条有效消息时，示例：发言（发言内容为：你好）
                     action_desc = f"发言（发言内容为：{valid_messages[0]}）"
                 # 有多条有效消息时，示例：发言，并且发送了3条消息（内容依次为：“你好”，“今天天气不错”，“你呢？”）
                 elif len(valid_messages) > 1:
-                    messages_str = '，'.join(f'"{msg}"' for msg in valid_messages)
+                    messages_str = "，".join(f'"{msg}"' for msg in valid_messages)
                     action_desc = f"发言，并且发送了{len(valid_messages)}条消息（内容依次为：{messages_str}）"
             # 没有有效消息时（这是一个兜底，llm响应理想的情况下不应该发生）
             elif reply_willing_flag:
                 action_desc = "决定发言但未提供有效内容"
             elif poke_target_id_val:
                 # 处理戳一戳的情况
-                uid_map = session.cycler.uid_map if hasattr(session.cycler, 'uid_map') else {}
+                uid_map = session.cycler.uid_map if hasattr(session.cycler, "uid_map") else {}
                 poked_user_display = uid_map.get(str(poke_target_id_val), str(poke_target_id_val))
                 action_desc = f"戳一戳 {poked_user_display}"
 

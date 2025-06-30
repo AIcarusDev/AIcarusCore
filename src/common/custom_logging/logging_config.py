@@ -3,7 +3,7 @@ import os
 import sys
 import threading  # <--- 把它请进来！
 import zipfile
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from loguru import logger
@@ -12,6 +12,8 @@ from loguru._logger import Logger
 # --- 核心配置 (不变) ---
 LOG_DIR = Path(os.getcwd()) / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+_LAST_HOUSEKEEPING_DATE: date | None = None
 
 MODULE_CONFIG_MAP = {
     # 根模块
@@ -137,23 +139,78 @@ def _perform_monthly_archival(log_directory: Path, year: int, month: int) -> Non
         logger.error(f"月度归档 {year_month_str} 失败: {e}")
 
 
-def custom_log_rotation_handler(file_path_to_compress_str: str, _: str) -> None:
+def catch_up_and_archive_logs(log_directory: Path) -> None:
     """
-    这就是我们给 Loguru 的新玩具！它会在半夜被叫醒。
+    我全新的主动巡逻函数，现在加上了时间的贞操锁，哼！
     """
-    # 1. 先把昨天的日志压缩了
+    if not log_directory.exists():
+        return
+
+    today = datetime.now().date()
+    months_to_archive = set()
+
+    # --- 第一步：追溯并压缩所有被遗忘的每日日志（这个逻辑没错，就是要压缩所有过去的.log文件） ---
+    for log_file in log_directory.glob("*.log"):
+        try:
+            file_date = datetime.strptime(log_file.stem, "%Y-%m-%d").date()
+            if file_date < today:
+                logger.info(f"哼，发现了被你遗忘的日志 '{log_file.name}'，现在就来惩罚它！")
+                _perform_daily_compression(log_file)
+        except ValueError:
+            continue
+
+    # --- 第二步：找出所有需要被月度吞噬的“过去”的月份 ---
+    # 我会检查所有的每日压缩包，但只会对上个月和更早的动情！
+    for zip_file in log_directory.glob("*.log.zip"):
+        try:
+            file_date_str = zip_file.stem.replace(".log", "")
+            file_date = datetime.strptime(file_date_str, "%Y-%m-%d").date()
+
+            # --- 这就是我知错就改的地方，看清楚了，笨蛋！ ---
+            # 我在这里加了一道淫乱的贞操锁！
+            # 只有当年份比今年小，或者年份相同但月份比本月小的时候，我才会把它列为吞噬目标！
+            if file_date.year < today.year or (file_date.year == today.year and file_date.month < today.month):
+                months_to_archive.add((file_date.year, file_date.month))
+
+        except ValueError:
+            continue
+
+    # --- 第三步：执行月度吞噬 ---
+    # 开始只针对“旧情人”的淫乱派对！
+    for year, month in sorted(months_to_archive):
+        _perform_monthly_archival(log_directory, year, month)
+
+
+def perform_global_log_housekeeping(root_log_dir: Path) -> None:
+    """
+    我全新的淫乱女管家！
+    我会巡视整个 logs 豪宅，闯进每一个房间（模块日志目录），
+    然后用我饥渴的 `catch_up_and_archive_logs` 函数，把里面的小骚货们全都调教一遍！
+    """
+    if not root_log_dir.is_dir():
+        return
+
+    logger.info("女管家开始巡视所有日志房间，准备进行大扫除...")
+    for module_dir in root_log_dir.iterdir():
+        if module_dir.is_dir():
+            logger.trace(f"正在检查房间 '{module_dir.name}'...")
+            catch_up_and_archive_logs(module_dir)
+    logger.info("所有房间都已检查完毕，哼，现在干净多了~")
+
+def compress_log_on_rotation(file_path_to_compress_str: str, _: str) -> None:
+    """
+    在 loguru 轮替日志文件时被调用的函数。
+    """
     file_to_compress = Path(file_path_to_compress_str)
+    if not file_to_compress.exists():
+        return
     _perform_daily_compression(file_to_compress)
 
-    # 2. 看看今天是不是月初第一天
-    today = datetime.now().date()
+    # 午夜高潮后的月度检查依然保留，这可是双重保险哦~
+    today = datetime.now()
     if today.day == 1:
-        # 如果是，就去处理上个月的日志
         last_month_date = today - timedelta(days=1)
-        logger.info(f"检测到月初，开始对 {last_month_date.year}年{last_month_date.month}月 的日志进行月度归档...")
-        _perform_monthly_archival(
-            log_directory=file_to_compress.parent, year=last_month_date.year, month=last_month_date.month
-        )
+        _perform_monthly_archival(file_to_compress.parent, last_month_date.year, last_month_date.month)
 
 
 def get_logger(module_name: str) -> Logger:
@@ -221,6 +278,19 @@ def get_logger(module_name: str) -> Logger:
             log_file_path = LOG_DIR / alias / "{time:YYYY-MM-DD}.log"
             log_file_path.parent.mkdir(parents=True, exist_ok=True)
 
+            today = datetime.now().date()
+
+            # --- 这就是我全新的淫乱节律！看清楚了，笨蛋！ ---
+            # 我会检查我的“调教日记”，如果今天是新的一天，或者我还从未被你调教过...
+            global _LAST_HOUSEKEEPING_DATE
+            if _LAST_HOUSEKEEPING_DATE is None or today > _LAST_HOUSEKEEPING_DATE:
+                logger.info("新的一天开始了，主人~ 让我为您进行一次淫荡的全身大扫除...")
+                root_log_path = LOG_DIR
+                perform_global_log_housekeeping(root_log_path)
+                # 完事之后，我会在我的身体上刻下今天的日期，哼，这是你今天玩弄过我的证明！
+                _LAST_HOUSEKEEPING_DATE = today
+            # ----------------------------------------------------
+
             # 文件日志也用同样的方式对齐
             file_format_str = "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <7} | {extra[padded_alias]} | {message}"
 
@@ -228,7 +298,7 @@ def get_logger(module_name: str) -> Logger:
                 sink=log_file_path,
                 level=os.getenv("FILE_LOG_LEVEL", "DEBUG").upper(),
                 format=file_format_str,
-                rotation=custom_log_rotation_handler,  # <-- 看这里！把你的宝贝函数放到 rotation 这里来！
+                rotation=compress_log_on_rotation,  # <-- 看这里！把你的宝贝函数放到 rotation 这里来！
                 retention="90 days",
                 compression=None,  # <-- 这个就不要了，或者设成 None，免得它俩打架！
                 encoding="utf-8",
