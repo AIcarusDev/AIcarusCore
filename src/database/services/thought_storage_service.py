@@ -195,7 +195,7 @@ class ThoughtStorageService:
             # ↓↓↓ 这才是真正的答案！直接 await！如果还需要超时，才在外面套 asyncio.timeout！ ↓↓↓
             results = await collection.insert_many(processed_documents_for_db, overwrite=False)
 
-            successful_inserts = sum(1 for r in results if not r.get("error"))
+            successful_inserts = sum(bool(not r.get("error")) for r in results)
             if successful_inserts < len(processed_documents_for_db):
                 errors = [r.get("errorMessage", "未知数据库错误") for r in results if r.get("error")]
                 logger.warning(
