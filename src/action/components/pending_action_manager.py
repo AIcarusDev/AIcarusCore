@@ -123,7 +123,7 @@ class PendingActionManager:
             status=status,
             response_timestamp=response_timestamp,
             response_time_ms=response_time_ms,
-            error_info=error_msg if not successful else None,
+            error_info=None if successful else error_msg,
             result_details=details,
         )
 
@@ -201,7 +201,7 @@ class PendingActionManager:
 
         if update_tasks:
             results = await asyncio.gather(*update_tasks, return_exceptions=True)
-            success_count = sum(bool(r is not None and not isinstance(r, Exception))
+            success_count = sum(bool(r is not None and not isinstance(r, Exception)) for r in results)
             failure_count = len(results) - success_count
             logger.info(f"机器人档案同步完成。成功 upsert {success_count} 个会话，失败 {failure_count} 个。")
         else:

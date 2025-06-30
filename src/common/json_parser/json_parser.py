@@ -26,9 +26,7 @@ def parse_llm_json_response(raw_response_text: str | None) -> dict[str, Any] | N
     text_to_parse = raw_response_text.strip()
     json_str = ""
 
-    if match := re.search(
-        r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", text_to_parse, re.DOTALL
-    ):
+    if match := re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", text_to_parse, re.DOTALL):
         json_str = match[1]
         logger.debug("策略一命中：通过正则表达式找到了JSON代码块。")
     else:

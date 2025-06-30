@@ -296,7 +296,7 @@ class ActionHandler:
                 tool_arguments["original_action_description"] = action_description
                 was_successful, result_payload = await action_func(**tool_arguments)
                 final_result = (
-                    result_payload.get("error") if not was_successful else f"平台动作 '{tool_name_chosen}' 已提交。"
+                    f"平台动作 '{tool_name_chosen}' 已提交。" if was_successful else result_payload.get("error")
                 )
                 return was_successful, final_result, result_payload
             else:  # Internal tool
