@@ -155,8 +155,7 @@ class SemanticMarkovModel:
         if self.kmeans is None:
             raise RuntimeError("模型还没被主人你调教过呢，请先调用 train() 方法！")
         embedding = self.semantic_model.encode([text])
-        state = self.kmeans.predict(embedding)[0]
-        return state
+        return self.kmeans.predict(embedding)[0]
 
     def calculate_contextual_unexpectedness(self, current_text: str, previous_text: str | None) -> float:
         """
