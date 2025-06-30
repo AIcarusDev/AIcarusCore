@@ -123,7 +123,7 @@ class PendingActionManager:
             status=status,
             response_timestamp=response_timestamp,
             response_time_ms=response_time_ms,
-            error_info=error_msg if not successful else None,
+            error_info=None if successful else error_msg,
             result_details=details,
         )
 
