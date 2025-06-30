@@ -1,7 +1,6 @@
-# D:\Aic\AIcarusCore\src\focus_chat_mode\action_executor.py
-
 import asyncio
 import random
+import re
 import time
 import uuid
 from typing import TYPE_CHECKING
@@ -12,9 +11,8 @@ from aicarus_protocols.seg import SegBuilder
 from aicarus_protocols.user_info import UserInfo
 
 from src.common.custom_logging.logging_config import get_logger
-from src.common.text_splitter import process_llm_response
 from src.config import config
-from src.database.models import DBEventDocument  # <-- 哼，把这个也请过来！
+from src.database.models import DBEventDocument
 
 if TYPE_CHECKING:
     from .chat_session import ChatSession
@@ -33,22 +31,37 @@ class ActionExecutor:
         self.action_handler = session.action_handler
         self.event_storage = session.event_storage
 
+    def _is_valid_message(self, msg: str) -> bool:
+        """检查消息是否有效，过滤掉 null 和占位符。真麻烦。"""
+        if not msg or not isinstance(msg, str) or msg.strip().lower() == "null":
+            return False
+        # // 正则表达式，用来匹配 "text_数字" 这种无聊的占位符
+        if re.fullmatch(r"text_\d+", msg.strip()):
+            return False
+        return True
+
     async def execute_action(self, parsed_data: dict, uid_map: dict) -> bool:
         """根据LLM的决策执行回复或记录内部思考。"""
         # --- Sanitize optional fields ---
-        fields_to_sanitize = ["at_someone", "quote_reply", "reply_text", "poke", "action_to_take", "action_motivation"]
+        # // 把 action_to_take 相关的都删掉，眼不见心不烦
+        fields_to_sanitize = ["at_someone", "quote_reply", "reply_text", "poke"]
         for field in fields_to_sanitize:
             if parsed_data.get(field) == "":
                 parsed_data[field] = None
-        if parsed_data.get("action_to_take") is None:
-            parsed_data["action_motivation"] = None
         # --- End sanitization ---
 
-        has_interaction = parsed_data.get("reply_willing") and parsed_data.get("reply_text")
+        # // 现在检查 reply_text 是否是一个有效的列表
+        reply_text_list = parsed_data.get("reply_text")
+        has_interaction = (
+            parsed_data.get("reply_willing")
+            and isinstance(reply_text_list, list)
+            and any(self._is_valid_message(msg) for msg in reply_text_list)
+        )
 
         if has_interaction:
             self.session.no_action_count = 0
             logger.debug(f"[{self.session.conversation_id}] 检测到互动行为，no_action_count 已重置。")
+            # 把整个解析好的数据都传过去，让它自己处理
             return await self._send_reply(parsed_data, uid_map)
         else:
             self.session.no_action_count += 1
@@ -58,9 +71,16 @@ class ActionExecutor:
             return await self._log_internal_thought(parsed_data)
 
     async def _send_reply(self, parsed_data: dict, uid_map: dict) -> bool:
-        """发送回复消息。"""
-        original_reply_text = parsed_data["reply_text"]
-        split_sentences = process_llm_response(original_reply_text)
+        """发送回复消息。现在它会处理一个消息数组了。"""
+        # // 从这里开始，逻辑全变了！
+        original_reply_list = parsed_data.get("reply_text", [])
+
+        # // 用我写好的那个烦人的检查函数，把无效的消息都踢出去
+        valid_sentences = [msg for msg in original_reply_list if self._is_valid_message(msg)]
+
+        if not valid_sentences:
+            logger.info(f"[{self.session.conversation_id}] LLM 提供了 reply_text，但过滤后没有有效消息可发送。")
+            return False
 
         at_target_values_raw = parsed_data.get("at_someone")
         quote_msg_id = parsed_data.get("quote_reply")
@@ -70,12 +90,13 @@ class ActionExecutor:
         correct_bot_id = str(bot_profile.get("user_id", self.session.bot_id))
 
         action_recorded = False
-        for i, sentence_text in enumerate(split_sentences):
+        # 烦人的循环开始了
+        for i, sentence_text in enumerate(valid_sentences):
+            # 只有第一条消息才带 @ 和引用，后面的都是纯洁的肉体
             content_segs_payload = self._build_reply_segments(
                 i, sentence_text, quote_msg_id, at_target_values_raw, uid_map
             )
 
-            # 哼，看这里！这就是我加的新逻辑！
             action_event_dict = {
                 "event_id": f"sub_chat_reply_{uuid.uuid4()}",
                 "event_type": "action.message.send",
@@ -99,15 +120,15 @@ class ActionExecutor:
             success, msg = await self.action_handler.submit_constructed_action(action_event_dict, "发送专注模式回复")
 
             if success and "执行失败" not in msg:
-                logger.info(f"Action to send reply segment {i + 1} submitted successfully.")
-                # 这里就不需要再手动加到 events_since_last_summary 了，因为我们已经存到数据库了
+                logger.info(f"Action to send reply segment {i + 1}/{len(valid_sentences)} submitted successfully.")
                 self.session.message_count_since_last_summary += 1
                 action_recorded = True
             else:
                 logger.error(f"Failed to submit/execute action to send reply segment {i + 1}: {msg}")
                 break
 
-            if len(split_sentences) > 1 and i < len(split_sentences) - 1:
+            # // 如果还有下一条，就睡一会儿，假装在打字，真麻烦
+            if len(valid_sentences) > 1 and i < len(valid_sentences) - 1:
                 await asyncio.sleep(random.uniform(0.5, 1.5))
         return action_recorded
 

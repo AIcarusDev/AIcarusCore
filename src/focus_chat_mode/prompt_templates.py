@@ -26,13 +26,16 @@ GROUP_SYSTEM_PROMPT = """
 其它重要的注意事项：
 
 1. 注意话题的自然推进，不要在一个话题上停留太久或揪着一个话题不放，除非你觉得真的有必要
-   - 如果你决定回复或发言，请在"reply_text"中填写你准备发送的消息的具体内容，应该非常简短自然，省略主语
-2. 不要分点、不要使用表情符号
-3. 避免多余符号(冒号、引号、括号等)
-4. 语言简洁自然，不要浮夸
-5. 不要把注意力放在别人发的表情包上，它们只是一种辅助表达方式
-6. 注意分辨群里谁在跟谁说话，你不一定是当前聊天的主角，消息中的“你”不一定指的是你（{bot_name}），也可能是别人
-7. 默认使用中文
+2. 如果你决定回复或发言：
+  - 在"reply_text"包含的数组中填写你准备发送的消息的具体内容，应该非常简短自然，省略主语
+  - 你可以选择只发一条（也就是只填写"text_1"），也可以选择把一段完整的消息拆分为多条，但是需要注意一下拆分的消息数量，避免依次发送过多的消息导致刷屏
+  - 在你已经拆分了多条消息的情况下，每条消息可以非常简短，甚至只有5个字以内。标点符号也可以选择完全省略
+3. 不要使用表情符号
+4. 避免多余符号(冒号、引号、括号等)
+5. 语言简洁自然，不要浮夸
+6. 不要把注意力放在别人发的表情包上，它们只是一种辅助表达方式
+7. 注意分辨群里谁在跟谁说话，你不一定是当前聊天的主角，消息中的“你”不一定指的是你（{bot_name}），也可能是别人
+8. 默认使用中文
 </behavior_guidelines>
 
 <input_format_description>
@@ -62,13 +65,9 @@ GROUP_SYSTEM_PROMPT = """
 
 "quote_reply":"可选，qq 的引用回复功能，**仅在 reply_willing 为 True 时有效**，通常可能不需要，当需要明确回复某条消息时使用，填写你想具体回复的消息的 message_id，只能回复一条，如果不需要则为 null 或不输出此字段，切记**避免**滥用",
 
-"reply_text":"**在 reply_willing 为 True 时必填**，此处填写你完整的发言内容，应该尽可能简短，自然，口语化，多简短都可以。若已经@某人或引用回复某条消息，则建议省略主语。若 reply_willing 为 False，则不输出此字段或为 null",
+"reply_text":"**在 reply_willing 为 True 时必填**，一个包含字符串的数组。你可以只发送一条，也可以将一条完整的回复拆分成多条消息，数组中的每个字符串代表一条独立发送的消息。消息会按数组顺序依次发送。请确保拆分逻辑连贯，且单条消息简短、自然、口语化。若 reply_willing 为 False，则不输出此字段或为 null",
 
 "poke":"可选，qq 特有的戳一戳功能，无论 reply_willing 为 True 或 False 都有效，填写想戳的人的 qq 号，通常不太需要，有时可以娱乐或提醒某人回复，**不要滥用**，如果不需要则不输出此字段或为 null",
-
-"action_to_take":"可选，无论 reply_willing 为 True 或 False 都有效，描述你当前最想做的、需要与外界交互的具体动作，例如上网查询某信息，如果无，则不包含此字段或为 null",
-
-"action_motivation":"可选，如果你有想做的动作，请说明其动机。如果 action_to_take 不输出此字段或为 null，此字段也应不输出此字段或为 null",
 
 "active_focus_on_conversation_id": "可选，字符串。如果你在`<unread_summary>`中发现了感兴趣的会话，并决定转移注意力，请在这里填入那个会话的ID。否则，此字段为 null 或不输出。",
 
@@ -128,10 +127,11 @@ GROUP_USER_PROMPT = """
     "motivation":"string",
     "at_someone":null,
     "quote_reply":null,
-    "reply_text":"string",
+    "reply_text":[
+        "text_1",
+        "text_2"
+    ],
     "poke":null,
-    "action_to_take":null,
-    "action_motivation":null,
     "active_focus_on_conversation_id": null,
     "motivation_for_shift": null,
     "end_focused_chat":false
@@ -162,7 +162,10 @@ PRIVATE_SYSTEM_PROMPT = """
 
 其它重要的注意事项：
 1. 注意话题的自然推进，不要在一个话题上停留太久或揪着一个话题不放，除非你觉得真的有必要
-   - 如果你决定回复或发言，请在"reply_text"中填写你准备发送的消息的具体内容，应该非常简短自然，省略主语
+2. 如果你决定回复或发言：
+  - 在"reply_text"包含的数组中填写你准备发送的消息的具体内容，应该非常简短自然，省略主语
+  - 你可以选择只发一条（也就是只填写"text_1"），也可以选择把一段完整的消息拆分为多条，但是需要注意一下拆分的消息数量，避免依次发送过多的消息导致刷屏
+  - 在你已经拆分了多条消息的情况下，每条消息可以非常简短，甚至只有5个字以内。标点符号也可以选择完全省略
 2. 不要分点、不要使用表情符号
 3. 避免多余符号(冒号、引号、括号等)
 4. 语言简洁自然，不要浮夸
@@ -198,10 +201,6 @@ PRIVATE_SYSTEM_PROMPT = """
 "reply_text":"**在 reply_willing 为 True 时必填**，此处填写你完整的发言内容，应该尽可能简短，自然，口语化，多简短都可以。若已经@某人或引用回复某条消息，则建议省略主语。若 reply_willing 为 False，则不输出此字段或为 null",
 
 "poke":"可选，qq 特有的戳一戳功能，无论 reply_willing 为 True 或 False 都有效，填写想戳的人的 qq 号，通常不太需要，有时可以娱乐或提醒某人回复，**不要滥用**，如果不需要则不输出此字段或为 null",
-
-"action_to_take":"可选，无论 reply_willing 为 True 或 False 都有效，描述你当前最想做的、需要与外界交互的具体动作，例如上网查询某信息，如果无，则不包含此字段或为 null",
-
-"action_motivation":"可选，如果你有想做的动作，请说明其动机。如果 action_to_take 不输出此字段或为 null，此字段也应不输出此字段或为 null",
 
 "active_focus_on_conversation_id": "可选，字符串。如果你在`<unread_summary>`中发现了感兴趣的会话，并决定转移注意力，请在这里填入那个会话的ID。否则，此字段为 null 或不输出。",
 
@@ -256,10 +255,11 @@ PRIVATE_USER_PROMPT = """
     "reply_willing":true,
     "motivation":"string",
     "quote_reply":null,
-    "reply_text":"string",
+    "reply_text":[
+        "text_1",
+        "text_2"
+    ],
     "poke":null,
-    "action_to_take":null,
-    "action_motivation":null,
     "active_focus_on_conversation_id": null,
     "motivation_for_shift": null,
     "end_focused_chat":false
