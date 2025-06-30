@@ -78,7 +78,9 @@ class IntelligentInterrupter:
 
     def _get_speaker_weight(self, speaker_id: str) -> float:
         # ... (这个方法没问题，保持不变) ...
-        weight = self.speaker_weights.get(str(speaker_id), self.speaker_weights.get("default", 1.0))
+        weight = self.speaker_weights.get(
+            speaker_id, self.speaker_weights.get("default", 1.0)
+        )
         print(f"**[阶段三]** 发言者 '{speaker_id}' 的主观权重为: {weight}")
         return weight
 
