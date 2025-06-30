@@ -573,7 +573,7 @@ class LLMClient:
                                 }
                             }
                         )
-                return api_request_elements if api_request_elements else [{"text": ""}]
+                return api_request_elements or [{"text": ""}]
 
             text_segments = prompt_text.split(self.image_placeholder_tag)
             img_idx = 0
