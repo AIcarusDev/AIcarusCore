@@ -120,7 +120,7 @@ class ChatSession:
         )
 
         if not new_events:
-            return # 没人理我，啥也不用干
+            return  # 没人理我，啥也不用干
 
         bot_id = str((await self.get_bot_profile()).get("user_id", self.bot_id))
 
