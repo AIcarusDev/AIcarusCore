@@ -68,31 +68,38 @@ class ActionExecutor:
     async def execute_action(self, parsed_data: dict, uid_map: dict) -> bool:
         """根据LLM的决策执行回复或记录内部思考。"""
         # --- Sanitize optional fields ---
-        # // 把 action_to_take 相关的都删掉，眼不见心不烦
         fields_to_sanitize = ["at_someone", "quote_reply", "reply_text", "poke"]
         for field in fields_to_sanitize:
             if parsed_data.get(field) == "":
                 parsed_data[field] = None
         # --- End sanitization ---
+        
+        # --- 改造点在这里！ ---
+        reply_text_list = parsed_data.get("reply_text", [])
+        # 先确保它是个列表，免得出错
+        if not isinstance(reply_text_list, list):
+            reply_text_list = []
 
-        # // 现在检查 reply_text 是否是一个有效的列表
-        reply_text_list = parsed_data.get("reply_text")
-        has_interaction = (
-            parsed_data.get("reply_willing")
-            and isinstance(reply_text_list, list)
-            and any(self._is_valid_message(msg) for msg in reply_text_list)
-        )
+        # 在这里就提前把有效消息算出来
+        valid_sentences = [msg for msg in reply_text_list if self._is_valid_message(msg)]
+
+        # 用 valid_sentences 来判断是否要互动
+        has_interaction = parsed_data.get("reply_willing") and valid_sentences
 
         if has_interaction:
-            # 我决定说话了，话痨计数器+1，沉默计数器清零
-            self.session.consecutive_bot_messages_count += 1
+            # 获取要发送消息的数量
+            num_messages_to_send = len(valid_sentences)
+    
+            # 我决定说话了，话痨计数器就加上我实际要说的条数，沉默计数器清零
+            self.session.consecutive_bot_messages_count += num_messages_to_send
             self.session.no_action_count = 0
             logger.debug(
-                f"[{self.session.conversation_id}] 机器人发言，"
+                f"[{self.session.conversation_id}] 机器人决定发言 {num_messages_to_send} 条，"
                 f"consecutive_bot_messages_count 增加到 {self.session.consecutive_bot_messages_count}，"
                 f"no_action_count 已重置。"
             )
-            return await self._send_reply(parsed_data, uid_map)
+            # 把已经算好的 valid_sentences 传给 _send_reply，省得它再算一遍
+            return await self._send_reply(parsed_data, uid_map, valid_sentences)
         else:
             # 我决定不说话，沉默计数器+1，话痨计数器不清零
             self.session.no_action_count += 1
@@ -103,16 +110,11 @@ class ActionExecutor:
             )
             return await self._log_internal_thought(parsed_data)
 
-    async def _send_reply(self, parsed_data: dict, uid_map: dict) -> bool:
-        """发送回复消息。现在它会处理一个消息数组了。"""
-        # // 从这里开始，逻辑全变了！
-        original_reply_list = parsed_data.get("reply_text", [])
-
-        # // 用我写好的那个烦人的检查函数，把无效的消息都踢出去
-        valid_sentences = [msg for msg in original_reply_list if self._is_valid_message(msg)]
-
+    async def _send_reply(self, parsed_data: dict, uid_map: dict, valid_sentences: list[str]) -> bool:
+        """发送回复消息。现在它直接接收已经过滤好的消息列表。"""
+        # 不再需要自己计算 valid_sentences 了，直接用传进来的
         if not valid_sentences:
-            logger.info(f"[{self.session.conversation_id}] LLM 提供了 reply_text，但过滤后没有有效消息可发送。")
+            logger.info(f"[{self.session.conversation_id}] _send_reply 收到空的有效消息列表，不发送。")
             return False
 
         at_target_values_raw = parsed_data.get("at_someone")
