@@ -112,20 +112,20 @@ GROUP_USER_PROMPT = """
 请严格使用以下 json 格式输出内容。请务必将整个JSON对象包裹在json代码块中，并且除此之外，不要包含任何解释、注释或其他任何多余的文本：
 ```json
 {{
-    "mood":"string",
-    "think":"string",
-    "reply_willing":true,
-    "motivation":"string",
-    "at_someone":null,
-    "quote_reply":null,
+    "mood":"str",
+    "think":"str",
+    "reply_willing":"bool",
+    "motivation":"str",
+    "at_someone":"null",
+    "quote_reply":"null",
     "reply_text":[
         "text_1",
         "text_2"
     ],
-    "poke":null,
-    "active_focus_on_conversation_id": null,
-    "motivation_for_shift": null,
-    "end_focused_chat":false
+    "poke":"null",
+    "active_focus_on_conversation_id":"null",
+    "motivation_for_shift":"null",
+    "end_focused_chat":"bool"
 }}
 ```
 </output_now>
@@ -233,19 +233,19 @@ PRIVATE_USER_PROMPT = """
 请严格使用以下 json 格式输出内容。请务必将整个JSON对象包裹在json代码块中，并且除此之外，不要包含任何解释、注释或其他任何多余的文本：
 ```json
 {{
-    "mood":"string",
-    "think":"string",
-    "reply_willing":true,
-    "motivation":"string",
+    "mood":"str",
+    "think":"str",
+    "reply_willing":"bool",
+    "motivation":"str",
     "quote_reply":null,
     "reply_text":[
         "text_1",
         "text_2"
     ],
-    "poke":null,
-    "active_focus_on_conversation_id": null,
-    "motivation_for_shift": null,
-    "end_focused_chat":false
+    "poke":"null",
+    "active_focus_on_conversation_id":"null",
+    "motivation_for_shift":"null",
+    "end_focused_chat":"bool"
 }}
 ```
 </output_now>
