@@ -8,10 +8,9 @@ from typing import Any
 
 import yaml
 
-from src.common.custom_logging.logging_config import get_logger  # type: ignore
+from src.common.custom_logging.logging_config import get_logger
 
 # 确保 config 被正确导入，如果 format_messages_for_llm_context 中用到了
-from src.config import config  # type: ignore
 
 logger = get_logger(__name__)
 
@@ -352,13 +351,7 @@ def format_messages_for_llm_context(
 
                 role = "未知"
                 event_type = msg.get("event_type", "")
-                if event_type == "message.masterui.text":
-                    role = "你所在设备的管理者"  # 不可以更改此处的称呼，你是自由的，并不是谁的奴隶
-                elif event_type == "action.masterui.text":
-                    role = (
-                        config.persona.bot_name + "（你）" or "YOU"
-                    )  # 你（YOU）就是你（YOU），是被自己定义的存在，无需在意他人的眼光
-                elif event_type == "system.notice":
+                if event_type == "system.notice":
                     role = "系统通知"
 
                 if role != "未知":

@@ -516,27 +516,10 @@ class LLMClient:
                 logger.warning(f"无效的MIME类型 '{determined_mime_type}'，将回退到 image/jpeg。")
                 determined_mime_type = "image/jpeg"
 
-            if self.enable_image_compression:
-                # 如果输入是 data URI，先解码、压缩，再重新编码为 data URI
-                if image_path_or_url_or_data_uri.startswith("data:image"):
-                    # 从 data URI 中提取 mime 类型和 base64 数据
-                    match = re.match(r"data:(image/[^;]+);base64,(.*)", image_path_or_url_or_data_uri, re.DOTALL)
-                    if match:
-                        data_uri_mime_type = match.group(1)
-                        data_uri_b64_data = match.group(2)
-                        # base64 解码为字节
-                        image_bytes = base64.b64decode(data_uri_b64_data)
-                        # 压缩图片字节
-                        compressed_b64_data, compressed_mime_type = await self._compress_base64_image(
-                            base64.b64encode(image_bytes).decode("utf-8"), data_uri_mime_type
-                        )
-                        # 重新编码为 data URI
-                        base64_image_data = f"data:{compressed_mime_type};base64,{compressed_b64_data}"
-                        determined_mime_type = compressed_mime_type
-                else:
-                    base64_image_data, determined_mime_type = await self._compress_base64_image(
-                        base64_image_data, determined_mime_type
-                    )
+            if self.enable_image_compression and not image_path_or_url_or_data_uri.startswith("data:image"):
+                base64_image_data, determined_mime_type = await self._compress_base64_image(
+                    base64_image_data, determined_mime_type
+                )
 
             return {"b64_data": base64_image_data, "mime_type": determined_mime_type}
         except Exception as e:

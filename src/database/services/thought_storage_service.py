@@ -65,6 +65,11 @@ class ThoughtStorageService:
         """保存一个主意识思考过程的文档。"""
         if not isinstance(thought_document, dict):
             logger.error(f"保存主思考文档失败：输入数据不是有效的字典。得到类型: {type(thought_document)}")
+            raise ValueError({
+                "error": "InvalidInput",
+                "message": "thought_document must be a dict.",
+                "received_type": str(type(thought_document))
+            })
             return None
 
         if "_key" not in thought_document:
@@ -179,7 +184,8 @@ class ThoughtStorageService:
             processed_documents_for_db.append(final_doc)
 
         if not processed_documents_for_db:
-            return False
+            # 空输入不是失败，而是无操作，返回 True 表示成功处理
+            return True
 
         try:
             collection = await self.conn_manager.get_collection(self.INTRUSIVE_POOL_COLLECTION)

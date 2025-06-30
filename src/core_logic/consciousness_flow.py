@@ -4,11 +4,8 @@ import contextlib
 import datetime
 import random
 import threading
-import time
 import uuid
 from typing import TYPE_CHECKING, Any
-
-from aicarus_protocols import Event as ProtocolEvent
 
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logging_config import get_logger
@@ -177,50 +174,6 @@ class CoreLogic:
             )
             logger.info(f"动作任务 {action_id} ({action_desc}) 已结束。成功: {success}, 消息: {message}")
 
-    async def _reply_to_master(self, content_str: str, current_thought_key: str | None) -> None:
-        if not content_str or not content_str.strip() or content_str.strip().lower() == "null":
-            logger.info(f"AI 决定不回复主人，因为内容无效: '{content_str[:50]}...'")
-            return
-        logger.info(f"AI 决定回复主人: {content_str[:50]}...")
-        reply_action_id = f"event_master_reply_{uuid.uuid4()}"
-        reply_event_dict = {
-            "event_id": reply_action_id,
-            "event_type": "action.masterui.text",
-            "timestamp": int(time.time() * 1000),
-            "platform": "master_ui",
-            "bot_id": config.persona.bot_name,
-            "conversation_info": {"conversation_id": "master_chat", "type": "private", "platform": "master_ui"},
-            "content": [{"type": "text", "data": {"text": content_str}}],
-            "protocol_version": config.inner.protocol_version,
-        }
-        if self.action_handler_instance:
-            if not current_thought_key:
-                logger.critical(
-                    f"严重逻辑错误：在 _reply_to_master 中 current_thought_key 为 None，但此时它必须有值！"
-                    f"这意味着之前的思考存储步骤可能失败。将中止向主人发送回复 '{content_str[:50]}...'。"
-                )
-                return
-            logger.info(
-                f"通过 ActionHandler 发送对主人的回复。Action ID: {reply_action_id}, 关联思考Key: {current_thought_key}"
-            )
-            action_success, action_message = await self.action_handler_instance._execute_platform_action(
-                action_to_send=reply_event_dict,
-                thought_doc_key=current_thought_key,
-                original_action_description="回复主人",
-            )
-            if action_success:
-                logger.info(f"通过 ActionHandler 回复主人的动作 '{reply_action_id}' 已处理，结果: {action_message}")
-            else:
-                logger.error(f"通过 ActionHandler 回复主人的动作 '{reply_action_id}' 失败: {action_message}")
-        else:
-            logger.error("ActionHandler 实例未设置，无法通过其发送对主人的回复！将尝试直接发送。")
-            master_adapter_id = "master_ui_adapter"
-            send_success = await self.core_comm_layer.send_action_to_adapter_by_id(
-                master_adapter_id, ProtocolEvent.from_dict(reply_event_dict)
-            )
-            if not send_success:
-                logger.error(f"向主人UI (adapter_id: {master_adapter_id}) 发送回复失败了（直接发送模式）。")
-
     async def _core_thinking_loop(self) -> None:
         thinking_interval_sec = config.core_logic_settings.thinking_interval_seconds
         while not self.stop_event.is_set():
@@ -240,7 +193,6 @@ class CoreLogic:
 
             current_time_str = datetime.datetime.now().strftime("%Y年%m月%d日 %H点%M分%S秒")
             (
-                master_chat_str,
                 other_context_str,
                 image_list,
             ) = await self.context_builder.gather_context_for_core_thought()
@@ -273,9 +225,7 @@ class CoreLogic:
                     intrusive_thought_str = f"你突然有一个神奇的念头：{random_thought_doc['text']}"
 
             system_prompt = self.prompt_builder.build_system_prompt(current_time_str)
-            user_prompt = await self.prompt_builder.build_user_prompt(
-                current_state, master_chat_str, intrusive_thought_str
-            )
+            user_prompt = await self.prompt_builder.build_user_prompt(current_state, intrusive_thought_str)
             logger.debug(f"系统提示: {system_prompt}")
             logger.debug(f"用户提示 (部分): {user_prompt[:500]}...")
             logger.info(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {config.persona.bot_name} 开始思考...")
@@ -314,13 +264,6 @@ class CoreLogic:
                 saved_key = await self.thought_persistor.store_thought(
                     generated_thought, prompts_for_storage, context_for_storage
                 )
-
-                reply_content_to_master = (generated_thought.get("reply_to_master") or "").strip()
-                if reply_content_to_master:
-                    if saved_key:
-                        logger.info("检测到 reply_to_master，但根据用户指示，此分支中暂时忽略。")
-                    else:
-                        logger.warning("有回复内容但没有思考文档的key，无法通过ActionHandler发送回复。")
 
                 if saved_key and action_to_take and action_to_take.lower() != "null":
                     logger.info(f"LLM指定了行动 '{action_to_take}'，准备分发。")

@@ -22,8 +22,6 @@ class ThoughtPromptBuilder:
 {unread_summary}
 </unread_summary>
 
-{master_chat_context}
-
 {previous_thinking}；
 
 {mood}；
@@ -78,7 +76,7 @@ class ThoughtPromptBuilder:
         return "\n".join(filter(None, system_prompt_parts))
 
     async def build_user_prompt(  # 改为异步方法
-        self, current_state: dict[str, Any], master_chat_context_str: str, intrusive_thought_str: str
+        self, current_state: dict[str, Any], intrusive_thought_str: str
     ) -> str:
         """
         构建用户输入的Prompt，就是那个最长最臭的。
@@ -104,7 +102,6 @@ class ThoughtPromptBuilder:
             action_result_info=current_state.get("action_result_info", "无行动结果。"),
             pending_action_status=current_state.get("pending_action_status", ""),
             unread_summary=unread_summary_text,
-            master_chat_context=master_chat_context_str,
             intrusive_thought=intrusive_thought_str,
         )
         return prompt

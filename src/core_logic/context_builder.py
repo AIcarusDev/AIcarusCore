@@ -27,9 +27,6 @@ class ContextBuilder:
         """
         从各种来源收集上下文信息，并格式化以供核心思考循环使用。
         """
-        # 用户提示 master 功能在此分支不处理，所以 master_chat_history_str 设为固定值
-        master_chat_history_str: str = ""
-
         initial_empty_context_info: str = self.state_manager.INITIAL_STATE.get(
             "recent_contextual_information", "无最近信息。"
         )
@@ -57,18 +54,17 @@ class ContextBuilder:
             else:
                 logger.debug("【调试】system_lifecycle_events_raw 为空或None。")
 
-            all_other_events_excluding_master: list[dict[str, Any]] = (
+            all_other_events: list[dict[str, Any]] = (
                 await self.event_storage.get_recent_chat_message_documents(
                     duration_minutes=chat_history_duration_minutes,
-                    exclude_conversation_id="master_chat",  # 排除与主人的聊天
                     fetch_all_event_types=False,
                 )
                 or []
             )
 
             other_chat_events_for_yaml_raw: list[dict[str, Any]] = []
-            if all_other_events_excluding_master:
-                for event_dict in all_other_events_excluding_master:
+            if all_other_events:
+                for event_dict in all_other_events:
                     conv_info = event_dict.get("conversation_info")
                     if not (isinstance(conv_info, dict) and conv_info.get("conversation_id") == "system_events"):
                         other_chat_events_for_yaml_raw.append(event_dict)
@@ -132,4 +128,4 @@ class ContextBuilder:
             # 即使出错，也返回默认值，避免主循环中断
             formatted_recent_contextual_info = initial_empty_context_info
 
-        return master_chat_history_str, formatted_recent_contextual_info, image_list_for_llm_from_history
+        return formatted_recent_contextual_info, image_list_for_llm_from_history

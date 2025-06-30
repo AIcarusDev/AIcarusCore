@@ -146,7 +146,6 @@ class ActionHandler:
             return False, {"error": "内部错误：核心服务不可用。"}
 
         is_direct_reply_action = original_action_description in [
-            "回复主人",
             "发送专注模式回复",
             "internal_tool_call",
             "系统：上线安检",
@@ -158,7 +157,7 @@ class ActionHandler:
         core_action_id = action_to_send.setdefault("event_id", str(uuid.uuid4()))
         action_type = action_to_send.get("event_type", "unknown_action_type")
         platform = action_to_send.get("platform", "unknown_platform")
-        target_adapter_id = "master_ui_adapter" if platform == "master_ui" else platform
+        target_adapter_id = platform
         timestamp = int(time.time() * 1000)
         action_to_send["timestamp"] = timestamp
 

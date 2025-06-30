@@ -82,7 +82,7 @@ class PendingActionManager:
             error_info="Action response timed out",
         )
 
-        if description != "回复主人" and thought_doc_key:
+        if thought_doc_key:
             timeout_message = f"你尝试执行动作 '{description}' 时，等待响应超时了。"
             update_payload = {
                 "status": "TIMEOUT_FAILURE",
@@ -133,7 +133,7 @@ class PendingActionManager:
             pending_future.set_result((successful, result_payload))
 
         # 更新思考文档
-        if description != "回复主人" and thought_doc_key:
+        if thought_doc_key:
             update_payload = {
                 "status": "COMPLETED_SUCCESS" if successful else "COMPLETED_FAILURE",
                 "final_result_for_shimo": final_result,
