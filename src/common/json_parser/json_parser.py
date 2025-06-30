@@ -26,11 +26,10 @@ def parse_llm_json_response(raw_response_text: str | None) -> dict[str, Any] | N
     text_to_parse = raw_response_text.strip()
     json_str = ""
 
-    # 策略一：用正则表达式精确查找被 ```json ... ``` 或 ``` ... ``` 包裹的代码块
-    # 这是最优先、最可靠的策略
-    match = re.search(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", text_to_parse, re.DOTALL)
-    if match:
-        json_str = match.group(1)
+    if match := re.search(
+        r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", text_to_parse, re.DOTALL
+    ):
+        json_str = match[1]
         logger.debug("策略一命中：通过正则表达式找到了JSON代码块。")
     else:
         # 策略二（后备）：如果没找到代码块，就粗暴地找到第一个 '{' 和最后一个 '}'
