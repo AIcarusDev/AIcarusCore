@@ -29,7 +29,6 @@ class ActionDecisionMaker:
     """
 
     def __init__(self, llm_client: ProcessorClient) -> None:
-        logger = get_logger(f"AIcarusCore.{self.__class__.__name__}")
         if not llm_client:
             raise ValueError("LLM客户端实例 'llm_client' 不能为空。")
         self.llm_client = llm_client

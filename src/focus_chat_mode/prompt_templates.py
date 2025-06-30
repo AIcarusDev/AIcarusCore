@@ -104,7 +104,7 @@ GROUP_USER_PROMPT = """
 </unread_summary>
 
 <notice>
-{no_action_guidance}
+{dynamic_behavior_guidance}
 </notice>
 
 <output_now>
@@ -225,7 +225,7 @@ PRIVATE_USER_PROMPT = """
 </unread_summary>
 
 <notice>
-{no_action_guidance}
+{dynamic_behavior_guidance}
 </notice>
 
 <output_now>

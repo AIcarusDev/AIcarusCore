@@ -103,7 +103,7 @@ class ChatPromptBuilder:
         if self.session.conversation_type == "private":
             system_prompt_template = prompt_templates.PRIVATE_SYSTEM_PROMPT
             user_prompt_template = prompt_templates.PRIVATE_USER_PROMPT
-        else:  # group
+        else:
             system_prompt_template = prompt_templates.GROUP_SYSTEM_PROMPT
             user_prompt_template = prompt_templates.GROUP_USER_PROMPT
 
@@ -113,15 +113,9 @@ class ChatPromptBuilder:
         bot_description_str = f"\n{persona_config.description}" if persona_config.description else ""
         bot_profile_str = f"\n{persona_config.profile}" if persona_config.profile else ""
 
-        no_action_guidance_str = ""
-        if session.no_action_count >= 3:
-            if self.session.conversation_type == "private":
-                no_action_guidance_str = f"\n你已经决定连续不发言/没有互动 {session.no_action_count} 次了，观察一下目前与对方的话题是不是已经告一段落了，如果是，可以考虑暂时先不专注于与对方的聊天了。"
-            else:
-                no_action_guidance_str = f"\n你已经决定连续不发言/没有互动 {session.no_action_count} 次了，观察一下目前群内话题是不是已经告一段落了，如果是，可以考虑暂时先不专注于群聊的消息了。"
-            logger.info(f"[{self.session.conversation_id}] 添加无互动提示, count: {session.no_action_count}")
+        # 看这里！现在多省事，直接喊小弟过来干活！
+        dynamic_guidance_str = self.session.guidance_generator.generate_guidance()
 
-        # ✨✨✨ 修复核心：在这里调用 unread_info_service ✨✨✨
         unread_summary_str = "所有其他会话均无未读消息。"
         if self.session.core_logic and self.session.core_logic.prompt_builder:
             try:
@@ -135,13 +129,11 @@ class ChatPromptBuilder:
                 unread_summary_str = "获取其他会话摘要时出错。"
         else:
             logger.warning(f"[{self.session.conversation_id}] 无法获取 unread_info_service，未读消息摘要将为空。")
-        # ✨✨✨ 修复结束 ✨✨✨
 
         # --- 步骤2：调用新玩具，获取所有格式化好的聊天记录相关信息 ---
         logger.debug(f"[{self.session.conversation_id}] 调用通用聊天记录格式化工具...")
         bot_profile = await session.get_bot_profile()
 
-        # 哼，这里就是那个解包出错的地方，看我把它改成能接住9个值的样子！
         (
             chat_history_log_block_str,
             user_list_block_str,
@@ -189,7 +181,7 @@ class ChatPromptBuilder:
                 else "你已进入专注模式，开始处理此会话。\n"
             )
             previous_thoughts_block_str = f"{mood_part}{think_part}"
-        # 如果不是第一次轮次，或者有上一轮的决策信息
+            # 如果不是第一次轮次，或者有上一轮的决策信息
         elif last_llm_decision:
             think_content = last_llm_decision.get("think", "")
             mood_content = last_llm_decision.get("mood", "平静")
@@ -219,13 +211,13 @@ class ChatPromptBuilder:
                 uid_map = session.cycler.uid_map if hasattr(session.cycler, "uid_map") else {}
                 poked_user_display = uid_map.get(str(poke_target_id_val), str(poke_target_id_val))
                 action_desc = f"戳一戳 {poked_user_display}"
-
+            # 如果没有戳一戳或发言，则保持原样
             prev_parts = [f'刚刚你的心情是："{mood_content}"\n刚刚你的内心想法是："{think_content}"']
             if action_desc:
                 prev_parts.append(f"出于这个想法，你刚才做了：{action_desc}")
             if motivation_content:
                 prev_parts.append(f"因为：{motivation_content}")
-
+            # 拼接成完整的上一轮思考块
             previous_thoughts_block_str = "\n".join(prev_parts)
         else:
             previous_thoughts_block_str = "我正在处理当前会话，但上一轮的思考信息似乎丢失了。"
@@ -267,7 +259,7 @@ class ChatPromptBuilder:
             user_list_block=user_list_block_str,
             chat_history_log_block=chat_history_log_block_str,
             previous_thoughts_block=previous_thoughts_block_str,
-            no_action_guidance=no_action_guidance_str,  # 把这个塞到 <notice> 块里
+            dynamic_behavior_guidance=dynamic_guidance_str,
         )
 
         logger.debug(f"[{self.session.conversation_id}] Prompts构建完成 (使用通用格式化工具)。")

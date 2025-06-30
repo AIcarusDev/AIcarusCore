@@ -84,14 +84,22 @@ class ActionExecutor:
         )
 
         if has_interaction:
+            # 我决定说话了，话痨计数器+1，沉默计数器清零
+            self.session.consecutive_bot_messages_count += 1
             self.session.no_action_count = 0
-            logger.debug(f"[{self.session.conversation_id}] 检测到互动行为，no_action_count 已重置。")
-            # 把整个解析好的数据都传过去，让它自己处理
+            logger.debug(
+                f"[{self.session.conversation_id}] 机器人发言，"
+                f"consecutive_bot_messages_count 增加到 {self.session.consecutive_bot_messages_count}，"
+                f"no_action_count 已重置。"
+            )
             return await self._send_reply(parsed_data, uid_map)
         else:
+            # 我决定不说话，沉默计数器+1，话痨计数器不清零
             self.session.no_action_count += 1
             logger.debug(
-                f"[{self.session.conversation_id}] 无互动行为，no_action_count 增加到 {self.session.no_action_count}。"
+                f"[{self.session.conversation_id}] 机器人不发言，"
+                f"no_action_count 增加到 {self.session.no_action_count}，"
+                f"consecutive_bot_messages_count 保持在 {self.session.consecutive_bot_messages_count}。"
             )
             return await self._log_internal_thought(parsed_data)
 

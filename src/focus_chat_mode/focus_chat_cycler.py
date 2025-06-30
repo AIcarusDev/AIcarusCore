@@ -79,8 +79,8 @@ class FocusChatCycler:
             interrupt_checker_task = None
             llm_task = None
             try:
-                # 1.分离“感知”与“行动”
-                # 在循环开始时，就固定好本轮思考所依赖的“前戏素材”。
+                # 喂！看这里！思考之前，先看看有没有人理我！
+                await self.session.update_counters_on_new_events()
                 (
                     system_prompt,
                     user_prompt,
@@ -91,7 +91,6 @@ class FocusChatCycler:
                     conversation_name_from_formatter,
                 ) = await self._prepare_and_think()
 
-                # --- 就是这里！由主管亲自更新会话状态！ ---
                 if (
                     conversation_name_from_formatter
                     and self.session.conversation_name != conversation_name_from_formatter
@@ -143,7 +142,6 @@ class FocusChatCycler:
                     async with self.session.processing_lock:
                         llm_response = await llm_task
 
-                        # --- 小懒猫的修正开始 ---
                         # 在这里解析和保存LLM的响应，这样下一轮循环才能用！
                         parsed_decision = self.llm_response_handler.parse(llm_response.get("text", ""))
                         if parsed_decision:
@@ -160,7 +158,6 @@ class FocusChatCycler:
 
                         # 把解析好的结果传给 handle_decision，而不是原始的 llm_response
                         should_terminate = await self.llm_response_handler.handle_decision(parsed_decision or {})
-                        # --- 小懒猫的修正结束 ---
 
                         if should_terminate:
                             logger.info(f"[{self.session.conversation_id}] 根据LLM决策或转移指令，本会话即将终止。")

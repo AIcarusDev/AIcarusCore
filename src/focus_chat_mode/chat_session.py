@@ -14,6 +14,7 @@ from src.database.services.event_storage_service import EventStorageService
 from src.llmrequest.llm_processor import Client as LLMProcessorClient
 
 from .action_executor import ActionExecutor
+from .behavioral_guidance_generator import BehavioralGuidanceGenerator
 from .chat_prompt_builder import ChatPromptBuilder
 from .focus_chat_cycler import FocusChatCycler
 from .llm_response_handler import LLMResponseHandler
@@ -71,6 +72,7 @@ class ChatSession:
         self.action_executor = ActionExecutor(self)
         self.llm_response_handler = LLMResponseHandler(self)
         self.summarization_manager = SummarizationManager(self)
+        self.guidance_generator = BehavioralGuidanceGenerator(self)
 
         # --- 会话状态属性 ---
         self.is_active: bool = False
@@ -88,6 +90,7 @@ class ChatSession:
         self.events_since_last_summary: list[dict[str, Any]] = []
         self.message_count_since_last_summary: int = 0
         self.no_action_count: int = 0
+        self.consecutive_bot_messages_count: int = 0
         self.bot_profile_cache: dict[str, Any] = {}
         self.last_profile_update_time: float = 0.0
 
@@ -106,6 +109,40 @@ class ChatSession:
         self.cycler = FocusChatCycler(self)
 
         logger.info(f"[ChatSession][{self.conversation_id}] 实例已创建，依赖已注入。")
+
+    async def update_counters_on_new_events(self) -> None:
+        """
+        根据新消息重置计数器。
+        如果检测到有别人说话，就重置我（机器人）的连续发言计数。
+        """
+        new_events = await self.event_storage.get_message_events_after_timestamp(
+            self.conversation_id, self.last_processed_timestamp
+        )
+
+        if not new_events:
+            return # 没人理我，啥也不用干
+
+        bot_id = str((await self.get_bot_profile()).get("user_id", self.bot_id))
+
+        for event in new_events:
+            sender_id = event.get("user_info", {}).get("user_id")
+            if sender_id and str(sender_id) != bot_id:
+                # 啊哈！终于有人理我了！
+                if self.consecutive_bot_messages_count > 0:
+                    logger.debug(
+                        f"[{self.conversation_id}] 检测到来自 '{sender_id}' 的新消息，"
+                        f"重置 consecutive_bot_messages_count (之前是 {self.consecutive_bot_messages_count})。"
+                    )
+                    self.consecutive_bot_messages_count = 0
+
+                if self.no_action_count > 0:
+                    logger.debug(
+                        f"[{self.conversation_id}] 检测到新消息，重置 no_action_count (之前是 {self.no_action_count})。"
+                    )
+                    self.no_action_count = 0
+
+                # 只要有一个人说话，就可以滚了，后面的不用看了
+                break
 
     async def get_bot_profile(self) -> dict[str, Any]:
         """
@@ -175,6 +212,7 @@ class ChatSession:
         self.events_since_last_summary = []
         self.message_count_since_last_summary = 0
         self.no_action_count = 0
+        self.consecutive_bot_messages_count = 0
         self.bot_profile_cache = {}
         self.last_profile_update_time = 0.0
 
