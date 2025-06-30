@@ -117,10 +117,11 @@ class ActionExecutor:
         action_recorded = False
         # 烦人的循环开始了
         for i, sentence_text in enumerate(valid_sentences):
-
             # 1. 计算这条消息的“模拟打字”时间
             typing_delay = self._calculate_typing_delay(sentence_text)
-            logger.debug(f"[{self.session.conversation_id}] 模拟打字: '{sentence_text[:20]}...'，预计耗时 {typing_delay:.2f} 秒...")
+            logger.debug(
+                f"[{self.session.conversation_id}] 模拟打字: '{sentence_text[:20]}...'，预计耗时 {typing_delay:.2f} 秒..."
+            )
 
             # 2. 假装在打字，睡一会儿
             await asyncio.sleep(typing_delay)
