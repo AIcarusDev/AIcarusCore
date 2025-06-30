@@ -74,9 +74,7 @@ class ActionDecisionMaker:
             logger.warning(error_msg)
             return ActionDecision(None, {}, raw_text, error=error_msg)
 
-        parsed_decision = parse_llm_json_response(raw_text)
-
-        if parsed_decision:
+        if parsed_decision := parse_llm_json_response(raw_text):
             tool_name = parsed_decision.get("tool_to_use")
             arguments = parsed_decision.get("arguments", {})
 

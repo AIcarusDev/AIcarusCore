@@ -65,8 +65,7 @@ class IISBuilder:
                         for seg in content_list
                         if isinstance(seg, dict) and seg.get("type") == "text"
                     ]
-                    full_text = "".join(text_parts).strip()
-                    if full_text:
+                    if full_text := "".join(text_parts).strip():
                         text_corpus_for_this_conversation.append(full_text)
 
             # 这场对话要有至少两次交互，才能形成一次有效的“跳转”学习
