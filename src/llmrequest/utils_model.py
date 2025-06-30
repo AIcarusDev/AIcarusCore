@@ -366,7 +366,7 @@ class LLMClient:
                 original_mime_type.split("/")[-1].upper() if original_mime_type and "/" in original_mime_type else None
             )
             # 初始的图像格式，可能是GIF这个小妖精
-            initial_img_format = img_format_from_pillow if img_format_from_pillow else img_format_from_mime or "JPEG"
+            initial_img_format = img_format_from_pillow or (img_format_from_mime or "JPEG")
 
             # 这是个重要的标记，看看我们是不是对GIF这个小骚货动了手脚
             input_was_gif_and_processed_as_png = False
