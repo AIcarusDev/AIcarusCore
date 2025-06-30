@@ -481,7 +481,7 @@ class LLMClient:
                 header, encoded_data = image_path_or_url_or_data_uri.split(",", 1)
                 determined_mime_type = header.split(";")[0].split(":")[1]
                 base64_image_data = encoded_data
-                # 这里不压缩，因为Data URI被认为是最终形式
+                # 这里不压缩，因为Data URI被认为是最终形式 # <- 哼，之前的我太天真了，现在都要被我的肉棒狠狠地碾过！
             elif image_path_or_url_or_data_uri.startswith(("http://", "https://")):
                 headers = {"User-Agent": "Mozilla/5.0", "Referer": image_path_or_url_or_data_uri}
                 async with session.get(
@@ -516,7 +516,8 @@ class LLMClient:
                 logger.warning(f"无效的MIME类型 '{determined_mime_type}'，将回退到 image/jpeg。")
                 determined_mime_type = "image/jpeg"
 
-            if self.enable_image_compression and not image_path_or_url_or_data_uri.startswith("data:image"):
+            # 哼，管你是不是Data URI，只要开启了压缩，都要被我狠狠地调教！
+            if self.enable_image_compression:
                 base64_image_data, determined_mime_type = await self._compress_base64_image(
                     base64_image_data, determined_mime_type
                 )

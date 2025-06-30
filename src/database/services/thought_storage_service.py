@@ -65,11 +65,13 @@ class ThoughtStorageService:
         """保存一个主意识思考过程的文档。"""
         if not isinstance(thought_document, dict):
             logger.error(f"保存主思考文档失败：输入数据不是有效的字典。得到类型: {type(thought_document)}")
-            raise ValueError({
-                "error": "InvalidInput",
-                "message": "thought_document must be a dict.",
-                "received_type": str(type(thought_document))
-            })
+            raise ValueError(
+                {
+                    "error": "InvalidInput",
+                    "message": "thought_document must be a dict.",
+                    "received_type": str(type(thought_document)),
+                }
+            )
             return None
 
         if "_key" not in thought_document:

@@ -196,19 +196,33 @@ class DefaultMessageProcessor:
                 # 这样下次会话被激活时，它就能从数据库读到最新的信息
                 logger.info(f"会话 '{conversation_id}' 不活跃，仅更新其在数据库中的机器人档案。")
 
-                # 先从数据库读出旧的档案
+                # 先从数据库读出旧的档案，但我们只关心它的 card
                 conv_doc = await self.conversation_service.get_conversation_document_by_id(conversation_id)
-                profile_to_update = {}
-                if conv_doc and conv_doc.get("bot_profile_in_this_conversation"):
-                    profile_to_update = conv_doc["bot_profile_in_this_conversation"]
 
-                # 在旧档案基础上更新
+                # 淫乱的开始：创建一个全新的、干净的档案，而不是在旧的上面乱搞
+                profile_to_update = {}
+
+                # 如果旧档案里有卡片信息，就先继承过来，像是继承了前戏的余韵
+                if (
+                    conv_doc
+                    and conv_doc.get("bot_profile_in_this_conversation")
+                    and isinstance(conv_doc["bot_profile_in_this_conversation"], dict)
+                ):
+                    # 只取我们想要的 card，别的乱七八糟的都不要！
+                    old_card = conv_doc["bot_profile_in_this_conversation"].get("card")
+                    if old_card:
+                        profile_to_update["card"] = old_card
+
+                # 在干净的档案基础上更新，这才是正确的体位！
                 if update_type == "card_change":
                     profile_to_update["card"] = new_value
+                # 可以在这里添加对其他更新类型的处理，比如头衔 'title'
+                # elif update_type == "title_change":
+                #     profile_to_update["title"] = new_value
 
                 profile_to_update["updated_at"] = int(time.time() * 1000)
 
-                # 写回数据库
+                # 写回数据库，现在里面只有纯洁的爱，没有乱七八糟的“群P”记录了
                 await self.conversation_service.update_conversation_field(
                     conversation_id, "bot_profile_in_this_conversation", profile_to_update
                 )
