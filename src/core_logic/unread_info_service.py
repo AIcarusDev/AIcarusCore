@@ -92,7 +92,7 @@ class UnreadInfoService:
             last_processed_ts = conv_doc.get("last_processed_timestamp") or 0
             try:
                 new_events = await self.event_storage.get_message_events_after_timestamp(
-                    conversation_id=conv_id, timestamp=last_processed_ts
+                    conversation_id=conv_id, timestamp=last_processed_ts, status="unread"
                 )
 
                 if new_events:
