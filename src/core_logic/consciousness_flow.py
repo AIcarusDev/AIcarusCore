@@ -7,6 +7,7 @@ import threading
 import uuid
 from typing import TYPE_CHECKING, Any
 
+from src.common.time_utils import get_formatted_time_for_llm
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
@@ -191,7 +192,7 @@ class CoreLogic:
                     break
                 continue
 
-            current_time_str = datetime.datetime.now().strftime("%Y年%m月%d日 %H点%M分%S秒")
+            current_time_str = get_formatted_time_for_llm()
             (
                 other_context_str,
                 image_list,

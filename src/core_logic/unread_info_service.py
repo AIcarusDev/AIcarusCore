@@ -92,11 +92,11 @@ class UnreadInfoService:
             last_processed_ts = conv_doc.get("last_processed_timestamp") or 0
             try:
                 new_events = await self.event_storage.get_message_events_after_timestamp(
-                    conversation_id=conv_id, timestamp=last_processed_ts, status="unread"
+                    conversation_id=conv_id, timestamp=last_processed_ts
                 )
 
                 if new_events:
-                    logger.info(f"会话 '{conv_id}' 发现 {len(new_events)} 条新消息 (已过滤)。")
+                    logger.info(f"会话 '{conv_id}' 发现 {len(new_events)} 条新消息。")
                     unread_conversations_with_events.append((conv_doc, new_events))
             except Exception as e:
                 logger.error(f"为会话 '{conv_id}' 检查新消息时出错: {e}", exc_info=True)

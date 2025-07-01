@@ -137,10 +137,11 @@ class ChatSessionManager:
             else:
                 logger.warning(f"[SessionManager] 尝试停用一个不存在或已被移除的会话 '{conversation_id}'。")
 
-    async def _is_bot_mentioned(self, event: Event) -> bool:
+    async def _is_bot_mentioned(self, event: Event, session: "ChatSession") -> bool:
         """
         检查消息中是否 @ 了机器人。
         哼，看看是不是有人在背后议论我。
+        现在我学会照镜子了！
         """
 
         if event.event_type != "message.group.normal":
@@ -149,13 +150,18 @@ class ChatSessionManager:
         if not event.content:
             return False
 
-        current_bot_id = str(self.bot_id)
+        # --- 照镜子！从 session 里获取我现在的样子！
+        bot_profile = await session.get_bot_profile()
+        # 如果镜子是碎的（没获取到），就用身份证上的老号码保底
+        current_bot_id = str(bot_profile.get("user_id", self.bot_id))
+
 
         # --- 遍历消息内容，进行安全的比较 ---
         for seg in event.content:
             if seg.type == "at":
                 at_user_id_raw = seg.data.get("user_id")
                 if at_user_id_raw is not None and str(at_user_id_raw) == current_bot_id:
+                    logger.debug(f"检测到机器人被@，动态ID: {current_bot_id}") # 加个日志看看
                     return True
         return False
 
@@ -178,7 +184,7 @@ class ChatSessionManager:
         # TODO:
         # 激活逻辑：如果被@或收到私聊消息，则激活会话
         # 这里是为了方便测试硬编码的逻辑，未来会进一步优化激活逻辑
-        is_mentioned = await self._is_bot_mentioned(event)
+        is_mentioned = await self._is_bot_mentioned(event, session)
         if (is_mentioned or event.event_type.startswith("message.private")) and not session.is_active:
             logger.info(f"会话 '{conv_id}' 满足激活条件 (被@或私聊)，准备激活。")
             # 从 CoreLogic 获取最新的思考和心情

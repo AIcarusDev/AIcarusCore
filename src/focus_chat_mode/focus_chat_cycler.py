@@ -165,8 +165,18 @@ class FocusChatCycler:
 
                         self.session.last_active_time = time.time()
                         if processed_ids:
+                            # 1. 撕掉便利贴：告诉自己，这几条我看过了
                             await self.session.event_storage.update_events_status(processed_ids, "read")
-                            self.session.last_processed_timestamp = time.time() * 1000
+
+                            # 2. 更新官方记录：告诉全世界，这个会话我处理到这个时间点了！
+                            new_processed_timestamp = time.time() * 1000
+                            await self.session.conversation_service.update_conversation_processed_timestamp(
+                                self.session.conversation_id, int(new_processed_timestamp)
+                            )
+                            # 顺便更新一下自己的小本本，免得忘了
+                            self.session.last_processed_timestamp = new_processed_timestamp
+                            logger.debug(f"[{self.session.conversation_id}] 已将会话的 last_processed_timestamp 更新到数据库。")
+
                         if self.session.is_first_turn_for_session:
                             self.session.is_first_turn_for_session = False
 

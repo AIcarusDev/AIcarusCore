@@ -4,6 +4,7 @@ import os
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+from src.common.time_utils import get_formatted_time_for_llm
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logging_config import get_logger
 from src.common.focus_chat_history_builder.chat_history_formatter import format_chat_history_for_llm
@@ -12,7 +13,7 @@ from src.common.focus_chat_history_builder.chat_history_formatter import format_
 from src.config import config
 from src.database.services.event_storage_service import EventStorageService
 
-from . import prompt_templates
+from src.prompt_templates import prompt_templates
 
 if TYPE_CHECKING:
     from .chat_session import ChatSession
@@ -107,7 +108,7 @@ class ChatPromptBuilder:
             system_prompt_template = prompt_templates.GROUP_SYSTEM_PROMPT
             user_prompt_template = prompt_templates.GROUP_USER_PROMPT
 
-        current_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        current_time_str = get_formatted_time_for_llm()
         persona_config = config.persona
         bot_name_str = persona_config.bot_name or "AI"
         bot_description_str = f"\n{persona_config.description}" if persona_config.description else ""
