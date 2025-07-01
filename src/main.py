@@ -6,7 +6,6 @@ import threading
 
 from src.action.action_handler import ActionHandler
 from src.action.providers.internal_tools_provider import InternalToolsProvider
-from src.action.providers.platform_action_provider import PlatformActionProvider
 from src.common.custom_logging.logging_config import get_logger
 from src.common.intelligent_interrupt_system.iis_main import IISBuilder
 from src.common.intelligent_interrupt_system.intelligent_interrupter import IntelligentInterrupter
@@ -36,6 +35,8 @@ from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.llmrequest.utils_model import GenerationParams
 from src.message_processing.default_message_processor import DefaultMessageProcessor
+from src import platform_builders # 确保能导入这个包
+from src.platform_builders.registry import platform_builder_registry
 
 logger = get_logger(__name__)
 
@@ -196,6 +197,12 @@ class CoreSystemInitializer:
     async def initialize(self) -> None:
         logger.info("=== AIcarus Core 系统开始核心组件初始化流程... ===")
         try:
+            platform_builder_registry.discover_and_register_builders(platform_builders)
+        except Exception as e:
+            logger.critical(f"加载平台事件构建器（翻译官）失败！系统无法正常处理平台动作！错误: {e}", exc_info=True)
+            # 这里可以根据你的需要决定是否要直接让程序崩溃
+            raise RuntimeError("平台构建器加载失败，核心功能受损。") from e
+        try:
             await self._initialize_llm_clients()
             await self._initialize_database_and_services()
             await self._initialize_interrupt_model()
@@ -303,9 +310,7 @@ class CoreSystemInitializer:
 
             # --- 注册动作提供者 ---
             internal_tools_provider = InternalToolsProvider()
-            platform_action_provider = PlatformActionProvider(action_handler=self.action_handler_instance)
             self.action_handler_instance.register_provider(internal_tools_provider)
-            self.action_handler_instance.register_provider(platform_action_provider)
             logger.info("ActionHandler 的动作提供者已注册。")
 
             # --- 手动初始化 ActionHandler 的 LLM 客户端 ---

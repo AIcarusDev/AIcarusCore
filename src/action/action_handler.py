@@ -1,6 +1,6 @@
 # src/action/action_handler.py
 import asyncio
-import json  # 确保导入 json
+import json
 import time
 import uuid
 from typing import TYPE_CHECKING, Any
@@ -19,6 +19,7 @@ from src.database.services.conversation_storage_service import ConversationStora
 from src.database.services.event_storage_service import EventStorageService
 from src.database.services.thought_storage_service import ThoughtStorageService
 from src.llmrequest.llm_processor import Client as ProcessorClient
+from src.platform_builders.registry import platform_builder_registry
 
 if TYPE_CHECKING:
     pass
@@ -110,30 +111,40 @@ class ActionHandler:
             logger.error("PendingActionManager 未初始化，无法处理动作响应。")
 
     async def system_get_bot_profile(self, adapter_id: str) -> None:
-        """
-        由系统（如WebSocket服务器）调用的，用于触发机器人档案获取的特定方法。
-        它不返回结果，只负责发送动作并让 PendingActionManager 等待。
+        """ 系统触发获取机器人档案的动作。
+        这个方法是为了适配器上线安检，确保机器人档案可用。
+        适配器上线时会调用这个方法来获取机器人档案。
         """
         logger.info(f"系统触发为适配器 '{adapter_id}' 获取机器人档案。")
-        action_event = {
-            "event_id": f"core_get_profile_{adapter_id}_{uuid.uuid4().hex[:6]}",
-            "event_type": "action.bot.get_profile",
-            "platform": adapter_id,
-            "bot_id": config.persona.bot_name,
-            "content": [{"type": "action.bot.get_profile", "data": {}}],
-        }
 
-        # 我们调用 _execute_platform_action，因为它会正确地在 PendingActionManager 中注册等待！
-        # 我们不关心它的返回值，因为它会自己处理超时和响应。
-        # 我们用 asyncio.create_task 把它丢到后台去执行，不阻塞当前任务。
+        # 1. 去中介所找翻译官
+        builder = platform_builder_registry.get_builder(adapter_id)
+        if not builder:
+            logger.error(f"找不到平台 '{adapter_id}' 的翻译官，无法发起上线安检！")
+            return
+
+        # 2. 告诉翻译官你想干嘛（通用指令）
+        intent_data = {
+            "action_type": "get_bot_profile",
+            "params": {}
+        }
+        # 3. 让翻译官把通用指令翻译成平台事件
+        action_event = builder.build_action_event(intent_data)
+
+        if not action_event:
+             # 如果这里报错，说明你的 builder 里面根本没有处理 get_bot_profile 的逻辑！
+             logger.error(f"平台 '{adapter_id}' 的翻译官不会翻译 get_bot_profile 动作！")
+             return
+
+        # 4. 把翻译好的事件丢出去执行
         asyncio.create_task(
             self._execute_platform_action(
-                action_to_send=action_event,
-                thought_doc_key=None,  # 系统级动作没有关联的思考文档
+                action_to_send=action_event.to_dict(),
+                thought_doc_key=None,
                 original_action_description="系统：上线安检",
             )
         )
-        logger.info(f"已为适配器 '{adapter_id}' 创建并派发“上线安检”任务。")
+        logger.info(f"已通过 ActionHandler 为适配器 '{adapter_id}' 派发档案同步任务。")
 
     async def _execute_platform_action(
         self,
@@ -215,12 +226,23 @@ class ActionHandler:
             logger.error(error_msg)
             return False, error_msg, None
 
+        # 从“翻译官中介所”获取所有平台的“功能说明书”
+        all_platform_schemas = platform_builder_registry.get_all_schemas_for_llm()
+
+        # 别忘了把内部工具的 schema 也加上！
+        # 这里的逻辑需要你确保内部工具的 schema 也能被获取到，我们先假设可以
+        # internal_tools_schema = self.action_registry.get_provider('internal').get_schema() # 假设有这个方法
+        # all_tools_for_llm = all_platform_schemas + internal_tools_schema
+        all_tools_for_llm = all_platform_schemas # 先只用平台的
+
         decision_maker = ActionDecisionMaker(self.action_llm_client)
+        # 把“功能说明书”喂给决策者
         decision = await decision_maker.make_decision(
             action_description,
             action_motivation,
             current_thought_context,
             relevant_adapter_messages_context,
+            tools_schema=all_tools_for_llm
         )
 
         final_result_for_shimo: str = f"尝试执行动作 '{action_description}' 时出现未知的处理错误。"
@@ -266,6 +288,7 @@ class ActionHandler:
 
         return action_was_successful, final_result_for_shimo, action_result_payload
 
+    # _execute_chosen_action 方法需要大改！
     async def _execute_chosen_action(
         self,
         action_id: str,
@@ -275,76 +298,94 @@ class ActionHandler:
         action_description: str,
         action_motivation: str,
     ) -> tuple[bool, str, Any]:
-        """执行由决策者选择的动作。"""
-        action_func = self.action_registry.get_action(tool_name_chosen)
+        """执行由决策者选择的动作。现在它能区分平台动作和内部工具了。"""
         if not self.thought_storage_service:
             return False, "ThoughtStorageService not initialized", None
 
-        if not action_func:
-            final_result = f"未在注册表中找到名为 '{tool_name_chosen}' 的动作。"
-            await self.thought_storage_service.update_action_status_in_thought_document(
-                doc_key_for_updates,
-                action_id,
-                {"status": "TOOL_NOT_FOUND", "error_message": final_result, "final_result_for_shimo": final_result},
-            )
-            return False, final_result, None
+        # 1. 判断是平台动作还是内部工具
+        if tool_name_chosen.startswith("platform."):
+            # 这是平台动作！
+            parts = tool_name_chosen.split('.', 2)
+            if len(parts) < 3:
+                err_msg = f"平台动作名称 '{tool_name_chosen}' 格式不正确。"
+                logger.error(err_msg)
+                return False, err_msg, None
 
-        logger.info(f"从注册表找到动作 '{tool_name_chosen}'，准备执行。")
-        try:
-            if tool_name_chosen.startswith("platform."):
-                tool_arguments["thought_doc_key"] = doc_key_for_updates
-                tool_arguments["original_action_description"] = action_description
-                was_successful, result_payload = await action_func(**tool_arguments)
-                final_result = (
-                    f"平台动作 '{tool_name_chosen}' 已提交。" if was_successful else result_payload.get("error")
+            platform_id = parts[1]
+            # action_type = parts[2] # 我们不再需要这个了
+
+            # 去找对应的“翻译官”
+            builder = platform_builder_registry.get_builder(platform_id)
+            if not builder:
+                err_msg = f"找不到平台 '{platform_id}' 的翻译官来执行动作。"
+                logger.error(err_msg)
+                return False, err_msg, None
+
+            # 构造通用的意图数据
+            intent_data = {
+                "full_action_name": tool_name_chosen, # 把完整的动作名传进去
+                "params": tool_arguments
+            }
+
+            # 让“翻译官”把通用指令翻译成平台事件
+            action_event_to_send = builder.build_action_event(intent_data)
+
+            if not action_event_to_send:
+                err_msg = f"平台 '{platform_id}' 的翻译官不会翻译动作 '{tool_name_chosen}'。"
+                logger.error(err_msg)
+                return False, err_msg, None
+
+            # 执行平台动作
+            was_successful, result_payload = await self._execute_platform_action(
+                action_to_send=action_event_to_send.to_dict(),
+                thought_doc_key=doc_key_for_updates,
+                original_action_description=action_description,
+            )
+            final_result = f"平台动作 '{tool_name_chosen}' 已提交。" if was_successful else (result_payload.get("error", "未知平台错误") if isinstance(result_payload, dict) else str(result_payload))
+            return was_successful, final_result, result_payload
+
+        elif tool_name_chosen.startswith("internal."): # 明确判断内部工具
+            internal_action_name = tool_name_chosen.split('.', 1)[1]
+            action_func = self.action_registry.get_action(internal_action_name)
+            if not action_func:
+                final_result = f"未在注册表中找到名为 '{internal_action_name}' 的内部工具。"
+                await self.thought_storage_service.update_action_status_in_thought_document(
+                    doc_key_for_updates, action_id, {"status": "TOOL_NOT_FOUND", "error_message": final_result, "final_result_for_shimo": final_result}
                 )
-                return was_successful, final_result, result_payload
-            else:  # Internal tool
+                return False, final_result, None
+
+            logger.info(f"从注册表找到内部工具 '{internal_action_name}'，准备执行。")
+            try:
+                # 把一些通用的上下文也传给内部工具，万一它需要呢
+                tool_arguments['action_description'] = action_description
+                tool_arguments['action_motivation'] = action_motivation
+
                 tool_result_data = await action_func(**tool_arguments)
 
-                # 诊断日志
-                logger.info(f"【诊断】准备进行摘要判断。summary_llm_client 是否存在: {bool(self.summary_llm_client)}")
-                if self.summary_llm_client:
-                    logger.info(f"【诊断】summary_llm_client 实例类型: {type(self.summary_llm_client)}")
-
-                # 如果是网络搜索，并且能摘要，那就摘要它
                 if tool_name_chosen == "search_web" and tool_result_data and self.summary_llm_client:
-                    logger.info(f"工具 '{tool_name_chosen}' 返回了数据，将尝试进行摘要。")
                     summarizer = ToolResultSummarizer(self.summary_llm_client)
                     final_result = await summarizer.summarize(
                         original_query=tool_arguments.get("query", action_description),
                         original_motivation=action_motivation,
                         tool_output=tool_result_data,
                     )
-                # 如果是别的工具，或者摘要失败了，但它返回了数据
                 elif tool_result_data:
-                    logger.info(f"工具 '{tool_name_chosen}' 返回了原始数据，将直接格式化后使用。")
-                    try:
-                        result_str = json.dumps(tool_result_data, ensure_ascii=False, indent=2)
-                        final_result = (
-                            f"工具 '{tool_name_chosen}' 执行成功，返回了以下数据：\n```json\n{result_str}\n```"
-                        )
-                    except TypeError:
-                        final_result = f"工具 '{tool_name_chosen}' 执行成功，返回数据：{str(tool_result_data)}"
-                # 如果工具执行完就完了，啥也没返回
+                    result_str = json.dumps(tool_result_data, ensure_ascii=False, indent=2)
+                    final_result = f"工具 '{tool_name_chosen}' 执行成功，返回了以下数据：\n```json\n{result_str}\n```"
                 else:
                     final_result = f"工具 '{tool_name_chosen}' 执行成功，但没有返回任何数据。"
 
                 await self.thought_storage_service.update_action_status_in_thought_document(
-                    doc_key_for_updates,
-                    action_id,
-                    {"status": "COMPLETED_SUCCESS", "final_result_for_shimo": final_result},
+                    doc_key_for_updates, action_id, {"status": "COMPLETED_SUCCESS", "final_result_for_shimo": final_result}
                 )
                 return True, final_result, tool_result_data
-        except Exception as e_exec:
-            final_result = f"执行动作 '{tool_name_chosen}' 时出错: {e_exec}"
-            logger.error(final_result, exc_info=True)
-            await self.thought_storage_service.update_action_status_in_thought_document(
-                doc_key_for_updates,
-                action_id,
-                {"status": "EXECUTION_ERROR", "error_message": final_result, "final_result_for_shimo": final_result},
-            )
-            return False, final_result, None
+            except Exception as e_exec:
+                final_result = f"执行内部工具 '{tool_name_chosen}' 时出错: {e_exec}"
+                logger.error(final_result, exc_info=True)
+                await self.thought_storage_service.update_action_status_in_thought_document(
+                    doc_key_for_updates, action_id, {"status": "EXECUTION_ERROR", "error_message": final_result, "final_result_for_shimo": final_result}
+                )
+                return False, final_result, None
 
     async def send_action_and_wait_for_response(
         self, action_event_dict: dict[str, Any], timeout: int = ACTION_RESPONSE_TIMEOUT_SECONDS
