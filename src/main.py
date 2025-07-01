@@ -4,6 +4,7 @@ import json
 import os
 import threading
 
+from src import platform_builders  # 确保能导入这个包
 from src.action.action_handler import ActionHandler
 from src.action.providers.internal_tools_provider import InternalToolsProvider
 from src.common.custom_logging.logging_config import get_logger
@@ -35,7 +36,6 @@ from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.llmrequest.utils_model import GenerationParams
 from src.message_processing.default_message_processor import DefaultMessageProcessor
-from src import platform_builders # 确保能导入这个包
 from src.platform_builders.registry import platform_builder_registry
 
 logger = get_logger(__name__)

@@ -1,7 +1,7 @@
 # src/action/components/action_decision_maker.py
 import json
 from dataclasses import dataclass
-from typing import Any, List, Dict
+from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
 from src.common.json_parser.json_parser import parse_llm_json_response
@@ -27,13 +27,21 @@ class ActionDecisionMaker:
     负责调用LLM进行工具选择决策。
     它构建prompt，调用LLM，并解析返回的JSON决策。
     """
+
     def __init__(self, llm_client: ProcessorClient) -> None:
         if not llm_client:
             raise ValueError("LLM客户端实例 'llm_client' 不能为空。")
         self.llm_client = llm_client
         logger.info(f"{self.__class__.__name__} instance created.")
 
-    def _build_decision_prompt(self, tools_schema: List[Dict[str, Any]], current_thought_context: str, action_description: str, action_motivation: str, relevant_adapter_messages_context: str) -> str:
+    def _build_decision_prompt(
+        self,
+        tools_schema: list[dict[str, Any]],
+        current_thought_context: str,
+        action_description: str,
+        action_motivation: str,
+        relevant_adapter_messages_context: str,
+    ) -> str:
         # 把工具说明书（schema）转换成好看的JSON字符串
         # 这里的 tools_schema 是一个包含了所有工具（平台+内部）的列表
         tools_json_string = json.dumps(tools_schema, indent=2, ensure_ascii=False)
@@ -77,18 +85,18 @@ class ActionDecisionMaker:
         action_motivation: str,
         current_thought_context: str,
         relevant_adapter_messages_context: str,
-        tools_schema: List[Dict[str, Any]] # 接收“功能说明书”
+        tools_schema: list[dict[str, Any]],  # 接收“功能说明书”
     ) -> ActionDecision:
         logger.info(f"开始为动作 '{action_description[:50]}...' 进行LLM决策。")
-        
+
         prompt = self._build_decision_prompt(
             tools_schema,
             current_thought_context,
             action_description,
             action_motivation,
-            relevant_adapter_messages_context
+            relevant_adapter_messages_context,
         )
-        
+
         # 把工具说明书也传给LLM，这样它才能正确地进行 tool_call
         response = await self.llm_client.make_llm_request(prompt=prompt, is_stream=False, tools=tools_schema)
         raw_text = response.get("text", "").strip()
@@ -97,7 +105,7 @@ class ActionDecisionMaker:
         tool_calls = response.get("tool_calls")
         if tool_calls and isinstance(tool_calls, list) and len(tool_calls) > 0:
             logger.info("LLM直接返回了 tool_calls 结构，将优先使用。")
-            chosen_tool_call = tool_calls[0] # 只取第一个
+            chosen_tool_call = tool_calls[0]  # 只取第一个
             tool_name = chosen_tool_call.get("function", {}).get("name")
             try:
                 # LLM返回的arguments可能是字符串，需要解析
@@ -113,7 +121,7 @@ class ActionDecisionMaker:
             error_msg = "行动决策失败，LLM的响应中不包含任何文本内容或 tool_calls。"
             logger.warning(error_msg)
             return ActionDecision(None, {}, "", error=error_msg)
-            
+
         if parsed_decision := parse_llm_json_response(raw_text):
             tool_name = parsed_decision.get("tool_to_use")
             arguments = parsed_decision.get("arguments", {})

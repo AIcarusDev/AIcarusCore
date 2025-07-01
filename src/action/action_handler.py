@@ -111,7 +111,7 @@ class ActionHandler:
             logger.error("PendingActionManager 未初始化，无法处理动作响应。")
 
     async def system_get_bot_profile(self, adapter_id: str) -> None:
-        """ 系统触发获取机器人档案的动作。
+        """系统触发获取机器人档案的动作。
         这个方法是为了适配器上线安检，确保机器人档案可用。
         适配器上线时会调用这个方法来获取机器人档案。
         """
@@ -124,17 +124,14 @@ class ActionHandler:
             return
 
         # 2. 告诉翻译官你想干嘛（通用指令）
-        intent_data = {
-            "full_action_name": "get_bot_profile",
-            "params": {}
-        }
+        intent_data = {"full_action_name": "get_bot_profile", "params": {}}
         # 3. 让翻译官把通用指令翻译成平台事件
         action_event = builder.build_action_event(intent_data)
 
         if not action_event:
-             # 如果这里报错，说明你的 builder 里面根本没有处理 get_bot_profile 的逻辑！
-             logger.error(f"平台 '{adapter_id}' 的翻译官不会翻译 get_bot_profile 动作！")
-             return
+            # 如果这里报错，说明你的 builder 里面根本没有处理 get_bot_profile 的逻辑！
+            logger.error(f"平台 '{adapter_id}' 的翻译官不会翻译 get_bot_profile 动作！")
+            return
 
         # 4. 把翻译好的事件丢出去执行
         asyncio.create_task(
@@ -233,7 +230,7 @@ class ActionHandler:
         # 这里的逻辑需要你确保内部工具的 schema 也能被获取到，我们先假设可以
         # internal_tools_schema = self.action_registry.get_provider('internal').get_schema() # 假设有这个方法
         # all_tools_for_llm = all_platform_schemas + internal_tools_schema
-        all_tools_for_llm = all_platform_schemas # 先只用平台的
+        all_tools_for_llm = all_platform_schemas  # 先只用平台的
 
         decision_maker = ActionDecisionMaker(self.action_llm_client)
         # 把“功能说明书”喂给决策者
@@ -242,7 +239,7 @@ class ActionHandler:
             action_motivation,
             current_thought_context,
             relevant_adapter_messages_context,
-            tools_schema=all_tools_for_llm
+            tools_schema=all_tools_for_llm,
         )
 
         final_result_for_shimo: str = f"尝试执行动作 '{action_description}' 时出现未知的处理错误。"
@@ -305,7 +302,7 @@ class ActionHandler:
         # 1. 判断是平台动作还是内部工具
         if tool_name_chosen.startswith("platform."):
             # 这是平台动作！
-            parts = tool_name_chosen.split('.', 2)
+            parts = tool_name_chosen.split(".", 2)
             if len(parts) < 3:
                 err_msg = f"平台动作名称 '{tool_name_chosen}' 格式不正确。"
                 logger.error(err_msg)
@@ -323,8 +320,8 @@ class ActionHandler:
 
             # 构造通用的意图数据
             intent_data = {
-                "full_action_name": tool_name_chosen, # 把完整的动作名传进去
-                "params": tool_arguments
+                "full_action_name": tool_name_chosen,  # 把完整的动作名传进去
+                "params": tool_arguments,
             }
 
             # 让“翻译官”把通用指令翻译成平台事件
@@ -341,24 +338,34 @@ class ActionHandler:
                 thought_doc_key=doc_key_for_updates,
                 original_action_description=action_description,
             )
-            final_result = f"平台动作 '{tool_name_chosen}' 已提交。" if was_successful else (result_payload.get("error", "未知平台错误") if isinstance(result_payload, dict) else str(result_payload))
+            final_result = (
+                f"平台动作 '{tool_name_chosen}' 已提交。"
+                if was_successful
+                else (
+                    result_payload.get("error", "未知平台错误")
+                    if isinstance(result_payload, dict)
+                    else str(result_payload)
+                )
+            )
             return was_successful, final_result, result_payload
 
-        elif tool_name_chosen.startswith("internal."): # 明确判断内部工具
-            internal_action_name = tool_name_chosen.split('.', 1)[1]
+        elif tool_name_chosen.startswith("internal."):  # 明确判断内部工具
+            internal_action_name = tool_name_chosen.split(".", 1)[1]
             action_func = self.action_registry.get_action(internal_action_name)
             if not action_func:
                 final_result = f"未在注册表中找到名为 '{internal_action_name}' 的内部工具。"
                 await self.thought_storage_service.update_action_status_in_thought_document(
-                    doc_key_for_updates, action_id, {"status": "TOOL_NOT_FOUND", "error_message": final_result, "final_result_for_shimo": final_result}
+                    doc_key_for_updates,
+                    action_id,
+                    {"status": "TOOL_NOT_FOUND", "error_message": final_result, "final_result_for_shimo": final_result},
                 )
                 return False, final_result, None
 
             logger.info(f"从注册表找到内部工具 '{internal_action_name}'，准备执行。")
             try:
                 # 把一些通用的上下文也传给内部工具，万一它需要呢
-                tool_arguments['action_description'] = action_description
-                tool_arguments['action_motivation'] = action_motivation
+                tool_arguments["action_description"] = action_description
+                tool_arguments["action_motivation"] = action_motivation
 
                 tool_result_data = await action_func(**tool_arguments)
 
@@ -376,14 +383,22 @@ class ActionHandler:
                     final_result = f"工具 '{tool_name_chosen}' 执行成功，但没有返回任何数据。"
 
                 await self.thought_storage_service.update_action_status_in_thought_document(
-                    doc_key_for_updates, action_id, {"status": "COMPLETED_SUCCESS", "final_result_for_shimo": final_result}
+                    doc_key_for_updates,
+                    action_id,
+                    {"status": "COMPLETED_SUCCESS", "final_result_for_shimo": final_result},
                 )
                 return True, final_result, tool_result_data
             except Exception as e_exec:
                 final_result = f"执行内部工具 '{tool_name_chosen}' 时出错: {e_exec}"
                 logger.error(final_result, exc_info=True)
                 await self.thought_storage_service.update_action_status_in_thought_document(
-                    doc_key_for_updates, action_id, {"status": "EXECUTION_ERROR", "error_message": final_result, "final_result_for_shimo": final_result}
+                    doc_key_for_updates,
+                    action_id,
+                    {
+                        "status": "EXECUTION_ERROR",
+                        "error_message": final_result,
+                        "final_result_for_shimo": final_result,
+                    },
                 )
                 return False, final_result, None
 

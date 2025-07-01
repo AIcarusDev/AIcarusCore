@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 
 CACHE_EXPIRATION_SECONDS = 600
-CONVERSATION_DETAILS_CACHE_EXPIRATION_SECONDS = 7200 # 2小时
+CONVERSATION_DETAILS_CACHE_EXPIRATION_SECONDS = 7200  # 2小时
 
 logger = get_logger(__name__)
 
@@ -97,7 +97,6 @@ class ChatSession:
         self.conversation_details_cache: dict[str, Any] = {}
         self.last_details_update_time: float = 0.0
 
-
         # --- 辅助组件 ---
         self.SUMMARY_INTERVAL: int = getattr(config.focus_chat_mode, "summary_interval", 5)
         self.prompt_builder = ChatPromptBuilder(
@@ -121,7 +120,9 @@ class ChatSession:
         有缓存就用缓存，没有或者过期了就去问，懒得每次都问。
         """
         # 1. 先看看脑子里有没有，并且还没发霉
-        if self.conversation_details_cache and (time.time() - self.last_details_update_time < CONVERSATION_DETAILS_CACHE_EXPIRATION_SECONDS):
+        if self.conversation_details_cache and (
+            time.time() - self.last_details_update_time < CONVERSATION_DETAILS_CACHE_EXPIRATION_SECONDS
+        ):
             logger.debug(f"[{self.conversation_id}] 使用缓存的会话详情。")
             return self.conversation_details_cache
 
@@ -135,10 +136,7 @@ class ChatSession:
             "platform": self.platform,
             "bot_id": self.bot_id,
             # 目标会话信息要放在 conversation_info 里，让 ActionHandler 知道对谁下手
-            "conversation_info": {
-                "conversation_id": self.conversation_id,
-                "type": self.conversation_type
-            },
+            "conversation_info": {"conversation_id": self.conversation_id, "type": self.conversation_type},
             # content 理论上可以为空，但为了清晰，可以加上
             "content": [{"type": "action.conversation.get_info", "data": {}}],
         }
@@ -158,7 +156,6 @@ class ChatSession:
         # 如果连问都问不到，就用旧的缓存（总比没有好）
         logger.warning(f"[{self.conversation_id}] 无法获取新的会话详情，将使用旧的缓存（如果存在）。")
         return self.conversation_details_cache or {}
-
 
     async def update_counters_on_new_events(self) -> None:
         """

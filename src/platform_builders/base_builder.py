@@ -1,6 +1,6 @@
 # 哼，这是资格证，照着抄就行了
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from aicarus_protocols import Event
 
@@ -29,7 +29,7 @@ class BasePlatformBuilder(ABC):
         return event
 
     @abstractmethod
-    def build_action_event(self, intent_data: Dict[str, Any]) -> Optional[Event]:
+    def build_action_event(self, intent_data: dict[str, Any]) -> Event | None:
         """
         把核心下的“通用指令”翻译成平台能懂的“土话”事件。
         这是最重要的活儿，干不好就滚蛋！
@@ -44,7 +44,7 @@ class BasePlatformBuilder(ABC):
         pass
 
     @abstractmethod
-    def get_action_schema_for_llm(self) -> List[Dict[str, Any]]:
+    def get_action_schema_for_llm(self) -> list[dict[str, Any]]:
         """
         提供一份你们平台的“功能说明书”(JSON Schema格式)，给那个傻乎乎的LLM看。
         这样它才知道你们平台能干嘛，以及怎么指挥你。
