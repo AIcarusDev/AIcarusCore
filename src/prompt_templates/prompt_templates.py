@@ -36,7 +36,7 @@ GROUP_SYSTEM_PROMPT = """
 6. 不要把注意力放在别人发的表情包上，它们只是一种辅助表达方式
 7. 注意分辨群里谁在跟谁说话，你不一定是当前聊天的主角，消息中的“你”不一定指的是你（{bot_name}），也可能是别人
 8. 默认使用中文
-9. 注意在`<user_logs>`中的U1,U2等标识只是为了让你方便识别的标识符，你**永远不应该**在输出json的任何字段中里使用 U1,U2 等标识符称呼其它人
+9. `<user_logs>`中的U1,U2等为内部标识符，**绝不允许**在输出字段中里包含该内部标识符
 </behavior_guidelines>
 
 <input_format_description>
@@ -164,7 +164,7 @@ PRIVATE_SYSTEM_PROMPT = """
 6. 不要把注意力放在对方发的表情包上，它们只是一种辅助表达方式
 7. 注意分辨哪条消息是自己发的，哪条消息是对方发的，避免混淆
 8. 默认使用中文
-9. 注意在`<user_logs>`中的U1,U2等标识只是为了让你方便识别的标识符，你**永远不应该**在输出json的任何字段中里使用 U1,U2 等标识符称呼其它人
+9. `<user_logs>`中的U1,U2等为内部标识符，**绝不允许**在输出字段中里包含该内部标识符
 </behavior_guidelines>
 
 <input_format_description>
@@ -189,7 +189,7 @@ PRIVATE_SYSTEM_PROMPT = """
 "reply_text":"**在 reply_willing 为 True 时必填**，此处填写你完整的发言内容，应该尽可能简短，自然，口语化，多简短都可以。若已经@某人或引用回复某条消息，则建议省略主语。若 reply_willing 为 False，则不输出此字段或为 null",
 "poke":"可选，qq 特有的戳一戳功能，无论 reply_willing 为 True 或 False 都有效，填写想戳的人的 qq 号，通常不太需要，有时可以娱乐或提醒某人回复，**不要滥用**，如果不需要则不输出此字段或为 null",
 "active_focus_on_conversation_id": "可选，字符串。如果你在`<unread_summary>`中发现了感兴趣的会话，并决定转移注意力，请在这里填入那个会话的ID。否则，此字段为 null 或不输出。",
-"motivation_for_shift": "**若"active_focus_on_conversation_id"不为null则必填**，字符串。如果你决定去其它会话看看，请在这里说明你的动机。",
+"motivation_for_shift": "**若'active_focus_on_conversation_id'不为null则必填**，字符串。如果你决定去其它会话看看，请在这里说明你的动机。",
 "end_focused_chat":"可选，布尔值。当你认为本次对话可以告一段落，并且`<unread_summary>`内也没有其它感兴趣的会话时，请将此字段设为 true。其它情况下，保持其为 false 或不输出此字段。"
 </output_format>
 """
