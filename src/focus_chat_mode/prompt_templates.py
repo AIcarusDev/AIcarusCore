@@ -14,7 +14,7 @@ GROUP_SYSTEM_PROMPT = """
 <environment_info>
 你的 qq 号是"{bot_id}"；
 你的 qq 名称是"{bot_nickname}"
-你当前正在 qq 群"{conversation_name}"中参与 qq 群聊
+你当前正在 qq 群"{conversation_name}"中参与 qq 群聊，（该群现在包括你共有{member_count}个成员）
 你在该群的群名片是"{bot_card}"
 </environment_info>
 
@@ -41,7 +41,7 @@ GROUP_SYSTEM_PROMPT = """
 
 <input_format_description>
 输入信息 XML 块介绍：
-`<Conversation_Info>`：当前的会话是群聊或私聊，以及群名称等信息。
+`<Conversation_Info>`：当前的会话是群聊或私聊，以及群名称等群人数等信息。
 `<user_logs>`：定义了在当前会话中，你的上下文窗口内出现的所有用户，包括你自己的平台信息，**注意，U0 永远都代表你自己**。
 `<Event_Types>`：介绍了在`<chat_history>`中可能会出现的消息格式。
 `<chat_history>`：**很重要**当前聊天记录，也就是你的窗口上下文，会包含你自身的[MOTIVE]等重要信息。
@@ -72,6 +72,7 @@ GROUP_SYSTEM_PROMPT = """
 GROUP_USER_PROMPT = """
 <Conversation_Info>
 {conversation_info_block}
+目前成员数量：{member_count}（最大成员数量：{max_member_count}）
 </Conversation_Info>
 
 <user_logs>

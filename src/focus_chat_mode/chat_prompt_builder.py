@@ -134,6 +134,10 @@ class ChatPromptBuilder:
         logger.debug(f"[{self.session.conversation_id}] 调用通用聊天记录格式化工具...")
         bot_profile = await session.get_bot_profile()
 
+        # // 在这里调用我们新加的“情报获取术”
+        conversation_details = await session.get_conversation_details()
+
+
         (
             chat_history_log_block_str,
             user_list_block_str,
@@ -228,6 +232,11 @@ class ChatPromptBuilder:
         final_bot_nickname = bot_profile.get("nickname", persona_config.bot_name or "bot")
         final_bot_card = bot_profile.get("card", final_bot_nickname)
 
+        # // 从我们打探到的情报里，把人数拿出来！用 .get() 是个好习惯，免得没有的时候程序哭鼻子。
+        member_count = conversation_details.get("member_count", "未知")
+        max_member_count = conversation_details.get("max_member_count", "未知")
+
+
         # 组装 System Prompt
         # 如果是群聊，使用群聊的名称；否则使用默认的“未知群聊”
         if self.session.conversation_type == "group":
@@ -240,6 +249,7 @@ class ChatPromptBuilder:
                 bot_nickname=final_bot_nickname,
                 conversation_name=conversation_name_from_formatter or "未知群聊",
                 bot_card=final_bot_card,
+                member_count=member_count,
             )
         # 如果是私聊，使用对方的昵称；否则使用默认的“对方”
         else:
@@ -260,6 +270,8 @@ class ChatPromptBuilder:
             chat_history_log_block=chat_history_log_block_str,
             previous_thoughts_block=previous_thoughts_block_str,
             dynamic_behavior_guidance=dynamic_guidance_str,
+            member_count=member_count,
+            max_member_count=max_member_count,
         )
 
         logger.debug(f"[{self.session.conversation_id}] Prompts构建完成 (使用通用格式化工具)。")

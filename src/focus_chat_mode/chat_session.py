@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 
 CACHE_EXPIRATION_SECONDS = 600
+CONVERSATION_DETAILS_CACHE_EXPIRATION_SECONDS = 7200 # 2小时
 
 logger = get_logger(__name__)
 
@@ -93,6 +94,9 @@ class ChatSession:
         self.consecutive_bot_messages_count: int = 0
         self.bot_profile_cache: dict[str, Any] = {}
         self.last_profile_update_time: float = 0.0
+        self.conversation_details_cache: dict[str, Any] = {}
+        self.last_details_update_time: float = 0.0
+
 
         # --- 辅助组件 ---
         self.SUMMARY_INTERVAL: int = getattr(config.focus_chat_mode, "summary_interval", 5)
@@ -109,6 +113,52 @@ class ChatSession:
         self.cycler = FocusChatCycler(self)
 
         logger.info(f"[ChatSession][{self.conversation_id}] 实例已创建，依赖已注入。")
+
+    # // 这就是我们新的“情报获取术”，喵~
+    async def get_conversation_details(self) -> dict[str, Any]:
+        """
+        智能获取会话的详细信息，比如成员数。
+        有缓存就用缓存，没有或者过期了就去问，懒得每次都问。
+        """
+        # 1. 先看看脑子里有没有，并且还没发霉
+        if self.conversation_details_cache and (time.time() - self.last_details_update_time < CONVERSATION_DETAILS_CACHE_EXPIRATION_SECONDS):
+            logger.debug(f"[{self.conversation_id}] 使用缓存的会话详情。")
+            return self.conversation_details_cache
+
+        # 2. 没办法了，只能去问适配器了，真麻烦
+        logger.info(f"[{self.conversation_id}] 会话详情缓存失效或不存在，向适配器查询。")
+
+        # 构造一个获取群信息的动作事件
+        action_event_dict = {
+            "event_id": f"focus_get_conv_info_{self.conversation_id}_{uuid.uuid4().hex[:6]}",
+            "event_type": "action.conversation.get_info",
+            "platform": self.platform,
+            "bot_id": self.bot_id,
+            # 目标会话信息要放在 conversation_info 里，让 ActionHandler 知道对谁下手
+            "conversation_info": {
+                "conversation_id": self.conversation_id,
+                "type": self.conversation_type
+            },
+            # content 理论上可以为空，但为了清晰，可以加上
+            "content": [{"type": "action.conversation.get_info", "data": {}}],
+        }
+
+        # 调用 ActionHandler 里那个专门和适配器打交道的函数
+        success, result = await self.action_handler.send_action_and_wait_for_response(action_event_dict)
+
+        details = result if success and result else None
+
+        if details:
+            # 问到了！赶紧记下来！
+            self.conversation_details_cache = details
+            self.last_details_update_time = time.time()
+            logger.debug(f"[{self.conversation_id}] 已从适配器获取并缓存了新的会话详情: {details}")
+            return details
+
+        # 如果连问都问不到，就用旧的缓存（总比没有好）
+        logger.warning(f"[{self.conversation_id}] 无法获取新的会话详情，将使用旧的缓存（如果存在）。")
+        return self.conversation_details_cache or {}
+
 
     async def update_counters_on_new_events(self) -> None:
         """
