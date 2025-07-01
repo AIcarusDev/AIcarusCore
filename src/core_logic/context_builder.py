@@ -2,7 +2,7 @@
 import json  # 确保导入 json
 from typing import TYPE_CHECKING, Any
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 from src.common.utils import format_messages_for_llm_context, format_platform_status_summary
 from src.config import config
 
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from src.core_logic.state_manager import AIStateManager
     from src.database.services.event_storage_service import EventStorageService
 
-logger = get_logger("AIcarusCore.CoreLogic.ContextBuilder")
+logger = get_logger(__name__)
 
 
 class ContextBuilder:
@@ -21,16 +21,12 @@ class ContextBuilder:
         self.event_storage = event_storage
         self.core_comm = core_comm
         self.state_manager = state_manager
-        self.logger = logger
-        self.logger.info("ContextBuilder 已初始化。")
+        logger.info("ContextBuilder 已初始化。")
 
     async def gather_context_for_core_thought(self) -> tuple[str, str, list[str]]:
         """
         从各种来源收集上下文信息，并格式化以供核心思考循环使用。
         """
-        # 用户提示 master 功能在此分支不处理，所以 master_chat_history_str 设为固定值
-        master_chat_history_str: str = "与主人的聊天功能在此分支中已移除或正在重构。"
-
         initial_empty_context_info: str = self.state_manager.INITIAL_STATE.get(
             "recent_contextual_information", "无最近信息。"
         )
@@ -50,30 +46,29 @@ class ContextBuilder:
                 )
                 or []
             )
-            self.logger.debug(f"获取到 {len(system_lifecycle_events_raw)} 条用于状态摘要的系统事件。")
+            logger.debug(f"获取到 {len(system_lifecycle_events_raw)} 条用于状态摘要的系统事件。")
             if system_lifecycle_events_raw:
-                self.logger.info(
+                logger.debug(
                     f"【调试】获取到的 system_lifecycle_events_raw 内容 (前3条): {json.dumps(system_lifecycle_events_raw[:3], ensure_ascii=False, indent=2)}"
                 )
             else:
-                self.logger.info("【调试】system_lifecycle_events_raw 为空或None。")
+                logger.debug("【调试】system_lifecycle_events_raw 为空或None。")
 
-            all_other_events_excluding_master: list[dict[str, Any]] = (
+            all_other_events: list[dict[str, Any]] = (
                 await self.event_storage.get_recent_chat_message_documents(
                     duration_minutes=chat_history_duration_minutes,
-                    exclude_conversation_id="master_chat",  # 排除与主人的聊天
                     fetch_all_event_types=False,
                 )
                 or []
             )
 
             other_chat_events_for_yaml_raw: list[dict[str, Any]] = []
-            if all_other_events_excluding_master:
-                for event_dict in all_other_events_excluding_master:
+            if all_other_events:
+                for event_dict in all_other_events:
                     conv_info = event_dict.get("conversation_info")
                     if not (isinstance(conv_info, dict) and conv_info.get("conversation_id") == "system_events"):
                         other_chat_events_for_yaml_raw.append(event_dict)
-            self.logger.debug(
+            logger.debug(
                 f"获取到 {len(other_chat_events_for_yaml_raw)} 条用于YAML的其他聊天事件 (已手动排除system_events)。"
             )
 
@@ -83,7 +78,7 @@ class ContextBuilder:
             ):
                 current_connections_info = self.core_comm.adapter_clients_info
             else:
-                self.logger.warning(
+                logger.warning(
                     "CoreWebsocketServer 实例没有 adapter_clients_info 属性或其类型不正确，无法获取实时连接状态。"
                 )
 
@@ -129,8 +124,8 @@ class ContextBuilder:
                 formatted_recent_contextual_info = "\n\n".join(final_context_parts)
 
         except Exception as e:
-            self.logger.error(f"收集上下文信息时出错: {e}", exc_info=True)
+            logger.error(f"收集上下文信息时出错: {e}", exc_info=True)
             # 即使出错，也返回默认值，避免主循环中断
             formatted_recent_contextual_info = initial_empty_context_info
 
-        return master_chat_history_str, formatted_recent_contextual_info, image_list_for_llm_from_history
+        return formatted_recent_contextual_info, image_list_for_llm_from_history

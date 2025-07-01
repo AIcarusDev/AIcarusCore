@@ -166,16 +166,19 @@ class InnerConfig(ConfigBase):
     version: str = "0.1.0"
     """AicarusCore 的版本号，便于跟踪和更新。"""
 
-    protocol_version: str = "1.4.0"
+    protocol_version: str = "1.5.0"
     """Aicarus-Message-Protocol 标准通信协议版本号，确保与客户端和其他服务兼容。"""
 
 
 @dataclass
-class SubConsciousnessSettings(ConfigBase):
-    """子意识模块，如专注聊天功能的设置"""
+class FocusChatModeSettings(ConfigBase):
+    """专注聊天模式的设置"""
 
     enabled: bool = True
     """是否启用子意识模块"""
+
+    enable_dynamic_bot_profile: bool = True
+    """是否启用动态获取机器人自身信息的功能。如果禁用，将回退到使用 persona 中的静态配置。"""
 
     session_timeout_seconds: int = 180
     """子意识模块将固定使用 llm_models.focused_chat 中定义的模型
@@ -212,6 +215,47 @@ class TestFunctionConfig(ConfigBase):
     test_group: list[str] = field(default_factory=list)
     """测试群组列表，用于指定哪些群组启用测试功能。"""
 
+    fallback_model_name: str = ""
+    """用于给审查严格的 gemini-2.5-flash 兜底函数，如不启用留空即可。"""
+
+
+@dataclass
+class SpeakerWeightEntry(ConfigBase):
+    """定义单个发言者的权重条目。"""
+
+    id: str
+    """发言者的唯一ID。"""
+    weight: float
+    """该发言者的权重因子。"""
+    name: str | None = None  # name是可选的，给个备注方便看~
+    """发言者的名字（可选，仅用于备注）。"""
+
+
+@dataclass
+class InterruptModelConfig(ConfigBase):
+    """中断模型配置类，用于定义中断模型的相关设置。
+    这个类将包含中断模型的名称和其他相关参数。
+    """
+
+    objective_keywords: list[str] = field(default_factory=list)
+    """中断模型的目标关键词列表，用于识别需要中断的消息。"""
+
+    core_importance_concepts: list[str] = field(default_factory=list)
+    """中断模型的核心重要概念列表，用于识别需要中断的消息。"""
+
+    speaker_weights: list[SpeakerWeightEntry] = field(default_factory=list)
+    """发言者权重列表，用于调整不同发言者的中断权重。"""
+
+
+@dataclass
+class RuntimeEnvironmentSettings(ConfigBase):
+    """运行时环境设置，包括临时文件目录等。
+    这些设置用于配置 Aicarus 在运行时的环境参数。
+    """
+
+    temp_file_directory: str = "/tmp/aicarus_temp_images"
+    """临时文件目录，用于存储运行时生成的临时文件。默认值为 /tmp/aicarus_temp_images。"""
+
 
 @dataclass
 class AlcarusRootConfig(ConfigBase):
@@ -226,7 +270,9 @@ class AlcarusRootConfig(ConfigBase):
     intrusive_thoughts_module_settings: IntrusiveThoughtsSettings
     llm_models: AllModelPurposesConfig | None = field(default_factory=AllModelPurposesConfig)
     test_function: TestFunctionConfig = field(default_factory=TestFunctionConfig)
-    sub_consciousness: SubConsciousnessSettings = field(default_factory=SubConsciousnessSettings)  # 新增子意识配置
+    focus_chat_mode: FocusChatModeSettings = field(default_factory=FocusChatModeSettings)  # 新增专注聊天配置
     database: DatabaseSettings = field(default_factory=DatabaseSettings)  # 新增数据库配置
     logging: LoggingSettings = field(default_factory=LoggingSettings)
     server: ServerSettings = field(default_factory=ServerSettings)
+    interrupt_model: InterruptModelConfig = field(default_factory=InterruptModelConfig)
+    runtime_environment: RuntimeEnvironmentSettings = field(default_factory=RuntimeEnvironmentSettings)

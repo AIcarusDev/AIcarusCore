@@ -5,9 +5,9 @@
 
 import json
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 
-logger = get_logger("AIcarusCore.tools.failure_reporter")
+logger = get_logger(__name__)
 
 
 async def report_action_failure(

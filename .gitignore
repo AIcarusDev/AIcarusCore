@@ -175,3 +175,5 @@ cython_debug/
 config/config.toml
 config/old/
 logs/
+data/
+start.bat

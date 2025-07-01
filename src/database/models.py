@@ -11,9 +11,9 @@ from aicarus_protocols import ConversationType as ProtocolConversationType  # �
 # 这些是AI核心与适配器之间通信时使用的数据结构
 from aicarus_protocols import Event as ProtocolEvent
 
-from src.common.custom_logging.logger_manager import get_logger  # 日志记录器
+from src.common.custom_logging.logging_config import get_logger  # 日志记录器
 
-logger = get_logger("AIcarusCore.DB.Models")  # 获取日志实例
+logger = get_logger(__name__)  # 获取日志实例
 
 
 @dataclass
@@ -90,12 +90,17 @@ class EnrichedConversationInfo:
     # 由系统管理的额外字段
     created_at: int = field(default_factory=lambda: int(time.time() * 1000))  # 会话记录首次创建时间戳 (毫秒, UTC)
     updated_at: int = field(default_factory=lambda: int(time.time() * 1000))  # 会话记录最后更新时间戳 (毫秒, UTC)
+    last_processed_timestamp: int | None = None  # AI核心处理此会话消息的最新时间戳 (毫秒, UTC)
 
     # 用于存储协议中可能存在的其他未明确定义的扩展数据
     extra: dict[str, Any] = field(default_factory=dict)
 
     # 核心增强：AI的注意力及偏好档案
     attention_profile: AttentionProfile = field(default_factory=AttentionProfile.get_default_profile)
+
+    # 【小懒猫的新增字段】
+    bot_profile_in_this_conversation: dict[str, Any] | None = None
+    """存储机器人自身在此会话中的档案信息，例如群名片、权限等，作为缓存。"""
 
     @classmethod
     def from_protocol_and_event_context(
@@ -184,8 +189,10 @@ class EnrichedConversationInfo:
             "avatar": self.avatar,
             "created_at": self.created_at,  # 已经是毫秒时间戳
             "updated_at": self.updated_at,  # 确保每次保存都更新此时间戳
+            "last_processed_timestamp": self.last_processed_timestamp,  # 新增：更新处理时间戳
             "extra": self.extra,  # 已经是字典
             "attention_profile": self.attention_profile.to_dict(),  # 调用AttentionProfile的转换方法
+            "bot_profile_in_this_conversation": self.bot_profile_in_this_conversation,
         }
         # 根据需要，可以移除值为None的顶级可选字段，以保持数据库文档的清洁
         # 例如: return {k: v for k, v in doc.items() if v is not None}
@@ -225,8 +232,10 @@ class EnrichedConversationInfo:
             avatar=doc.get("avatar"),  # avatar 是 Optional[str]
             created_at=doc.get("created_at", int(time.time() * 1000)),  # 兼容旧数据可能没有创建时间的情况
             updated_at=doc.get("updated_at", int(time.time() * 1000)),  # 兼容旧数据可能没有更新时间的情况
+            last_processed_timestamp=doc.get("last_processed_timestamp"),  # 新增：读取处理时间戳
             extra=doc.get("extra", {}),  # extra 默认为空字典
             attention_profile=AttentionProfile.from_dict(doc.get("attention_profile")),  # 使用from_dict处理None情况
+            bot_profile_in_this_conversation=doc.get("bot_profile_in_this_conversation"),
         )
 
 
@@ -250,12 +259,13 @@ class DBEventDocument:
     user_info: dict[str, Any] | None = None  # 发起事件的用户信息 (UserInfo对象的字典表示)
     conversation_info: dict[str, Any] | None = None  # 事件发生的会话信息 (ConversationInfo对象的字典表示)
     raw_data: dict[str, Any] | None = None  # 来自适配器的原始事件数据，用于调试或特殊处理
-    protocol_version: str = "1.4.0"  # 事件数据所遵循的协议版本号
+    protocol_version: str = "1.5.0"  # 事件数据所遵循的协议版本号
 
     # 为便于数据库查询而从 user_info 和 conversation_info 中提取的关键ID
     user_id_extracted: str | None = None  # 提取出的用户ID
     conversation_id_extracted: str | None = None  # 提取出的会话ID
     motivation: str | None = None  # 新增：用于存储事件的动机，特别是机器人发出的消息事件
+    status: str = "unread"  # 新增：事件的读取状态，默认为"unread"
 
     @classmethod
     def from_protocol(cls, proto_event: ProtocolEvent) -> "DBEventDocument":
@@ -336,7 +346,7 @@ class DBEventDocument:
             user_info=user_info_dict,
             conversation_info=conversation_info_dict,
             raw_data=raw_data_dict,
-            protocol_version=getattr(proto_event, "protocol_version", "1.4.0"),  # 安全获取，万一协议对象没有此字段
+            protocol_version=getattr(proto_event, "protocol_version", "1.5.0"),  # 安全获取，万一协议对象没有此字段
             user_id_extracted=uid_ext,
             conversation_id_extracted=cid_ext,
             motivation=getattr(proto_event, "motivation", None),  # 新增：安全获取motivation
@@ -358,6 +368,41 @@ class DBEventDocument:
                 # 安全地获取 text 字段，如果不存在则添加空字符串
                 text_parts.append(seg_dict["data"].get("text", ""))
         return "".join(text_parts).strip()  # 拼接并去除首尾空格
+
+
+@dataclass
+class ConversationSummaryDocument:
+    """代表存储在数据库中的会话总结文档结构。"""
+
+    _key: str  # summary_id 将作为数据库文档的 _key
+    summary_id: str  # 总结的唯一ID
+    conversation_id: str  # 关联的会话ID
+    timestamp: int  # 总结创建的时间戳 (毫秒, UTC)
+    platform: str  # 会话所属平台
+    bot_id: str  # 处理此会话的机器人ID
+    summary_text: str  # 总结的文本内容
+    event_ids_covered: list[str] = field(default_factory=list)  # 此总结覆盖的事件ID列表
+
+    def to_dict(self) -> dict[str, Any]:
+        """将此 ConversationSummaryDocument 实例转换为字典，用于数据库存储。"""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any] | None) -> Optional["ConversationSummaryDocument"]:
+        """从数据库文档字典创建 ConversationSummaryDocument 实例。"""
+        if not data:
+            return None
+
+        known_fields = {f.name for f in fields(cls)}
+        filtered_data = {k: v for k, v in data.items() if k in known_fields}
+
+        if "_key" not in filtered_data and "summary_id" in filtered_data:
+            filtered_data["_key"] = filtered_data["summary_id"]
+        elif "_key" not in filtered_data:
+            logger.error(f"无法从字典创建 ConversationSummaryDocument：缺少 'summary_id' 或 '_key'。数据: {data}")
+            return None
+
+        return cls(**filtered_data)
 
 
 @dataclass

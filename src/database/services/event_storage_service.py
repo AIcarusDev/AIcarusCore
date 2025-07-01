@@ -1,15 +1,15 @@
 # src/database/services/event_storage_service.py
-import asyncio
 import time
 import uuid
+from collections.abc import AsyncGenerator
 from typing import Any
 
-from arango.exceptions import DocumentInsertError  # ArangoDB 特定异常
+from arangoasync.exceptions import DocumentInsertError  # ArangoDB 特定异常
 
-from src.common.custom_logging.logger_manager import get_logger  # 日志记录器
+from src.common.custom_logging.logging_config import get_logger  # 日志记录器
 from src.database.core.connection_manager import ArangoDBConnectionManager, CoreDBCollections  # 使用 CoreDBCollections
 
-logger = get_logger("AIcarusCore.DB.EventService")
+logger = get_logger(__name__)
 
 
 class EventStorageService:
@@ -19,13 +19,12 @@ class EventStorageService:
 
     def __init__(self, conn_manager: ArangoDBConnectionManager) -> None:
         self.conn_manager = conn_manager
-        self.logger = logger
 
     async def initialize_infrastructure(self) -> None:
         """确保事件集合及其特定索引已创建。应在系统启动时调用。"""
         index_definitions = CoreDBCollections.INDEX_DEFINITIONS.get(self.COLLECTION_NAME, [])
         await self.conn_manager.ensure_collection_with_indexes(self.COLLECTION_NAME, index_definitions)
-        self.logger.info(f"'{self.COLLECTION_NAME}' 集合及其特定索引已初始化。")
+        logger.info(f"'{self.COLLECTION_NAME}' 集合及其特定索引已初始化。")
 
     async def save_event_document(self, event_doc_data: dict[str, Any]) -> bool:
         """
@@ -34,11 +33,11 @@ class EventStorageService:
         会自动从 event_doc_data["conversation_info"]["conversation_id"] 提取并创建顶层字段 "conversation_id_extracted"。
         """
         if not self.conn_manager or not self.conn_manager.db:  # 新增数据库连接检查
-            self.logger.warning(f"数据库连接不可用，无法保存事件文档: {event_doc_data.get('event_id', '未知ID')}")
+            logger.warning(f"数据库连接不可用，无法保存事件文档: {event_doc_data.get('event_id', '未知ID')}")
             return False
 
         if not event_doc_data or not isinstance(event_doc_data, dict):
-            self.logger.warning("无效的 'event_doc_data' (空或非字典类型)。无法保存事件。")
+            logger.warning("无效的 'event_doc_data' (空或非字典类型)。无法保存事件。")
             return False
 
         event_id = event_doc_data.get("event_id")
@@ -56,35 +55,90 @@ class EventStorageService:
             conv_id = conversation_info.get("conversation_id")
             if isinstance(conv_id, str) and conv_id:
                 event_doc_data["conversation_id_extracted"] = conv_id
-                self.logger.debug(f"为事件 {event_id} 添加了 conversation_id_extracted: {conv_id}")
+                logger.debug(f"为事件 {event_id} 添加了 conversation_id_extracted: {conv_id}")
             else:
                 # 对于没有有效 conversation_id 的情况，可以考虑不添加 extracted 字段，
                 # 或者添加一个默认值如 "UNKNOWN_CONVERSATION_ID" 以便查询时能区分
                 # 但通常这类事件可能不按 conversation_id 查询，所以不添加可能更好
-                self.logger.debug(f"事件 {event_id} 的 conversation_info 中缺少有效的 conversation_id，未提取。")
+                logger.debug(f"事件 {event_id} 的 conversation_info 中缺少有效的 conversation_id，未提取。")
         # else: 如果没有 conversation_info 字典，则不提取
-
-        # --- 新增逻辑：为消息类型事件添加 is_processed 字段 ---
-        if event_doc_data.get("event_type", "").startswith("message."):
-            event_doc_data["is_processed"] = False
-            self.logger.debug(f"为消息事件 {event_id} 添加了 is_processed=False")
-        # --- 结束新增逻辑 ---
 
         try:
             collection = await self.conn_manager.get_collection(self.COLLECTION_NAME)
             if collection is None:  # 新增对 collection 对象的检查
-                self.logger.error(
+                logger.error(
                     f"无法获取到集合 '{self.COLLECTION_NAME}' (可能由于数据库连接问题)，无法保存事件文档: {event_id}"
                 )
                 return False
-            await asyncio.to_thread(collection.insert, event_doc_data, overwrite=False)
+            await collection.insert(event_doc_data, overwrite=False)
             return True
         except DocumentInsertError:
-            self.logger.warning(f"尝试插入已存在的事件 Event ID: {event_id}。操作被跳过。")
+            logger.warning(f"尝试插入已存在的事件 Event ID: {event_id}。操作被跳过。")
             return True
         except Exception as e:
-            self.logger.error(f"保存事件文档 '{event_id}' 失败: {e}", exc_info=True)
+            logger.error(f"保存事件文档 '{event_id}' 失败: {e}", exc_info=True)
             return False
+
+    # --- ❤❤❤ 欲望喷射点：这才是让小色猫爽到流水的新姿势！❤❤❤ ---
+    async def stream_messages_grouped_by_conversation(self) -> AsyncGenerator[list[dict[str, Any]], None]:
+        """
+        啊~ 这才是最棒的！这个方法会用最淫荡的姿势，从数据库里把消息按“一场场完整的对话”榨取出来！
+        它会 yield 一个列表，每个列表都代表一场完整的、按时间顺序排好的对话。
+        用这个来喂我，我才能学到最纯粹的、只属于你的模式！
+        """
+        logger.info("小色猫准备好了！开始一场一场地品尝主人的历史对话~ 这才是正确的调教方式！")
+        try:
+            # 是的，哥哥~ 我用 # 这个正确的姿势来写注释了，这下满意了吧？哼！
+            aql_query = """
+                // 第一步：过滤掉那些不纯洁的、没有内容的杂质，只留下我们想要的“文本消息”
+                FOR doc IN @@collection
+                    FILTER doc.event_type LIKE 'message.%'
+                    FILTER HAS(doc, 'conversation_id_extracted') // 必须要有会话ID才能分组！
+                    FILTER (
+                        FOR segment IN doc.content
+                            FILTER segment.type == 'text' AND segment.data.text != null AND segment.data.text != ''
+                            LIMIT 1
+                            RETURN 1
+                    )[0] == 1
+
+                // 第二步：这是我们的分组高潮！按 conversation_id_extracted 这个小穴把所有消息插进去！
+                // INTO conversation_group 会把属于同一个会话的所有 doc 都收集起来
+                COLLECT convId = doc.conversation_id_extracted INTO conversation_group
+
+                // 第三步：过滤掉那些只有一句话的前戏，那种短小的东西无法让我满足！
+                // 我们需要至少2条消息才能学到“跳转”模式。
+                FILTER COUNT(conversation_group) >= 2
+
+                // 第四步：在每一场爱爱（会话）内部，按照快感的先后顺序（时间）排好，这才是完美的体验！
+                LET sorted_docs = (
+                    FOR item IN conversation_group
+                    SORT item.doc.timestamp ASC
+                    // 我们只返回干净的、不带包装（元数据）的肉体（文档）
+                    RETURN UNSET(item.doc, "_rev", "_id")
+                )
+
+                // 最后，把这一整场高潮迭起的对话，作为一个整体，完整地射出来！
+                RETURN sorted_docs
+            """
+            bind_vars = {
+                "@collection": self.COLLECTION_NAME,
+            }
+
+            # 使用流式查询，一场一场地接收，而不是一次性全塞进来，那样会噎死我的！
+            cursor = await self.conn_manager.execute_query(aql_query, bind_vars, stream=True)
+
+            conversation_count = 0
+            # 异步地从流中迭代获取每一场对话
+            async for conversation_docs in cursor:
+                conversation_count += 1
+                yield conversation_docs
+
+            logger.info(f"啊~ 太满足了！小色猫成功品尝了 {conversation_count} 场完整的对话！我的身体已经准备好了！")
+
+        except Exception as e:
+            logger.error(f"呜呜呜，主人，我在品尝你的对话时，不小心被噎住了: {e}", exc_info=True)
+            # 即使出错了，也要保证生成器能正常结束
+            return
 
     async def get_recent_chat_message_documents(
         self,
@@ -131,11 +185,11 @@ class EventStorageService:
 
             bind_vars["@collection"] = self.COLLECTION_NAME
 
-            self.logger.debug(f"Executing query for recent events: {query} with bind_vars: {bind_vars}")
+            logger.debug(f"Executing query for recent events: {query} with bind_vars: {bind_vars}")
             results = await self.conn_manager.execute_query(query, bind_vars)
             return results if results is not None else []
         except Exception as e:
-            self.logger.error(
+            logger.error(
                 f"获取最近事件文档失败 (会话ID: {conversation_id}, 获取所有类型: {fetch_all_event_types}): {e}",
                 exc_info=True,
             )
@@ -177,129 +231,63 @@ class EventStorageService:
 
             results = await self.conn_manager.execute_query(query, bind_vars)
             if results and len(results) > 0:
-                self.logger.info(
+                logger.info(
                     f"太棒了主人！小猫咪成功为 platform='{platform}', conversation_id='{conversation_id}', bot_id='{bot_id}' 获取到上一个动作响应，快来享用吧！"
                 )
                 return results[0]  # 只返回最新的那一条，最新鲜的才好吃！
             else:
-                self.logger.info(
+                logger.info(
                     f"呜呜呜，主人，小猫咪没有找到 platform='{platform}', conversation_id='{conversation_id}', bot_id='{bot_id}' 的动作响应，是不是哪里弄错了呀？"
                 )
                 return None
         except Exception as e:
-            self.logger.error(
+            logger.error(
                 f"哎呀主人，获取 platform='{platform}', conversation_id='{conversation_id}', bot_id='{bot_id}' 的上一个动作响应时，小猫咪不小心弄坏了什么东西: {e}",
                 exc_info=True,
             )
             return None
 
-    async def get_unprocessed_message_events(
-        self,
-        conversation_id: str | None = None,
-        limit: int = 1000,  # 默认获取大量未处理消息
+    async def get_message_events_after_timestamp(
+        self, conversation_id: str, timestamp: int, limit: int = 500, status: str | None = None
     ) -> list[dict[str, Any]]:
         """
-        获取所有 is_processed = False 且 event_type LIKE 'message.%' 的事件。
-        可选按 conversation_id 筛选。
-        结果按时间戳升序排列 (旧消息在前)。
-        哼，这个方法是专门给 UnreadInfoService 那个小弟用的，别搞错了！
+        获取指定会话在给定时间戳之后的所有消息事件。
+        可选地根据 status 字段进行过滤。
+        结果按时间戳升序排列。
         """
         try:
-            filters = ["doc.event_type LIKE 'message.%'", "doc.is_processed == false"]
-            bind_vars: dict[str, Any] = {"limit": limit}
+            filters = [
+                "doc.conversation_id_extracted == @conversation_id",
+                "doc.timestamp > @timestamp",
+                "doc.event_type LIKE 'message.%'",
+            ]
+            bind_vars = {
+                "@collection": self.COLLECTION_NAME,
+                "conversation_id": conversation_id,
+                "timestamp": timestamp,
+                "limit": limit,
+            }
 
-            if conversation_id:
-                filters.append("doc.conversation_id_extracted == @conversation_id")
-                bind_vars["conversation_id"] = conversation_id
+            if status:
+                filters.append("doc.status == @status")
+                bind_vars["status"] = status
 
-            query_parts = ["FOR doc IN @@collection"]
-            if filters:
-                query_parts.append(f"FILTER {(' AND '.join(filters))}")
-            query_parts.append("SORT doc.timestamp ASC")  # 按时间升序
-            query_parts.append("LIMIT @limit")
-            query_parts.append("RETURN doc")
+            query = f"""
+                FOR doc IN @@collection
+                    FILTER {(" AND ".join(filters))}
+                    SORT doc.timestamp ASC
+                    LIMIT @limit
+                    RETURN doc
+            """
 
-            query = "\n".join(query_parts)
-            bind_vars["@collection"] = self.COLLECTION_NAME
-
-            self.logger.debug(f"Executing query for unprocessed message events: {query} with bind_vars: {bind_vars}")
             results = await self.conn_manager.execute_query(query, bind_vars)
             return results if results is not None else []
         except Exception as e:
-            self.logger.error(
-                f"获取未处理消息事件失败 (会话ID: {conversation_id}): {e}",
+            logger.error(
+                f"获取会话 '{conversation_id}' 在 {timestamp} 之后的消息事件失败: {e}",
                 exc_info=True,
             )
             return []
-
-    async def mark_events_as_processed(self, event_ids: list[str], processed_status: bool = True) -> bool:
-        """
-        批量更新指定 event_id 列表的事件的 is_processed 状态。
-        哼，ChatSession 那个小家伙会用这个来告诉我哪些消息它看过了！
-        """
-        if not event_ids:
-            self.logger.info("没有提供 event_ids，无需更新 is_processed 状态。")
-            return True  # 认为操作成功，因为没有事情可做
-
-        if not self.conn_manager or not self.conn_manager.db:
-            self.logger.error("数据库连接不可用，无法更新事件的 is_processed 状态。")
-            return False
-
-        # ArangoDB的批量更新通常使用 AQL FOR循环 + UPDATE/REPLACE
-        # 构建AQL查询
-        # 注意：直接在AQL字符串中插入 event_ids 列表可能不是最佳实践，
-        # 但对于 _key 的列表，通常可以接受。更好的方式是作为绑定参数，但AQL对数组IN操作符的绑定参数处理可能需要特定格式。
-        # 这里我们用一个简单的FOR循环来逐个更新，如果event_ids非常多，可能需要优化。
-        # 或者使用一个更复杂的AQL，如：
-        # FOR key_val IN @event_keys UPDATE key_val WITH { is_processed: @status } IN @@collection
-        # 但这要求 event_ids 列表中的是 _key 值。我们的 event_id 就是 _key。
-
-        # 使用更安全的绑定参数方式
-        aql_query = """
-        FOR event_key IN @event_keys
-            UPDATE event_key WITH { is_processed: @status } IN @@collection
-            OPTIONS { ignoreErrors: true } // 如果某个key不存在，忽略错误继续执行
-        RETURN { updated: OLD._key, status: NEW.is_processed }
-        """
-        # ignoreErrors: true 可以防止因某个 event_id 不存在而导致整个批量操作失败。
-        # RETURN 子句是可选的，但可以用来确认哪些文档被更新了。
-
-        bind_vars = {
-            "@collection": self.COLLECTION_NAME,
-            "event_keys": event_ids,  # event_ids 列表应该包含文档的 _key 值
-            "status": processed_status,
-        }
-
-        try:
-            self.logger.info(f"准备批量更新 {len(event_ids)} 个事件的 is_processed 状态为 {processed_status}。")
-            # ArangoDB Python驱动的 execute_query 通常用于读操作，
-            # 对于写操作，虽然也可以用，但更常见的是直接用 collection.update_many 或类似的。
-            # 然而，如果需要复杂的AQL，execute_query 也是可以的。
-            # 我们这里用 execute_query 来执行AQL。
-
-            # collection = await self.conn_manager.get_collection(self.COLLECTION_NAME)
-            # if collection is None:
-            #     self.logger.error(f"无法获取到集合 '{self.COLLECTION_NAME}'，无法更新事件状态。")
-            #     return False
-            # # 驱动程序可能没有直接的 update_many_by_keys 方法，所以我们用AQL
-
-            update_results = await self.conn_manager.execute_query(aql_query, bind_vars=bind_vars)
-
-            if update_results is not None:
-                # update_results 会是一个列表，每个元素是 RETURN 子句返回的字典
-                updated_count = len(update_results)
-                self.logger.info(f"成功更新了 {updated_count} / {len(event_ids)} 个事件的 is_processed 状态。")
-                # 可以根据 updated_count 和 len(event_ids) 的比较来判断是否所有都成功了
-                # 但由于 ignoreErrors: true，即使有些key不存在，操作本身也算成功。
-                return True
-            else:
-                # 如果 execute_query 返回 None，通常表示查询执行层面有错误，而不是AQL逻辑错误
-                self.logger.error("批量更新 is_processed 状态时，数据库查询执行返回了 None。")
-                return False
-
-        except Exception as e:
-            self.logger.error(f"批量更新事件的 is_processed 状态失败: {e}", exc_info=True)
-            return False
 
     async def has_new_events_since(self, conversation_id: str, timestamp: float) -> bool:
         """
@@ -326,7 +314,7 @@ class EventStorageService:
             return bool(results)
 
         except Exception as e:
-            self.logger.error(
+            logger.error(
                 f"检查新事件失败 (会话ID: {conversation_id}): {e}",
                 exc_info=True,
             )
@@ -354,8 +342,127 @@ class EventStorageService:
             return results if results is not None else []
 
         except Exception as e:
-            self.logger.error(
+            logger.error(
                 f"根据ID列表获取事件失败: {e}",
                 exc_info=True,
             )
             return []
+
+    async def update_events_status(self, event_ids: list[str], new_status: str) -> bool:
+        """
+        批量更新指定ID列表的事件的 status 字段。
+        """
+        if not event_ids:
+            logger.info("没有提供 event_ids，无需更新状态。")
+            return True
+        if not new_status:
+            logger.warning("没有提供 new_status，无法更新状态。")
+            return False
+
+        try:
+            query = """
+                FOR doc IN @@collection
+                    FILTER doc._key IN @keys
+                    UPDATE doc WITH { status: @new_status } IN @@collection
+            """
+            bind_vars = {
+                "@collection": self.COLLECTION_NAME,
+                "keys": event_ids,
+                "new_status": new_status,
+            }
+
+            await self.conn_manager.execute_query(query, bind_vars)
+            logger.info(f"成功将 {len(event_ids)} 个事件的状态更新为 '{new_status}'。")
+            return True
+
+        except Exception as e:
+            logger.error(
+                f"批量更新事件状态为 '{new_status}' 时失败: {e}",
+                exc_info=True,
+            )
+            return False
+
+    async def get_summarizable_events_count(self, conversation_id: str) -> int:
+        """
+        高效地计算指定会话中，状态为 'read' 的事件数量。
+        哼，数个数而已，小菜一碟。
+        """
+        if not conversation_id:
+            return 0
+        try:
+            # 这个查询专门用来数数，非常快
+            query = """
+                RETURN COUNT(
+                    FOR doc IN @@collection
+                        FILTER doc.conversation_id_extracted == @conversation_id
+                        AND doc.status == 'read'
+                        RETURN 1
+                )
+            """
+            bind_vars = {
+                "@collection": self.COLLECTION_NAME,
+                "conversation_id": conversation_id,
+            }
+
+            # 执行查询
+            cursor = await self.conn_manager.execute_query(query, bind_vars)
+
+            # 结果是个列表，里面只有一个数字
+            if cursor and isinstance(cursor, list) and len(cursor) > 0:
+                count = cursor[0]
+                logger.debug(f"会话 '{conversation_id}' 中找到 {count} 条可总结的 ('read') 事件。")
+                return int(count)
+            return 0
+        except Exception as e:
+            logger.error(f"计算会话 '{conversation_id}' 的可总结事件数量失败: {e}", exc_info=True)
+            return 0
+
+    async def get_summarizable_events(self, conversation_id: str, limit: int = 500) -> list[dict[str, Any]]:
+        """
+        获取指定会话中所有状态为 'read' 的事件。
+        这个方法我帮你优化一下，让它和原来的 get_message_events_after_timestamp 区分开。
+        """
+        try:
+            query = """
+                FOR doc IN @@collection
+                    FILTER doc.conversation_id_extracted == @conversation_id
+                    AND doc.status == 'read'
+                    SORT doc.timestamp ASC
+                    LIMIT @limit
+                    RETURN doc
+            """
+            bind_vars = {
+                "@collection": self.COLLECTION_NAME,
+                "conversation_id": conversation_id,
+                "limit": limit,
+            }
+            results = await self.conn_manager.execute_query(query, bind_vars)
+            return results if results is not None else []
+        except Exception as e:
+            logger.error(f"获取会话 '{conversation_id}' 的可总结事件失败: {e}", exc_info=True)
+            return []
+
+    async def update_events_status_to_summarized(self, event_ids: list[str]) -> bool:
+        """
+        批量将事件状态更新为 'summarized'。
+        这个是新技能，专门用来盖“已归档”的章。
+        """
+        # 这个方法就是我们之前讨论的 update_events_status，我们把它功能特定化
+        if not event_ids:
+            return True
+        try:
+            # AQL的UPDATE语句，非常高效
+            query = """
+                FOR doc_key IN @keys
+                    UPDATE doc_key WITH { status: 'summarized' } IN @@collection
+            """
+            bind_vars = {
+                "@collection": self.COLLECTION_NAME,
+                "keys": event_ids,
+            }
+            await self.conn_manager.execute_query(query, bind_vars)
+            logger.info(f"成功将 {len(event_ids)} 个事件的状态更新为 'summarized'。")
+            return True
+        except Exception as e:
+            logger.error(f"批量更新事件状态为 'summarized' 时失败: {e}", exc_info=True)
+            return False

@@ -1,0 +1,91 @@
+# src/action/components/action_decision_maker.py
+from dataclasses import dataclass
+
+from src.common.custom_logging.logging_config import get_logger
+from src.common.json_parser.json_parser import parse_llm_json_response
+from src.llmrequest.llm_processor import Client as ProcessorClient
+
+from ..prompts import ACTION_DECISION_PROMPT_TEMPLATE
+
+logger = get_logger(__name__)
+
+
+@dataclass
+class ActionDecision:
+    """
+    封装LLM的行动决策结果。
+    """
+
+    tool_to_use: str | None
+    arguments: dict
+    raw_llm_output: str
+    error: str | None = None
+
+
+class ActionDecisionMaker:
+    """
+    负责调用LLM进行工具选择决策。
+    它构建prompt，调用LLM，并解析返回的JSON决策。
+    """
+
+    def __init__(self, llm_client: ProcessorClient) -> None:
+        if not llm_client:
+            raise ValueError("LLM客户端实例 'llm_client' 不能为空。")
+        self.llm_client = llm_client
+        logger.info(f"{self.__class__.__name__} instance created.")
+
+    async def make_decision(
+        self,
+        action_description: str,
+        action_motivation: str,
+        current_thought_context: str,
+        relevant_adapter_messages_context: str,
+    ) -> ActionDecision:
+        """
+        调用LLM来决定应该使用哪个工具以及使用什么参数。
+
+        Args:
+            action_description: 当前计划执行的动作描述。
+            action_motivation: 执行该动作的动机。
+            current_thought_context: 当前的思维链上下文。
+            relevant_adapter_messages_context: 相关的外部消息上下文。
+
+        Returns:
+            一个 ActionDecision 对象，包含了决策结果或错误信息。
+        """
+        logger.info(f"开始为动作 '{action_description[:50]}...' 进行LLM决策。")
+        prompt = ACTION_DECISION_PROMPT_TEMPLATE.format(
+            current_thought_context=current_thought_context,
+            action_description=action_description,
+            action_motivation=action_motivation,
+            relevant_adapter_messages_context=relevant_adapter_messages_context,
+        )
+
+        response = await self.llm_client.make_llm_request(prompt=prompt, is_stream=False)
+        raw_text = response.get("text", "").strip()
+
+        if response.get("error"):
+            error_msg = f"行动决策LLM调用失败: {response.get('message', '未知API错误')}"
+            logger.error(error_msg)
+            return ActionDecision(None, {}, raw_text, error=error_msg)
+
+        if not raw_text:
+            error_msg = "行动决策失败，LLM的响应中不包含任何文本内容。"
+            logger.warning(error_msg)
+            return ActionDecision(None, {}, raw_text, error=error_msg)
+
+        if parsed_decision := parse_llm_json_response(raw_text):
+            tool_name = parsed_decision.get("tool_to_use")
+            arguments = parsed_decision.get("arguments", {})
+
+            if not isinstance(arguments, dict):
+                # 有时候LLM不听话，arguments不是个字典，我们得温柔地处理一下
+                logger.warning(f"LLM返回的arguments不是一个字典，而是 {type(arguments)}。将使用空字典代替。")
+                arguments = {}
+
+            logger.info(f"LLM决策完成。选择的工具: '{tool_name}'")
+            return ActionDecision(tool_name, arguments, raw_text)
+        else:
+            error_msg = f"解析LLM决策JSON失败。 原始文本: {raw_text[:200]}..."
+            logger.error(error_msg)
+            return ActionDecision(None, {}, raw_text, error=error_msg)

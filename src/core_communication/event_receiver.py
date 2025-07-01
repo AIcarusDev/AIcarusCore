@@ -1,18 +1,17 @@
 # src/core_communication/event_receiver.py
 import json
-import time
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 from aicarus_protocols import Event as ProtocolEvent
 from websockets.server import WebSocketServerProtocol
 
-from src.common.custom_logging.logger_manager import get_logger
+from src.common.custom_logging.logging_config import get_logger
 
 if TYPE_CHECKING:
     from src.action.action_handler import ActionHandler
 
-logger = get_logger("AIcarusCore.EventReceiver")
+logger = get_logger(__name__)
 
 # 定义回调函数的类型别名，以便清晰地表示其期望的签名
 AdapterEventCallback = Callable[[ProtocolEvent, WebSocketServerProtocol, bool], Awaitable[None]]
@@ -61,17 +60,7 @@ class EventReceiver:
             message_dict = json.loads(message_str)
             msg_event_type = message_dict.get("event_type")
 
-            # 1. 处理心跳包
-            if message_dict.get("type") == "heartbeat":
-                hb_adapter_id = message_dict.get("adapter_id")
-                if hb_adapter_id == adapter_id and adapter_id in self.adapter_clients_info:
-                    self.adapter_clients_info[adapter_id]["last_heartbeat"] = time.time()
-                    logger.debug(f"收到来自 '{display_name}({adapter_id})' 的心跳包。")
-                else:
-                    logger.warning(f"收到来自 {websocket.remote_address} 的无效或不匹配的心跳包: {message_dict}")
-                return  # 心跳包处理完毕，直接返回
-
-            # 2. 处理生命周期事件 (除了 connect，因为它在注册阶段处理)
+            # 1. 处理生命周期事件 (除了 connect，因为它在注册阶段处理)
             if msg_event_type == "meta.lifecycle.disconnect":
                 logger.info(f"收到来自适配器 '{display_name}({adapter_id})' 的主动断开通知。")
                 # 实际的断开逻辑（unregister, close）应该由连接管理器在更高层处理
@@ -79,7 +68,7 @@ class EventReceiver:
                 # await self.connection_manager.unregister_adapter(websocket, "适配器主动下线")
                 return
 
-            # 3. 处理动作响应 (Action Response)
+            # 2. 处理动作响应 (Action Response)
             if msg_event_type and msg_event_type.startswith("action_response."):
                 if self.action_handler:
                     await self.action_handler.handle_action_response(message_dict)
@@ -87,7 +76,7 @@ class EventReceiver:
                     logger.error("收到 action_response 但 ActionHandler 未初始化！")
                 return  # 动作响应处理完毕，直接返回
 
-            # 4. 处理标准的 AIcarus 事件
+            # 3. 处理标准的 AIcarus 事件
             if "event_id" in message_dict and msg_event_type and "content" in message_dict:
                 try:
                     aicarus_event = ProtocolEvent.from_dict(message_dict)
