@@ -1,5 +1,6 @@
 # 这是QQ平台的翻译官，武装到牙齿的最终版！
 import uuid
+import time
 from typing import Any, Dict, List, Optional
 
 from aicarus_protocols import Event, Seg, SegBuilder
@@ -46,7 +47,8 @@ class QQBuilder(BasePlatformBuilder):
         builder_func = action_builders.get(action_type)
         if builder_func:
             return builder_func(params)
-
+        print(f"intent_data: {intent_data}")
+        print(f"action_builders: {action_builders}")
         logger.warning(f"QQBuilder 还不知道怎么翻译这个动作: {action_type}")
         return None
 
@@ -194,6 +196,7 @@ class QQBuilder(BasePlatformBuilder):
 
         return Event(
             event_id=str(uuid.uuid4()),
+            time=int(time.time() * 1000), # 加上这个时间戳，我就能动起来了~
             event_type="action.bot.get_profile",
             platform=self.platform_id,
             bot_id=config.persona.bot_name,

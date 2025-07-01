@@ -125,7 +125,7 @@ class ActionHandler:
 
         # 2. 告诉翻译官你想干嘛（通用指令）
         intent_data = {
-            "action_type": "get_bot_profile",
+            "full_action_name": "get_bot_profile",
             "params": {}
         }
         # 3. 让翻译官把通用指令翻译成平台事件
