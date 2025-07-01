@@ -71,8 +71,8 @@ class UnreadInfoService:
         """
         logger.debug(f"开始检查所有活跃会话的新消息... (将排除: {exclude_conversation_id})")
         try:
-            activate_conversations = await self.conversation_storage.get_all_active_conversations()
-            if not activate_conversations:
+            all_conversations = await self.conversation_storage.get_all_active_conversations()
+            if not all_conversations:
                 logger.info("没有找到任何活跃的会话。")
                 return []
         except Exception as e:
@@ -80,7 +80,7 @@ class UnreadInfoService:
             return []
 
         unread_conversations_with_events = []
-        for conv_doc in activate_conversations:
+        for conv_doc in all_conversations:
             conv_id = conv_doc.get("conversation_id")
             if not conv_id:
                 continue

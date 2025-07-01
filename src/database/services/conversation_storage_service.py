@@ -200,10 +200,10 @@ class ConversationStorageService:
     async def get_all_active_conversations(self) -> list[dict[str, Any]]:
         """
         获取所有被认为是“活跃”的会话文档。
-        只返回 attention_profile.active 为 True 的会话。
+        目前的实现是获取所有会话，未来可以根据 attention_profile 过滤。
         """
         try:
-            query = "FOR doc IN @@collection FILTER doc.attention_profile != null && doc.attention_profile.active == true RETURN doc"
+            query = "FOR doc IN @@collection RETURN doc"
             bind_vars = {"@collection": self.COLLECTION_NAME}
             results = await self.conn_manager.execute_query(query, bind_vars)
             logger.info(f"成功获取到 {len(results) if results else 0} 个会话。")
