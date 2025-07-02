@@ -117,6 +117,7 @@ class FocusChatCycler:
                         is_stream=False,
                         is_multimodal=bool(image_references),
                         image_inputs=image_references,
+                        use_google_search=True,
                     )
                 )
                 # 中断检查器，用我们刚刚锁定的上下文，开始它独立的监视高潮

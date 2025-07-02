@@ -29,6 +29,7 @@ class ThoughtGenerator:
                 is_stream=False,
                 image_inputs=image_inputs or None,
                 is_multimodal=bool(image_inputs),
+                use_google_search=True,
             )
 
             if response_data.get("error"):
