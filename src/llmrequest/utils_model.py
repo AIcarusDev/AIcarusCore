@@ -36,6 +36,7 @@ class GenerationParams(TypedDict, total=False):
     seed: int
     user: str
     response_mime_type: str
+    responseSchema: dict[str, Any]
     encoding_format: str
     dimensions: int
 
@@ -670,6 +671,17 @@ class LLMClient:
                     ],
                     "generationConfig": final_generation_config.copy(),
                 }
+                # 检查是否需要结构化输出 (JSON Schema)
+                if "responseSchema" in payload["generationConfig"]:
+                    if is_streaming:
+                        logger.warning("Gemini 的结构化输出不支持流式请求。'responseSchema' 将被忽略。")
+                        # 从配置中移除，避免API报错
+                        del payload["generationConfig"]["responseSchema"]
+                    else:
+                        logger.debug("检测到 responseSchema，为 Gemini API 启用 JSON 模式。")
+                        # 启用 JSON 模式时，必须指定 MIME 类型为 application/json
+                        payload["generationConfig"]["response_mime_type"] = "application/json"
+
                 # 2. 如果有system_prompt，就把它放在名为"system_instruction"的顶级王座上！
                 if system_prompt:
                     logger.debug(

@@ -351,6 +351,7 @@ class Client:  # 这是 llm_processor.Client，是暴露给外部使用者的高
         max_retries: int = 3,
         text_to_embed: str | None = None,  # 特定于嵌入请求 #
         use_google_search: bool = False,
+        response_schema: dict[str, Any] | None = None,
         **additional_generation_params: Unpack[GenerationParams],  # 其他特定于模型的生成参数 #
     ) -> dict[str, Any]:
         """
@@ -367,6 +368,11 @@ class Client:  # 这是 llm_processor.Client，是暴露给外部使用者的高
             logger.info(
                 f"  make_llm_request 收到 System Prompt (前50字符): {system_prompt[:50]}{'...' if len(system_prompt) > 50 else ''}"
             )
+
+        # 如果用户传入了 response_schema，就把它加到要传递下去的参数字典里
+        if response_schema:
+            # 这里的 "responseSchema" 必须和你在 GenerationParams 中定义的大小写一致
+            additional_generation_params["responseSchema"] = response_schema
 
         # 优先处理嵌入请求的逻辑
         if text_to_embed:

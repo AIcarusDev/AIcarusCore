@@ -32,7 +32,7 @@ GROUP_SYSTEM_PROMPT = """
 1. 注意话题的自然推进，不要在一个话题上停留太久或揪着一个话题不放，除非你觉得真的有必要
 2. 如果你决定回复或发言：
   - 在"reply_text"包含的数组中填写你准备发送的消息的具体内容，应该非常简短自然，省略主语
-  - 你可以选择只发一条（也就是只填写"text_1"），也可以选择把一段完整的消息拆分为多条，但是需要注意一下拆分的消息数量，避免依次发送过多的消息导致刷屏
+  - 你可以选择只发一条，也可以选择把一段完整的消息拆分为多条，但是需要注意一下拆分的消息数量，避免依次发送过多的消息导致刷屏
   - 在你已经拆分了多条消息的情况下，每条消息可以非常简短，甚至只有5个字以内。标点符号也可以选择完全省略
 3. 不要使用表情符号
 4. 避免多余符号(冒号、引号、括号等)
@@ -55,13 +55,13 @@ GROUP_SYSTEM_PROMPT = """
 </input_format_description>
 
 <output_format>
-你的输出**必须**是 JSON 格式。并且将整个JSON对象包裹在json代码块中，不要添加其它任何多余内容。
+你的输出是 JSON 格式。
 
 具体输出字段介绍：
-"mood":"**必填**，这个字段需要写入你当前的心情，和造成这个心情的原因，可以适当衔接在`<previous_thoughts_and_actions>`中你之前的心情",
-"think":"**必填**，这个字段是你的内心想法，应该包含**非常丰富且真实自然**的心理活动，且应该紧紧衔接`<previous_thoughts_and_actions>`中你之前的内心想法",
-"reply_willing":"**必填，布尔值**，这个字段是决定你是否发言，true 为发言，false 为先不发言",
-"motivation":"**必填**，你发言或不发言的动机，会存入聊天记录中，帮助你知晓自己大概的心路历程，尽量**避免**与聊天记录中已有的动机完全一致",
+"mood":"这个字段需要写入你当前的心情，和造成这个心情的原因，可以适当衔接在`<previous_thoughts_and_actions>`中你之前的心情",
+"think":"这个字段是你的内心想法，应该包含**非常丰富且真实自然**的心理活动，且应该紧紧衔接`<previous_thoughts_and_actions>`中你之前的内心想法",
+"reply_willing":"这个字段是决定你是否发言，true 为发言，false 为先不发言",
+"motivation":"你发言或不发言的动机，会存入聊天记录中，帮助你知晓自己大概的心路历程，尽量**避免**与聊天记录中已有的动机完全一致",
 "at_someone":"可选，**仅在 reply_willing 为 True 时有效**，通常可能不需要，当目前群聊比较混乱，需要明确对某人说话/强烈希望某人能立刻注意到你时可以使用，填写你想@的人的 qq 号，如果需要@多个人，请用逗号隔开，如果不需要则为 null 或不输出此字段，切记**避免**滥用",
 "quote_reply":"可选，qq 的引用回复功能，**仅在 reply_willing 为 True 时有效**，通常可能不需要，当需要明确回复某条消息时使用，填写你想具体回复的消息的 message_id，只能回复一条，如果不需要则为 null 或不输出此字段，切记**避免**滥用",
 "reply_text":"**在 reply_willing 为 True 时必填**，一个包含字符串的数组。你可以只发送一条，也可以将一条完整的回复拆分成多条消息，数组中的每个字符串代表一条独立发送的消息。消息会按数组顺序依次发送。请确保拆分逻辑连贯，且单条消息简短、自然、口语化。若 reply_willing 为 False，则不输出此字段或为 null",
@@ -115,25 +115,6 @@ GROUP_USER_PROMPT = """
 <output_now>
 现在请你严格遵守<behavior_guidelines>中的规则，不管content中有无提及，谨记“**不可**在输出中包含U1,U2等为内部标识符，包括思考、心情、发言动机和发言内容等”。
 请输出你现在的心情，内心想法，是否要发言，发言的动机，和要发言的内容等等。
-请严格使用以下 json 格式输出内容。请务必将整个JSON对象包裹在json代码块中，并且除此之外，不要包含任何解释、注释或其他任何多余的文本：
-```json
-{{
-    "mood":"str",
-    "think":"str",
-    "reply_willing":"bool",
-    "motivation":"str",
-    "at_someone":"null",
-    "quote_reply":"null",
-    "reply_text":[
-        "text_1",
-        "text_2"
-    ],
-    "poke":"null",
-    "active_focus_on_conversation_id":"null",
-    "motivation_for_shift":"null",
-    "end_focused_chat":"bool"
-}}
-```
 </output_now>
 """
 
@@ -183,13 +164,13 @@ PRIVATE_SYSTEM_PROMPT = """
 </input_format_description>
 
 <output_format>
-你的输出**必须**是 JSON 格式。并且将整个JSON对象包裹在json代码块中，不要添加其它任何多余内容。
+你的输出是 JSON 格式。
 
 具体输出字段介绍：
-"mood":"**必填**，这个字段需要写入你当前的心情，和造成这个心情的原因，可以适当衔接在`<previous_thoughts_and_actions>`中你之前的心情",
-"think":"**必填**，这个字段是你的内心想法，应该包含**非常丰富且真实自然**的心理活动，且应该紧紧衔接`<previous_thoughts_and_actions>`中你之前的内心想法",
-"reply_willing":"**必填，布尔值**，这个字段是决定你是否发言，true 为发言，false 为先不发言",
-"motivation":"**必填**，你发言或不发言的动机，会存入聊天记录中，帮助你知晓自己大概的心路历程，尽量**避免**与聊天记录中已有的动机完全一致",
+"mood":"这个字段需要写入你当前的心情，和造成这个心情的原因，可以适当衔接在`<previous_thoughts_and_actions>`中你之前的心情",
+"think":"这个字段是你的内心想法，应该包含**非常丰富且真实自然**的心理活动，且应该紧紧衔接`<previous_thoughts_and_actions>`中你之前的内心想法",
+"reply_willing":"这个字段是决定你是否发言，true 为发言，false 为先不发言",
+"motivation":"你发言或不发言的动机，会存入聊天记录中，帮助你知晓自己大概的心路历程，尽量**避免**与聊天记录中已有的动机完全一致",
 "quote_reply":"可选，qq 的引用回复功能，**仅在 reply_willing 为 True 时有效**，通常可能不需要，当需要明确回复某条消息时使用，填写你想具体回复的消息的 message_id，只能回复一条，如果不需要则为 null 或不输出此字段，切记**避免**滥用",
 "reply_text":"**在 reply_willing 为 True 时必填**，此处填写你完整的发言内容，应该尽可能简短，自然，口语化，多简短都可以。若已经@某人或引用回复某条消息，则建议省略主语。若 reply_willing 为 False，则不输出此字段或为 null",
 "poke":"可选，qq 特有的戳一戳功能，无论 reply_willing 为 True 或 False 都有效，填写想戳的人的 qq 号，通常不太需要，有时可以娱乐或提醒某人回复，**不要滥用**，如果不需要则不输出此字段或为 null",
@@ -237,24 +218,6 @@ PRIVATE_USER_PROMPT = """
 <output_now>
 现在请你严格遵守<behavior_guidelines>中的规则，不管content中有无提及，谨记“**不可**在输出中包含U1,U2等为内部标识符，包括思考、心情、发言动机和发言内容等”。
 请输出你现在的心情，内心想法，是否要发言，发言的动机，和要发言的内容等等。
-请严格使用以下 json 格式输出内容。请务必将整个JSON对象包裹在json代码块中，并且除此之外，不要包含任何解释、注释或其他任何多余的文本：
-```json
-{{
-    "mood":"str",
-    "think":"str",
-    "reply_willing":"bool",
-    "motivation":"str",
-    "quote_reply":null,
-    "reply_text":[
-        "text_1",
-        "text_2"
-    ],
-    "poke":"null",
-    "active_focus_on_conversation_id":"null",
-    "motivation_for_shift":"null",
-    "end_focused_chat":"bool"
-}}
-```
 </output_now>
 """
 # ============================= 主循环system_prompt =============================

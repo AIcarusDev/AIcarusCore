@@ -16,6 +16,49 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+# 先定义好两份菜单
+GROUP_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "mood": {"type": "string"},
+        "think": {"type": "string"},
+        "reply_willing": {"type": "boolean"},
+        "motivation": {"type": "string"},
+        "at_someone": {"type": "string"},
+        "quote_reply": {"type": "string"},
+        "reply_text": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "poke": {"type": "string"},
+        "active_focus_on_conversation_id": {"type": "string",},
+        "motivation_for_shift": {"type": "string",},
+        "end_focused_chat": {"type": "boolean"},
+    },
+    "required": ["mood", "think", "reply_willing", "motivation"],
+}
+
+
+PRIVATE_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "mood": {"type": "string"},
+        "think": {"type": "string"},
+        "reply_willing": {"type": "boolean"},
+        "motivation": {"type": "string"},
+        "quote_reply": {"type": "string"},
+        "reply_text": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "poke": {"type": "string"},
+        "active_focus_on_conversation_id": {"type": "string",},
+        "motivation_for_shift": {"type": "string",},
+        "end_focused_chat": {"type": "boolean"},
+    },
+    "required": ["mood", "think", "reply_willing", "motivation"],
+}
+
 
 class FocusChatCycler:
     """
@@ -73,8 +116,10 @@ class FocusChatCycler:
         self._wakeup_event.set()
 
     async def _chat_loop(self) -> None:
+        """ 主循环，专注于处理会话中的消息和决策。
+        这个循环会持续运行，直到会话被终止或显式关闭。
+        """
         idle_thinking_interval = getattr(config.focus_chat_mode, "self_reflection_interval_seconds", 15)
-
         while self.session.is_active and not self._shutting_down:
             interrupt_checker_task = None
             llm_task = None
@@ -108,6 +153,11 @@ class FocusChatCycler:
                 self.context_for_iis = initial_context_text
                 logger.debug(f"[{self.session.conversation_id}] 本轮循环已锁定初始上下文: '{self.context_for_iis}'")
 
+                if self.session.conversation_type == "group":
+                    response_schema = GROUP_RESPONSE_SCHEMA
+                else:
+                    response_schema = PRIVATE_RESPONSE_SCHEMA
+
                 # 2.行动分离，并行高潮
                 # LLM开始它漫长的思考高潮
                 llm_task = asyncio.create_task(
@@ -117,7 +167,8 @@ class FocusChatCycler:
                         is_stream=False,
                         is_multimodal=bool(image_references),
                         image_inputs=image_references,
-                        use_google_search=True,
+                        # use_google_search=True,
+                        response_schema=response_schema,
                     )
                 )
                 # 中断检查器，用我们刚刚锁定的上下文，开始它独立的监视高潮
