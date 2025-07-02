@@ -4,6 +4,8 @@ prompt_templates.py,这个文件包含了所有的prompt模板
 # TODO:
 # 未来所有的 prompt 模板都应该放在这个文件里，方便统一管理和修改。
 # 并且应该在每一套prompt的开头注释说明该prompt的用途和适用场景。
+# TODO:
+# 乱七八糟，交给星织老大处理
 # ============================= 专注模式群聊system_prompt =============================
 GROUP_SYSTEM_PROMPT = """
 当前时间：{current_time}
@@ -173,11 +175,11 @@ PRIVATE_SYSTEM_PROMPT = """
 <input_format_description>
 输入信息 XML 块介绍：
 `<user_logs>`：定义了在当前会话中，你与对方的平台信息，**注意，U0 永远都代表你自己，不要混淆**。
-`<Event_Types>`：介绍了在`<chat_history>`中可能会出现的消息格式。
-`<chat_history>`：**很重要**当前聊天记录，也就是你的窗口上下文，会包含你自身的[MOTIVE]等重要信息。
-`<previous_thoughts_and_actions>`：**很重要**，里面包含了你的上一轮"mood","think",以及是否回复，回复了什么等重要的先前自身状态。
+`<Event_Types>`: 介绍了在`<chat_history>`中可能会出现的消息格式。
+`<chat_history>`: **很重要**当前聊天记录，也就是你的窗口上下文，会包含你自身的[MOTIVE]等重要信息。
+`<previous_thoughts_and_actions>`: **很重要**，里面包含了你的上一轮"mood","think",以及是否回复，回复了什么等重要的先前自身状态。
 `<unread_summary>`：这里包含了来自其它群聊或者私聊的未读消息，如果你想去别会话互动，你可以通过在"active_focus_on_conversation_id"填写目标会话的id来实现注意力转移。
-`<notice>`：**很重要**，里面包含了重要的提示信息，如果没有，则不必在意。
+`<notice>`: **很重要**，里面包含了重要的提示信息，如果没有，则不必在意。
 </input_format_description>
 
 <output_format>
@@ -300,10 +302,43 @@ CORE_SYSTEM_PROMPT = """
 "think": "**必填**，这个字段是你的内心想法，应该包含**非常丰富且真实自然**的心理活动，且应该紧紧衔接`<previous_think>`中你之前的内心想法",
 "mood": "**必填**，这个字段需要写入你当前的心情，和造成这个心情的原因，可以适当衔接在`<previous_mood>`中你之前的心情",
 "to_do": "**必填**，可以在此处写下你当前的目标。可以很明确（例如具体想做什么能做的事），也可以很模糊（例如没什么目标，发呆），即使当前存在目标，你也可以在这里更新它",
-"focus_on_conversation_id": 这是一个嵌套的 JSON 对象，包含两个字段：
-  - "target": 可选，字符串，如果你在`<unread_summary>`中发现了感兴趣的会话，并决定转移注意力，请在这里填入那个会话的ID。否则，此字段为 null 或不输出。
-  - "motivation": 可选，字符串，如果你决定去其它会话看看，请在这里说明你的动机。这个字段只有在"target"不为 null 时才需要填写，否则可以为 null 或不输出。
-（如果不需要去看任何会话，可以将整个"focus_on_conversation_id"字段设置为 null 或不输出）
+"action": 可选，这是一个包含你当前可用动作的 JSON 对象。请注意，这个字段是可选的，如果你不需要执行任何动作，可以不输出此字段或将其设为 null。
+
+
+
+
+
+
+你当前有以下可用动作：
+```json
+{
+  "action": {  // 动作事件统一标识
+    "napcat_qq": {  // napcat_qq 平台动作标识
+      "focus":{  // 加入某个会话聊天
+        "conversation_id":"str" // 填写想要加入的对话id
+        },
+      },
+    "motivation": "str"  // 你为什么要执行这个动作的动机
+  },
+}
+```
+如果要执行某个动作，请将对应字段输入到你即将输出的 `json` 的 `action` 字段中。示例：
+```json
+{
+  "think": "str",
+  "mood": "str",
+  "to_do": "str",
+  "action": {
+    "focus": {
+      "napcat_qq": {
+        "conversation_id": "123456789"
+      }
+    },
+    "motivation": "str"
+  }
+}
+```
+这意味着你将执行一个"去 napcat_qq 
 </output_format>
 """
 
