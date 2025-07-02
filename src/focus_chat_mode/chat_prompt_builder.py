@@ -1,18 +1,16 @@
 # chat_prompt_builder.py
 
 import os
-from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from src.common.time_utils import get_formatted_time_for_llm
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logging_config import get_logger
 from src.common.focus_chat_history_builder.chat_history_formatter import format_chat_history_for_llm
+from src.common.time_utils import get_formatted_time_for_llm
 
 # 导入你的顶层config对象
 from src.config import config
 from src.database.services.event_storage_service import EventStorageService
-
 from src.prompt_templates import prompt_templates
 
 if TYPE_CHECKING:

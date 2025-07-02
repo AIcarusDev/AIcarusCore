@@ -1,6 +1,7 @@
 # src/common/time_utils.py
 from datetime import datetime
 
+
 # 这是个时间处理的工具模块，整个项目都可以用来获取格式化的时间字符串，并且定义了具体的时间段和季节名称。
 def get_formatted_time_for_llm(now: datetime | None = None) -> str:
     """

@@ -175,7 +175,9 @@ class FocusChatCycler:
                             )
                             # 顺便更新一下自己的小本本，免得忘了
                             self.session.last_processed_timestamp = new_processed_timestamp
-                            logger.debug(f"[{self.session.conversation_id}] 已将会话的 last_processed_timestamp 更新到数据库。")
+                            logger.debug(
+                                f"[{self.session.conversation_id}] 已将会话的 last_processed_timestamp 更新到数据库。"
+                            )
 
                         if self.session.is_first_turn_for_session:
                             self.session.is_first_turn_for_session = False
