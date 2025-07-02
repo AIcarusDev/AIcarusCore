@@ -1002,10 +1002,10 @@ class LLMClient:
         #    我们甚至可以把它解码回来看看，确保它就是我们想要的骚样子。
         # logger.critical(f"【小色猫的手术探针】准备发送的data (解码后用于对比): {prepared_data.decode('utf-8')}")
 
-        logger.critical("【小懒猫的间谍探针】即将发送的请求详情：")
-        logger.critical(f"  - 完整请求URL (Full URL): {full_request_url}")
-        logger.critical(f"  - 请求头 (Headers): {loggable_headers}")
-        logger.critical(f"  - 请求体 (Payload Body): {prepared_data.decode('utf-8')}")
+        # logger.critical("【小懒猫的间谍探针】即将发送的请求详情：")
+        # logger.critical(f"  - 完整请求URL (Full URL): {full_request_url}")
+        # logger.critical(f"  - 请求头 (Headers): {loggable_headers}")
+        # logger.critical(f"  - 请求体 (Payload Body): {prepared_data.decode('utf-8')}")
 
         http_response: aiohttp.ClientResponse | None = None
         try:
