@@ -31,8 +31,12 @@ GROUP_RESPONSE_SCHEMA = {
             "items": {"type": "string"},
         },
         "poke": {"type": "string"},
-        "active_focus_on_conversation_id": {"type": "string",},
-        "motivation_for_shift": {"type": "string",},
+        "active_focus_on_conversation_id": {
+            "type": "string",
+        },
+        "motivation_for_shift": {
+            "type": "string",
+        },
         "end_focused_chat": {"type": "boolean"},
     },
     "required": ["mood", "think", "reply_willing", "motivation"],
@@ -52,8 +56,12 @@ PRIVATE_RESPONSE_SCHEMA = {
             "items": {"type": "string"},
         },
         "poke": {"type": "string"},
-        "active_focus_on_conversation_id": {"type": "string",},
-        "motivation_for_shift": {"type": "string",},
+        "active_focus_on_conversation_id": {
+            "type": "string",
+        },
+        "motivation_for_shift": {
+            "type": "string",
+        },
         "end_focused_chat": {"type": "boolean"},
     },
     "required": ["mood", "think", "reply_willing", "motivation"],
@@ -116,7 +124,7 @@ class FocusChatCycler:
         self._wakeup_event.set()
 
     async def _chat_loop(self) -> None:
-        """ 主循环，专注于处理会话中的消息和决策。
+        """主循环，专注于处理会话中的消息和决策。
         这个循环会持续运行，直到会话被终止或显式关闭。
         """
         idle_thinking_interval = getattr(config.focus_chat_mode, "self_reflection_interval_seconds", 15)
