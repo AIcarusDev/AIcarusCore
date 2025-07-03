@@ -230,72 +230,59 @@ class FocusChatCycler:
                         logger.debug(f"[{self.session.conversation_id}] 思考完成，缓存LLM决策。")
 
                         # ==================================
-                        # 阶段二：发送 vs 监视
+                        # 阶段二：统一执行动作（发言或不发言）
                         # ==================================
-                        # 检查是否需要发言
-                        reply_text_list = parsed_decision.get("reply_text", [])
-                        valid_sentences = (
-                            [msg for msg in reply_text_list if is_valid_message(msg)]
-                            if isinstance(reply_text_list, list)
-                            else []
-                        )
-
-                        if parsed_decision.get("reply_willing") and valid_sentences:
-                            logger.info(
-                                f"[{self.session.conversation_id}] 发送阶段开始，计划发送 {len(valid_sentences)} 条消息..."
+                        action_task = None
+                        interrupt_checker_task_action = None
+                        try:
+                            # 统一在这里调用 action_executor，不再区分发言或不发言
+                            logger.info(f"[{self.session.conversation_id}] 统一动作执行阶段开始...")
+                            action_task = asyncio.create_task(
+                                self.action_executor.execute_action(parsed_decision, self.uid_map)
+                            )
+                            # 监视器用最新的消息作为上下文
+                            interrupt_checker_task_action = asyncio.create_task(
+                                self._check_for_interruptions_internal(context_text=last_message_text)
                             )
 
-                            send_task = None
-                            interrupt_checker_task_send = None
-                            try:
-                                # 开始第二场赛跑
-                                send_task = asyncio.create_task(
-                                    self.action_executor.execute_action(parsed_decision, self.uid_map)
-                                )
-                                # ❤❤❤ 监视器用的是最新的消息作为上下文！❤❤❤
-                                interrupt_checker_task_send = asyncio.create_task(
-                                    self._check_for_interruptions_internal(context_text=last_message_text)
-                                )
+                            done_action, pending_action = await asyncio.wait(
+                                [action_task, interrupt_checker_task_action], return_when=asyncio.FIRST_COMPLETED
+                            )
 
-                                done_send, pending_send = await asyncio.wait(
-                                    [send_task, interrupt_checker_task_send], return_when=asyncio.FIRST_COMPLETED
-                                )
+                            if (
+                                interrupt_checker_task_action in done_action
+                                and not interrupt_checker_task_action.cancelled()
+                            ):
+                                interrupting_event_action = interrupt_checker_task_action.result()
+                                if interrupting_event_action:
+                                    logger.info(f"[{self.session.conversation_id}] 动作执行阶段被IIS中断。")
+                                    if action_task and not action_task.done():
+                                        action_task.cancel()
+                                    was_interrupted_last_turn = True
+                                    self.interrupting_event_text = self._format_event_for_iis(
+                                        interrupting_event_action
+                                    ).get("text")
+                                    # 注意：这里我们不像思考阶段那样continue，因为动作可能已经部分执行
+                                    # 而是让它自然进入下一轮循环，was_interrupted_last_turn会处理上下文
+                            else:
+                                if interrupt_checker_task_action and not interrupt_checker_task_action.done():
+                                    interrupt_checker_task_action.cancel()
+                                logger.info(f"[{self.session.conversation_id}] 动作执行完毕，未被中断。")
 
-                                if (
-                                    interrupt_checker_task_send in done_send
-                                    and not interrupt_checker_task_send.cancelled()
-                                ):
-                                    interrupting_event_send = interrupt_checker_task_send.result()
-                                    if interrupting_event_send:
-                                        logger.info(f"[{self.session.conversation_id}] 发送阶段被IIS中断。")
-                                        if send_task and not send_task.done():
-                                            send_task.cancel()
-                                        was_interrupted_last_turn = True  # 标记中断
-                                        self.interrupting_event_text = self._format_event_for_iis(
-                                            interrupting_event_send
-                                        ).get("text")
-                                        # 这里不需要再做什么了，循环会自动重启
-                                else:  # 发送任务先完成
-                                    if interrupt_checker_task_send and not interrupt_checker_task_send.done():
-                                        interrupt_checker_task_send.cancel()
-                                    # 这里什么都不用做，因为发送成功了
-                                    logger.info(f"[{self.session.conversation_id}] 所有消息发送完毕，未被中断。")
-                            finally:
-                                # 确保任务被清理
-                                if send_task and not send_task.done():
-                                    send_task.cancel()
-                                if interrupt_checker_task_send and not interrupt_checker_task_send.done():
-                                    interrupt_checker_task_send.cancel()
+                        finally:
+                            # 确保任务被清理
+                            if action_task and not action_task.done():
+                                action_task.cancel()
+                            if interrupt_checker_task_action and not interrupt_checker_task_action.done():
+                                interrupt_checker_task_action.cancel()
 
-                        else:  # 如果不发言
-                            await self.action_executor.execute_action(parsed_decision, self.uid_map)
-
-                        # 处理会话结束或转移
+                        # ==================================
+                        # 阶段三：处理后续逻辑（会话结束/转移）
+                        # ==================================
                         should_terminate = await self.llm_response_handler.handle_decision(parsed_decision)
-
                         if should_terminate:
                             logger.info(f"[{self.session.conversation_id}] 根据LLM决策，会话即将终止。")
-                            break  # 退出主循环
+                            break
 
                     # 更新事件状态
                     if processed_ids:
@@ -362,16 +349,6 @@ class FocusChatCycler:
             conversation_name_from_formatter,
         )
 
-    async def _idle_wait(self, interval: float) -> None:
-        """等待下一次唤醒或超时。"""
-        logger.debug(f"[{self.session.conversation_id}] 进入贤者时间，等待下一次唤醒或 {interval} 秒后超时。")
-        try:
-            self._wakeup_event.clear()
-            await asyncio.wait_for(self._wakeup_event.wait(), timeout=interval)
-            logger.info(f"[{self.session.conversation_id}] 被新消息刺激到，立即开始下一轮。")
-        except TimeoutError:
-            logger.info(f"[{self.session.conversation_id}] 贤者时间结束，主动开始下一轮。")
-
     async def _check_for_interruptions_internal(self, context_text: str | None) -> dict | None:
         """
         在后台检查新消息，并用性感大脑判断是否打断。
@@ -423,7 +400,6 @@ class FocusChatCycler:
 
         return None  # 正常结束（比如_shutting_down被设置），没有中断
 
-    # _idle_wait 和 _format_event_for_iis 不变
     async def _idle_wait(self, interval: float) -> None:
         """等待下一次唤醒或超时。"""
         logger.debug(f"[{self.session.conversation_id}] 进入贤者时间，等待下一次唤醒或 {interval} 秒后超时。")
