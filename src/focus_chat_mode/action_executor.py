@@ -46,13 +46,13 @@ class ActionExecutor:
         # 定义哪些标点需要停顿久一点，假装在思考
         punctuation_to_pause = "，。！？；、,."
         # 普通字/字母的打字延迟
-        char_delay_min = 0.05
-        char_delay_max = 0.15
+        char_delay_min = 0.2
+        char_delay_max = 0.6
         # 遇到标点符号的额外停顿
-        punc_delay_min = 0.3
-        punc_delay_max = 0.5
+        punc_delay_min = 0.1
+        punc_delay_max = 0.4
         # 封顶延迟，免得一句话等半天
-        max_total_delay = 5.0
+        max_total_delay = 20.0
 
         total_delay = 0.0
         for char in text:
@@ -60,6 +60,10 @@ class ActionExecutor:
                 total_delay += random.uniform(punc_delay_min, punc_delay_max)
             else:
                 total_delay += random.uniform(char_delay_min, char_delay_max)
+
+        # 模拟打错字回退增加时长情况，字数越多越容易打错字
+        if len(text) > 10 and random.random() < 0.3:
+            total_delay *= 1.1
 
         # 别睡太久了，懒鬼！
         final_delay = min(total_delay, max_total_delay)
