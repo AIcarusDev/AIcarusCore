@@ -6,7 +6,6 @@ import time
 from typing import TYPE_CHECKING
 
 from src.common.custom_logging.logging_config import get_logger
-from src.common.utils import is_valid_message
 from src.config import config
 
 if TYPE_CHECKING:
