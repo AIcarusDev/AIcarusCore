@@ -254,7 +254,7 @@ class CoreLogic:
                     "intrusive_thought": intrusive_thought_str,
                 }
 
-                action_to_take = (generated_thought.get("action_to_take") or "").strip()
+                action_to_take = (str(generated_thought.get("action_to_take")) or "").strip()
                 if action_to_take and action_to_take.lower() != "null":
                     current_action_id = generated_thought.get("action_id")
                     if not current_action_id or not isinstance(current_action_id, str) or not current_action_id.strip():
