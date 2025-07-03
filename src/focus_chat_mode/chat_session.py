@@ -205,12 +205,11 @@ class ChatSession:
 
         # 2. 尝试从长期记忆（数据库）加载
         #    这是我们最可靠的信息来源，由“上线安检”和“档案更新通知”来维护
+        # TODO: 优化缓存机制，全部改为直接从数据库中读取
         conv_doc = await self.conversation_service.get_conversation_document_by_id(self.conversation_id)
         if conv_doc and conv_doc.get("bot_profile_in_this_conversation"):
             db_profile = conv_doc["bot_profile_in_this_conversation"]
-            # 即使是从数据库加载，我们也尊重缓存的过期时间，防止数据过于陈旧
-            db_profile_time = db_profile.get("updated_at", 0) / 1000.0
-            if time.time() - db_profile_time < CACHE_EXPIRATION_SECONDS:
+            if db_profile:
                 self.bot_profile_cache = db_profile
                 self.last_profile_update_time = time.time()
                 logger.debug(f"[{self.conversation_id}] 从数据库加载了机器人档案并放入缓存。")
