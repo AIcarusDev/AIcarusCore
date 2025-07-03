@@ -193,8 +193,8 @@ class ChatSession:
 
     async def get_bot_profile(self) -> dict[str, Any]:
         """
-        智能获取机器人档案，优先使用缓存，再查数据库，最后才问适配器。
-        哼，这才叫高效的懒！
+        智能获取机器人档案，优先使用缓存，再查数据库。
+        哼，这才叫高效的懒！【小色猫最终治愈版】
         """
         # 1. 检查短期记忆（内存缓存）是否有效
         if self.bot_profile_cache and (time.time() - self.last_profile_update_time < CACHE_EXPIRATION_SECONDS):
@@ -202,44 +202,29 @@ class ChatSession:
             return self.bot_profile_cache
 
         # 2. 尝试从长期记忆（数据库）加载
+        #    这是我们最可靠的信息来源，由“上线安检”和“档案更新通知”来维护
         conv_doc = await self.conversation_service.get_conversation_document_by_id(self.conversation_id)
         if conv_doc and conv_doc.get("bot_profile_in_this_conversation"):
             db_profile = conv_doc["bot_profile_in_this_conversation"]
+            # 即使是从数据库加载，我们也尊重缓存的过期时间，防止数据过于陈旧
             db_profile_time = db_profile.get("updated_at", 0) / 1000.0
             if time.time() - db_profile_time < CACHE_EXPIRATION_SECONDS:
                 self.bot_profile_cache = db_profile
                 self.last_profile_update_time = time.time()
-                logger.debug(f"[{self.conversation_id}] 从数据库加载了机器人档案。")
+                logger.debug(f"[{self.conversation_id}] 从数据库加载了机器人档案并放入缓存。")
                 return self.bot_profile_cache
 
-        # 3. 没办法了，只能去问适配器了，真麻烦
-        logger.info(f"[{self.conversation_id}] 缓存失效或不存在，向适配器查询机器人档案。")
-
-        action_event_dict = {
-            "event_id": f"focus_get_profile_{self.conversation_id}_{uuid.uuid4().hex[:6]}",
-            "event_type": "action.bot.get_profile",
-            "platform": self.platform,
-            "bot_id": self.bot_id,
-            "content": [{"type": "action.bot.get_profile", "data": {"group_id": self.conversation_id}}],
-        }
-        success, result = await self.action_handler.send_action_and_wait_for_response(action_event_dict)
-        profile = result if success and result else None
-
-        if profile:
-            self.bot_profile_cache = profile
-            self.last_profile_update_time = time.time()
-            # 更新数据库里的长期记忆
-            profile_with_ts = profile.copy()
-            profile_with_ts["updated_at"] = int(time.time() * 1000)
-            await self.conversation_service.update_conversation_field(
-                self.conversation_id, "bot_profile_in_this_conversation", profile_with_ts
-            )
-            logger.debug(f"[{self.conversation_id}] 已从适配器获取并缓存了新的机器人档案。")
-            return profile
-
-        # 如果连问都问不到，就用旧的缓存（总比没有好）
-        logger.warning(f"[{self.conversation_id}] 无法获取新的机器人档案，将使用旧的缓存（如果存在）。")
-        return self.bot_profile_cache or {}
+        # --- ❤❤❤ 终极切除手术 ❤❤❤ ---
+        # 3. 删掉那个多余又危险的“主动询问适配器”的逻辑！
+        #    我们不再发起那个该死的 action.bot.get_profile 请求了！
+        #    如果缓存和数据库都没有，我们就优雅地承认失败，而不是傻等30秒！
+        #    这样，我们的主循环就再也不会被这种破事阻塞了！
+        logger.warning(
+            f"[{self.conversation_id}] 缓存和数据库中均未找到有效的机器人档案。"
+            "将使用一个空的档案作为后备，等待适配器通过 'notice.bot.profile_update' 事件来更新。"
+        )
+        # 返回一个空的字典，让调用方能安全地 .get()，而不会崩溃
+        return {}
 
     def activate(self, core_last_think: str | None = None, core_last_mood: str | None = None) -> None:
         """激活会话并启动其主动循环。"""
