@@ -82,6 +82,8 @@ class ChatSession:
         self.last_llm_decision: dict[str, Any] | None = None
         self.sent_actions_context: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self.processing_lock = asyncio.Lock()
+        self.messages_planned_this_turn: int = 0  # 计划发几条
+        self.messages_sent_this_turn: int = 0    # 实际发了机条
 
         # --- 上下文和记忆属性 ---
         self.is_first_turn_for_session: bool = True
