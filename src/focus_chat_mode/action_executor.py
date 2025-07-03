@@ -1,7 +1,6 @@
 # src/focus_chat_mode/action_executor.py
 import asyncio
 import random
-import re
 import time
 import uuid
 from typing import TYPE_CHECKING
@@ -12,6 +11,7 @@ from aicarus_protocols.seg import SegBuilder
 from aicarus_protocols.user_info import UserInfo
 
 from src.common.custom_logging.logging_config import get_logger
+from src.common.utils import is_valid_message
 from src.config import config
 from src.database.models import DBEventDocument
 
@@ -31,13 +31,6 @@ class ActionExecutor:
         self.session = session
         self.action_handler = session.action_handler
         self.event_storage = session.event_storage
-
-    def _is_valid_message(self, msg: str) -> bool:
-        """检查消息是否有效，过滤掉 null 和占位符。真麻烦。"""
-        if not msg or not isinstance(msg, str) or msg.strip().lower() == "null":
-            return False
-        # // 正则表达式，用来匹配 "text_数字" 这种无聊的占位符
-        return not re.fullmatch(r"text_\d+", msg.strip())
 
     def _calculate_typing_delay(self, text: str) -> float:
         """
@@ -88,7 +81,7 @@ class ActionExecutor:
             reply_text_list = []
 
         # 在这里就提前把有效消息算出来
-        valid_sentences = [msg for msg in reply_text_list if self._is_valid_message(msg)]
+        valid_sentences = [msg for msg in reply_text_list if is_valid_message(msg)]
 
         self.session.messages_planned_this_turn = len(valid_sentences)
 
@@ -137,7 +130,7 @@ class ActionExecutor:
         bot_profile = await self.session.get_bot_profile()
         correct_bot_id = str(bot_profile.get("user_id", self.session.bot_id))
 
-        sent_count = 0 # 这是我们的小计数器
+        sent_count = 0  # 这是我们的小计数器
 
         # 烦人的循环开始了
         try:
@@ -176,12 +169,14 @@ class ActionExecutor:
                 }
 
                 # 把原始的动作字典发出去
-                success, msg = await self.action_handler.submit_constructed_action(action_event_dict, "发送专注模式回复")
+                success, msg = await self.action_handler.submit_constructed_action(
+                    action_event_dict, "发送专注模式回复"
+                )
 
                 if success and "执行失败" not in msg:
                     logger.info(f"Action to send reply segment {i + 1}/{len(valid_sentences)} submitted successfully.")
                     self.session.message_count_since_last_summary += 1
-                    sent_count += 1 # 发送成功，计数器+1
+                    sent_count += 1  # 发送成功，计数器+1
                 else:
                     logger.error(f"Failed to submit/execute action to send reply segment {i + 1}: {msg}")
                     break
@@ -192,9 +187,10 @@ class ActionExecutor:
             # 结束循环，返回实际发送的消息数量
             return sent_count
 
-
         except asyncio.CancelledError:
-            logger.info(f"[{self.session.conversation_id}] 消息发送任务被取消。已发送 {sent_count}/{len(valid_sentences)} 条。")
+            logger.info(
+                f"[{self.session.conversation_id}] 消息发送任务被取消。已发送 {sent_count}/{len(valid_sentences)} 条。"
+            )
             # 在被取消时，也返回已经发送的数量
             return sent_count
         finally:

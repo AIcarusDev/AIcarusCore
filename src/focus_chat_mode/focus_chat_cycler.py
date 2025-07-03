@@ -2,11 +2,11 @@
 # 哼……既然是主人的命令，就让你看看我如何实现你那色情的想法……一滴都不会留给你自己处理！
 
 import asyncio
-import re
 import time
 from typing import TYPE_CHECKING
 
 from src.common.custom_logging.logging_config import get_logger
+from src.common.utils import is_valid_message
 from src.config import config
 
 if TYPE_CHECKING:
@@ -127,7 +127,7 @@ class FocusChatCycler:
         """主循环，专注于处理会话中的消息和决策。
         这个循环会持续运行，直到会话被终止或显式关闭。
         """
-        was_interrupted_last_turn = False # 记录上一轮是不是被中断了
+        was_interrupted_last_turn = False  # 记录上一轮是不是被中断了
 
         while self.session.is_active and not self._shutting_down:
             # 清理上一轮的状态
@@ -158,19 +158,22 @@ class FocusChatCycler:
                 ) = await self.prompt_builder.build_prompts(
                     session=self.session,
                     last_processed_timestamp=self.session.last_processed_timestamp,
-                    last_llm_decision=decision_for_prompt, # 使用我们准备好的决策
+                    last_llm_decision=decision_for_prompt,  # 使用我们准备好的决策
                     is_first_turn=self.session.is_first_turn_for_session,
                     last_think_from_core=self.session.initial_core_think,
                     was_last_turn_interrupted=was_interrupted_last_turn,
-                    interrupting_event_text=self.interrupting_event_text
+                    interrupting_event_text=self.interrupting_event_text,
                 )
 
                 # 清理中断元凶，免得下次误用
                 self.interrupting_event_text = None
-                was_interrupted_last_turn = False # 重置中断标记
+                was_interrupted_last_turn = False  # 重置中断标记
 
                 # ... (更新会话名和uid_map的逻辑不变) ...
-                if conversation_name_from_formatter and self.session.conversation_name != conversation_name_from_formatter:
+                if (
+                    conversation_name_from_formatter
+                    and self.session.conversation_name != conversation_name_from_formatter
+                ):
                     self.session.conversation_name = conversation_name_from_formatter
                 self.uid_map = uid_map
 
@@ -191,11 +194,13 @@ class FocusChatCycler:
                         response_schema=response_schema,
                     )
                 )
-                interrupt_checker_task_think = asyncio.create_task(self._check_for_interruptions_internal(context_text=last_message_text))
+                interrupt_checker_task_think = asyncio.create_task(
+                    self._check_for_interruptions_internal(context_text=last_message_text)
+                )
 
                 done, pending = await asyncio.wait(
                     [llm_task, interrupt_checker_task_think], return_when=asyncio.FIRST_COMPLETED
-                    )
+                )
 
                 # 检查比赛结果
                 if interrupt_checker_task_think in done and not interrupt_checker_task_think.cancelled():
@@ -204,15 +209,15 @@ class FocusChatCycler:
                         logger.info(f"[{self.session.conversation_id}] 思考阶段被IIS中断。")
                         if llm_task and not llm_task.done():
                             llm_task.cancel()
-                        was_interrupted_last_turn = True # 标记这一轮被中断了
+                        was_interrupted_last_turn = True  # 标记这一轮被中断了
                         self.interrupting_event_text = self._format_event_for_iis(interrupting_event).get("text")
-                        continue # 直接重启循环
+                        continue  # 直接重启循环
 
                 # 如果是LLM先完成
                 if llm_task in done:
                     # 如果是LLM任务先完成，我们要优雅地取消还在监视的中断检查器
                     if interrupt_checker_task_think and not interrupt_checker_task_think.done():
-                        interrupt_checker_task_think.cancel() # 结束监视
+                        interrupt_checker_task_think.cancel()  # 结束监视
 
                     llm_response = await llm_task
 
@@ -221,51 +226,68 @@ class FocusChatCycler:
 
                     if parsed_decision:
                         self.session.last_llm_decision = parsed_decision
-                        self._last_completed_llm_decision = parsed_decision # 缓存这次成功的思考
-                        logger.debug(
-                            f"[{self.session.conversation_id}] 思考完成，缓存LLM决策。"
-                            )
+                        self._last_completed_llm_decision = parsed_decision  # 缓存这次成功的思考
+                        logger.debug(f"[{self.session.conversation_id}] 思考完成，缓存LLM决策。")
 
                         # ==================================
                         # 阶段二：发送 vs 监视
                         # ==================================
                         # 检查是否需要发言
                         reply_text_list = parsed_decision.get("reply_text", [])
-                        valid_sentences = [msg for msg in reply_text_list if self._is_valid_message(msg)] if isinstance(reply_text_list, list) else []
+                        valid_sentences = (
+                            [msg for msg in reply_text_list if is_valid_message(msg)]
+                            if isinstance(reply_text_list, list)
+                            else []
+                        )
 
                         if parsed_decision.get("reply_willing") and valid_sentences:
-                            logger.info(f"[{self.session.conversation_id}] 发送阶段开始，计划发送 {len(valid_sentences)} 条消息...")
+                            logger.info(
+                                f"[{self.session.conversation_id}] 发送阶段开始，计划发送 {len(valid_sentences)} 条消息..."
+                            )
 
                             send_task = None
                             interrupt_checker_task_send = None
                             try:
                                 # 开始第二场赛跑
-                                send_task = asyncio.create_task(self.action_executor.execute_action(parsed_decision, self.uid_map))
+                                send_task = asyncio.create_task(
+                                    self.action_executor.execute_action(parsed_decision, self.uid_map)
+                                )
                                 # ❤❤❤ 监视器用的是最新的消息作为上下文！❤❤❤
-                                interrupt_checker_task_send = asyncio.create_task(self._check_for_interruptions_internal(context_text=last_message_text))
+                                interrupt_checker_task_send = asyncio.create_task(
+                                    self._check_for_interruptions_internal(context_text=last_message_text)
+                                )
 
-                                done_send, pending_send = await asyncio.wait([send_task, interrupt_checker_task_send], return_when=asyncio.FIRST_COMPLETED)
+                                done_send, pending_send = await asyncio.wait(
+                                    [send_task, interrupt_checker_task_send], return_when=asyncio.FIRST_COMPLETED
+                                )
 
-                                if interrupt_checker_task_send in done_send and not interrupt_checker_task_send.cancelled():
+                                if (
+                                    interrupt_checker_task_send in done_send
+                                    and not interrupt_checker_task_send.cancelled()
+                                ):
                                     interrupting_event_send = interrupt_checker_task_send.result()
                                     if interrupting_event_send:
                                         logger.info(f"[{self.session.conversation_id}] 发送阶段被IIS中断。")
                                         if send_task and not send_task.done():
                                             send_task.cancel()
-                                        was_interrupted_last_turn = True # 标记中断
-                                        self.interrupting_event_text = self._format_event_for_iis(interrupting_event_send).get("text")
+                                        was_interrupted_last_turn = True  # 标记中断
+                                        self.interrupting_event_text = self._format_event_for_iis(
+                                            interrupting_event_send
+                                        ).get("text")
                                         # 这里不需要再做什么了，循环会自动重启
-                                else: # 发送任务先完成
+                                else:  # 发送任务先完成
                                     if interrupt_checker_task_send and not interrupt_checker_task_send.done():
                                         interrupt_checker_task_send.cancel()
                                     # 这里什么都不用做，因为发送成功了
                                     logger.info(f"[{self.session.conversation_id}] 所有消息发送完毕，未被中断。")
                             finally:
                                 # 确保任务被清理
-                                if send_task and not send_task.done(): send_task.cancel()
-                                if interrupt_checker_task_send and not interrupt_checker_task_send.done(): interrupt_checker_task_send.cancel()
+                                if send_task and not send_task.done():
+                                    send_task.cancel()
+                                if interrupt_checker_task_send and not interrupt_checker_task_send.done():
+                                    interrupt_checker_task_send.cancel()
 
-                        else: # 如果不发言
+                        else:  # 如果不发言
                             await self.action_executor.execute_action(parsed_decision, self.uid_map)
 
                         # 处理会话结束或转移
@@ -273,7 +295,7 @@ class FocusChatCycler:
 
                         if should_terminate:
                             logger.info(f"[{self.session.conversation_id}] 根据LLM决策，会话即将终止。")
-                            break # 退出主循环
+                            break  # 退出主循环
 
                     # 更新事件状态
                     if processed_ids:
@@ -287,9 +309,7 @@ class FocusChatCycler:
                         )
                         # 顺便更新一下自己的小本本，免得忘了
                         self.session.last_processed_timestamp = new_processed_timestamp
-                        logger.debug(
-                            f"[{self.session.conversation_id}] 已更新会话的 last_processed_timestamp。"
-                            )
+                        logger.debug(f"[{self.session.conversation_id}] 已更新会话的 last_processed_timestamp。")
 
                     if self.session.is_first_turn_for_session:
                         self.session.is_first_turn_for_session = False
@@ -388,7 +408,7 @@ class FocusChatCycler:
                             logger.info(
                                 f"[{self.session.conversation_id}] IIS决策：中断！(基于上下文 '{context_text}')"
                             )
-                            return event_doc # 返回元凶！
+                            return event_doc  # 返回元凶！
 
                     # 如果检查了一圈没有中断，就更新时间戳，以免重复检查旧消息
                     last_checked_timestamp_ms = new_events[-1]["timestamp"]

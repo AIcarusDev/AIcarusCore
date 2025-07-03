@@ -49,6 +49,14 @@ def wrap_string_values_for_yaml(data: JsonValue) -> JsonValue:
     return data
 
 
+def is_valid_message(msg: str) -> bool:
+    """检查消息是否有效，过滤掉 null 和占位符。真麻烦。"""
+    if not msg or not isinstance(msg, str) or msg.strip().lower() == "null":
+        return False
+    # // 正则表达式，用来匹配 "text_数字" 这种无聊的占位符
+    return not re.fullmatch(r"text_\d+", msg.strip())
+
+
 # --- 消息内容处理器 ---
 class MessageContentProcessor:
     """统一的消息内容处理器"""

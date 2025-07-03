@@ -91,7 +91,7 @@ class ChatPromptBuilder:
         is_first_turn: bool,
         last_think_from_core: str | None = None,
         was_last_turn_interrupted: bool = False,
-        interrupting_event_text: str | None = None
+        interrupting_event_text: str | None = None,
     ) -> tuple[str, str, str | None, dict[str, str], list[str], list[str], str | None]:
         """
         构建专注聊天模式下给LLM的System Prompt和User Prompt。
@@ -190,12 +190,12 @@ class ChatPromptBuilder:
                     prev_parts = [
                         f'刚刚你的心情是："{mood_content}"。',
                         f'刚刚你的内心想法是："{think_content}"。',
-                        f'但你还没来得及做出任何行动，就被新的消息“{interrupting_event_text or "某条新消息"}”吸引了注意。'
+                        f"但你还没来得及做出任何行动，就被新的消息“{interrupting_event_text or '某条新消息'}”吸引了注意。",
                     ]
                     previous_thoughts_block_str = "\n".join(prev_parts)
                 else:
                     # 如果连上上轮的思考都没有（比如第一轮就被打断），就给个通用提示
-                    previous_thoughts_block_str = f"你正准备开始思考，但就被新的消息“{interrupting_event_text or "某条新消息"}”打断了。你需要先处理这个新情况。"
+                    previous_thoughts_block_str = f"你正准备开始思考，但就被新的消息“{interrupting_event_text or '某条新消息'}”打断了。你需要先处理这个新情况。"
 
             # Case A.2: 发送消息阶段被打断
             else:
@@ -209,14 +209,14 @@ class ChatPromptBuilder:
                     prev_parts = [
                         f'刚刚你的心情是："{mood_content}"。',
                         f'刚刚你的内心想法是："{think_content}"。',
-                        f'出于这个想法，你决定发言，并计划发送 {session.messages_planned_this_turn} 条消息。',
+                        f"出于这个想法，你决定发言，并计划发送 {session.messages_planned_this_turn} 条消息。",
                     ]
                     if motivation_content:
                         prev_parts.append(f"原因是：{motivation_content}。")
 
                     prev_parts.append(
                         f"但是，在你发送了 {session.messages_sent_this_turn} 条消息后，"
-                        f"新的消息“{interrupting_event_text or "某条新消息"}”让你感到意外，所以你停下了后续的发言。"
+                        f"新的消息“{interrupting_event_text or '某条新消息'}”让你感到意外，所以你停下了后续的发言。"
                         "现在你需要基于这个新情况重新思考。"
                     )
                     previous_thoughts_block_str = "\n".join(prev_parts)
@@ -224,7 +224,7 @@ class ChatPromptBuilder:
                     previous_thoughts_block_str = "你在发送消息时被打断了，但上一轮的思考记录丢失了。请重新评估情况。"
         # Case B: 正常情况，没有被打断
         else:
-        # 如果是第一次轮次，或者没有上一轮的决策信息
+            # 如果是第一次轮次，或者没有上一轮的决策信息
             if is_first_turn:
                 mood_part = f'你刚才的心情是"{session.initial_core_mood}"。\n' if session.initial_core_mood else ""
                 think_part = (
