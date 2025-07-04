@@ -277,6 +277,9 @@ class ChatSession:
         执行并等待会话的优雅关闭。
         由 deactivate 触发，或者在 cycler 结束后调用。
         """
+        if not self.is_active and not self.cycler._loop_active:
+            logger.debug(f"[{self.conversation_id}] 会话已处于非活动状态，shutdown 操作被跳过。")
+            return
         # 确保 cycler 已经关闭
         if self.cycler and self.cycler._loop_active:
             await self.cycler.shutdown()

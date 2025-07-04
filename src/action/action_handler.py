@@ -401,25 +401,28 @@ class ActionHandler:
             original_action_description="internal_tool_call",
         )
 
-    async def submit_constructed_action(
-        self, action_event_dict: dict[str, Any], action_description: str, associated_record_key: str | None = None
+    async def execute_simple_action(
+        self, platform_id: str, action_name: str, params: dict, description: str
     ) -> tuple[bool, str]:
-        if not self.action_sender or not self.action_log_service:
-            return False, "核心服务 (ActionSender 或动作日志服务) 未设置!"
+        """一个更简单的动作执行入口，用于内部系统调用，如专注模式。"""
+        builder = platform_builder_registry.get_builder(platform_id)
+        if not builder:
+            return False, f"找不到平台 '{platform_id}' 的翻译官。"
 
-        if "event_id" not in action_event_dict:
-            return False, "动作事件缺少 'event_id'"
+        action_event = builder.build_action_event(action_name, params)
+        if not action_event:
+            return False, f"平台 '{platform_id}' 的翻译官不会翻译动作 '{action_name}'。"
 
-        success, message_payload = await self._execute_platform_action(
-            action_to_send=action_event_dict,
-            thought_doc_key=associated_record_key,
-            original_action_description=action_description,
+        success, payload = await self._execute_platform_action(
+            action_to_send=action_event.to_dict(),
+            thought_doc_key=None, # 专注模式不关联主意识思考文档
+            original_action_description=description,
         )
 
         message = ""
-        if isinstance(message_payload, dict):
-            message = message_payload.get("error") or message_payload.get("message", str(message_payload))
+        if isinstance(payload, dict):
+            message = payload.get("error") or payload.get("message", str(payload))
         else:
-            message = str(message_payload)
+            message = str(payload)
 
         return success, message

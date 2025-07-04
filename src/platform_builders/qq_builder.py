@@ -63,11 +63,13 @@ class QQBuilder(BasePlatformBuilder):
     def _build_send_message(self, params: dict[str, Any]) -> Event | None:
         conversation_id = params.get("conversation_id")
         content_segs_data = params.get("content", [])
+        final_event_type = params.get("event_type", f"action.{self.platform_id}.message.send")
+
         if not conversation_id or not isinstance(content_segs_data, list):
             return None
         message_segs = [Seg(type=seg.get("type"), data=seg.get("data", {})) for seg in content_segs_data]
         conv_type = params.get("conversation_type", "group")
-        final_event_type = f"action.{self.platform_id}.message.send"
+
         return Event(
             event_id=str(uuid.uuid4()),
             event_type=final_event_type,

@@ -144,7 +144,7 @@ class ChatSessionManager:
         现在我学会照镜子了！
         """
 
-        if event.event_type != "message.group.normal":
+        if not event.event_type.startswith("message.") or not (event.conversation_info and event.conversation_info.type == "group"):
             return False
 
         if not event.content:
@@ -254,9 +254,10 @@ class ChatSessionManager:
         """
         检查当前是否有任何会话处于激活状态。
         """
-        # async with self.lock: # 读取操作，如果 sessions 的修改都在锁内，这里可能不需要锁，或者用更轻量级的读锁
-        # 简单遍历，不加锁以避免潜在的异步问题，假设读取是相对安全的
-        return any(session.is_active for session in self.sessions.values())
+        # 必须在锁内操作，或者复制一份再操作，避免遍历时字典被修改
+        # 这里我们直接复制一份，开销很小但绝对安全
+        sessions_copy = self.sessions.copy()
+        return any(session.is_active for session in sessions_copy.values())
 
     async def shutdown(self) -> None:
         """

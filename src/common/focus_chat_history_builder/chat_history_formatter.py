@@ -99,7 +99,6 @@ async def format_chat_history_for_llm(
                     event_id=str(event_dict.get("event_id", event_dict.get("_key", str(uuid.uuid4())))),
                     event_type=str(event_dict.get("event_type", "unknown")),
                     time=float(event_dict.get("timestamp", event_dict.get("time", 0.0))),
-                    platform=str(event_dict.get("platform", platform)),  # 使用已知的平台
                     bot_id=str(event_dict.get("bot_id", bot_id)),  # 使用已知的机器人ID
                     content=content_segs,
                     user_info=protocol_user_info,

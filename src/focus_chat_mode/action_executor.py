@@ -167,8 +167,15 @@ class ActionExecutor:
                 }
 
                 # 把原始的动作字典发出去
-                success, msg = await self.action_handler.submit_constructed_action(
-                    action_event_dict, "发送专注模式回复"
+                success, msg = await self.action_handler.execute_simple_action(
+                    platform_id=self.session.platform,
+                    action_name="send_message",
+                    params={
+                        "conversation_id": self.session.conversation_id,
+                        "conversation_type": self.session.conversation_type,
+                        "content": content_segs_payload
+                    },
+                    description="发送专注模式回复"
                 )
 
                 if success and "执行失败" not in msg:
@@ -243,7 +250,7 @@ class ActionExecutor:
             "conversation_info": ConversationInfo(
                 conversation_id=self.session.conversation_id,
                 type=self.session.conversation_type,
-                platform=self.session.platform,
+                # platform=self.session.platform,
             ).to_dict(),
             "content": [SegBuilder.text(motivation).to_dict()],
         }
