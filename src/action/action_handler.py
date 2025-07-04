@@ -1,6 +1,5 @@
 # src/action/action_handler.py (小色猫·女王修复最终版)
 import asyncio
-import json
 import time
 import uuid
 from typing import TYPE_CHECKING, Any
@@ -10,7 +9,6 @@ from src.action.action_provider import ActionProvider
 from src.action.components.action_registry import ActionRegistry
 from src.action.components.llm_client_factory import LLMClientFactory
 from src.action.components.pending_action_manager import PendingActionManager
-from src.action.components.tool_result_summarizer import ToolResultSummarizer
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
 from src.core_communication.action_sender import ActionSender
@@ -19,7 +17,7 @@ from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.platform_builders.registry import platform_builder_registry
 
 if TYPE_CHECKING:
-    pass
+    from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 
 logger = get_logger(__name__)
 ACTION_RESPONSE_TIMEOUT_SECONDS = 30
@@ -34,6 +32,7 @@ class ActionHandler:
     def __init__(self) -> None:
         self.action_llm_client: ProcessorClient | None = None
         self.summary_llm_client: ProcessorClient | None = None
+        self.web_search_agent_client: ProcessorClient | None = None
         self.action_sender: ActionSender | None = None
         self.thought_storage_service: ThoughtStorageService | None = None
         self.event_storage_service: EventStorageService | None = None
@@ -41,6 +40,7 @@ class ActionHandler:
         self.conversation_service: ConversationStorageService | None = None
         self.thought_trigger: asyncio.Event | None = None
         self.pending_action_manager: PendingActionManager | None = None
+        self.chat_session_manager: ChatSessionManager | None = None
 
         # --- ❤❤❤ 看！我把我的小玩具挂钩(ActionRegistry)装回来了！❤❤❤ ---
         self.action_registry = ActionRegistry()
@@ -54,12 +54,14 @@ class ActionHandler:
         action_log_service: ActionLogStorageService,
         conversation_service: ConversationStorageService,
         action_sender: ActionSender,
+        chat_session_manager: "ChatSessionManager",
     ) -> None:
         self.thought_storage_service = thought_service
         self.event_storage_service = event_service
         self.action_log_service = action_log_service
         self.conversation_service = conversation_service
         self.action_sender = action_sender
+        self.chat_session_manager = chat_session_manager  # 注入
         self.pending_action_manager = PendingActionManager(
             action_log_service=action_log_service,
             thought_storage_service=thought_service,
@@ -88,10 +90,16 @@ class ActionHandler:
         logger.info("正在为行动处理模块按需初始化LLM客户端...")
         factory = LLMClientFactory()
         try:
+            # 只在需要时初始化行动决策LLM客户端
             if not self.action_llm_client:
                 self.action_llm_client = factory.create_client(purpose_key="action_decision")
+            # 只在需要时初始化摘要LLM客户端
             if not self.summary_llm_client:
                 self.summary_llm_client = factory.create_client(purpose_key="information_summary")
+            # 只在需要时初始化网页搜索代理客户端
+            if not self.web_search_agent_client:
+                self.web_search_agent_client = factory.create_client(purpose_key="web_search_agent")
+            logger.info("LLM客户端初始化成功。")
         except RuntimeError as e:
             logger.critical(f"为 ActionHandler 初始化LLM客户端失败: {e}")
             raise
@@ -181,197 +189,115 @@ class ActionHandler:
         self,
         action_id: str,
         doc_key_for_updates: str,
-        action_description: str,
-        action_motivation: str,
-        current_thought_context: str,
-        relevant_adapter_messages_context: str = "无相关外部消息或请求。",
+        action_json: dict[str, Any],  # 接收完整的 action JSON 对象
     ) -> tuple[bool, str, Any]:
+        """
+        处理来自主意识的、新格式的行动指令。
+        """
         logger.info(f"--- [Action ID: {action_id}] 女王开始处理行动流程 ---")
         await self.initialize_llm_clients()
 
-        if not self.thought_storage_service or not self.action_llm_client or not self.summary_llm_client:
-            error_msg = "核心服务 (ThoughtStorageService, ActionLLMClient, 或 SummaryLLMClient) 未初始化。"
-            logger.error(error_msg)
-            return False, error_msg, None
+        if not self.thought_storage_service:
+            return False, "核心服务ThoughtStorageService未初始化", None
 
-        # 1. 动态构建给LLM的超级工具Schema
-        all_action_definitions = platform_builder_registry.get_all_action_definitions()
+        # 1. 解析嵌套的 action_json
+        platform_actions = action_json.get("napcat_qq", {})
+        core_actions = action_json.get("core", {})
 
-        # 把内部工具的定义也加进来！
-        # 假设 InternalToolsProvider 已经被注册
-        # 注意：这里的逻辑依赖于 InternalToolsProvider 也有一个 get_action_definitions 方法
-        try:
-            from src.action.providers.internal_tools_provider import InternalToolsProvider
+        # 2. 优先处理平台动作
+        if platform_actions:
+            platform_id = "napcat_qq"
+            # 假设一次只处理一个平台动作
+            action_name, params = next(iter(platform_actions.items()))
+            motivation = params.get("motivation", "没有明确动机")
 
-            internal_tools_provider = InternalToolsProvider()
-            internal_tools_definitions = internal_tools_provider.get_action_definitions()
-            if internal_tools_definitions:
-                all_action_definitions["internal"] = {
-                    "type": "object",
-                    "description": "核心内部工具。",
-                    "properties": internal_tools_definitions,
-                }
-        except Exception as e:
-            logger.warning(f"加载内部工具定义失败: {e}", exc_info=True)
+            # 2.1 处理特殊的 'focus' 动作
+            if action_name == "focus":
+                conv_id_to_focus = params.get("conversation_id")
+                if not conv_id_to_focus or not self.chat_session_manager:
+                    msg = "LLM想focus但没提供ID，或者会话管理器不存在。"
+                    logger.warning(msg)
+                    return False, msg, None
 
-        final_tool_schema = {
-            "type": "function",
-            "function": {
-                "name": "execute_actions",
-                "description": "执行一个或多个平台或内部动作。",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "action": {
-                            "type": "object",
-                            "description": "一个包含了所有平台及内部工具动作的嵌套对象。key是平台ID或'internal'，value是该分类下的动作对象。",
-                            "properties": all_action_definitions,
-                        }
-                    },
-                    "required": ["action"],
-                },
-            },
-        }
+                # 获取未读会话信息以确认 platform 和 type
+                unread_convs = await self.chat_session_manager.core_logic.prompt_builder.unread_info_service.get_structured_unread_conversations()
+                target_conv_details = next(
+                    (c for c in unread_convs if c.get("conversation_id") == conv_id_to_focus), None
+                )
 
-        # 2. 调用LLM进行决策
-        decision_prompt = (
-            f"分析以下意图，并根据提供的工具定义，决定需要执行的动作。\n\n"
-            f"## 意图分析\n"
-            f"- **核心想法:** {current_thought_context}\n"
-            f"- **想要做的:** {action_description}\n"
-            f"- **背后的动机:** {action_motivation}\n"
-            f"- **相关外部信息:** {relevant_adapter_messages_context}\n\n"
-            f"请根据以上信息，调用 `execute_actions` 工具来执行一个或多个动作。"
-        )
+                if not target_conv_details:
+                    msg = f"无法激活会话 '{conv_id_to_focus}'，因为它不在未读列表中。"
+                    logger.error(msg)
+                    return False, msg, None
 
-        response = await self.action_llm_client.make_llm_request(
-            prompt=decision_prompt,
-            system_prompt="你是一个行动决策AI，你的任务是根据用户意图，调用合适的工具。",
-            is_stream=False,
-            tools=[final_tool_schema],
-            tool_choice="auto",
-        )
+                # 激活专注会话
+                await self.chat_session_manager.activate_session_by_id(
+                    conversation_id=conv_id_to_focus,
+                    core_last_think=f"我决定专注于这个会话，因为：{motivation}",
+                    core_last_mood=None,  # 心情可以不传递
+                    platform=target_conv_details["platform"],
+                    conversation_type=target_conv_details["type"],
+                )
+                # 注意：这里不应该立即触发主意识思考，而是等待专注模式结束
+                return True, f"已激活对 {conv_id_to_focus} 的专注模式。", None
 
-        # 3. 解析LLM的响应
-        if response.get("error"):
-            error_msg = f"行动决策LLM调用失败: {response.get('message')}"
-            logger.error(error_msg)
-            await self.thought_storage_service.update_action_status_in_thought_document(
-                doc_key_for_updates, action_id, {"status": "LLM_DECISION_ERROR", "error_message": error_msg}
+            # 2.2 处理其他平台动作 (如 get_list)
+            builder = platform_builder_registry.get_builder(platform_id)
+            if not builder:
+                msg = f"找不到平台 '{platform_id}' 的翻译官。"
+                logger.error(msg)
+                return False, msg, None
+
+            action_event = builder.build_action_event(action_name, params)
+            if not action_event:
+                msg = f"平台 '{platform_id}' 的翻译官不会翻译动作 '{action_name}'。"
+                logger.error(msg)
+                return False, msg, None
+
+            success, payload = await self._execute_platform_action(
+                action_to_send=action_event.to_dict(),
+                thought_doc_key=doc_key_for_updates,
+                original_action_description=f"{platform_id}.{action_name}",
             )
-            return False, error_msg, None
-
-        tool_calls = response.get("tool_calls")
-        if not tool_calls or not isinstance(tool_calls, list) or not tool_calls[0].get("function"):
-            error_msg = "LLM未返回有效的工具调用，可能认为无需行动。"
-            logger.info(error_msg)
-            await self.thought_storage_service.update_action_status_in_thought_document(
-                doc_key_for_updates, action_id, {"status": "COMPLETED_NO_TOOL", "final_result_for_shimo": error_msg}
+            final_result = (
+                f"动作 {platform_id}.{action_name} 已提交。"
+                if success
+                else f"动作 {platform_id}.{action_name} 提交失败: {payload}"
             )
             if self.thought_trigger:
                 self.thought_trigger.set()
-            return True, error_msg, None
+            return success, final_result, payload
 
-        # 4. 执行选择的动作
-        try:
-            arguments_str = tool_calls[0].get("function", {}).get("arguments", "{}")
-            arguments = json.loads(arguments_str)
-            action_object = arguments.get("action")
-        except (json.JSONDecodeError, AttributeError) as e:
-            error_msg = f"解析LLM工具调用参数失败: {e}"
-            logger.error(error_msg)
-            await self.thought_storage_service.update_action_status_in_thought_document(
-                doc_key_for_updates, action_id, {"status": "ARGUMENT_PARSE_ERROR", "error_message": error_msg}
-            )
-            return False, error_msg, None
+        # 3. 处理核心动作
+        elif core_actions:
+            action_name, params = next(iter(core_actions.items()))
+            motivation = params.get("motivation", "没有明确动机")
 
-        if not action_object or not isinstance(action_object, dict):
-            error_msg = "LLM调用了execute_actions工具，但没有提供有效的action参数对象。"
-            logger.warning(error_msg)
-            await self.thought_storage_service.update_action_status_in_thought_document(
-                doc_key_for_updates, action_id, {"status": "NO_ACTION_PARAM", "final_result_for_shimo": error_msg}
-            )
-            if self.thought_trigger:
-                self.thought_trigger.set()
-            return True, error_msg, None
+            if action_name == "web_search":
+                query = params.get("query")
+                if not query or not self.web_search_agent_client:
+                    msg = "LLM想搜索但没提供关键词，或者搜索代理客户端未初始化。"
+                    logger.warning(msg)
+                    return False, msg, None
 
-        # 5. 统一的动作执行循环
-        for action_group_key, actions_in_group in action_object.items():
-            if not isinstance(actions_in_group, dict):
-                continue
+                search_prompt = f"请根据以下意图，使用谷歌搜索并总结最相关的信息：\n意图：{query}\n动机：{motivation}"
+                logger.info(f"正在调用搜索代理LLM，查询: '{query}'")
+                response = await self.web_search_agent_client.make_llm_request(
+                    prompt=search_prompt,
+                    is_stream=False,
+                    use_google_search=True,  # 开启谷歌搜索
+                )
+                final_result = response.get("text", "搜索失败或未返回任何信息。")
+                await self.thought_storage_service.update_action_status_in_thought_document(
+                    doc_key_for_updates,
+                    action_id,
+                    {"status": "COMPLETED_SUCCESS", "final_result_for_shimo": final_result},
+                )
+                if self.thought_trigger:
+                    self.thought_trigger.set()
+                return True, final_result, None
 
-            # --- ❤❤❤ 统一处理入口！❤❤❤ ---
-            # 我把 _execute_chosen_action 的逻辑直接整合到这里了！
-            if action_group_key == "internal":
-                # --- 处理内部工具 ---
-                for action_name, action_params in actions_in_group.items():
-                    logger.info(f"准备执行内部工具: '{action_name}'")
-                    action_func = self.action_registry.get_action(action_name)
-                    if not action_func:
-                        logger.error(f"找不到内部工具 '{action_name}' 的实现。")
-                        continue
-
-                    try:
-                        tool_result_data = await action_func(**(action_params or {}))
-
-                        # 对网页搜索结果进行总结
-                        if action_name == "web_search" and tool_result_data and self.summary_llm_client:
-                            summarizer = ToolResultSummarizer(self.summary_llm_client)
-                            final_result = await summarizer.summarize(
-                                original_query=action_params.get("query", action_description),
-                                original_motivation=action_motivation,
-                                tool_output=tool_result_data,
-                            )
-                        else:
-                            final_result = f"内部工具 '{action_name}' 执行成功。"
-
-                        await self.thought_storage_service.update_action_status_in_thought_document(
-                            doc_key_for_updates,
-                            action_id,
-                            {"status": "COMPLETED_SUCCESS", "final_result_for_shimo": final_result},
-                        )
-                        if self.thought_trigger:
-                            self.thought_trigger.set()
-                        return True, final_result, tool_result_data
-                    except Exception as e_exec:
-                        final_result = f"执行内部工具 '{action_name}' 时出错: {e_exec}"
-                        logger.error(final_result, exc_info=True)
-                        await self.thought_storage_service.update_action_status_in_thought_document(
-                            doc_key_for_updates, action_id, {"status": "EXECUTION_ERROR", "error_message": final_result}
-                        )
-                        if self.thought_trigger:
-                            self.thought_trigger.set()
-                        return False, final_result, None
-
-            else:  # 默认为平台动作
-                platform_id = action_group_key
-                builder = platform_builder_registry.get_builder(platform_id)
-                if not builder:
-                    logger.error(f"找不到平台 '{platform_id}' 的翻译官，无法执行动作。")
-                    continue
-
-                for action_name, action_params in actions_in_group.items():
-                    logger.info(f"准备执行平台动作: Platform='{platform_id}', Action='{action_name}'")
-                    action_event = builder.build_action_event(action_name, action_params or {})
-                    if not action_event:
-                        logger.error(f"平台 '{platform_id}' 的翻译官不会翻译动作 '{action_name}'。")
-                        continue
-
-                    success, payload = await self._execute_platform_action(
-                        action_to_send=action_event.to_dict(),
-                        thought_doc_key=doc_key_for_updates,
-                        original_action_description=f"{platform_id}.{action_name}",
-                    )
-                    final_result = (
-                        f"动作 {platform_id}.{action_name} 已提交。"
-                        if success
-                        else f"动作 {platform_id}.{action_name} 提交失败: {payload}"
-                    )
-                    if self.thought_trigger:
-                        self.thought_trigger.set()
-                    return success, final_result, payload
-
-        # 如果循环结束都没执行任何动作
+        # 4. 如果啥动作都没有
         final_result_for_shimo = "AI决策的动作对象为空，或没有可执行的动作。"
         await self.thought_storage_service.update_action_status_in_thought_document(
             doc_key_for_updates,

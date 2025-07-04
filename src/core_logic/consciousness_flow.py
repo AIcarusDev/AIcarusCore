@@ -2,7 +2,6 @@
 import asyncio
 import contextlib
 import datetime
-import random
 import threading
 import uuid
 from typing import TYPE_CHECKING, Any
@@ -23,6 +22,55 @@ if TYPE_CHECKING:
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 
 logger = get_logger(__name__)
+
+CORE_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "mood": {"type": "string"},
+        "think": {"type": "string"},
+        "goal": {"type": "string"},
+        "action": {
+            "type": "object",
+            "properties": {
+                "core": {
+                    "type": "object",
+                    "properties": {
+                        "web_search": {
+                            "type": "object",
+                            "properties": {
+                                "query": {"type": "string"},
+                                "motivation": {"type": "string"},
+                            },
+                            "required": ["query", "motivation"],
+                        }
+                    },
+                },
+                "napcat_qq": {
+                    "type": "object",
+                    "properties": {
+                        "focus": {
+                            "type": "object",
+                            "properties": {
+                                "conversation_id": {"type": "string"},
+                                "motivation": {"type": "string"},
+                            },
+                            "required": ["conversation_id", "motivation"],
+                        },
+                        "get_list": {
+                            "type": "object",
+                            "properties": {
+                                "list_type": {"type": "string"},
+                                "motivation": {"type": "string"},
+                            },
+                            "required": ["list_type", "motivation"],
+                        },
+                    },
+                },
+            },
+        },
+    },
+    "required": ["mood", "think"],
+}
 
 
 class CoreLogic:
@@ -155,33 +203,33 @@ class CoreLogic:
         except Exception as e:
             logger.error(f"主意识在尝试激活新会话 '{new_focus_id}' 时发生错误: {e}", exc_info=True)
 
-    async def _dispatch_action(self, thought_json: dict[str, Any], saved_thought_key: str, recent_context: str) -> None:
-        action_desc_raw = thought_json.get("action_to_take")
-        action_desc = str(action_desc_raw).strip() if action_desc_raw is not None else ""
-        if action_desc and action_desc.lower() != "null" and self.action_handler_instance:
-            action_id = thought_json.get("action_id")
-            if not action_id:
-                logger.error(f"LLM指定行动 '{action_desc}' 但思考JSON中缺少 action_id，无法分发！将生成新的UUID。")
-                action_id = str(uuid.uuid4())
-                thought_json["action_id"] = action_id
-            logger.info(f"产生了行动意图，开始分发任务: {action_desc} (ID: {action_id})")
-            success, message, action_result = await self.action_handler_instance.process_action_flow(
-                action_id=action_id,
-                doc_key_for_updates=saved_thought_key,
-                action_description=action_desc,
-                action_motivation=(thought_json.get("action_motivation") or "没有明确动机。"),
-                current_thought_context=(thought_json.get("think") or "无特定思考上下文。"),
-                relevant_adapter_messages_context=recent_context,
-            )
-            logger.info(f"动作任务 {action_id} ({action_desc}) 已结束。成功: {success}, 消息: {message}")
+    async def _dispatch_action(self, thought_json: dict[str, Any], saved_thought_key: str) -> bool:
+        """
+        根据新的JSON结构分发动作。
+        返回一个布尔值，指示是否执行了 focus 动作。
+        """
+        action_json = thought_json.get("action")
+        if not action_json or not isinstance(action_json, dict):
+            logger.info("LLM未在当前思考周期指定任何行动。")
+            return False
+
+        action_id = str(uuid.uuid4())  # 为这整批动作创建一个ID
+        thought_json["action_id"] = action_id  # 回写到思考结果中
+
+        await self.action_handler_instance.process_action_flow(
+            action_id=action_id,
+            doc_key_for_updates=saved_thought_key,
+            action_json=action_json,
+        )
+
+        # 检查是否执行了 focus 动作
+        was_focus_action = "focus" in action_json.get("napcat_qq", {})
+        return was_focus_action
 
     async def _core_thinking_loop(self) -> None:
         thinking_interval_sec = config.core_logic_settings.thinking_interval_seconds
         while not self.stop_event.is_set():
-            if (
-                hasattr(self.chat_session_manager, "is_any_session_active")
-                and self.chat_session_manager.is_any_session_active()
-            ):
+            if self.chat_session_manager and self.chat_session_manager.is_any_session_active():
                 logger.debug("检测到有专注会话激活，主意识暂停，等待所有专注会话结束...")
                 try:
                     await self.focus_session_inactive_event.wait()
@@ -192,113 +240,47 @@ class CoreLogic:
                     break
                 continue
 
+            # 1. 构建 Prompt
             current_time_str = get_formatted_time_for_llm()
-            (
-                other_context_str,
-                image_list,
-            ) = await self.context_builder.gather_context_for_core_thought()
-            current_state, action_id_to_mark_as_seen = await self.state_manager.get_current_state_for_prompt(
-                other_context_str
-            )
-            self.last_known_state = current_state
+            system_prompt, user_prompt, state_blocks = await self.prompt_builder.build_prompts(current_time_str)
+            self.last_known_state = state_blocks
 
-            if action_id_to_mark_as_seen and self.state_manager.thought_service:
-                logger.info(f"动作ID {action_id_to_mark_as_seen} 的结果将在本次思考中呈现给LLM，现在将其标记为已阅。")
-                marked_seen = await self.state_manager.thought_service.mark_action_result_as_seen(
-                    action_id_to_mark_as_seen
-                )
-                if marked_seen:
-                    logger.info(f"成功将动作ID {action_id_to_mark_as_seen} 的结果标记为已阅。")
-                else:
-                    logger.warning(f"尝试将动作ID {action_id_to_mark_as_seen} 的结果标记为已阅失败。")
-
-            intrusive_thought_str = ""
-            if (
-                self.intrusive_generator_instance
-                and config.intrusive_thoughts_module_settings.enabled
-                and random.random() < config.intrusive_thoughts_module_settings.insertion_probability
-                and self.state_manager.thought_service
-            ):
-                random_thought_doc = (
-                    await self.state_manager.thought_service.get_random_unused_intrusive_thought_document()
-                )
-                if random_thought_doc and random_thought_doc.get("text"):
-                    intrusive_thought_str = f"你突然有一个神奇的念头：{random_thought_doc['text']}"
-
-            system_prompt = self.prompt_builder.build_system_prompt(current_time_str)
-            user_prompt = await self.prompt_builder.build_user_prompt(current_state, intrusive_thought_str)
-            logger.debug(f"系统提示: {system_prompt}")
-            logger.debug(f"用户提示 (部分): {user_prompt[:500]}...")
+            # 2. 生成思考
             logger.info(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {config.persona.bot_name} 开始思考...")
-            generated_thought = await self.thought_generator.generate_thought(system_prompt, user_prompt, image_list)
+            generated_thought = await self.thought_generator.generate_thought(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                image_inputs=[],  # 主意识暂时不处理图片
+                response_schema=CORE_RESPONSE_SCHEMA,  # 传入新的 JSON Schema
+            )
 
             if generated_thought:
-                # 先把 think 的内容拿出来，别在 f-string 里搞那么复杂的操作
-                think_output = generated_thought.get("think")
-                # 检查一下它的类型，做好万全准备
-                if isinstance(think_output, str):
-                    # 如果是字符串，就直接切片
-                    think_preview = think_output[:50]
-                elif think_output is not None:
-                    # 如果不是字符串（比如是个字典），就先粗暴地转成字符串再切片，至少不会崩
-                    think_preview = str(think_output)[:50]
-                else:
-                    # 如果是 None，就用默认值
-                    think_preview = "无内容"
-
+                think_preview = str(generated_thought.get("think", "无内容"))[:50]
                 logger.info(f"思考完成: {think_preview}...")
-                prompts_for_storage = {"system": system_prompt, "user": user_prompt, "current_time": current_time_str}
-                context_for_storage = {
-                    "recent_context": other_context_str,
-                    "images": image_list,
-                    "intrusive_thought": intrusive_thought_str,
-                }
 
-                action_to_take = (str(generated_thought.get("action_to_take")) or "").strip()
-                if action_to_take and action_to_take.lower() != "null":
-                    current_action_id = generated_thought.get("action_id")
-                    if not current_action_id or not isinstance(current_action_id, str) or not current_action_id.strip():
-                        new_action_id = str(uuid.uuid4())
-                        logger.info(f"LLM意图行动 '{action_to_take}'，系统为其分配新ID: {new_action_id}")
-                        generated_thought["action_id"] = new_action_id
-
+                # 3. 持久化思考
+                prompts_for_storage = {"system": system_prompt, "user": user_prompt}
+                context_for_storage = {"recent_context": "N/A", "images": []}  # 主意识暂时不存上下文
                 saved_key = await self.thought_persistor.store_thought(
                     generated_thought, prompts_for_storage, context_for_storage
                 )
 
-                if saved_key and action_to_take and action_to_take.lower() != "null":
-                    logger.info(f"LLM指定了行动 '{action_to_take}'，准备分发。")
-                    await self._dispatch_action(generated_thought, saved_key, other_context_str)
-                elif not saved_key and action_to_take and action_to_take.lower() != "null":
-                    logger.error(
-                        "严重逻辑错误：LLM指定了行动，但思考文档未能成功保存 (saved_key is None)，无法分发动作！"
-                    )
+                if saved_key:
+                    # 4. 分发动作，并检查是否是 focus 动作
+                    was_focus_triggered = await self._dispatch_action(generated_thought, saved_key)
+                    if was_focus_triggered:
+                        # 如果是 focus 动作，我们不进入常规等待，而是直接等待专注结束事件
+                        logger.info("Focus 动作已触发，主循环将直接等待专注会话结束信号。")
+                        continue  # 直接进入下一次循环，检查专注状态
                 else:
-                    logger.info("LLM未在当前思考周期指定需要执行的 action_to_take。")
+                    logger.error("严重逻辑错误：思考文档未能成功保存，无法分发动作！")
 
-                focus_conversation_id_raw = generated_thought.get("active_focus_on_conversation_id")
-                focus_conversation_id = (
-                    str(focus_conversation_id_raw) if focus_conversation_id_raw is not None else None
-                )
-
-                if (
-                    focus_conversation_id
-                    and isinstance(focus_conversation_id, str)
-                    and focus_conversation_id.strip()
-                    and focus_conversation_id.lower() != "null"
-                ):
-                    logger.info(f"主意识LLM决策激活专注模式，目标会话ID: {focus_conversation_id}")
-                    await self._activate_new_focus_session_from_core(focus_conversation_id)
-
-                elif focus_conversation_id is not None and not isinstance(focus_conversation_id, str):
-                    logger.warning(
-                        f"LLM返回的 active_focus_on_conversation_id 不是有效的字符串ID: {focus_conversation_id} (类型: {type(focus_conversation_id)})。忽略激活请求。"
-                    )
-
+            # 5. 常规等待
             with contextlib.suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(self.immediate_thought_trigger.wait(), timeout=float(thinking_interval_sec))
                 self.immediate_thought_trigger.clear()
                 logger.info("被动思考被触发，立即开始新一轮思考。")
+
             if self.stop_event.is_set():
                 break
         logger.info(f"--- {config.persona.bot_name} 的意识流动已停止 ---")

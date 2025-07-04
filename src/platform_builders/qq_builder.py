@@ -48,6 +48,7 @@ class QQBuilder(BasePlatformBuilder):
             "set_status": self._build_set_status,
             "set_avatar": self._build_set_avatar,
             "get_history": self._build_get_history,
+            "get_list": self._build_get_list,
         }
 
         builder_func = action_builders.get(action_name)
@@ -59,6 +60,24 @@ class QQBuilder(BasePlatformBuilder):
         return None
 
     # --- 下面是每个动作的具体“翻译”实现 ---
+    def _build_get_list(self, params: dict[str, Any]) -> Event | None:
+        """构建获取列表的动作事件。"""
+        list_type = params.get("list_type")
+        if list_type != "group":  # 目前只支持群聊
+            logger.error(f"QQBuilder 不支持获取 '{list_type}' 类型的列表。")
+            return None
+
+        final_event_type = f"action.{self.platform_id}.get_list"
+        # 适配器需要知道要获取什么列表
+        action_seg = Seg(type="action_params", data={"list_type": list_type})
+
+        return Event(
+            event_id=str(uuid.uuid4()),
+            event_type=final_event_type,
+            time=int(time.time() * 1000),
+            bot_id=config.persona.qq_id or "unknown_bot",
+            content=[action_seg],
+        )
 
     def _build_send_message(self, params: dict[str, Any]) -> Event | None:
         conversation_id = params.get("conversation_id")
@@ -389,7 +408,7 @@ class QQBuilder(BasePlatformBuilder):
         提供一份我的“服务价目表”(JSON Schema参数定义)，给ActionHandler去看。
         这里的 key 也要和上面的方法名对应起来，哼！
         """
-        return {
+        base_definitions = {
             "send_message": {
                 "type": "object",
                 "description": "向指定的QQ群或好友发送一条或多条消息。",
@@ -558,3 +577,17 @@ class QQBuilder(BasePlatformBuilder):
                 "required": ["conversation_info"],
             },
         }
+        base_definitions["get_list"] = {
+            "type": "object",
+            "description": "获取机器人加入的群聊列表。",
+            "properties": {
+                "list_type": {
+                    "type": "string",
+                    "enum": ["group"],
+                    "description": "要获取的列表类型，目前只支持 'group'。",
+                },
+                "motivation": {"type": "string", "description": "获取这个列表的动机。"},
+            },
+            "required": ["list_type", "motivation"],
+        }
+        return base_definitions

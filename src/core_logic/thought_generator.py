@@ -13,11 +13,14 @@ logger = get_logger(__name__)
 class ThoughtGenerator:
     def __init__(self, llm_client: "ProcessorClient") -> None:
         self.llm_client = llm_client
-        # self.prompt_builder = prompt_builder # 不再需要保存实例
         logger.info("ThoughtGenerator 已初始化。")
 
     async def generate_thought(
-        self, system_prompt: str, user_prompt: str, image_inputs: list[str]
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        image_inputs: list[str],
+        response_schema: dict[str, Any] | None = None,  # <--- 看这里！我给它加上了！
     ) -> dict[str, Any] | None:
         """
         调用LLM生成思考结果，并解析响应。
@@ -29,7 +32,8 @@ class ThoughtGenerator:
                 is_stream=False,
                 image_inputs=image_inputs or None,
                 is_multimodal=bool(image_inputs),
-                use_google_search=True,
+                use_google_search=False,  # 主意识不开启接地搜索
+                response_schema=response_schema,  # <--- 在这里把它传下去！
             )
 
             if response_data.get("error"):
