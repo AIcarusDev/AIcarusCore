@@ -602,7 +602,7 @@ All the above instructions are always present and active, but you will not norma
 # ============================= 主循环user_prompt =============================
 CORE_USER_PROMPT = """
 <goal>
-{to_do_block}
+{goal_block}
 </goal>
 
 <previous_mood>
