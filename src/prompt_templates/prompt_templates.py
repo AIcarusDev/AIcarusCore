@@ -5,8 +5,6 @@ prompt_templates.py,这个文件包含了所有的prompt模板
 # TODO:
 # 未来所有的 prompt 模板都应该放在这个文件里，方便统一管理和修改。
 # 并且应该在每一套prompt的开头注释说明该prompt的用途和适用场景。
-# TODO:
-# 乱七八糟，交给星织老大处理
 # ============================= 专注模式群聊system_prompt =============================
 GROUP_SYSTEM_PROMPT = """
 <System_Rules>
