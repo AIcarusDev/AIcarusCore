@@ -147,7 +147,7 @@ class ActionExecutor:
                     i, sentence_text, quote_msg_id, at_target_values_raw, uid_map
                 )
 
-                action_event_dict = {
+                _action_event_dict = {
                     "event_id": f"sub_chat_reply_{uuid.uuid4()}",
                     "event_type": "action.message.send",
                     "time": time.time() * 1000,  # 加上时间戳
