@@ -57,7 +57,7 @@ class CoreSystemInitializer:
         self.summary_llm_client: ProcessorClient | None = None
         self.intrusive_thoughts_llm_client: ProcessorClient | None = None
         self.focused_chat_llm_client: ProcessorClient | None = None
-        self.web_search_agent_client: ProcessorClient | None = None # 新增
+        self.web_search_agent_client: ProcessorClient | None = None  # 新增
 
         self.core_comm_layer: CoreWebsocketServer | None = None
         self.message_processor: DefaultMessageProcessor | None = None
@@ -219,7 +219,7 @@ class CoreSystemInitializer:
                     self.thought_storage_service,
                     self.main_consciousness_llm_client,
                     self.interrupt_model_instance,
-                    self.action_log_service, # 确保动作日志服务也初始化了
+                    self.action_log_service,  # 确保动作日志服务也初始化了
                 ]
             ):
                 raise RuntimeError("一个或多个基础服务未能初始化。")
@@ -231,7 +231,7 @@ class CoreSystemInitializer:
             # 再初始化 StateManager，因为它需要数据库服务
             self.state_manager_instance = AIStateManager(
                 thought_service=self.thought_storage_service,
-                action_log_service=self.action_log_service # 注入依赖
+                action_log_service=self.action_log_service,  # 注入依赖
             )
             logger.info("AIStateManager 初始化成功。")
 
@@ -243,7 +243,7 @@ class CoreSystemInitializer:
 
             self.thought_prompt_builder_instance = ThoughtPromptBuilder(
                 unread_info_service=self.unread_info_service,
-                state_manager=self.state_manager_instance # 把 state_manager 喂给它！
+                state_manager=self.state_manager_instance,  # 把 state_manager 喂给它！
             )
             logger.info("ThoughtPromptBuilder 初始化成功。")
 
@@ -304,7 +304,7 @@ class CoreSystemInitializer:
                 action_log_service=self.action_log_service,
                 conversation_service=self.conversation_storage_service,
                 action_sender=action_sender,
-                chat_session_manager=self.qq_chat_session_manager, # 把 chat_session_manager 也给它
+                chat_session_manager=self.qq_chat_session_manager,  # 把 chat_session_manager 也给它
             )
             logger.info("ActionHandler 的依赖已设置。")
 
