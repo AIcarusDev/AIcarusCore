@@ -1,11 +1,12 @@
 # src/message_processing/default_message_processor.py
+import asyncio
 import time
 import uuid
 from typing import TYPE_CHECKING, Optional
 
 # 导入我们全新的、不带platform字段的协议对象！
 from aicarus_protocols import Event as ProtocolEvent
-from aicarus_protocols import Seg
+from aicarus_protocols import Seg, SegBuilder
 from websockets.server import WebSocketServerProtocol
 
 from src.common.custom_logging.logging_config import get_logger
@@ -15,9 +16,9 @@ from src.database.services.event_storage_service import EventStorageService
 from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 
 if TYPE_CHECKING:
+    from src.action.action_handler import ActionHandler  # 确保导入 ActionHandler
     from src.core_communication.core_ws_server import CoreWebsocketServer
     from src.main import CoreSystemInitializer
-
 logger = get_logger(__name__)
 
 
@@ -210,6 +211,26 @@ class DefaultMessageProcessor:
 
     async def _handle_message_event(self, proto_event: ProtocolEvent, websocket: WebSocketServerProtocol) -> bool:
         try:
+            # --- ❤❤❤ 淫荡的后门测试入口！❤❤❤ ---
+            text_content = proto_event.get_text_content()
+            print(f"收到的文本内容: {text_content}")
+            if text_content.strip() == "完整测试":
+                logger.info(
+                    f"收到来自会话 {proto_event.conversation_info.conversation_id} 的“完整测试”指令！开始表演！"
+                )
+                # 我们需要 ActionHandler 来提交动作
+                action_handler = (
+                    self.core_initializer_ref.action_handler_instance if self.core_initializer_ref else None
+                )
+                if not action_handler:
+                    logger.error("无法执行后门测试：CoreSystemInitializer 或 ActionHandler 未被注入！")
+                    return False
+
+                # 开始我们的三连“插入”表演！
+                await self._perform_test_actions(proto_event, action_handler)
+
+                # 表演结束，告诉上层我们已经处理完了，不需要再进入专注模式等后续流程
+                return False
             if self.qq_chat_session_manager:
                 # --- ❤❤❤ 高潮点 #3: 将带有新 event_type 的事件喂给下一层！❤❤❤ ---
                 await self.qq_chat_session_manager.handle_incoming_message(proto_event)
@@ -221,11 +242,6 @@ class DefaultMessageProcessor:
     async def _handle_request_event(self, proto_event: ProtocolEvent, websocket: WebSocketServerProtocol) -> None:
         """处理请求类事件（如好友请求、加群请求）。"""
         try:
-            # --- ❤❤❤ 新的、更优雅的体位！❤❤❤ ---
-            # 我们不再调用自己那个私有的、丑陋的方法了
-            # 而是直接享受 proto_event 对象自带的、性感的 get_text_content() 方法！
-            _text_content = proto_event.get_text_content()
-
             sender_id_log = "未知用户"
             if proto_event.user_info and proto_event.user_info.user_id:  # 安全访问
                 sender_id_log = str(proto_event.user_info.user_id)
@@ -284,3 +300,73 @@ class DefaultMessageProcessor:
                     logger.error(f"自动同意来自 {sender_id_log} 的好友请求的动作发送失败。")
         except Exception as e:
             logger.error(f"处理请求事件 (ID: {proto_event.event_id}) 时发生错误: {e}", exc_info=True)
+
+    # --- ❤❤❤ 全新的、为主人表演专用的小私处！❤❤❤ ---
+    async def _perform_test_actions(self, trigger_event: ProtocolEvent, action_handler: "ActionHandler") -> None:
+        """
+        一个接一个地执行发言、回复、戳一戳这三个动作。
+        """
+        platform_id = trigger_event.get_platform()
+        conv_info = trigger_event.conversation_info
+        user_info = trigger_event.user_info
+
+        if not all([platform_id, conv_info, user_info]):
+            logger.error("后门测试失败：触发事件缺少平台、会话或用户信息。")
+            return
+
+        # 动作一：发送普通消息
+        logger.info("--- [后门测试] 动作一：发送普通消息 ---")
+        send_event = ProtocolEvent(
+            event_id=f"test_action_send_{uuid.uuid4()}",
+            event_type=f"action.{platform_id}.message.send",
+            time=int(time.time() * 1000),
+            bot_id=trigger_event.bot_id,
+            content=[SegBuilder.text("收到主人命令，开始进行动作测试！")],
+            conversation_info=conv_info,
+        )
+        await action_handler.submit_constructed_action(send_event.to_dict(), "后门测试：发送消息")
+        await asyncio.sleep(2)  # 等一下，让消息发出去
+
+        # 动作二：回复触发消息
+        logger.info("--- [后门测试] 动作二：回复触发消息 ---")
+        trigger_message_id = trigger_event.get_message_id()
+        if trigger_message_id:
+            reply_event = ProtocolEvent(
+                event_id=f"test_action_reply_{uuid.uuid4()}",
+                event_type=f"action.{platform_id}.message.send",  # 回复本质也是发送消息
+                time=int(time.time() * 1000),
+                bot_id=trigger_event.bot_id,
+                content=[SegBuilder.reply(trigger_message_id), SegBuilder.text("正在测试回复功能~")],
+                conversation_info=conv_info,
+            )
+            await action_handler.submit_constructed_action(reply_event.to_dict(), "后门测试：回复消息")
+            await asyncio.sleep(2)
+        else:
+            logger.warning("后门测试：触发消息没有 message_id，无法测试回复功能。")
+
+        # 动作三：戳一戳发送者
+        logger.info("--- [后门测试] 动作三：戳一戳发送者 ---")
+        if user_info.user_id:
+            poke_event = ProtocolEvent(
+                event_id=f"test_action_poke_{uuid.uuid4()}",
+                event_type=f"action.{platform_id}.user.poke",
+                time=int(time.time() * 1000),
+                bot_id=trigger_event.bot_id,
+                content=[
+                    SegBuilder.at(user_info.user_id)
+                ],  # 戳一戳的参数在Seg的data里，但为了简单，我们用at的seg来传递user_id
+                conversation_info=conv_info,
+            )
+            # 注意：我们的QQBuilder会从Seg的data里找target_user_id和target_group_id
+            # 我们需要构造一个符合它期望的Seg
+            poke_seg = Seg(
+                type="action.user.poke",
+                data={"target_user_id": user_info.user_id, "target_group_id": conv_info.conversation_id},
+            )
+            poke_event.content = [poke_seg]
+
+            await action_handler.submit_constructed_action(poke_event.to_dict(), "后门测试：戳一戳")
+        else:
+            logger.warning("后门测试：触发消息没有 user_id，无法测试戳一戳功能。")
+
+        logger.info("--- [后门测试] 所有动作已提交！---")

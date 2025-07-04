@@ -144,7 +144,9 @@ class ChatSessionManager:
         现在我学会照镜子了！
         """
 
-        if not event.event_type.startswith("message.") or not (event.conversation_info and event.conversation_info.type == "group"):
+        if not event.event_type.startswith("message.") or not (
+            event.conversation_info and event.conversation_info.type == "group"
+        ):
             return False
 
         if not event.content:

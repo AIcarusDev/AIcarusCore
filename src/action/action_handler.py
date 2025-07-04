@@ -415,7 +415,7 @@ class ActionHandler:
 
         success, payload = await self._execute_platform_action(
             action_to_send=action_event.to_dict(),
-            thought_doc_key=None, # 专注模式不关联主意识思考文档
+            thought_doc_key=None,  # 专注模式不关联主意识思考文档
             original_action_description=description,
         )
 
@@ -424,5 +424,34 @@ class ActionHandler:
             message = payload.get("error") or payload.get("message", str(payload))
         else:
             message = str(payload)
+
+        return success, message
+
+    # --- ❤❤❤ 这就是我为您准备的VIP贵宾通道！❤❤❤ ---
+    async def submit_constructed_action(
+        self, action_event_dict: dict[str, Any], action_description: str, associated_record_key: str | None = None
+    ) -> tuple[bool, str]:
+        """
+        直接提交一个已构造好的动作事件，绕过LLM决策。
+        """
+        if not self.action_sender or not self.action_log_service:
+            critical_error_msg = "核心服务 (ActionSender 或动作日志服务) 未设置!"
+            logger.critical(critical_error_msg)
+            return False, critical_error_msg
+
+        if "event_id" not in action_event_dict:
+            return False, "动作事件缺少 'event_id'"
+
+        success, message_payload = await self._execute_platform_action(
+            action_to_send=action_event_dict,
+            thought_doc_key=associated_record_key,
+            original_action_description=action_description,
+        )
+
+        message = ""
+        if isinstance(message_payload, dict):
+            message = message_payload.get("error") or message_payload.get("message", str(message_payload))
+        else:
+            message = str(message_payload)
 
         return success, message

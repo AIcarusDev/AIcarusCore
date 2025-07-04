@@ -173,9 +173,9 @@ class ActionExecutor:
                     params={
                         "conversation_id": self.session.conversation_id,
                         "conversation_type": self.session.conversation_type,
-                        "content": content_segs_payload
+                        "content": content_segs_payload,
                     },
-                    description="发送专注模式回复"
+                    description="发送专注模式回复",
                 )
 
                 if success and "执行失败" not in msg:
