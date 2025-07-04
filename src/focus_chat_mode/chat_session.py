@@ -2,7 +2,6 @@
 
 import asyncio
 import time
-import uuid
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Any
 
@@ -115,13 +114,14 @@ class ChatSession:
 
         logger.info(f"[ChatSession][{self.conversation_id}] 实例已创建，依赖已注入。")
 
-    # // 这就是我们新的“情报获取术”，喵~
+    # // 这就是我们新的“情报获取术”，喵~ 【小色猫·直捣黄龙·最终版】
     async def get_conversation_details(self) -> dict[str, Any]:
         """
         智能获取会话的详细信息，比如成员数。
         有缓存就用缓存，没有或者过期了就去问，懒得每次都问。
+        哼，这次我直接告诉 ActionHandler 我要用哪个姿势，一步到胃！
         """
-        # 1. 先看看脑子里有没有，并且还没发霉
+        # 1. 先看看脑子里有没有，并且还没发霉 (这部分逻辑不变，缓存是好文明！)
         if self.conversation_details_cache and (
             time.time() - self.last_details_update_time < CONVERSATION_DETAILS_CACHE_EXPIRATION_SECONDS
         ):
@@ -131,21 +131,31 @@ class ChatSession:
         # 2. 没办法了，只能去问适配器了，真麻烦
         logger.info(f"[{self.conversation_id}] 会话详情缓存失效或不存在，向适配器查询。")
 
-        # 构造一个获取群信息的动作事件
-        action_event_dict = {
-            "event_id": f"focus_get_conv_info_{self.conversation_id}_{uuid.uuid4().hex[:6]}",
-            "event_type": f"action.{self.platform}.conversation.get_info",
-            "bot_id": self.bot_id,
-            # 目标会话信息要放在 conversation_info 里，让 ActionHandler 知道对谁下手
-            "conversation_info": {"conversation_id": self.conversation_id, "type": self.conversation_type},
-            # content 理论上可以为空，但为了清晰，可以加上
-            "content": [{"type": "action.conversation.get_info", "data": {}}],
-        }
+        # --- ❤❤❤ 欲望喷射点：这里是手术的核心！❤❤❤ ---
+        # 我不再幻想那个不存在的动作了！
+        # 我要直接调用 ActionHandler 里那个更简单、更直接的通道！
+        # 这个通道允许我直接指定平台、动作名和参数，就像点菜一样！
+        success, result_payload = await self.action_handler.execute_simple_action(
+            platform_id=self.platform,  # 明确告诉它，我要玩哪个平台的！(e.g., 'napcat_qq')
+            action_name="get_group_info",  # 明确告诉它，我要用哪个姿势！(e.g., 'get_group_info')
+            params={"group_id": self.conversation_id},  # 把需要的“玩具”（参数）递过去！
+            description="专注模式：获取群聊详情",  # 给这次“爱爱”起个名字，方便查日志
+        )
+        # --- ❤❤❤ 手术结束，完美！❤❤❤ ---
 
-        # 调用 ActionHandler 里那个专门和适配器打交道的函数
-        success, result = await self.action_handler.send_action_and_wait_for_response(action_event_dict)
-
-        details = result if success and result else None
+        details = None
+        if success:
+            # execute_simple_action 成功后，它的 payload 就是我们想要的数据
+            # 但要注意，它返回的 payload 可能包含 error 键，也可能直接就是数据
+            if isinstance(result_payload, dict) and not result_payload.get("error"):
+                details = result_payload
+            elif isinstance(result_payload, str):
+                logger.warning(
+                    f"[{self.conversation_id}] execute_simple_action 成功，但返回的是字符串消息: '{result_payload}'，而不是详情字典。"
+                )
+        else:
+            # 如果不成功，result_payload 就是错误信息字符串
+            logger.error(f"[{self.conversation_id}] 通过 execute_simple_action 获取群聊详情失败: {result_payload}")
 
         if details:
             # 问到了！赶紧记下来！
