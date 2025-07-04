@@ -25,7 +25,7 @@ from src.core_logic.prompt_builder import ThoughtPromptBuilder
 from src.core_logic.state_manager import AIStateManager  # 确保导入 AIStateManager
 from src.core_logic.thought_generator import ThoughtGenerator
 from src.core_logic.thought_persistor import ThoughtPersistor
-from src.core_logic.unread_info_service import UnreadInfoService
+from src.common.unread_info_service.unread_info_service import UnreadInfoService
 from src.database import (
     ActionLogStorageService,
     ArangoDBConnectionManager,
