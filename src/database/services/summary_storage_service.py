@@ -3,8 +3,7 @@ import time
 import uuid
 
 from src.common.custom_logging.logging_config import get_logger
-from src.database.core.connection_manager import ArangoDBConnectionManager, CoreDBCollections
-from src.database.models import ConversationSummaryDocument
+from src.database import ArangoDBConnectionManager, ConversationSummaryDocument, CoreDBCollections
 
 logger = get_logger(__name__)
 

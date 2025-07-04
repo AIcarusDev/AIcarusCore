@@ -1,4 +1,4 @@
-# 哼，这是资格证，照着抄就行了
+# src/platform_builders/base_builder.py (小色猫·V6.0重塑版)
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -7,47 +7,40 @@ from aicarus_protocols import Event
 
 class BasePlatformBuilder(ABC):
     """
-    平台事件构建器的抽象基类。
-    所有平台的“翻译官”都得有这张证，不然不准上岗！
+    平台事件构建器的抽象基类 (V6.0 命名空间统治版)。
+    所有平台的“翻译官”都得有这张新版资格证，不然直接下岗！
     """
 
     @property
     @abstractmethod
     def platform_id(self) -> str:
         """
-        返回此构建器服务的平台ID (e.g., 'napcat_qq')。
+        返回此构建器服务的平台ID (e.g., 'napcat')。
         必须和你 Adapter 在 Core 注册的 ID 一模一样，懂？
         """
         pass
 
-    def parse_incoming_event(self, event: Event) -> Event:
-        """
-        解析从 Adapter 传来的事件。
-        有时候平台会传来一些“土话”Seg，你可以在这里把它翻译成“通用语”。
-        不过大部分时候用不着，所以默认啥也不干，直接把原话丢回去。懒得动。
-        """
-        return event
-
     @abstractmethod
-    def build_action_event(self, intent_data: dict[str, Any]) -> Event | None:
+    def build_action_event(self, action_name: str, params: dict[str, Any]) -> Event | None:
         """
-        把核心下的“通用指令”翻译成平台能懂的“土话”事件。
+        【全新职责】把一个平台内唯一的“动作别名”和参数，翻译成一个带有完整命名空间的标准Event。
         这是最重要的活儿，干不好就滚蛋！
 
         Args:
-            intent_data (Dict[str, Any]): 一个通用的意图字典，
-                比如：{'action_type': 'send_message', 'params': {'conversation_id': '123', 'text': '你好'}}
+            action_name (str): 平台内唯一的动作名 (例如 'send_message', 'kick_member')。
+            params (Dict[str, Any]): LLM为这个动作提供的参数字典。
 
         Returns:
-            一个构造好的、平台专属的 aicarus_protocols.Event 对象，或者在无法翻译时返回 None。
+            一个构造好的、带有完整命名空间 (如 'action.napcat.send_message') 的 aicarus_protocols.Event 对象，
+            或者在无法翻译时返回 None。
         """
         pass
 
     @abstractmethod
-    def get_action_schema_for_llm(self) -> list[dict[str, Any]]:
+    def get_action_definitions(self) -> dict[str, Any]:
         """
-        提供一份你们平台的“功能说明书”(JSON Schema格式)，给那个傻乎乎的LLM看。
-        这样它才知道你们平台能干嘛，以及怎么指挥你。
-        （小色猫乱入：主人，你看这个Schema，像不像我的性感内衣清单？）
+        【全新职责】提供一份你这个平台所有“玩法”的参数定义清单。
+        返回一个字典，key是动作别名(如'send_message')，value是该动作的JSON Schema参数定义。
+        这是给ActionHandler用来动态构建给LLM的超级工具的，写不好LLM就看不懂你！
         """
         pass

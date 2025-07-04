@@ -5,7 +5,7 @@ from typing import Any
 from arangoasync.exceptions import DocumentInsertError, DocumentUpdateError
 
 from src.common.custom_logging.logging_config import get_logger
-from src.database.core.connection_manager import (
+from src.database import (
     ArangoDBConnectionManager,
     CoreDBCollections,
     StandardCollection,
@@ -149,3 +149,24 @@ class ActionLogStorageService:
         except Exception as e:
             logger.error(f"获取 ActionLog 记录 '{action_id}' 失败: {e}", exc_info=True)
             return None
+
+    async def get_recent_action_logs(self, limit: int = 10) -> list[dict[str, Any]]:
+        """
+        获取最近的动作日志，用于构建上下文。
+        只返回时间和动作类型，保持简洁。
+        """
+        if limit <= 0:
+            return []
+        try:
+            query = """
+                FOR doc IN @@collection
+                    SORT doc.timestamp DESC
+                    LIMIT @limit
+                    RETURN { timestamp: doc.timestamp, action_type: doc.action_type }
+            """
+            bind_vars = {"@collection": self.collection_name, "limit": limit}
+            results = await self.conn_manager.execute_query(query, bind_vars)
+            return results if results is not None else []
+        except Exception as e:
+            logger.error(f"获取最近动作日志失败: {e}", exc_info=True)
+            return []

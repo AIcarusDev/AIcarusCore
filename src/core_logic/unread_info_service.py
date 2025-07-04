@@ -2,7 +2,7 @@
 from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
-from src.database.services.conversation_storage_service import ConversationStorageService
+from src.database import ConversationStorageService
 from src.database.services.event_storage_service import EventStorageService
 
 logger = get_logger(__name__)

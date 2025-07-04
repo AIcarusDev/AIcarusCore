@@ -10,12 +10,12 @@ from arangoasync.exceptions import (
 )
 
 from src.common.custom_logging.logging_config import get_logger
-from src.database.core.connection_manager import (
+from src.database import (
     ArangoDBConnectionManager,
     CoreDBCollections,
 )
 
-# from src.database.models import AttentionProfile # 将从 models 导入
+# from src.database import AttentionProfile # 将从 models 导入
 
 logger = get_logger(__name__)
 
@@ -84,7 +84,7 @@ class ConversationStorageService:
                 doc_for_db["attention_profile"] = existing_profile  # 保留旧的
             else:  # 新旧数据中都没有 attention_profile，或新数据中的非字典
                 #  应该从 AttentionProfile 模型获取默认值
-                from src.database.models import AttentionProfile  # 避免循环导入，或者在类顶部导入
+                from src.database import AttentionProfile  # 避免循环导入，或者在类顶部导入
 
                 doc_for_db["attention_profile"] = AttentionProfile.get_default_profile().to_dict()
 
@@ -115,7 +115,7 @@ class ConversationStorageService:
 
             # 如果 attention_profile 未在输入数据中提供，则初始化为默认值
             if "attention_profile" not in doc_for_db or not isinstance(doc_for_db.get("attention_profile"), dict):
-                from src.database.models import AttentionProfile  # 同上
+                from src.database import AttentionProfile  # 同上
 
                 doc_for_db["attention_profile"] = AttentionProfile.get_default_profile().to_dict()
 

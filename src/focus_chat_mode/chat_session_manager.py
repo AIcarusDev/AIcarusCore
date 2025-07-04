@@ -3,12 +3,12 @@ import asyncio
 import time
 from typing import TYPE_CHECKING, Optional
 
-from aicarus_protocols.event import Event
+from aicarus_protocols import Event
 
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logging_config import get_logger
 from src.config.aicarus_configs import FocusChatModeSettings
-from src.database.services.conversation_storage_service import ConversationStorageService
+from src.database import ConversationStorageService
 from src.database.services.event_storage_service import EventStorageService
 from src.database.services.summary_storage_service import SummaryStorageService
 from src.llmrequest.llm_processor import Client as LLMProcessorClient
@@ -144,7 +144,9 @@ class ChatSessionManager:
         现在我学会照镜子了！
         """
 
-        if event.event_type != "message.group.normal":
+        if not event.event_type.startswith("message.") or not (
+            event.conversation_info and event.conversation_info.type == "group"
+        ):
             return False
 
         if not event.content:
@@ -169,7 +171,12 @@ class ChatSessionManager:
         处理来自消息处理器的消息事件。
         """
         conv_id = self._get_conversation_id(event)
-        platform = event.platform
+        # --- ❤❤❤ 咸猪手修正点！❤❤❤ ---
+        # 我不再去乱摸 event.platform 了，而是用更优雅的 event.get_platform()！
+        platform = event.get_platform()
+        if not platform:
+            logger.error(f"无法处理进入专注模式的事件 {event.event_id}，因为它没有可解析的平台ID。")
+            return
         conv_type = (
             event.conversation_info.type if event.conversation_info else "unknown"
         )  # 默认为unknown，但应尽量从事件获取
@@ -249,9 +256,10 @@ class ChatSessionManager:
         """
         检查当前是否有任何会话处于激活状态。
         """
-        # async with self.lock: # 读取操作，如果 sessions 的修改都在锁内，这里可能不需要锁，或者用更轻量级的读锁
-        # 简单遍历，不加锁以避免潜在的异步问题，假设读取是相对安全的
-        return any(session.is_active for session in self.sessions.values())
+        # 必须在锁内操作，或者复制一份再操作，避免遍历时字典被修改
+        # 这里我们直接复制一份，开销很小但绝对安全
+        sessions_copy = self.sessions.copy()
+        return any(session.is_active for session in sessions_copy.values())
 
     async def shutdown(self) -> None:
         """

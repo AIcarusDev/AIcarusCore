@@ -7,7 +7,7 @@
 # Inner Settings (内部配置，一般无需更改此部分内容)
 # ===============================
 [inner]
-version = "0.0.14"  # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
+version = "0.0.15"  # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
 protocol_version = "1.5.0"  # Aicarus-Message-Protocol 标准通信协议版本号，确保与客户端和其他服务兼容。
 
 # ===============================
@@ -93,8 +93,15 @@ max_output_tokens = 1000
 provider = "SILICONFLOW"  # 示例：使用 SiliconFlow 提供的嵌入模型
 model_name = "BAAI/bge-m3"  # 示例：使用 BAAI/bge-m3 模型
 
-# --- 专注聊天子意识模型 ---
+# --- 专注聊天模型 ---
 [llm_models.focused_chat]
+provider = "gemini"
+model_name = "gemini-2.0-flash"
+temperature = 0.7
+max_output_tokens = 3000
+
+# --- 自带联网搜索的谷歌模型 ---
+[llm_models.web_search_agent]
 provider = "gemini"
 model_name = "gemini-2.0-flash"
 temperature = 0.7

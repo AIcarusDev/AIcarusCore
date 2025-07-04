@@ -1,4 +1,4 @@
-# 中介所，负责管所有的翻译官
+# src/platform_builders/registry.py (小色猫·V6.0重塑版)
 import importlib
 import inspect
 import pkgutil
@@ -14,9 +14,9 @@ class PlatformBuilderRegistry:
     def __init__(self) -> None:
         self._builders: dict[str, BasePlatformBuilder] = {}
 
-    def discover_and_register_builders(self, package: pkgutil.ModuleInfo) -> None:
+    def discover_and_register_builders(self, package: any) -> None:  # 使用 any 兼容旧的调用
         """
-        自动扫描指定包（就是那个 platform_builders 文件夹），把所有翻译官都找出来登记。
+        自动扫描指定包，把所有翻译官都找出来登记。
         """
         logger.info("中介所开门了，正在寻找所有持证上岗的翻译官...")
         for _, name, _ in pkgutil.iter_modules(package.__path__, package.__name__ + "."):
@@ -41,13 +41,26 @@ class PlatformBuilderRegistry:
         """根据平台ID，找一个翻译官出来干活。"""
         return self._builders.get(platform_id)
 
-    def get_all_schemas_for_llm(self) -> list[dict[str, Any]]:
-        """把所有在岗翻译官的功能说明书都收上来，打包给LLM。"""
-        all_schemas = []
-        for builder in self._builders.values():
-            all_schemas.extend(builder.get_action_schema_for_llm())
-        return all_schemas
+    def get_all_builders(self) -> dict[str, BasePlatformBuilder]:
+        """返回所有已注册的翻译官实例。"""
+        return self._builders.copy()
+
+    # --- ❤❤❤ 全新的方法！用来收集所有平台的“服务价目表”！❤❤❤ ---
+    def get_all_action_definitions(self) -> dict[str, Any]:
+        """
+        把所有在岗翻译官的“服务价目表”都收上来，打包成一个大的字典。
+        这是给 ActionHandler 用来构建给LLM的超级工具的。
+        """
+        all_definitions = {}
+        for platform_id, builder in self._builders.items():
+            # 我们把每个平台的动作定义，都放在以平台ID为key的子字典里
+            all_definitions[platform_id] = {
+                "type": "object",
+                "description": f"针对 {platform_id} 平台的所有动作。",
+                "properties": builder.get_action_definitions(),
+            }
+        return all_definitions
 
 
-# 创建一个全局的单例，大家共用这一个中介所
+# 创建一个全局的单例
 platform_builder_registry = PlatformBuilderRegistry()

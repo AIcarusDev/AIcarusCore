@@ -5,15 +5,13 @@ import time
 import uuid
 from typing import TYPE_CHECKING
 
+from aicarus_protocols import ConversationInfo, SegBuilder, UserInfo
 from aicarus_protocols import Event as ProtocolEvent
-from aicarus_protocols.conversation_info import ConversationInfo
-from aicarus_protocols.seg import SegBuilder
-from aicarus_protocols.user_info import UserInfo
 
 from src.common.custom_logging.logging_config import get_logger
 from src.common.utils import is_valid_message
 from src.config import config
-from src.database.models import DBEventDocument
+from src.database import DBEventDocument
 
 if TYPE_CHECKING:
     from .chat_session import ChatSession
@@ -149,7 +147,7 @@ class ActionExecutor:
                     i, sentence_text, quote_msg_id, at_target_values_raw, uid_map
                 )
 
-                action_event_dict = {
+                _action_event_dict = {
                     "event_id": f"sub_chat_reply_{uuid.uuid4()}",
                     "event_type": "action.message.send",
                     "time": time.time() * 1000,  # 加上时间戳
@@ -169,8 +167,15 @@ class ActionExecutor:
                 }
 
                 # 把原始的动作字典发出去
-                success, msg = await self.action_handler.submit_constructed_action(
-                    action_event_dict, "发送专注模式回复"
+                success, msg = await self.action_handler.execute_simple_action(
+                    platform_id=self.session.platform,
+                    action_name="send_message",
+                    params={
+                        "conversation_id": self.session.conversation_id,
+                        "conversation_type": self.session.conversation_type,
+                        "content": content_segs_payload,
+                    },
+                    description="发送专注模式回复",
                 )
 
                 if success and "执行失败" not in msg:
@@ -245,7 +250,7 @@ class ActionExecutor:
             "conversation_info": ConversationInfo(
                 conversation_id=self.session.conversation_id,
                 type=self.session.conversation_type,
-                platform=self.session.platform,
+                # platform=self.session.platform,
             ).to_dict(),
             "content": [SegBuilder.text(motivation).to_dict()],
         }
