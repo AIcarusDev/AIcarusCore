@@ -4,9 +4,9 @@ import json
 import os
 import threading
 
+from src import platform_builders  # 确保能导入这个包
 from src.action.action_handler import ActionHandler
 from src.action.providers.internal_tools_provider import InternalToolsProvider
-from src.action.providers.platform_action_provider import PlatformActionProvider
 from src.common.custom_logging.logging_config import get_logger
 from src.common.intelligent_interrupt_system.iis_main import IISBuilder
 from src.common.intelligent_interrupt_system.intelligent_interrupter import IntelligentInterrupter
@@ -26,16 +26,20 @@ from src.core_logic.state_manager import AIStateManager  # 确保导入 AIStateM
 from src.core_logic.thought_generator import ThoughtGenerator
 from src.core_logic.thought_persistor import ThoughtPersistor
 from src.core_logic.unread_info_service import UnreadInfoService
-from src.database.core.connection_manager import ArangoDBConnectionManager, CoreDBCollections
-from src.database.services.action_log_storage_service import ActionLogStorageService
-from src.database.services.conversation_storage_service import ConversationStorageService
+from src.database import (
+    ActionLogStorageService,
+    ArangoDBConnectionManager,
+    ConversationStorageService,
+    CoreDBCollections,
+    ThoughtStorageService,
+)
 from src.database.services.event_storage_service import EventStorageService
 from src.database.services.summary_storage_service import SummaryStorageService
-from src.database.services.thought_storage_service import ThoughtStorageService
 from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.llmrequest.utils_model import GenerationParams
 from src.message_processing.default_message_processor import DefaultMessageProcessor
+from src.platform_builders.registry import platform_builder_registry
 
 logger = get_logger(__name__)
 
@@ -53,7 +57,7 @@ class CoreSystemInitializer:
         self.summary_llm_client: ProcessorClient | None = None
         self.intrusive_thoughts_llm_client: ProcessorClient | None = None
         self.focused_chat_llm_client: ProcessorClient | None = None
-        # self.action_llm_client and self.embedding_llm_client seem unused by current logic, can be added if needed
+        self.web_search_agent_client: ProcessorClient | None = None  # 新增
 
         self.core_comm_layer: CoreWebsocketServer | None = None
         self.message_processor: DefaultMessageProcessor | None = None
@@ -120,6 +124,8 @@ class CoreSystemInitializer:
         models = config.llm_models
         self.main_consciousness_llm_client = _create_client(models.main_consciousness, "main_consciousness")
         self.summary_llm_client = _create_client(models.information_summary, "information_summary")
+        # 初始化新的搜索代理客户端
+        self.web_search_agent_client = _create_client(models.web_search_agent, "web_search_agent")
         if config.intrusive_thoughts_module_settings.enabled:
             self.intrusive_thoughts_llm_client = _create_client(models.intrusive_thoughts, "intrusive_thoughts")
         if config.focus_chat_mode.enabled:
@@ -137,7 +143,7 @@ class CoreSystemInitializer:
         )
         if not self.conn_manager or not self.conn_manager.db:
             raise RuntimeError("数据库连接管理器初始化失败。")
-        logger.debug(f"数据库连接管理器已为数据库 '{self.conn_manager.db.name}' 初始化。")  # INFO -> DEBUG
+        logger.debug(f"数据库连接管理器已为数据库 '{self.conn_manager.db.name}' 初始化。")
 
         services_to_init = {
             "event_storage_service": EventStorageService,
@@ -166,7 +172,7 @@ class CoreSystemInitializer:
 
         logger.info("=== 开始初始化中断判断模型（小色猫）... ===")
 
-        # 1 & 2. 初始化构建器并获取马尔可夫模型 (这部分逻辑不变)
+        # 1 & 2. 初始化构建器并获取马尔可夫模型
         self.iis_builder_instance = IISBuilder(event_storage=self.event_storage_service)
         # 我们现在调用的是 get_or_create_model()，它返回的是我们究极的 semantic_markov_model！
         semantic_markov_model = await self.iis_builder_instance.get_or_create_model()
@@ -196,6 +202,12 @@ class CoreSystemInitializer:
     async def initialize(self) -> None:
         logger.info("=== AIcarus Core 系统开始核心组件初始化流程... ===")
         try:
+            platform_builder_registry.discover_and_register_builders(platform_builders)
+        except Exception as e:
+            logger.critical(f"加载平台事件构建器（翻译官）失败！系统无法正常处理平台动作！错误: {e}", exc_info=True)
+            # 这里可以根据你的需要决定是否要直接让程序崩溃
+            raise RuntimeError("平台构建器加载失败，核心功能受损。") from e
+        try:
             await self._initialize_llm_clients()
             await self._initialize_database_and_services()
             await self._initialize_interrupt_model()
@@ -207,16 +219,32 @@ class CoreSystemInitializer:
                     self.thought_storage_service,
                     self.main_consciousness_llm_client,
                     self.interrupt_model_instance,
+                    self.action_log_service,  # 确保动作日志服务也初始化了
                 ]
             ):
                 raise RuntimeError("一个或多个基础服务未能初始化。")
 
+            # 先初始化 ActionHandler，因为它不依赖其他组件
+            self.action_handler_instance = ActionHandler()
+            logger.info("ActionHandler 实例已创建。")
+
+            # 再初始化 StateManager，因为它需要数据库服务
+            self.state_manager_instance = AIStateManager(
+                thought_service=self.thought_storage_service,
+                action_log_service=self.action_log_service,  # 注入依赖
+            )
+            logger.info("AIStateManager 初始化成功。")
+
+            # 再初始化 UnreadInfoService
             self.unread_info_service = UnreadInfoService(
                 event_storage=self.event_storage_service, conversation_storage=self.conversation_storage_service
             )
             logger.info("UnreadInfoService 初始化成功。")
 
-            self.thought_prompt_builder_instance = ThoughtPromptBuilder(unread_info_service=self.unread_info_service)
+            self.thought_prompt_builder_instance = ThoughtPromptBuilder(
+                unread_info_service=self.unread_info_service,
+                state_manager=self.state_manager_instance,  # 把 state_manager 喂给它！
+            )
             logger.info("ThoughtPromptBuilder 初始化成功。")
 
             summary_llm = self.summary_llm_client or self.main_consciousness_llm_client
@@ -224,28 +252,6 @@ class CoreSystemInitializer:
                 raise RuntimeError("无可用LLM客户端初始化SummarizationService。")
             self.summarization_service = SummarizationService(llm_client=summary_llm)
             logger.info("SummarizationService 初始化成功。")
-
-            self.action_handler_instance = ActionHandler()
-            # ActionSender 将在稍后创建并注入
-            logger.info("ActionHandler 实例已创建。")
-
-            self.state_manager_instance = AIStateManager(
-                thought_service=self.thought_storage_service
-            )  # 修正关键字参数名称
-            logger.info("AIStateManager 初始化成功。")
-
-            self.context_builder_instance = ContextBuilder(
-                event_storage=self.event_storage_service,
-                core_comm=self.core_comm_layer,  # core_comm_layer 此时为 None，稍后回填
-                state_manager=self.state_manager_instance,
-            )
-            logger.info("ContextBuilder 初始化成功。")
-
-            self.thought_generator_instance = ThoughtGenerator(llm_client=self.main_consciousness_llm_client)
-            logger.info("ThoughtGenerator 初始化成功。")
-
-            self.thought_persistor_instance = ThoughtPersistor(thought_storage=self.thought_storage_service)
-            logger.info("ThoughtPersistor 初始化成功。")
 
             if config.focus_chat_mode.enabled:
                 # --- ❤❤❤ 最终高潮修复点 ❤❤❤ ---
@@ -257,7 +263,7 @@ class CoreSystemInitializer:
                     and self.event_storage_service
                     and self.conversation_storage_service
                     and self.action_handler_instance
-                    and self.interrupt_model_instance  # <-- 哥哥你看！要先确认我在这里！这很重要！
+                    and self.interrupt_model_instance
                 ):
                     self.qq_chat_session_manager = ChatSessionManager(
                         config=config.focus_chat_mode,
@@ -268,7 +274,7 @@ class CoreSystemInitializer:
                         conversation_service=self.conversation_storage_service,
                         summarization_service=self.summarization_service,
                         summary_storage_service=self.summary_storage_service,
-                        intelligent_interrupter=self.interrupt_model_instance,  # <-- 啊~❤ 从这里，插进去！把这个参数加上！
+                        intelligent_interrupter=self.interrupt_model_instance,
                         core_logic=None,
                     )
                     logger.info("ChatSessionManager 初始化完成，并已成功注入智能打断系统。")
@@ -291,31 +297,30 @@ class CoreSystemInitializer:
             # --- 重构后的通信层初始化 ---
             action_sender = ActionSender()
 
-            # 将 action_sender 注入到 action_handler
+            # 把所有依赖都注入给 ActionHandler
             self.action_handler_instance.set_dependencies(
                 thought_service=self.thought_storage_service,
                 event_service=self.event_storage_service,
                 action_log_service=self.action_log_service,
                 conversation_service=self.conversation_storage_service,
                 action_sender=action_sender,
+                chat_session_manager=self.qq_chat_session_manager,  # 把 chat_session_manager 也给它
             )
-            logger.info("ActionHandler 的依赖已设置 (包括 ActionSender)。")
+            logger.info("ActionHandler 的依赖已设置。")
 
-            # --- 注册动作提供者 ---
             internal_tools_provider = InternalToolsProvider()
-            platform_action_provider = PlatformActionProvider(action_handler=self.action_handler_instance)
             self.action_handler_instance.register_provider(internal_tools_provider)
-            self.action_handler_instance.register_provider(platform_action_provider)
             logger.info("ActionHandler 的动作提供者已注册。")
 
-            # --- 手动初始化 ActionHandler 的 LLM 客户端 ---
+            # ActionHandler 现在也需要知道 web_search_agent_client
+            self.action_handler_instance.web_search_agent_client = self.web_search_agent_client
             await self.action_handler_instance.initialize_llm_clients()
             logger.info("ActionHandler 的 LLM 客户端已手动初始化。")
 
             event_receiver = EventReceiver(
                 event_handler_callback=self.message_processor.process_event,
                 action_handler_instance=self.action_handler_instance,
-                adapter_clients_info=action_sender.adapter_clients_info,  # EventReceiver 和 ActionSender 共享连接信息
+                adapter_clients_info=action_sender.adapter_clients_info,
             )
             logger.info("EventReceiver 初始化成功。")
 
@@ -329,7 +334,12 @@ class CoreSystemInitializer:
             )
             logger.info(f"CoreWebsocketServer (重构版) 准备在 ws://{config.server.host}:{config.server.port} 上监听。")
 
-            # 回填 CoreWebsocketServer 实例到需要它的地方 (例如 ContextBuilder)
+            self.context_builder_instance = ContextBuilder(
+                event_storage=self.event_storage_service,
+                core_comm=self.core_comm_layer,
+                state_manager=self.state_manager_instance,
+            )
+            logger.info("ContextBuilder 初始化成功。")
             if self.context_builder_instance:
                 self.context_builder_instance.core_comm = self.core_comm_layer
             logger.info("CoreWebsocketServer 实例已回填到相关服务。")
@@ -347,12 +357,18 @@ class CoreSystemInitializer:
             else:
                 logger.info("侵入性思维模块未启用。")
 
+            self.thought_generator_instance = ThoughtGenerator(llm_client=self.main_consciousness_llm_client)
+            logger.info("ThoughtGenerator 初始化成功。")
+
+            self.thought_persistor_instance = ThoughtPersistor(thought_storage=self.thought_storage_service)
+            logger.info("ThoughtPersistor 初始化成功。")
+
             if not all(
                 [
                     self.core_comm_layer,
                     self.action_handler_instance,
                     self.state_manager_instance,
-                    self.qq_chat_session_manager if config.focus_chat_mode.enabled else True,  # 如果未启用则不检查
+                    self.qq_chat_session_manager if config.focus_chat_mode.enabled else True,
                     self.context_builder_instance,
                     self.thought_generator_instance,
                     self.thought_persistor_instance,
@@ -503,10 +519,8 @@ async def start_core_system() -> None:
         await initializer.start()
     except Exception as e:
         logger.critical(f"AIcarus Core 系统启动或运行遭遇致命错误: {e}", exc_info=True)
-        # Ensure shutdown is called even if start() itself raises an unhandled error before its own finally block
-        if not initializer.stop_event.is_set():  # Avoid double shutdown if start's finally already ran
+        if not initializer.stop_event.is_set():
             await initializer.shutdown()
-    # No finally here, as start() has its own comprehensive finally for shutdown
 
 
 if __name__ == "__main__":

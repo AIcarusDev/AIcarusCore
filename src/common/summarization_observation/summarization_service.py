@@ -219,6 +219,7 @@ class SummarizationService:
                 is_stream=False,
                 is_multimodal=bool(image_references),
                 image_inputs=image_references,
+                use_google_search=True,
             )
 
             if response_data and not response_data.get("error"):

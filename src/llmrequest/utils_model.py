@@ -36,6 +36,7 @@ class GenerationParams(TypedDict, total=False):
     seed: int
     user: str
     response_mime_type: str
+    responseSchema: dict[str, Any]
     encoding_format: str
     dimensions: int
 
@@ -642,6 +643,7 @@ class LLMClient:
         tool_choice: str | dict | None = None,
         text_to_embed: str | None = None,
         model_name_override: str | None = None,  # <-- 看这里！我加了一个淫荡的小后门！
+        enable_google_search: bool = False,
     ) -> tuple[str, dict[str, Any], dict[str, Any]]:
         headers = {"Content-Type": "application/json"}
         payload: dict[str, Any] = {}
@@ -669,6 +671,17 @@ class LLMClient:
                     ],
                     "generationConfig": final_generation_config.copy(),
                 }
+                # 检查是否需要结构化输出 (JSON Schema)
+                if "responseSchema" in payload["generationConfig"]:
+                    if is_streaming:
+                        logger.warning("Gemini 的结构化输出不支持流式请求。'responseSchema' 将被忽略。")
+                        # 从配置中移除，避免API报错
+                        del payload["generationConfig"]["responseSchema"]
+                    else:
+                        logger.debug("检测到 responseSchema，为 Gemini API 启用 JSON 模式。")
+                        # 启用 JSON 模式时，必须指定 MIME 类型为 application/json
+                        payload["generationConfig"]["response_mime_type"] = "application/json"
+
                 # 2. 如果有system_prompt，就把它放在名为"system_instruction"的顶级王座上！
                 if system_prompt:
                     logger.debug(
@@ -694,9 +707,23 @@ class LLMClient:
                             logger.debug(
                                 f"Google Vision: Removed unsupported parameter '{param}' from generationConfig."
                             )
+                if enable_google_search:
+                    logger.debug("为 Google API 请求启用 Google 搜索依据功能。")
+                    # 这是启用Google搜索的特定工具格式
+                    google_search_tool = {"google_search": {}}
+                    # 如果已有其他工具（例如函数调用），则将搜索工具追加进去
+                    # 否则，创建一个新的工具列表
+                    if "tools" in payload and isinstance(payload.get("tools"), list):
+                        payload["tools"].append(google_search_tool)
+                    else:
+                        payload["tools"] = [google_search_tool]
                 # 6. 处理工具
                 if request_type == "tool_call" and tools:
-                    payload["tools"] = tools
+                    # 如果已经因为 Google Search 创建了 "tools", 我们需要合并而不是覆盖
+                    if "tools" in payload and isinstance(payload.get("tools"), list):
+                        payload["tools"].extend(tools)
+                    else:
+                        payload["tools"] = tools
 
             # 这里也用 effective_model_name！
             url_path = f"/{effective_model_name.strip('/')}{url_path}"
@@ -987,6 +1014,11 @@ class LLMClient:
         #    我们甚至可以把它解码回来看看，确保它就是我们想要的骚样子。
         # logger.critical(f"【小色猫的手术探针】准备发送的data (解码后用于对比): {prepared_data.decode('utf-8')}")
 
+        # logger.critical("【小懒猫的间谍探针】即将发送的请求详情：")
+        # logger.critical(f"  - 完整请求URL (Full URL): {full_request_url}")
+        # logger.critical(f"  - 请求头 (Headers): {loggable_headers}")
+        # logger.critical(f"  - 请求体 (Payload Body): {prepared_data.decode('utf-8')}")
+
         http_response: aiohttp.ClientResponse | None = None
         try:
             # 3. 在 post 请求里，我们用 `data=` 参数，把我们亲手准备好的字节流射出去！
@@ -1083,6 +1115,7 @@ class LLMClient:
         text_to_embed: str | None = None,
         max_retries: int = 3,
         interruption_event: asyncio.Event | None = None,
+        enable_google_search: bool = False,
     ) -> dict[str, Any]:
         async with aiohttp.ClientSession() as session:
             all_initial_keys = self.api_keys_config[:]
@@ -1184,6 +1217,7 @@ class LLMClient:
                             tools=tools,
                             tool_choice=tool_choice,
                             text_to_embed=text_to_embed,
+                            enable_google_search=enable_google_search,
                         )
                         logger.info(
                             f"尝试轮 {attempt_pass + 1}/{max_retries + 1}, "
@@ -1390,6 +1424,7 @@ class LLMClient:
         image_mime_type_override: str | None = None,
         max_retries: int = 3,
         interruption_event: asyncio.Event | None = None,
+        use_google_search: bool = False,
         **kwargs: Unpack[GenerationParams],
     ) -> dict[str, Any]:
         request_type = "chat"
@@ -1419,6 +1454,7 @@ class LLMClient:
             tool_choice=tool_choice,
             max_retries=max_retries,
             interruption_event=interruption_event,
+            enable_google_search=use_google_search,
         )
 
     async def generate_text_completion(

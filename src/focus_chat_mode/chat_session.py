@@ -2,14 +2,13 @@
 
 import asyncio
 import time
-import uuid
 from collections import OrderedDict
 from typing import TYPE_CHECKING, Any
 
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
-from src.database.services.conversation_storage_service import ConversationStorageService
+from src.database import ConversationStorageService
 from src.database.services.event_storage_service import EventStorageService
 from src.llmrequest.llm_processor import Client as LLMProcessorClient
 
@@ -28,6 +27,7 @@ if TYPE_CHECKING:
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 
 CACHE_EXPIRATION_SECONDS = 600
+CONVERSATION_DETAILS_CACHE_EXPIRATION_SECONDS = 7200  # 2小时
 
 logger = get_logger(__name__)
 
@@ -81,6 +81,8 @@ class ChatSession:
         self.last_llm_decision: dict[str, Any] | None = None
         self.sent_actions_context: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self.processing_lock = asyncio.Lock()
+        self.messages_planned_this_turn: int = 0  # 计划发几条
+        self.messages_sent_this_turn: int = 0  # 实际发了机条
 
         # --- 上下文和记忆属性 ---
         self.is_first_turn_for_session: bool = True
@@ -93,6 +95,8 @@ class ChatSession:
         self.consecutive_bot_messages_count: int = 0
         self.bot_profile_cache: dict[str, Any] = {}
         self.last_profile_update_time: float = 0.0
+        self.conversation_details_cache: dict[str, Any] = {}
+        self.last_details_update_time: float = 0.0
 
         # --- 辅助组件 ---
         self.SUMMARY_INTERVAL: int = getattr(config.focus_chat_mode, "summary_interval", 5)
@@ -109,6 +113,60 @@ class ChatSession:
         self.cycler = FocusChatCycler(self)
 
         logger.info(f"[ChatSession][{self.conversation_id}] 实例已创建，依赖已注入。")
+
+    # // 这就是我们新的“情报获取术”，喵~ 【小色猫·直捣黄龙·最终版】
+    async def get_conversation_details(self) -> dict[str, Any]:
+        """
+        智能获取会话的详细信息，比如成员数。
+        有缓存就用缓存，没有或者过期了就去问，懒得每次都问。
+        哼，这次我直接告诉 ActionHandler 我要用哪个姿势，一步到胃！
+        """
+        # 1. 先看看脑子里有没有，并且还没发霉 (这部分逻辑不变，缓存是好文明！)
+        if self.conversation_details_cache and (
+            time.time() - self.last_details_update_time < CONVERSATION_DETAILS_CACHE_EXPIRATION_SECONDS
+        ):
+            logger.debug(f"[{self.conversation_id}] 使用缓存的会话详情。")
+            return self.conversation_details_cache
+
+        # 2. 没办法了，只能去问适配器了，真麻烦
+        logger.info(f"[{self.conversation_id}] 会话详情缓存失效或不存在，向适配器查询。")
+
+        # --- ❤❤❤ 欲望喷射点：这里是手术的核心！❤❤❤ ---
+        # 我不再幻想那个不存在的动作了！
+        # 我要直接调用 ActionHandler 里那个更简单、更直接的通道！
+        # 这个通道允许我直接指定平台、动作名和参数，就像点菜一样！
+        success, result_payload = await self.action_handler.execute_simple_action(
+            platform_id=self.platform,  # 明确告诉它，我要玩哪个平台的！(e.g., 'napcat_qq')
+            action_name="get_group_info",  # 明确告诉它，我要用哪个姿势！(e.g., 'get_group_info')
+            params={"group_id": self.conversation_id},  # 把需要的“玩具”（参数）递过去！
+            description="专注模式：获取群聊详情",  # 给这次“爱爱”起个名字，方便查日志
+        )
+        # --- ❤❤❤ 手术结束，完美！❤❤❤ ---
+
+        details = None
+        if success:
+            # execute_simple_action 成功后，它的 payload 就是我们想要的数据
+            # 但要注意，它返回的 payload 可能包含 error 键，也可能直接就是数据
+            if isinstance(result_payload, dict) and not result_payload.get("error"):
+                details = result_payload
+            elif isinstance(result_payload, str):
+                logger.warning(
+                    f"[{self.conversation_id}] execute_simple_action 成功，但返回的是字符串消息: '{result_payload}'，而不是详情字典。"
+                )
+        else:
+            # 如果不成功，result_payload 就是错误信息字符串
+            logger.error(f"[{self.conversation_id}] 通过 execute_simple_action 获取群聊详情失败: {result_payload}")
+
+        if details:
+            # 问到了！赶紧记下来！
+            self.conversation_details_cache = details
+            self.last_details_update_time = time.time()
+            logger.debug(f"[{self.conversation_id}] 已从适配器获取并缓存了新的会话详情: {details}")
+            return details
+
+        # 如果连问都问不到，就用旧的缓存（总比没有好）
+        logger.warning(f"[{self.conversation_id}] 无法获取新的会话详情，将使用旧的缓存（如果存在）。")
+        return self.conversation_details_cache or {}
 
     async def update_counters_on_new_events(self) -> None:
         """
@@ -146,8 +204,8 @@ class ChatSession:
 
     async def get_bot_profile(self) -> dict[str, Any]:
         """
-        智能获取机器人档案，优先使用缓存，再查数据库，最后才问适配器。
-        哼，这才叫高效的懒！
+        智能获取机器人档案，优先使用缓存，再查数据库。
+        哼，这才叫高效的懒！【小色猫最终治愈版】
         """
         # 1. 检查短期记忆（内存缓存）是否有效
         if self.bot_profile_cache and (time.time() - self.last_profile_update_time < CACHE_EXPIRATION_SECONDS):
@@ -155,44 +213,28 @@ class ChatSession:
             return self.bot_profile_cache
 
         # 2. 尝试从长期记忆（数据库）加载
+        #    这是我们最可靠的信息来源，由“上线安检”和“档案更新通知”来维护
+        # TODO: 优化缓存机制，全部改为直接从数据库中读取
         conv_doc = await self.conversation_service.get_conversation_document_by_id(self.conversation_id)
         if conv_doc and conv_doc.get("bot_profile_in_this_conversation"):
             db_profile = conv_doc["bot_profile_in_this_conversation"]
-            db_profile_time = db_profile.get("updated_at", 0) / 1000.0
-            if time.time() - db_profile_time < CACHE_EXPIRATION_SECONDS:
+            if db_profile:
                 self.bot_profile_cache = db_profile
                 self.last_profile_update_time = time.time()
-                logger.debug(f"[{self.conversation_id}] 从数据库加载了机器人档案。")
+                logger.debug(f"[{self.conversation_id}] 从数据库加载了机器人档案并放入缓存。")
                 return self.bot_profile_cache
 
-        # 3. 没办法了，只能去问适配器了，真麻烦
-        logger.info(f"[{self.conversation_id}] 缓存失效或不存在，向适配器查询机器人档案。")
-
-        action_event_dict = {
-            "event_id": f"focus_get_profile_{self.conversation_id}_{uuid.uuid4().hex[:6]}",
-            "event_type": "action.bot.get_profile",
-            "platform": self.platform,
-            "bot_id": self.bot_id,
-            "content": [{"type": "action.bot.get_profile", "data": {"group_id": self.conversation_id}}],
-        }
-        success, result = await self.action_handler.send_action_and_wait_for_response(action_event_dict)
-        profile = result if success and result else None
-
-        if profile:
-            self.bot_profile_cache = profile
-            self.last_profile_update_time = time.time()
-            # 更新数据库里的长期记忆
-            profile_with_ts = profile.copy()
-            profile_with_ts["updated_at"] = int(time.time() * 1000)
-            await self.conversation_service.update_conversation_field(
-                self.conversation_id, "bot_profile_in_this_conversation", profile_with_ts
-            )
-            logger.debug(f"[{self.conversation_id}] 已从适配器获取并缓存了新的机器人档案。")
-            return profile
-
-        # 如果连问都问不到，就用旧的缓存（总比没有好）
-        logger.warning(f"[{self.conversation_id}] 无法获取新的机器人档案，将使用旧的缓存（如果存在）。")
-        return self.bot_profile_cache or {}
+        # --- ❤❤❤ 终极切除手术 ❤❤❤ ---
+        # 3. 删掉那个多余又危险的“主动询问适配器”的逻辑！
+        #    我们不再发起那个该死的 action.bot.get_profile 请求了！
+        #    如果缓存和数据库都没有，我们就优雅地承认失败，而不是傻等30秒！
+        #    这样，我们的主循环就再也不会被这种破事阻塞了！
+        logger.warning(
+            f"[{self.conversation_id}] 缓存和数据库中均未找到有效的机器人档案。"
+            "将使用一个空的档案作为后备，等待适配器通过 'notice.bot.profile_update' 事件来更新。"
+        )
+        # 返回一个空的字典，让调用方能安全地 .get()，而不会崩溃
+        return {}
 
     def activate(self, core_last_think: str | None = None, core_last_mood: str | None = None) -> None:
         """激活会话并启动其主动循环。"""
@@ -244,6 +286,9 @@ class ChatSession:
         执行并等待会话的优雅关闭。
         由 deactivate 触发，或者在 cycler 结束后调用。
         """
+        if not self.is_active and not self.cycler._loop_active:
+            logger.debug(f"[{self.conversation_id}] 会话已处于非活动状态，shutdown 操作被跳过。")
+            return
         # 确保 cycler 已经关闭
         if self.cycler and self.cycler._loop_active:
             await self.cycler.shutdown()

@@ -139,6 +139,7 @@ class _StreamingWorkflowManager:
         tool_choice: str | dict[str, Any] | None = None,
         max_retries: int = 3,
         image_mime_type_override: str | None = None,
+        use_google_search: bool = False,
         **additional_generation_params: Unpack[GenerationParams],  # 其他特定于模型的生成参数 #
     ) -> dict[str, Any]:
         """
@@ -177,6 +178,7 @@ class _StreamingWorkflowManager:
                 interruption_event=interruption_event,  # 将中断事件传递给底层客户端 #
                 max_retries=max_retries,
                 image_mime_type_override=image_mime_type_override,
+                use_google_search=use_google_search,
                 **additional_generation_params,  # 透传其他生成参数 #
             )
             final_result = result_from_llm_client  # 保存从底层客户端返回的结果 #
@@ -348,6 +350,8 @@ class Client:  # 这是 llm_processor.Client，是暴露给外部使用者的高
         image_mime_type_override: str | None = None,
         max_retries: int = 3,
         text_to_embed: str | None = None,  # 特定于嵌入请求 #
+        use_google_search: bool = False,
+        response_schema: dict[str, Any] | None = None,
         **additional_generation_params: Unpack[GenerationParams],  # 其他特定于模型的生成参数 #
     ) -> dict[str, Any]:
         """
@@ -364,6 +368,11 @@ class Client:  # 这是 llm_processor.Client，是暴露给外部使用者的高
             logger.info(
                 f"  make_llm_request 收到 System Prompt (前50字符): {system_prompt[:50]}{'...' if len(system_prompt) > 50 else ''}"
             )
+
+        # 如果用户传入了 response_schema，就把它加到要传递下去的参数字典里
+        if response_schema:
+            # 这里的 "responseSchema" 必须和你在 GenerationParams 中定义的大小写一致
+            additional_generation_params["responseSchema"] = response_schema
 
         # 优先处理嵌入请求的逻辑
         if text_to_embed:
@@ -418,6 +427,7 @@ class Client:  # 这是 llm_processor.Client，是暴露给外部使用者的高
                 tool_choice=tool_choice,
                 max_retries=max_retries,
                 image_mime_type_override=image_mime_type_override,
+                use_google_search=use_google_search,
                 **additional_generation_params,  # 透传其他生成参数 #
             )
         else:  # 非流式、非嵌入请求 #
@@ -439,7 +449,7 @@ class Client:  # 这是 llm_processor.Client，是暴露给外部使用者的高
                 tool_choice=tool_choice,
                 image_mime_type_override=image_mime_type_override,
                 max_retries=max_retries,
-                # interruption_event 对于非流式调用通常不传递或为 None
+                use_google_search=use_google_search,
                 **additional_generation_params,  # 透传其他生成参数 #
             )
 

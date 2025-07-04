@@ -1,8 +1,9 @@
 # src/core_logic/state_manager.py
+import datetime
 from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
-from src.database.services.thought_storage_service import ThoughtStorageService
+from src.database import ActionLogStorageService, ThoughtStorageService  # 导入ActionLogStorageService
 
 logger = get_logger(__name__)
 
@@ -14,24 +15,25 @@ class AIStateManager:
     """
 
     INITIAL_STATE: dict[str, Any] = {
-        "mood": "你现在的心情大概是：平静。",
-        "previous_thinking": "你的上一轮思考是：这是你的第一次思考，请开始吧。",
-        "thinking_guidance": "经过你上一轮的思考，你目前打算的思考方向是：随意发散一下吧。",
-        "current_task": "没有什么具体目标",
-        "action_result_info": "你上一轮没有执行产生结果的特定行动。",
-        "pending_action_status": "",
-        "recent_contextual_information": "最近未感知到任何特定信息或通知。",
+        "mood_block": "你刚才的心情是：平静。",
+        "think_block": "你刚才的内心想法是：这是你的第一次思考，请开始吧。",
+        "goal_block": "你当前没有什么特定的目标或任务。",
+        "action_request_block": "你上一轮没有试图执行任何动作。",
+        "action_response_block": "因此也没有任何行动结果。",
+        "action_log_block": "你最近没有执行过任何动作。",
     }
 
-    def __init__(self, thought_service: ThoughtStorageService) -> None:
+    def __init__(self, thought_service: ThoughtStorageService, action_log_service: ActionLogStorageService) -> None:
         """
-        初始化需要一个 thought_storage_service 才能干活，哼。
+        初始化需要 thought_storage_service 和 action_log_service 才能干活，哼。
         """
         self.thought_service = thought_service
+        self.action_log_service = action_log_service  # 新增
         self._next_handover_summary: str | None = None
         self._next_last_focus_think: str | None = None
         self._next_last_focus_mood: str | None = None
-        logger.info("AIStateManager 初始化完毕，已准备好接收交接信息。")
+        self.bot_profile_cache: dict[str, Any] = {}  # 新增
+        logger.info("AIStateManager 初始化完毕，已准备好接收交接信息和处理动作日志。")
 
     def set_next_handover_info(
         self, summary: str | None, last_focus_think: str | None, last_focus_mood: str | None
@@ -55,100 +57,56 @@ class AIStateManager:
         else:
             logger.info("AIStateManager set_next_handover_info 被调用，但未提供有效信息。")
 
-    async def get_current_state_for_prompt(
-        self, formatted_recent_contextual_info: str
-    ) -> tuple[dict[str, Any], str | None]:
+    async def get_current_state_for_prompt(self) -> dict[str, str]:
         """
-        从数据库获取最新的思考，处理一下，变成能直接喂给PromptBuilder的状态。
-        这个方法就是把原来 CoreLogic._process_thought_and_action_state 的逻辑搬过来了。
+        从数据库获取最新的思考和动作日志，处理一下，变成能直接喂给PromptBuilder的状态块字典。
         """
-        action_id_whose_result_is_being_shown: str | None = None
-        state_from_initial = self.INITIAL_STATE.copy()
+        state_blocks = self.INITIAL_STATE.copy()
 
+        # 1. 获取最新的思考文档
         latest_thought_documents = await self.thought_service.get_latest_main_thought_document()
-        latest_thought_document = latest_thought_documents[0] if latest_thought_documents else None
+        latest_thought = latest_thought_documents[0] if latest_thought_documents else None
 
-        if not latest_thought_document or not isinstance(latest_thought_document, dict):
-            logger.info("最新的思考文档为空或格式不正确，将使用初始的处女思考状态。")
-            mood_for_prompt = state_from_initial["mood"]
-            previous_thinking_for_prompt = state_from_initial["previous_thinking"]
-            thinking_guidance_for_prompt = state_from_initial["thinking_guidance"]
-            actual_current_task_description = state_from_initial["current_task"]
-        else:
-            mood_db = latest_thought_document.get("emotion_output", state_from_initial["mood"].split("：", 1)[-1])
-            mood_for_prompt = f"你现在的心情大概是：{mood_db}"
+        # 2. 构建心情、想法和目标块
+        if latest_thought:
+            # 心情
+            mood_db = latest_thought.get("emotion_output", "平静")
+            state_blocks["mood_block"] = f"你刚才的心情是：{mood_db}"
+            # 想法
+            think_db = latest_thought.get("think_output")
+            state_blocks["think_block"] = f"你刚才的内心想法是：{think_db}" if think_db else state_blocks["think_block"]
+            # 目标
+            goal_db = latest_thought.get("to_do_output")
+            state_blocks["goal_block"] = f"你当前的目标是：【{goal_db}】" if goal_db else state_blocks["goal_block"]
 
-            # 默认的上一轮思考
-            prev_think_db = latest_thought_document.get("think_output")
-            previous_thinking_for_prompt = (
-                f"你的上一轮思考是：{prev_think_db}"
-                if prev_think_db and str(prev_think_db).strip()
-                else state_from_initial["previous_thinking"]
-            )
-
-            # 检查是否有来自专注模式的交接信息，并用它覆盖/补充上一轮思考
-            if self._next_last_focus_think or self._next_handover_summary or self._next_last_focus_mood:
-                handover_parts = []
-                if self._next_last_focus_mood:
-                    mood_for_prompt = f"你现在的心情大概是：{self._next_last_focus_mood} "
-                if self._next_last_focus_think:
-                    handover_parts.append(f"刚刚结束的专注聊天留下的最后想法是：'{self._next_last_focus_think}'")
-                if self._next_handover_summary:
-                    handover_parts.append(f"该专注聊天的总结大致如下：\n---\n{self._next_handover_summary}\n---")
-
-                if handover_parts:
-                    previous_thinking_for_prompt = "。\n".join(handover_parts)
-                    logger.info("已将专注模式的交接信息整合到 'previous_thinking' 中。")
-
-                # 清理交接信息，确保只用一次
-                self._next_handover_summary = None
-                self._next_last_focus_think = None
-                self._next_last_focus_mood = None
-                logger.debug("已清理AIStateManager中的交接信息。")
-
-            guidance_db = latest_thought_document.get(
-                "next_think_output",
-                state_from_initial["thinking_guidance"].split("：", 1)[-1]
-                if "：" in state_from_initial["thinking_guidance"]
-                else "随意发散一下吧。",
-            )
-            thinking_guidance_for_prompt = f"经过你上一轮的思考，你目前打算的思考方向是：{guidance_db}"
-
-            actual_current_task_description = latest_thought_document.get(
-                "to_do_output", state_from_initial["current_task"]
-            )
-            if latest_thought_document.get(
-                "done_output", False
-            ) and actual_current_task_description == latest_thought_document.get("to_do_output"):
-                actual_current_task_description = state_from_initial["current_task"]
-
-        action_result_info_prompt = state_from_initial["action_result_info"]
-        pending_action_status_prompt = state_from_initial["pending_action_status"]
-        last_action_attempt = latest_thought_document.get("action_attempted") if latest_thought_document else None
-
+        # 3. 处理上一轮的动作请求和响应
+        last_action_attempt = latest_thought.get("action_attempted") if latest_thought else None
         if last_action_attempt and isinstance(last_action_attempt, dict):
+            action_desc = last_action_attempt.get("action_description", "某个动作")
+            action_motive = last_action_attempt.get("action_motivation", "某种动机")
+            state_blocks["action_request_block"] = f'你刚才试图做的动作是:"{action_desc}"，因为:"{action_motive}"'
+
             action_status = last_action_attempt.get("status")
-            action_description_prev = last_action_attempt.get("action_description", "某个之前的动作")
-            action_id = last_action_attempt.get("action_id")
-            was_result_seen_by_llm = last_action_attempt.get("result_seen_by_shimo", False)
             if action_status in ["COMPLETED_SUCCESS", "COMPLETED_FAILURE", "CRITICAL_FAILURE"]:
                 result_for_shimo = last_action_attempt.get("final_result_for_shimo")
-                if result_for_shimo and not was_result_seen_by_llm:
-                    action_result_info_prompt = result_for_shimo
-                    action_id_whose_result_is_being_shown = action_id
-            elif action_status and action_status not in ["COMPLETED_SUCCESS", "COMPLETED_FAILURE", "CRITICAL_FAILURE"]:
-                pending_action_status_prompt = (
-                    f"你目前有一个正在进行的动作：{action_description_prev} (状态：{action_status})"
+                state_blocks["action_response_block"] = (
+                    f'你刚才的动作"{action_desc}"，{result_for_shimo or "没有返回具体信息。"}'
                 )
+            elif action_status:
+                state_blocks["action_response_block"] = (
+                    f'你刚才的动作"{action_desc}"，目前还在执行中(状态: {action_status})。'
+                )
+            else:
+                state_blocks["action_response_block"] = f'你刚才的动作"{action_desc}"，目前状态未知。'
 
-        current_state_for_prompt = {
-            "mood": mood_for_prompt,
-            "previous_thinking": previous_thinking_for_prompt,
-            "thinking_guidance": thinking_guidance_for_prompt,
-            "current_task_description": actual_current_task_description,
-            "action_result_info": action_result_info_prompt,
-            "pending_action_status": pending_action_status_prompt,
-            "recent_contextual_information": formatted_recent_contextual_info,
-        }
+        # 4. 构建动作日志块
+        recent_logs = await self.action_log_service.get_recent_action_logs(limit=10)
+        if recent_logs:
+            log_lines = ["你最近执行过的动作有："]
+            for log in reversed(recent_logs):  # 从旧到新显示
+                ts = datetime.datetime.fromtimestamp(log.get("timestamp", 0) / 1000.0)
+                time_str = ts.strftime("%H:%M:%S")
+                log_lines.append(f"- 在 {time_str}，你执行了动作: {log.get('action_type')}")
+            state_blocks["action_log_block"] = "\n".join(log_lines)
 
-        return current_state_for_prompt, action_id_whose_result_is_being_shown
+        return state_blocks

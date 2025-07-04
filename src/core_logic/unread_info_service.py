@@ -2,7 +2,7 @@
 from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
-from src.database.services.conversation_storage_service import ConversationStorageService
+from src.database import ConversationStorageService
 from src.database.services.event_storage_service import EventStorageService
 
 logger = get_logger(__name__)
@@ -71,8 +71,8 @@ class UnreadInfoService:
         """
         logger.debug(f"开始检查所有活跃会话的新消息... (将排除: {exclude_conversation_id})")
         try:
-            activate_conversations = await self.conversation_storage.get_all_active_conversations()
-            if not activate_conversations:
+            all_conversations = await self.conversation_storage.get_all_active_conversations()
+            if not all_conversations:
                 logger.info("没有找到任何活跃的会话。")
                 return []
         except Exception as e:
@@ -80,7 +80,7 @@ class UnreadInfoService:
             return []
 
         unread_conversations_with_events = []
-        for conv_doc in activate_conversations:
+        for conv_doc in all_conversations:
             conv_id = conv_doc.get("conversation_id")
             if not conv_id:
                 continue
@@ -96,7 +96,7 @@ class UnreadInfoService:
                 )
 
                 if new_events:
-                    logger.info(f"会话 '{conv_id}' 发现 {len(new_events)} 条新消息 (已过滤)。")
+                    logger.info(f"会话 '{conv_id}' 发现 {len(new_events)} 条新消息。")
                     unread_conversations_with_events.append((conv_doc, new_events))
             except Exception as e:
                 logger.error(f"为会话 '{conv_id}' 检查新消息时出错: {e}", exc_info=True)
