@@ -134,8 +134,7 @@ class ChatSession:
         # 构造一个获取群信息的动作事件
         action_event_dict = {
             "event_id": f"focus_get_conv_info_{self.conversation_id}_{uuid.uuid4().hex[:6]}",
-            "event_type": "action.conversation.get_info",
-            "platform": self.platform,
+            "event_type": f"action.{self.platform}.conversation.get_info",
             "bot_id": self.bot_id,
             # 目标会话信息要放在 conversation_info 里，让 ActionHandler 知道对谁下手
             "conversation_info": {"conversation_id": self.conversation_id, "type": self.conversation_type},

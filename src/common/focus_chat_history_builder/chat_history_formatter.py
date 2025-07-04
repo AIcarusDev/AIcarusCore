@@ -87,13 +87,15 @@ async def format_chat_history_for_llm(
                     if isinstance(s_data, dict)
                 ]
                 user_info_dict = event_dict.get("user_info")
-                protocol_user_info = (
-                    UserInfo(**user_info_dict) if user_info_dict and isinstance(user_info_dict, dict) else None
-                )
+                # 确保 user_info_dict 是字典类型
+                # 如果不是字典类型，可能是 None 或其他类型，这里我们用 None
+                protocol_user_info = UserInfo.from_dict(user_info_dict) if user_info_dict and isinstance(user_info_dict, dict) else None
+
                 conv_info_dict = event_dict.get("conversation_info")
-                protocol_conv_info = (
-                    ConversationInfo(**conv_info_dict) if conv_info_dict and isinstance(conv_info_dict, dict) else None
-                )
+                # 确保 conv_info_dict 是字典类型
+                # 如果不是字典类型，可能是 None 或其他类型，这里我们用 None
+                protocol_conv_info = ConversationInfo.from_dict(conv_info_dict) if conv_info_dict and isinstance(conv_info_dict, dict) else None
+
                 motivation = event_dict.pop("motivation", None)  # 从字典中移除，避免重复传递
                 event_obj = Event(
                     event_id=str(event_dict.get("event_id", event_dict.get("_key", str(uuid.uuid4())))),
