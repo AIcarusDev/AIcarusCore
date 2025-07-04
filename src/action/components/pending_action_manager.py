@@ -108,8 +108,8 @@ class PendingActionManager:
         successful, status, error_msg, details = self._parse_response_content(response_event_data)
         original_action_type = sent_dict.get("event_type")
         # 暂时写死，未来放入不同的平台处理器中进行处理
-        if successful and original_action_type == "action.napcat_qq.bot.get_profile" and details:
-            logger.info(f"收到来自适配器 '{sent_dict.get('platform')}' 的档案同步报告，开始处理...")
+        if successful and original_action_type == "action.napcat_qq.get_bot_profile" and details:
+            logger.info(f"收到来自适配器 '{details.get('platform')}' 的档案同步报告，开始处理...")
             # 把处理报告这个脏活累活，单独丢给一个新方法去做！
             await self._process_bot_profile_report(details)
         final_result = self._create_final_result_message(description, successful, error_msg, details)
