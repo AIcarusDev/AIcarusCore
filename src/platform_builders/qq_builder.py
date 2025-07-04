@@ -61,14 +61,16 @@ class QQBuilder(BasePlatformBuilder):
 
     # --- 下面是每个动作的具体“翻译”实现 ---
     def _build_get_list(self, params: dict[str, Any]) -> Event | None:
-        """构建获取列表的动作事件。"""
+        """构建获取列表的动作事件，现在群聊和好友都认识了。"""
         list_type = params.get("list_type")
-        if list_type != "group":  # 目前只支持群聊
+
+        # 哼，现在我只检查你是不是给了我认识的类型
+        if list_type not in ["group", "friend"]:
             logger.error(f"QQBuilder 不支持获取 '{list_type}' 类型的列表。")
             return None
 
         final_event_type = f"action.{self.platform_id}.get_list"
-        # 适配器需要知道要获取什么列表
+        # Seg 的 data 里要带上 list_type，好让适配器知道要干嘛
         action_seg = Seg(type="action_params", data={"list_type": list_type})
 
         return Event(
