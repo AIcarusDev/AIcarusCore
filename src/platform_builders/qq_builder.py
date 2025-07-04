@@ -51,8 +51,7 @@ class QQBuilder(BasePlatformBuilder):
             "get_list": self._build_get_list,
         }
 
-        builder_func = action_builders.get(action_name)
-        if builder_func:
+        if builder_func := action_builders.get(action_name):
             # 找到对应的翻译方法，让它干活
             return builder_func(params)
 

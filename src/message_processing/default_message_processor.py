@@ -329,8 +329,7 @@ class DefaultMessageProcessor:
 
         # 动作二：回复触发消息
         logger.info("--- [后门测试] 动作二：回复触发消息 ---")
-        trigger_message_id = trigger_event.get_message_id()
-        if trigger_message_id:
+        if trigger_message_id := trigger_event.get_message_id():
             reply_event = ProtocolEvent(
                 event_id=f"test_action_reply_{uuid.uuid4()}",
                 event_type=f"action.{platform_id}.message.send",  # 回复本质也是发送消息
