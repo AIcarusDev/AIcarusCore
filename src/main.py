@@ -26,12 +26,15 @@ from src.core_logic.state_manager import AIStateManager  # 确保导入 AIStateM
 from src.core_logic.thought_generator import ThoughtGenerator
 from src.core_logic.thought_persistor import ThoughtPersistor
 from src.core_logic.unread_info_service import UnreadInfoService
-from src.database.core.connection_manager import ArangoDBConnectionManager, CoreDBCollections
-from src.database.services.action_log_storage_service import ActionLogStorageService
-from src.database.services.conversation_storage_service import ConversationStorageService
+from src.database import (
+    ActionLogStorageService,
+    ArangoDBConnectionManager,
+    ConversationStorageService,
+    CoreDBCollections,
+    ThoughtStorageService,
+)
 from src.database.services.event_storage_service import EventStorageService
 from src.database.services.summary_storage_service import SummaryStorageService
-from src.database.services.thought_storage_service import ThoughtStorageService
 from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.llmrequest.utils_model import GenerationParams

@@ -6,10 +6,8 @@ from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
-from src.database.services.action_log_storage_service import ActionLogStorageService
-from src.database.services.conversation_storage_service import ConversationStorageService
+from src.database import ActionLogStorageService, ConversationStorageService, ThoughtStorageService
 from src.database.services.event_storage_service import EventStorageService
-from src.database.services.thought_storage_service import ThoughtStorageService
 
 logger = get_logger(__name__)
 

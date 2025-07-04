@@ -1,4 +1,4 @@
-# src/core_communication/core_ws_server.py
+# src/core_communication/core_ws_server.py (小色猫·绝对统治版)
 import asyncio
 import json
 import time
@@ -10,6 +10,8 @@ if TYPE_CHECKING:
     from src.action.action_handler import ActionHandler
 
 import websockets
+
+# 导入我们全新的、纯洁的协议对象！
 from aicarus_protocols import ConversationInfo, SegBuilder
 from aicarus_protocols import Event as ProtocolEvent
 from websockets.exceptions import ConnectionClosed, ConnectionClosedError, ConnectionClosedOK
@@ -19,6 +21,7 @@ from src.common.custom_logging.logging_config import get_logger
 from src.config import config
 from src.core_communication.action_sender import ActionSender
 from src.core_communication.event_receiver import EventReceiver
+from src.database import DBEventDocument
 from src.database.services.event_storage_service import EventStorageService
 
 logger = get_logger(__name__)
@@ -50,44 +53,49 @@ class CoreWebsocketServer:
         self.event_receiver = event_receiver
         self.action_sender = action_sender
         self.action_handler_instance = action_handler_instance
-
-        # 连接状态信息由 CoreWebsocketServer 统一管理
         self.adapter_clients_info: dict[str, dict[str, Any]] = {}
         self._websocket_to_adapter_id: dict[WebSocketServerProtocol, str] = {}
-
         self._stop_event: asyncio.Event = asyncio.Event()
         self._heartbeat_check_task: asyncio.Task | None = None
 
     async def _generate_and_store_system_event(
-        self, adapter_id: str, display_name: str, event_type: str, reason: str = ""
+        self, adapter_id: str, display_name: str, event_type_suffix: str, reason: str = ""
     ) -> None:
-        """生成并存储系统生命周期事件。"""
+        """生成并存储系统生命周期事件。现在它接收的是事件后缀。"""
         current_timestamp = time.time()
+
+        # --- ❤❤❤ 构造事件时，也遵循新的命名空间规则！❤❤❤ ---
+        # 我们用 "system" 作为平台ID，代表这是核心系统自己产生的事件
+        final_event_type = f"meta.system.{event_type_suffix}"
+
         event_content_text = ""
-        if event_type == "meta.lifecycle.adapter_connected":
+        if event_type_suffix == "lifecycle.adapter_connected":
             event_content_text = f"[状态] {display_name}({adapter_id})连接成功"
-        elif event_type == "meta.lifecycle.adapter_disconnected":
+        elif event_type_suffix == "lifecycle.adapter_disconnected":
             event_content_text = f"[状态] {display_name}({adapter_id})断开({reason})"
         else:
-            logger.warning(f"尝试生成未知的系统级生命周期事件类型: {event_type} for adapter {adapter_id}")
-            return
+            # --- ❤❤❤ 这里是修复点！我不再抱怨了，而是直接用后缀作为内容！❤❤❤ ---
+            logger.debug(f"生成一个通用的系统事件，后缀: {event_type_suffix}")
+            event_content_text = f"[系统事件] {display_name}({adapter_id}): {event_type_suffix}"
 
         system_event = ProtocolEvent(
-            event_id=f"core_event_{adapter_id}_{event_type.split('.')[-1]}_{int(current_timestamp)}_{uuid.uuid4().hex[:6]}",
-            event_type=event_type,
-            platform="core_system",
-            bot_id=config.persona.bot_name,
+            event_id=f"core_event_{adapter_id}_{event_type_suffix.split('.')[-1]}_{int(current_timestamp)}_{uuid.uuid4().hex[:6]}",
+            event_type=final_event_type,
             time=int(current_timestamp * 1000),
+            bot_id=config.persona.bot_name,
             content=[SegBuilder.text(event_content_text)],
             conversation_info=ConversationInfo(conversation_id="system_events", type="system"),
         )
 
         if self.event_storage_service:
             try:
-                await self.event_storage_service.save_event_document(system_event.to_dict())
+                # DBEventDocument.from_protocol 会从 event_type 解析出 platform
+                await self.event_storage_service.save_event_document(
+                    DBEventDocument.from_protocol(system_event).to_dict()
+                )
                 logger.info(f"已生成并存储系统事件: {event_content_text}")
             except Exception as e:
-                logger.error(f"存储系统事件 for '{adapter_id}' (type: {event_type}) 失败: {e}", exc_info=True)
+                logger.error(f"存储系统事件 for '{adapter_id}' (type: {final_event_type}) 失败: {e}", exc_info=True)
         else:
             logger.warning(f"EventStorageService 未初始化，无法存储系统事件 for '{adapter_id}'.")
 
@@ -105,7 +113,8 @@ class CoreWebsocketServer:
         logger.info(
             f"适配器 '{display_name}({adapter_id})' 已连接: {websocket.remote_address}. 当前连接数: {len(self.adapter_clients_info)}"
         )
-        await self._generate_and_store_system_event(adapter_id, display_name, "meta.lifecycle.adapter_connected")
+        # --- ❤❤❤ 这里是修复点！只传入后缀！❤❤❤ ---
+        await self._generate_and_store_system_event(adapter_id, display_name, "lifecycle.adapter_connected")
 
         try:
             logger.info(f"向新连接的适配器 '{display_name}({adapter_id})' 发起档案同步请求 (上线安检)...")
@@ -126,37 +135,46 @@ class CoreWebsocketServer:
             logger.info(
                 f"适配器 '{display_name}({adapter_id})' 已断开 ({reason}): {websocket.remote_address}. 当前连接数: {len(self.adapter_clients_info)}"
             )
+            # --- ❤❤❤ 这里是修复点！只传入后缀！❤❤❤ ---
             await self._generate_and_store_system_event(
-                adapter_id, display_name, "meta.lifecycle.adapter_disconnected", reason
+                adapter_id, display_name, "lifecycle.adapter_disconnected", reason
             )
         else:
             logger.debug(f"尝试注销一个未在ID映射中找到或已被注销的适配器连接 ({reason}): {websocket.remote_address}")
 
     async def _handle_registration(self, websocket: WebSocketServerProtocol) -> tuple[str, str] | None:
-        """处理新连接的注册流程。"""
+        """处理新连接的注册流程 (V6.0 命名空间统治版)"""
         try:
             registration_message_str = await asyncio.wait_for(websocket.recv(), timeout=10.0)
             logger.debug(f"收到来自 {websocket.remote_address} 的连接/注册尝试消息: {registration_message_str[:200]}")
             message_dict = json.loads(registration_message_str)
+
+            # --- ❤❤❤ 最终高潮点！直接从 event_type 解析！❤❤❤ ---
+            event_type = message_dict.get("event_type", "")
+            parts = event_type.split(".")
+
             adapter_id_found: str | None = None
             display_name_found: str | None = None
-            if message_dict.get("event_type") == "meta.lifecycle.connect":
+
+            # 验证格式是否为 meta.{platform_id}.lifecycle.connect
+            if len(parts) == 4 and parts[0] == "meta" and parts[2] == "lifecycle" and parts[3] == "connect":
+                adapter_id_found = parts[1]
+
+                # 尝试从 content 中获取更友好的 display_name，作为备用
                 content_list = message_dict.get("content")
                 if isinstance(content_list, list) and len(content_list) > 0:
                     first_seg = content_list[0]
                     if isinstance(first_seg, dict) and first_seg.get("type") == "meta.lifecycle":
-                        data_dict = first_seg.get("data")
-                        if isinstance(data_dict, dict):
-                            details_dict = data_dict.get("details")
-                            if isinstance(details_dict, dict):
-                                adapter_id_candidate = details_dict.get("adapter_id")
-                                if isinstance(adapter_id_candidate, str) and adapter_id_candidate.strip():
-                                    adapter_id_found = adapter_id_candidate.strip()
-                                display_name_candidate = details_dict.get("display_name")
-                                if isinstance(display_name_candidate, str) and display_name_candidate.strip():
-                                    display_name_found = display_name_candidate.strip()
-                                elif adapter_id_found:
-                                    display_name_found = adapter_id_found
+                        details_dict = first_seg.get("data", {}).get("details", {})
+                        if isinstance(details_dict, dict):
+                            display_name_candidate = details_dict.get("display_name")
+                            if isinstance(display_name_candidate, str) and display_name_candidate.strip():
+                                display_name_found = display_name_candidate.strip()
+
+                # 如果没找到 display_name，就用 adapter_id 代替
+                if not display_name_found:
+                    display_name_found = adapter_id_found
+
             if adapter_id_found and display_name_found:
                 if adapter_id_found in self.action_sender.connected_adapters:
                     logger.warning(f"适配器 '{adapter_id_found}' 尝试重复注册。旧连接将被新连接取代。")
@@ -166,19 +184,20 @@ class CoreWebsocketServer:
                         with suppress(Exception):
                             await old_websocket.close(code=1001, reason="Replaced by new connection")
                 logger.info(
-                    f"适配器通过 meta.lifecycle.connect 注册成功: ID='{adapter_id_found}', DisplayName='{display_name_found}', 地址={websocket.remote_address}"
+                    f"适配器通过 event_type 注册成功: ID='{adapter_id_found}', DisplayName='{display_name_found}', 地址={websocket.remote_address}"
                 )
                 return adapter_id_found, display_name_found
             else:
                 logger.warning(
-                    f"未能从 meta.lifecycle.connect 消息中提取有效 adapter_id 和/或 display_name. 连接 {websocket.remote_address}."
+                    f"未能从事件类型 '{event_type}' 中解析出有效的注册信息。连接 {websocket.remote_address} 将被关闭。"
                 )
         except TimeoutError:
-            logger.warning(f"等待适配器 {websocket.remote_address} 发送连接/注册消息超时.")
+            logger.warning(f"等待适配器 {websocket.remote_address} 发送注册消息超时。")
         except json.JSONDecodeError:
-            logger.error(f"解码来自 {websocket.remote_address} 的连接/注册消息JSON失败.")
+            logger.error(f"解码来自 {websocket.remote_address} 的注册消息JSON失败。")
         except Exception as e:
-            logger.error(f"处理适配器 {websocket.remote_address} 连接/注册时发生意外: {e}", exc_info=True)
+            logger.error(f"处理适配器 {websocket.remote_address} 注册时发生意外: {e}", exc_info=True)
+
         await websocket.close(code=1008, reason="Invalid or missing registration information")
         return None
 

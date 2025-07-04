@@ -5,7 +5,7 @@ from typing import Any
 from arangoasync.exceptions import DocumentInsertError, DocumentUpdateError
 
 from src.common.custom_logging.logging_config import get_logger
-from src.database.core.connection_manager import (
+from src.database import (
     ArangoDBConnectionManager,
     CoreDBCollections,
     StandardCollection,

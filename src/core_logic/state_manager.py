@@ -2,7 +2,7 @@
 from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
-from src.database.services.thought_storage_service import ThoughtStorageService
+from src.database import ThoughtStorageService
 
 logger = get_logger(__name__)
 

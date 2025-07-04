@@ -5,15 +5,13 @@ import time
 import uuid
 from typing import TYPE_CHECKING
 
+from aicarus_protocols import ConversationInfo, SegBuilder, UserInfo
 from aicarus_protocols import Event as ProtocolEvent
-from aicarus_protocols.conversation_info import ConversationInfo
-from aicarus_protocols.seg import SegBuilder
-from aicarus_protocols.user_info import UserInfo
 
 from src.common.custom_logging.logging_config import get_logger
 from src.common.utils import is_valid_message
 from src.config import config
-from src.database.models import DBEventDocument
+from src.database import DBEventDocument
 
 if TYPE_CHECKING:
     from .chat_session import ChatSession
