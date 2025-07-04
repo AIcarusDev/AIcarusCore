@@ -88,6 +88,10 @@ class QQBuilder(BasePlatformBuilder):
         final_event_type = params.get("event_type", f"action.{self.platform_id}.send_message")
 
         if not conversation_id or not isinstance(content_segs_data, list):
+            logger.warning(
+                "Missing or invalid parameters in _build_send_message: conversation_id=%r, content=%r",
+                conversation_id, content_segs_data
+            )
             return None
         # 注意！send_message比较特殊，它的content就是消息本身，所以Seg的type就是text, image等
         message_segs = [Seg(type=seg.get("type"), data=seg.get("data", {})) for seg in content_segs_data]
@@ -107,7 +111,17 @@ class QQBuilder(BasePlatformBuilder):
         if not nodes:
             return None
         # 合并转发的content也比较特殊，是node列表
-        node_segs = [Seg(type="node", data=node_data) for node_data in nodes]
+        # 验证节点数据结构
+        def is_valid_node_data(node_data):
+            # 检查是否为字典且包含必需字段
+            return isinstance(node_data, dict) and "id" in node_data and "content" in node_data
+
+        valid_nodes = [node_data for node_data in nodes if is_valid_node_data(node_data)]
+        if not valid_nodes:
+            logger.warning("在构建合并转发消息时未找到有效节点")
+            return None
+
+        node_segs = [Seg(type="node", data=node_data) for node_data in valid_nodes]
         conv_info_dict = params.get("conversation_info", {})
         # 啊~❤ 统一的快感！
         final_event_type = f"action.{self.platform_id}.send_forward_message"
@@ -585,8 +599,8 @@ class QQBuilder(BasePlatformBuilder):
             "properties": {
                 "list_type": {
                     "type": "string",
-                    "enum": ["group"],
-                    "description": "要获取的列表类型，目前只支持 'group'。",
+                    "enum": ["group", "friend"],
+                    "description": "要获取的列表类型，支持 'group' 或 'friend'。",
                 },
                 "motivation": {"type": "string", "description": "获取这个列表的动机。"},
             },
