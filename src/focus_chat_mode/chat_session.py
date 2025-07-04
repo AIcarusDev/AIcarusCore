@@ -88,6 +88,7 @@ class ChatSession:
         self.is_first_turn_for_session: bool = True
         self.initial_core_think: str | None = None
         self.initial_core_mood: str | None = None
+        self.initial_core_motivation: str | None = None
         self.current_handover_summary: str | None = None
         self.events_since_last_summary: list[dict[str, Any]] = []
         self.message_count_since_last_summary: int = 0
@@ -236,12 +237,13 @@ class ChatSession:
         # 返回一个空的字典，让调用方能安全地 .get()，而不会崩溃
         return {}
 
-    def activate(self, core_last_think: str | None = None, core_last_mood: str | None = None) -> None:
+    def activate(self, core_last_think: str | None = None, core_last_mood: str | None = None, core_motivation: str | None = None) -> None:
         """激活会话并启动其主动循环。"""
         if self.is_active:
             self.initial_core_think = core_last_think
             self.initial_core_mood = core_last_mood
             self.is_first_turn_for_session = True
+            self.initial_core_motivation = core_motivation
             logger.info(f"[ChatSession][{self.conversation_id}] 会话已激活，重置思考和心情上下文。")
             return
 
@@ -249,6 +251,7 @@ class ChatSession:
         self.is_first_turn_for_session = True
         self.initial_core_think = core_last_think
         self.initial_core_mood = core_last_mood
+        self.initial_core_motivation = core_motivation
         self.last_active_time = time.time()
         self.current_handover_summary = None
         self.events_since_last_summary = []

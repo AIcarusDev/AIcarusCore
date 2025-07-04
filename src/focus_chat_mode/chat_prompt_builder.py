@@ -90,6 +90,8 @@ class ChatPromptBuilder:
         last_llm_decision: dict[str, Any] | None,
         is_first_turn: bool,
         last_think_from_core: str | None = None,
+        last_mood_from_core: str | None = None,
+        motivation_from_core: str | None = None,
         was_last_turn_interrupted: bool = False,
         interrupting_event_text: str | None = None,
     ) -> tuple[str, str, str | None, dict[str, str], list[str], list[str], str | None]:
@@ -226,13 +228,16 @@ class ChatPromptBuilder:
         else:
             # 如果是第一次轮次，或者没有上一轮的决策信息
             if is_first_turn:
-                mood_part = f'你刚才的心情是"{session.initial_core_mood}"。\n' if session.initial_core_mood else ""
-                think_part = (
-                    f"你刚才的想法是：{last_think_from_core}\n\n现在你刚刚把注意力放到这个会话中；\n\n原因是：你对当前聊天内容有点兴趣\n"
-                    if last_think_from_core
-                    else "你已进入专注模式，开始处理此会话。\n"
-                )
-                previous_thoughts_block_str = f"{mood_part}{think_part}"
+                # 来自核心意识的心情、想法和动机
+                # 如果核心意识有提供心情、想法和动机，就用它们
+                # 理论上这些应该总是有的，除非核心意识没有运行过
+                mood_part = f'你刚才的心情是"{last_mood_from_core}"。\n' if last_mood_from_core else ""
+                think_part = f'你刚才的想法是："{last_think_from_core}"。\n' if last_think_from_core else ""
+                motivation_part = f'你现在刚刚把注意力放到这个会话中，因为："{motivation_from_core}"。\n' if motivation_from_core else "你已进入专注模式，开始处理此会话。\n"
+
+                # 把它们拼起来！
+                previous_thoughts_block_str = f"{mood_part}{think_part}{motivation_part}"
+
                 # 如果不是第一次轮次，或者有上一轮的决策信息
             elif last_llm_decision:
                 think_content = last_llm_decision.get("think", "")

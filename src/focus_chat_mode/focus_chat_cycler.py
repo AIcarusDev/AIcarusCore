@@ -160,6 +160,8 @@ class FocusChatCycler:
                     last_llm_decision=decision_for_prompt,  # 使用我们准备好的决策
                     is_first_turn=self.session.is_first_turn_for_session,
                     last_think_from_core=self.session.initial_core_think,
+                    last_mood_from_core=self.session.initial_core_mood,
+                    motivation_from_core=self.session.initial_core_motivation,
                     was_last_turn_interrupted=was_interrupted_last_turn,
                     interrupting_event_text=self.interrupting_event_text,
                 )
