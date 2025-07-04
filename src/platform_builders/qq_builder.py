@@ -1,4 +1,4 @@
-# src/platform_builders/qq_builder.py (小色猫·V6.0完全体·无删减版)
+# src/platform_builders/qq_builder.py (小色猫·最终高潮·一步到胃版)
 import time
 import uuid
 from typing import Any
@@ -63,10 +63,12 @@ class QQBuilder(BasePlatformBuilder):
     def _build_send_message(self, params: dict[str, Any]) -> Event | None:
         conversation_id = params.get("conversation_id")
         content_segs_data = params.get("content", [])
-        final_event_type = params.get("event_type", f"action.{self.platform_id}.message.send")
+        # 啊~❤ 多么纯粹，多么直接！去掉了中间那层多余的内裤！
+        final_event_type = params.get("event_type", f"action.{self.platform_id}.send_message")
 
         if not conversation_id or not isinstance(content_segs_data, list):
             return None
+        # 注意！send_message比较特殊，它的content就是消息本身，所以Seg的type就是text, image等
         message_segs = [Seg(type=seg.get("type"), data=seg.get("data", {})) for seg in content_segs_data]
         conv_type = params.get("conversation_type", "group")
 
@@ -83,9 +85,11 @@ class QQBuilder(BasePlatformBuilder):
         nodes = params.get("nodes", [])
         if not nodes:
             return None
+        # 合并转发的content也比较特殊，是node列表
         node_segs = [Seg(type="node", data=node_data) for node_data in nodes]
         conv_info_dict = params.get("conversation_info", {})
-        final_event_type = f"action.{self.platform_id}.message.send_forward"
+        # 啊~❤ 统一的快感！
+        final_event_type = f"action.{self.platform_id}.send_forward_message"
         return Event(
             event_id=str(uuid.uuid4()),
             event_type=final_event_type,
@@ -99,8 +103,10 @@ class QQBuilder(BasePlatformBuilder):
         target_message_id = params.get("target_message_id")
         if not target_message_id:
             return None
-        final_event_type = f"action.{self.platform_id}.message.recall"
-        recall_seg = Seg(type="action.message.recall", data={"target_message_id": str(target_message_id)})
+        # 啊~❤ 就是这个感觉！
+        final_event_type = f"action.{self.platform_id}.recall_message"
+        # 看！Seg现在只做一件事：告诉你“我这里有这个动作的参数”，多纯粹！
+        recall_seg = Seg(type="action_params", data={"target_message_id": str(target_message_id)})
         return Event(
             event_id=str(uuid.uuid4()),
             event_type=final_event_type,
@@ -114,9 +120,10 @@ class QQBuilder(BasePlatformBuilder):
         conversation_id = params.get("conversation_id")
         if not user_id or not conversation_id:
             return None
-        final_event_type = f"action.{self.platform_id}.user.poke"
+        # 啊~❤ 戳进去了！
+        final_event_type = f"action.{self.platform_id}.poke_user"
         poke_seg = Seg(
-            type="action.user.poke", data={"target_user_id": str(user_id), "target_group_id": str(conversation_id)}
+            type="action_params", data={"target_user_id": str(user_id), "target_group_id": str(conversation_id)}
         )
         return Event(
             event_id=str(uuid.uuid4()),
@@ -131,9 +138,9 @@ class QQBuilder(BasePlatformBuilder):
         group_id, user_id = params.get("group_id"), params.get("user_id")
         if not group_id or not user_id:
             return None
-        final_event_type = f"action.{self.platform_id}.conversation.kick_member"
+        final_event_type = f"action.{self.platform_id}.kick_member"
         kick_seg = Seg(
-            type="action.conversation.kick_member",
+            type="action_params",
             data={
                 "group_id": str(group_id),
                 "user_id": str(user_id),
@@ -152,9 +159,9 @@ class QQBuilder(BasePlatformBuilder):
         group_id, user_id = params.get("group_id"), params.get("user_id")
         if not group_id or not user_id:
             return None
-        final_event_type = f"action.{self.platform_id}.conversation.ban_member"
+        final_event_type = f"action.{self.platform_id}.ban_member"
         ban_seg = Seg(
-            type="action.conversation.ban_member",
+            type="action_params",
             data={"group_id": str(group_id), "user_id": str(user_id), "duration": params.get("duration", 60)},
         )
         return Event(
@@ -169,9 +176,9 @@ class QQBuilder(BasePlatformBuilder):
         group_id = params.get("group_id")
         if not group_id:
             return None
-        final_event_type = f"action.{self.platform_id}.conversation.ban_all_members"
+        final_event_type = f"action.{self.platform_id}.ban_all_members"
         ban_all_seg = Seg(
-            type="action.conversation.ban_all_members",
+            type="action_params",
             data={"group_id": str(group_id), "enable": params.get("enable", True)},
         )
         return Event(
@@ -186,9 +193,9 @@ class QQBuilder(BasePlatformBuilder):
         group_id, user_id = params.get("group_id"), params.get("user_id")
         if not group_id or not user_id:
             return None
-        final_event_type = f"action.{self.platform_id}.conversation.set_member_card"
+        final_event_type = f"action.{self.platform_id}.set_member_card"
         card_seg = Seg(
-            type="action.conversation.set_member_card",
+            type="action_params",
             data={"group_id": str(group_id), "user_id": str(user_id), "card": params.get("card", "")},
         )
         return Event(
@@ -203,9 +210,9 @@ class QQBuilder(BasePlatformBuilder):
         group_id, user_id = params.get("group_id"), params.get("user_id")
         if not group_id or not user_id:
             return None
-        final_event_type = f"action.{self.platform_id}.conversation.set_member_title"
+        final_event_type = f"action.{self.platform_id}.set_member_title"
         title_seg = Seg(
-            type="action.conversation.set_member_title",
+            type="action_params",
             data={
                 "group_id": str(group_id),
                 "user_id": str(user_id),
@@ -225,9 +232,9 @@ class QQBuilder(BasePlatformBuilder):
         group_id = params.get("group_id")
         if not group_id:
             return None
-        final_event_type = f"action.{self.platform_id}.conversation.leave"
+        final_event_type = f"action.{self.platform_id}.leave_conversation"
         leave_seg = Seg(
-            type="action.conversation.leave",
+            type="action_params",
             data={"group_id": str(group_id), "is_dismiss": params.get("is_dismiss", False)},
         )
         return Event(
@@ -242,9 +249,12 @@ class QQBuilder(BasePlatformBuilder):
         request_flag, approve = params.get("request_flag"), params.get("approve", False)
         if not request_flag:
             return None
-        action_type_suffix = "request.friend.approve" if approve else "request.friend.reject"
-        final_event_type = f"action.{self.platform_id}.{action_type_suffix}"
-        req_seg = Seg(type=action_type_suffix, data={"request_flag": str(request_flag), "remark": params.get("remark")})
+        # 啊~❤ 现在只有一个动作名了，把 approve 当作参数传进去，好淫荡！
+        final_event_type = f"action.{self.platform_id}.handle_friend_request"
+        req_seg = Seg(
+            type="action_params",
+            data={"request_flag": str(request_flag), "approve": approve, "remark": params.get("remark")},
+        )
         return Event(
             event_id=str(uuid.uuid4()),
             event_type=final_event_type,
@@ -261,12 +271,13 @@ class QQBuilder(BasePlatformBuilder):
         )
         if not request_flag or not sub_type:
             return None
-        action_type_suffix = "request.conversation.approve" if approve else "request.conversation.reject"
-        final_event_type = f"action.{self.platform_id}.{action_type_suffix}"
+        # 啊~❤ 这里也一样！
+        final_event_type = f"action.{self.platform_id}.handle_group_request"
         req_seg = Seg(
-            type=action_type_suffix,
+            type="action_params",
             data={
                 "request_flag": str(request_flag),
+                "approve": approve,
                 "reason": params.get("reason"),
                 "original_request_sub_type": sub_type,
             },
@@ -283,7 +294,8 @@ class QQBuilder(BasePlatformBuilder):
         group_id = params.get("group_id")
         if not group_id:
             return None
-        final_event_type = f"action.{self.platform_id}.conversation.get_info"
+        final_event_type = f"action.{self.platform_id}.get_group_info"
+        # 这个动作没有参数，所以 content 可以为空列表
         return Event(
             event_id=str(uuid.uuid4()),
             event_type=final_event_type,
@@ -295,8 +307,8 @@ class QQBuilder(BasePlatformBuilder):
 
     def _build_get_bot_profile(self, params: dict[str, Any]) -> Event | None:
         group_id = params.get("group_id")
-        final_event_type = f"action.{self.platform_id}.bot.get_profile"
-        action_seg = Seg(type="action.bot.get_profile", data={"group_id": str(group_id)} if group_id else {})
+        final_event_type = f"action.{self.platform_id}.get_bot_profile"
+        action_seg = Seg(type="action_params", data={"group_id": str(group_id)} if group_id else {})
         return Event(
             event_id=str(uuid.uuid4()),
             event_type=final_event_type,
@@ -309,8 +321,8 @@ class QQBuilder(BasePlatformBuilder):
         group_id = params.get("group_id")
         if not group_id:
             return None
-        final_event_type = f"action.{self.platform_id}.conversation.sign_in"
-        sign_in_seg = Seg(type="action.conversation.sign_in", data={"group_id": str(group_id)})
+        final_event_type = f"action.{self.platform_id}.sign_in"
+        sign_in_seg = Seg(type="action_params", data={"group_id": str(group_id)})
         return Event(
             event_id=str(uuid.uuid4()),
             event_type=final_event_type,
@@ -323,9 +335,9 @@ class QQBuilder(BasePlatformBuilder):
         status = params.get("status")
         if status is None:
             return None
-        final_event_type = f"action.{self.platform_id}.bot.set_status"
+        final_event_type = f"action.{self.platform_id}.set_status"
         status_seg = Seg(
-            type="action.bot.set_status",
+            type="action_params",
             data={
                 "status": status,
                 "ext_status": params.get("ext_status", 0),
@@ -344,8 +356,8 @@ class QQBuilder(BasePlatformBuilder):
         file = params.get("file")
         if not file:
             return None
-        final_event_type = f"action.{self.platform_id}.bot.set_avatar"
-        avatar_seg = Seg(type="action.bot.set_avatar", data={"file": file})
+        final_event_type = f"action.{self.platform_id}.set_avatar"
+        avatar_seg = Seg(type="action_params", data={"file": file})
         return Event(
             event_id=str(uuid.uuid4()),
             event_type=final_event_type,
@@ -358,9 +370,9 @@ class QQBuilder(BasePlatformBuilder):
         conv_info_dict = params.get("conversation_info")
         if not conv_info_dict:
             return None
-        final_event_type = f"action.{self.platform_id}.conversation.get_history"
+        final_event_type = f"action.{self.platform_id}.get_history"
         history_seg = Seg(
-            type="action.conversation.get_history",
+            type="action_params",
             data={"message_seq": params.get("message_seq"), "count": params.get("count", 20)},
         )
         return Event(
@@ -375,6 +387,7 @@ class QQBuilder(BasePlatformBuilder):
     def get_action_definitions(self) -> dict[str, Any]:
         """
         提供一份我的“服务价目表”(JSON Schema参数定义)，给ActionHandler去看。
+        这里的 key 也要和上面的方法名对应起来，哼！
         """
         return {
             "send_message": {
