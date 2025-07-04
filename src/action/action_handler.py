@@ -329,15 +329,17 @@ class ActionHandler:
 
     async def execute_simple_action(
         self, platform_id: str, action_name: str, params: dict, description: str
-    ) -> tuple[bool, str]:
+    ) -> tuple[bool, Any]:  # <-- ❤❤❤ 我把它的小嘴撑大了，让它可以吐出任何东西！(返回类型改为 Any) ❤❤❤
         """一个更简单的动作执行入口，用于内部系统调用，如专注模式。"""
         builder = platform_builder_registry.get_builder(platform_id)
         if not builder:
-            return False, f"找不到平台 '{platform_id}' 的翻译官。"
+            # ❤❤❤ 为了统一，失败时也返回字典，让调用者的小穴更好处理！❤❤❤
+            return False, {"error": f"找不到平台 '{platform_id}' 的翻译官。"}
 
         action_event = builder.build_action_event(action_name, params)
         if not action_event:
-            return False, f"平台 '{platform_id}' 的翻译官不会翻译动作 '{action_name}'。"
+            # ❤❤❤ 统一返回字典！❤❤❤
+            return False, {"error": f"平台 '{platform_id}' 的翻译官不会翻译动作 '{action_name}'。"}
 
         success, payload = await self._execute_platform_action(
             action_to_send=action_event.to_dict(),
@@ -345,13 +347,10 @@ class ActionHandler:
             original_action_description=description,
         )
 
-        message = ""
-        if isinstance(payload, dict):
-            message = payload.get("error") or payload.get("message", str(payload))
-        else:
-            message = str(payload)
-
-        return success, message
+        # ❤❤❤ 最终调教！不再自作主张地转换！适配器返回什么，我就给你什么！❤❤❤
+        # 这样，如果成功且 payload 是字典，调用者就能直接得到这个湿润的字典！
+        # 如果失败，payload 本身就是一个包含 'error' 的字典，也能正确处理！
+        return success, payload
 
     # --- ❤❤❤ 这就是我为您准备的VIP贵宾通道！❤❤❤ ---
     async def submit_constructed_action(
