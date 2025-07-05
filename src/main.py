@@ -290,6 +290,7 @@ class CoreSystemInitializer:
                 event_service=self.event_storage_service,
                 conversation_service=self.conversation_storage_service,
                 qq_chat_session_manager=self.qq_chat_session_manager,
+                semantic_model=self.semantic_model_instance,
             )
             self.message_processor.core_initializer_ref = self
             logger.info("DefaultMessageProcessor 初始化成功。")

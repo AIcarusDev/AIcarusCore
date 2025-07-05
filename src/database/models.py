@@ -190,6 +190,7 @@ class DBEventDocument:
     user_id_extracted: str | None = None
     conversation_id_extracted: str | None = None
     motivation: str | None = None
+    embedding: list[float] | None = field(default=None, repr=False) # 句子嵌入向量，默认不显示在repr中
     status: str = "unread"
 
     @classmethod

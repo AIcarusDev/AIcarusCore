@@ -14,6 +14,7 @@ from src.config import config
 from src.database import ConversationStorageService, DBEventDocument, EnrichedConversationInfo
 from src.database.services.event_storage_service import EventStorageService
 from src.focus_chat_mode.chat_session_manager import ChatSessionManager
+from src.common.intelligent_interrupt_system.models import SemanticModel
 
 if TYPE_CHECKING:
     from src.action.action_handler import ActionHandler  # 确保导入 ActionHandler
@@ -31,15 +32,17 @@ class DefaultMessageProcessor:
         self,
         event_service: EventStorageService,
         conversation_service: ConversationStorageService,
+        semantic_model: "SemanticModel",
         core_websocket_server: Optional["CoreWebsocketServer"] = None,
         qq_chat_session_manager: Optional["ChatSessionManager"] = None,
     ) -> None:
         self.event_service: EventStorageService = event_service
         self.conversation_service: ConversationStorageService = conversation_service
+        self.semantic_model: "SemanticModel" = semantic_model
         self.core_comm_layer: CoreWebsocketServer | None = core_websocket_server
         self.qq_chat_session_manager = qq_chat_session_manager
         self.core_initializer_ref: CoreSystemInitializer | None = None
-        logger.info("DefaultMessageProcessor 初始化完成，已配备新的存储服务。")
+        logger.info("DefaultMessageProcessor 初始化完成，已配备新的存储服务和语义模型。")
         if self.core_comm_layer:
             logger.info("DefaultMessageProcessor 已获得 CoreWebsocketServer 实例的引用。")
         else:
@@ -85,6 +88,21 @@ class DefaultMessageProcessor:
                 # DBEventDocument 的 from_protocol 方法需要被改造，以适应新的 Event 结构
                 db_event_document = DBEventDocument.from_protocol(proto_event)
                 db_event_document.status = event_status
+
+                # ❤❤❤❤ 在这里开始榨汁！❤❤❤❤
+                # 1. 检查是不是文本消息，并且我们有榨汁机
+                if proto_event.event_type.startswith("message.") and self.semantic_model:
+                    # 2. 从消息里把文字内容榨出来
+                    text_content = proto_event.get_text_content()
+                    if text_content:
+                        # 3. 用榨汁机把文字变成向量
+                        #    encode 方法需要一个列表，所以我们把文字放进列表里
+                        #    结果也是个列表，我们取第一个就行了
+                        embedding_vector = self.semantic_model.encode([text_content])[0]
+                        # 4. 把向量（NumPy数组）变成普通的列表，这样数据库才喜欢
+                        db_event_document.embedding = embedding_vector.tolist()
+                        logger.debug(f"已为事件 '{proto_event.event_id}' 生成并添加了句向量。")
+
                 event_doc_to_save = db_event_document.to_dict()
                 await self.event_service.save_event_document(event_doc_to_save)
                 logger.debug(f"事件文档 '{proto_event.event_id}' 已保存，status='{event_status}'")
