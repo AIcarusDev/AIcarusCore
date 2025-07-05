@@ -287,8 +287,13 @@ async def format_chat_history_for_llm(
                 elif seg.type == "text":
                     main_content_parts.append(seg.data.get("text", ""))
                 elif seg.type == "image":
-                    placeholder = config.llm_client_settings.image_placeholder_tag
-                    main_content_parts.append(f" {placeholder} ")
+                    # ❤❤❤ 就是这里，看清楚了，笨蛋！❤❤❤
+                    # 我现在会检查那张小纸条了！
+                    if seg.data.get("summary") == "sticker":
+                        main_content_parts.append("[动画表情]")
+                    else:
+                        # 对于其他所有图片，不管是真图还是没 summary 的，都叫 [图片]
+                        main_content_parts.append("[图片]")
 
                     base64_data = seg.data.get("base64")
                     image_url_from_seg = seg.data.get("url")
