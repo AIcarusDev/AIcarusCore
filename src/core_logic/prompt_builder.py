@@ -65,4 +65,13 @@ class ThoughtPromptBuilder:
         # 4. 组装 User Prompt
         user_prompt = prompt_templates.CORE_USER_PROMPT.format(**state_blocks)
 
+        logger.debug(
+            f"[主意识]  - 准备发送给LLM的完整Prompt:\n"
+            f"==================== SYSTEM PROMPT (主意识) ====================\n"
+            f"{system_prompt}\n"
+            f"==================== USER PROMPT (主意识) ======================\n"
+            f"{user_prompt}\n"
+            f"=================================================================="
+        )
+
         return system_prompt, user_prompt, state_blocks
