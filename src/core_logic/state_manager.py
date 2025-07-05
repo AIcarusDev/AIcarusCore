@@ -3,7 +3,7 @@ import datetime
 from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
-from src.database import ActionLogStorageService, ThoughtStorageService  # 导入ActionLogStorageService
+from src.database import ActionLogStorageService, ThoughtStorageService
 
 logger = get_logger(__name__)
 
@@ -28,11 +28,11 @@ class AIStateManager:
         初始化需要 thought_storage_service 和 action_log_service 才能干活，哼。
         """
         self.thought_service = thought_service
-        self.action_log_service = action_log_service  # 新增
+        self.action_log_service = action_log_service
         self._next_handover_summary: str | None = None
         self._next_last_focus_think: str | None = None
         self._next_last_focus_mood: str | None = None
-        self.bot_profile_cache: dict[str, Any] = {}  # 新增
+        self.bot_profile_cache: dict[str, Any] = {}
         logger.info("AIStateManager 初始化完毕，已准备好接收交接信息和处理动作日志。")
 
     def set_next_handover_info(
@@ -59,7 +59,7 @@ class AIStateManager:
 
     async def get_current_state_for_prompt(self) -> dict[str, str]:
         """
-        从数据库获取最新的思考和动作日志，处理一下，变成能直接喂给PromptBuilder的状态块字典。
+        从数据库获取最新的思考和动作日志，现在它能听懂新旧两种语言了！
         """
         state_blocks = self.INITIAL_STATE.copy()
 
@@ -69,35 +69,56 @@ class AIStateManager:
 
         # 2. 构建心情、想法和目标块
         if latest_thought:
-            # 心情
-            mood_db = latest_thought.get("emotion_output", "平静")
+            # --- 看这里！这就是兼容性的魔法！ ---
+            # 它会先尝试找新字段 'mood'，找不到再去找旧字段 'emotion_output'
+            mood_db = latest_thought.get("mood") or latest_thought.get("emotion_output", "平静")
             state_blocks["mood_block"] = f"你刚才的心情是：{mood_db}"
-            # 想法
-            think_db = latest_thought.get("think_output")
+
+            # 同理，处理想法和目标
+            think_db = latest_thought.get("think") or latest_thought.get("think_output")
             state_blocks["think_block"] = f"你刚才的内心想法是：{think_db}" if think_db else state_blocks["think_block"]
-            # 目标
-            goal_db = latest_thought.get("to_do_output")
+
+            goal_db = latest_thought.get("goal") or latest_thought.get("to_do_output")
             state_blocks["goal_block"] = f"你当前的目标是：【{goal_db}】" if goal_db else state_blocks["goal_block"]
 
-        # 3. 处理上一轮的动作请求和响应
-        last_action_attempt = latest_thought.get("action_attempted") if latest_thought else None
-        if last_action_attempt and isinstance(last_action_attempt, dict):
-            action_desc = last_action_attempt.get("action_description", "某个动作")
-            action_motive = last_action_attempt.get("action_motivation", "某种动机")
-            state_blocks["action_request_block"] = f'你刚才试图做的动作是:"{action_desc}"，因为:"{action_motive}"'
+            # --- 动作处理也得改！ ---
+            # 先尝试找新的 `action` 字段，再找旧的 `action_attempted`
+            last_action_attempt = latest_thought.get("action") or latest_thought.get("action_attempted")
 
-            action_status = last_action_attempt.get("status")
-            if action_status in ["COMPLETED_SUCCESS", "COMPLETED_FAILURE", "CRITICAL_FAILURE"]:
-                result_for_shimo = last_action_attempt.get("final_result_for_shimo")
-                state_blocks["action_response_block"] = (
-                    f'你刚才的动作"{action_desc}"，{result_for_shimo or "没有返回具体信息。"}'
-                )
-            elif action_status:
-                state_blocks["action_response_block"] = (
-                    f'你刚才的动作"{action_desc}"，目前还在执行中(状态: {action_status})。'
-                )
-            else:
-                state_blocks["action_response_block"] = f'你刚才的动作"{action_desc}"，目前状态未知。'
+            if last_action_attempt and isinstance(last_action_attempt, dict):
+                # 从新的 action_payload 中提取信息，或者从旧结构中提取
+                action_payload = last_action_attempt.get("action_payload", {})
+
+                # 兼容旧格式的 action_description
+                action_desc = "未知动作"
+                # 尝试从新结构解析
+                if action_payload:
+                    platform, actions = next(iter(action_payload.items()))
+                    action_name, params = next(iter(actions.items()))
+                    action_desc = f"在平台 '{platform}' 执行 '{action_name}'"
+                else: # 兼容旧结构
+                    action_desc = last_action_attempt.get("action_description", "某个动作")
+
+                # 兼容旧格式的 action_motivation
+                action_motive = "未知动机"
+                if action_payload:
+                    _, actions = next(iter(action_payload.items()))
+                    _, params = next(iter(actions.items()))
+                    action_motive = params.get("motivation", "未知动机")
+                else:
+                    action_motive = last_action_attempt.get("action_motivation", "某种动机")
+
+
+                state_blocks["action_request_block"] = f'你刚才试图做的动作是:"{action_desc}"，因为:"{action_motive}"'
+
+                action_status = last_action_attempt.get("status")
+                if action_status in ["COMPLETED_SUCCESS", "COMPLETED_FAILURE", "CRITICAL_FAILURE"]:
+                    result_for_shimo = last_action_attempt.get("final_result_for_shimo")
+                    state_blocks["action_response_block"] = f'你刚才的动作"{action_desc}"，{result_for_shimo or "没有返回具体信息。"}'
+                elif action_status:
+                    state_blocks["action_response_block"] = f'你刚才的动作"{action_desc}"，目前还在执行中(状态: {action_status})。'
+                else:
+                    state_blocks["action_response_block"] = f'你刚才的动作"{action_desc}"，目前状态未知。'
 
         # 4. 构建动作日志块
         recent_logs = await self.action_log_service.get_recent_action_logs(limit=10)
