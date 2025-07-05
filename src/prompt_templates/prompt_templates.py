@@ -190,6 +190,7 @@ GROUP_USER_PROMPT = """
 <Event_Types>
 [MSG]: 普通消息，在消息后的（id:xxx）为消息的 id
 [SYS]: 系统通知
+[NOTICE]: 来自平台的通知事件。
 [MOTIVE]: 对应你的"motivation"，帮助你更好的了解自己的心路历程，它有两种出现形式：
 
       1. 独立出现时 (无缩进): 代表你经过思考后，决定“保持沉默/不发言”的原因。
@@ -395,6 +396,7 @@ PRIVATE_USER_PROMPT = """
 <Event_Types>
 [MSG]: 普通消息，在消息后的（id:xxx）为消息的 id
 [SYS]: 系统通知
+[NOTICE]: 来自平台的通知事件。
 [MOTIVE]: 对应你的"motivation"，帮助你更好的了解自己的心路历程，它有两种出现形式：
 
       1. 独立出现时 (无缩进): 代表你经过思考后，决定“保持沉默/不发言”的原因。

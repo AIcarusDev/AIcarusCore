@@ -365,12 +365,77 @@ async def format_chat_history_for_llm(
             if log_user_id_str == "U0" and event_motivation and event_motivation.strip():
                 log_line += f"\n    - [MOTIVE]: {event_motivation}"
 
-        elif event_data_log.event_type == "notice.group.increase":
-            op_id = event_data_log.content[0].data.get("operator_id") if event_data_log.content else None
-            tar_id = event_data_log.content[0].data.get("target_id") if event_data_log.content else None
-            op_uid = platform_id_to_uid_str.get(op_id, op_id or "UnknownOperator") if op_id else "UnknownOperator"
-            tar_uid = platform_id_to_uid_str.get(tar_id, tar_id or "UnknownTarget") if tar_id else "UnknownTarget"
-            log_line = f"[{time_str}] [SYS]: {op_uid}邀请{tar_uid}加入了群聊。"
+        elif event_data_log.event_type.startswith("notice."):
+            main_content_type = "NOTICE"
+            notice_data = event_data_log.content[0].data if event_data_log.content else {}
+            # 从事件类型里把具体的通知类型抠出来，比如 'member_increase'
+            notice_subtype = event_data_log.event_type.split('.')[-1]
+
+            # 开始区分不同的通知类型，拼出人话
+            if notice_subtype == "member_increase":
+                operator_info = notice_data.get("operator_user_info", {})
+                operator_id = operator_info.get("user_id") if operator_info else None
+                operator_uid = platform_id_to_uid_str.get(operator_id, f"未知用户({str(operator_id)[:4]})") if operator_id else "系统"
+
+                target_id = event_data_log.user_info.user_id if event_data_log.user_info else None
+                target_uid = platform_id_to_uid_str.get(target_id, f"未知用户({str(target_id)[:4]})") if target_id else "一位新成员"
+
+                if notice_data.get("join_type") == "approve":
+                    main_content_parts.append(f"{target_uid} 加入了群聊。")
+                else: # invite
+                    main_content_parts.append(f"{operator_uid} 邀请 {target_uid} 加入了群聊。")
+
+            elif notice_subtype == "member_decrease":
+                operator_info = notice_data.get("operator_user_info", {})
+                operator_id = operator_info.get("user_id") if operator_info else None
+                operator_uid = platform_id_to_uid_str.get(operator_id, f"未知用户({str(operator_id)[:4]})") if operator_id else "系统"
+
+                target_id = event_data_log.user_info.user_id if event_data_log.user_info else None
+                target_uid = platform_id_to_uid_str.get(target_id, f"未知用户({str(target_id)[:4]})") if target_id else "一位成员"
+
+                if notice_data.get("leave_type") == "kick":
+                    main_content_parts.append(f"{operator_uid} 将 {target_uid} 移出了群聊。")
+                else: # leave
+                    main_content_parts.append(f"{target_uid} 退出了群聊。")
+
+            elif notice_subtype == "member_ban":
+                operator_info = notice_data.get("operator_user_info", {})
+                operator_id = operator_info.get("user_id") if operator_info else None
+                operator_uid = platform_id_to_uid_str.get(operator_id, "管理员") if operator_id else "管理员"
+
+                target_info = notice_data.get("target_user_info", {})
+                target_id = target_info.get("user_id") if target_info else None
+                target_uid = platform_id_to_uid_str.get(target_id, "一位成员") if target_id else "一位成员"
+
+                duration = notice_data.get("duration_seconds", 0)
+                if duration > 0:
+                    main_content_parts.append(f"{operator_uid} 将 {target_uid} 禁言了 {duration} 秒。")
+                else:
+                    main_content_parts.append(f"{operator_uid} 解除了 {target_uid} 的禁言。")
+
+            elif notice_subtype == "message_recalled":
+                operator_info = notice_data.get("operator_user_info", {})
+                operator_id = operator_info.get("user_id") if operator_info else None
+                operator_uid = platform_id_to_uid_str.get(operator_id, "一位用户") if operator_id else "一位用户"
+                main_content_parts.append(f"{operator_uid} 撤回了一条消息。")
+
+            elif notice_subtype == "user.poke":
+                sender_info = notice_data.get("sender_user_info", {})
+                sender_id = sender_info.get("user_id") if sender_info else None
+                sender_uid = platform_id_to_uid_str.get(sender_id, "一位用户") if sender_id else "一位用户"
+
+                target_info = notice_data.get("target_user_info", {})
+                target_id = target_info.get("user_id") if target_info else None
+                target_uid = platform_id_to_uid_str.get(target_id, "一位用户") if target_id else "一位用户"
+                main_content_parts.append(f"{sender_uid} 戳了戳 {target_uid}。")
+
+            else:
+                # 对于其他不认识的通知，就随便糊弄一下
+                main_content_parts.append(f"收到一条 {notice_subtype} 类型的平台通知。")
+
+            main_content_str = "".join(main_content_parts).strip()
+            log_line = f"[{time_str}] [{main_content_type}]: {main_content_str}"
+
         elif event_data_log.event_type == "internal.focus_chat_mode.thought_log":
             motivation_text = extract_text_from_content(event_data_log.content)
             log_line = f"[{time_str}] {log_user_id_str} [MOTIVE]: {motivation_text}"  # log_user_id_str 可能是 U0
