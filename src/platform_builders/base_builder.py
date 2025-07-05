@@ -15,7 +15,7 @@ class BasePlatformBuilder(ABC):
     @abstractmethod
     def platform_id(self) -> str:
         """
-        返回此构建器服务的平台ID (e.g., 'napcat')。
+        返回此构建器服务的平台ID (e.g., 'napcat_qq')。
         必须和你 Adapter 在 Core 注册的 ID 一模一样，懂？
         """
         pass

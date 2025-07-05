@@ -10,16 +10,16 @@ from aicarus_protocols import Seg, SegBuilder
 from websockets.server import WebSocketServerProtocol
 
 from src.common.custom_logging.logging_config import get_logger
+from src.common.intelligent_interrupt_system.models import SemanticModel
 from src.config import config
 from src.database import (
     ConversationStorageService,
     DBEventDocument,
     EnrichedConversationInfo,
-    PersonStorageService, # 把老鸨请进来
+    PersonStorageService,  # 把老鸨请进来
 )
 from src.database.services.event_storage_service import EventStorageService
 from src.focus_chat_mode.chat_session_manager import ChatSessionManager
-from src.common.intelligent_interrupt_system.models import SemanticModel
 
 if TYPE_CHECKING:
     from src.action.action_handler import ActionHandler  # 确保导入 ActionHandler
@@ -37,15 +37,15 @@ class DefaultMessageProcessor:
         self,
         event_service: EventStorageService,
         conversation_service: ConversationStorageService,
-        person_service: PersonStorageService, # 给老鸨一个位置
+        person_service: PersonStorageService,  # 给老鸨一个位置
         semantic_model: "SemanticModel",
         core_websocket_server: Optional["CoreWebsocketServer"] = None,
         qq_chat_session_manager: Optional["ChatSessionManager"] = None,
     ) -> None:
         self.event_service: EventStorageService = event_service
         self.conversation_service: ConversationStorageService = conversation_service
-        self.person_service: PersonStorageService = person_service # 记住这位老鸨
-        self.semantic_model: "SemanticModel" = semantic_model
+        self.person_service: PersonStorageService = person_service  # 记住这位老鸨
+        self.semantic_model: SemanticModel = semantic_model
         self.core_comm_layer: CoreWebsocketServer | None = core_websocket_server
         self.qq_chat_session_manager = qq_chat_session_manager
         self.core_initializer_ref: CoreSystemInitializer | None = None
@@ -103,14 +103,14 @@ class DefaultMessageProcessor:
                         account_uid=account_uid,
                         conversation_id=proto_event.conversation_info.conversation_id,
                         user_info=proto_event.user_info,
-                        conversation_name=proto_event.conversation_info.name
+                        conversation_name=proto_event.conversation_info.name,
                     )
 
             if needs_persistence:
                 # DBEventDocument 的 from_protocol 方法需要被改造，以适应新的 Event 结构
                 db_event_document = DBEventDocument.from_protocol(proto_event)
                 db_event_document.status = event_status
-                db_event_document.person_id_associated = person_id # 把person_id也存进去！
+                db_event_document.person_id_associated = person_id  # 把person_id也存进去！
 
                 # ❤❤❤❤ 在这里开始榨汁！❤❤❤❤
                 # 1. 检查是不是文本消息，并且我们有榨汁机
@@ -138,9 +138,12 @@ class DefaultMessageProcessor:
                     event_bot_id=proto_event.bot_id,
                 )
                 conversation_doc_to_upsert = enriched_conv_info.to_db_document()
-                upsert_result_key = await self.conversation_service.upsert_conversation_document(
-                    conversation_doc_to_upsert
-                )
+                upsert_result = await self.conversation_service.upsert_conversation_document(conversation_doc_to_upsert)
+                # 从返回的字典中安全地获取 '_key' 或 '_id'
+                upsert_result_key = None
+                if upsert_result:  # 增加健壮性检查，防止 upsert_result 为 None
+                    upsert_result_key = upsert_result.get("_key") or upsert_result.get("_id")
+
                 if upsert_result_key:
                     logger.info(f"会话档案 (ConversationInfo) '{upsert_result_key}' 已成功插入或更新。")
                 else:
@@ -312,7 +315,7 @@ class DefaultMessageProcessor:
                 approve_action_event_type = f"action.{platform_id}.handle_friend_request"
 
                 approve_action_seg = Seg(
-                    type="action_params", # 这里用 action_params，让 builder 去解析
+                    type="action_params",  # 这里用 action_params，让 builder 去解析
                     data={
                         "request_flag": request_flag,
                         "approve": True,

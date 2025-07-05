@@ -233,7 +233,11 @@ class ChatPromptBuilder:
                 # 理论上这些应该总是有的，除非核心意识没有运行过
                 mood_part = f'你刚才的心情是"{last_mood_from_core}"。\n' if last_mood_from_core else ""
                 think_part = f'你刚才的想法是："{last_think_from_core}"。\n' if last_think_from_core else ""
-                motivation_part = f'你现在刚刚把注意力放到这个会话中，因为："{motivation_from_core}"。\n' if motivation_from_core else "你已进入专注模式，开始处理此会话。\n"
+                motivation_part = (
+                    f'你现在刚刚把注意力放到这个会话中，因为："{motivation_from_core}"。\n'
+                    if motivation_from_core
+                    else "你已进入专注模式，开始处理此会话。\n"
+                )
 
                 # 把它们拼起来！
                 previous_thoughts_block_str = f"{mood_part}{think_part}{motivation_part}"

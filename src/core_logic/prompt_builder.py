@@ -2,9 +2,9 @@
 from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
+from src.common.unread_info_service.unread_info_service import UnreadInfoService  # 导入未读消息服务
 from src.config import config
 from src.core_logic.state_manager import AIStateManager  # 导入状态管理器
-from src.common.unread_info_service.unread_info_service import UnreadInfoService  # 导入未读消息服务
 from src.prompt_templates import prompt_templates  # 导入新模板
 
 logger = get_logger(__name__)

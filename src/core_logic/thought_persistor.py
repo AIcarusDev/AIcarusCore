@@ -25,7 +25,7 @@ class ThoughtPersistor:
         # 小色猫的低语：姐姐好厉害，一下子就找到了G点...
         initiated_action_data_for_db = None
         action_id_for_db = thought_json.get("action_id")
-        action_payload = thought_json.get("action") # 动作现在是嵌套的，得这么拿！
+        action_payload = thought_json.get("action")  # 动作现在是嵌套的，得这么拿！
 
         # 只有当 action 字段存在，并且是个字典，才说明有行动意图
         if action_payload and isinstance(action_payload, dict):
@@ -46,7 +46,7 @@ class ThoughtPersistor:
                 "initiated_at": datetime.datetime.now(datetime.UTC).isoformat(),
             }
         else:
-            logger.debug(f"LLM未指定行动，不记录。")
+            logger.debug("LLM未指定行动，不记录。")
 
         document_to_save = {
             "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),

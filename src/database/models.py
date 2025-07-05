@@ -10,23 +10,26 @@ from aicarus_protocols import Event as ProtocolEvent
 from aicarus_protocols import UserInfo as ProtocolUserInfo
 
 from src.common.custom_logging.logging_config import get_logger
-from src.database.core.connection_manager import CoreDBCollections
 
 logger = get_logger(__name__)
 
 
 # --- 新增模型：Person & Account ---
 
+
 @dataclass
 class PersonProfile:
     """一个'人'的档案，存放那些主观、推断或稳定的信息。"""
+
     sex: str | None = None
     age: int | None = None
     area: str | None = None
 
+
 @dataclass
 class PersonDocument:
     """代表 'persons' 集合中的一个'人'节点。"""
+
     _key: str  # person_id
     person_id: str
     profile: PersonProfile = field(default_factory=PersonProfile)
@@ -42,13 +45,15 @@ class PersonDocument:
         # to_dict 应该只负责转换数据，不应该操心 _id 的事
         return asdict(self)
 
+
 @dataclass
 class AccountDocument:
     """代表 'accounts' 集合中的一个平台账号节点。"""
-    _key: str # account_uid, e.g., 'qq_12345'
+
+    _key: str  # account_uid, e.g., 'qq_12345'
     account_uid: str
     platform: str
-    platform_id: str # The actual ID on the platform, e.g., '12345'
+    platform_id: str  # The actual ID on the platform, e.g., '12345'
     nickname: str | None = None
     avatar: str | None = None
     created_at: int = field(default_factory=lambda: int(time.time() * 1000))
@@ -58,7 +63,7 @@ class AccountDocument:
     def from_user_info(cls, user_info: ProtocolUserInfo, platform: str) -> "AccountDocument":
         if not user_info.user_id:
             raise ValueError("UserInfo必须有user_id才能创建AccountDocument")
-        
+
         account_uid = f"{platform}_{user_info.user_id}"
         return cls(
             _key=account_uid,
@@ -72,20 +77,23 @@ class AccountDocument:
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
+
 @dataclass
 class MembershipProperties:
     """代表 'participates_in' 边上的属性。"""
+
     group_name: str | None = None
     cardname: str | None = None
     permission_level: str | None = None
     title: str | None = None
     last_active_timestamp: int = field(default_factory=lambda: int(time.time() * 1000))
-    
+
     def to_dict(self) -> dict[str, Any]:
-        return {k:v for k, v in asdict(self).items() if v is not None}
+        return {k: v for k, v in asdict(self).items() if v is not None}
 
 
 # --- 旧模型保持不变，只修改需要兼容的地方 ---
+
 
 @dataclass
 class AttentionProfile:
@@ -191,7 +199,9 @@ class EnrichedConversationInfo:
             )
         else:
             placeholder_conv_id = f"derived_missing_id_{event_platform}_{str(uuid.uuid4())[:8]}"
-            logger.error(f"从协议传入的 ConversationInfo 对象缺失或无 conversation_id。将创建临时的 EnrichedConversationInfo ID: '{placeholder_conv_id}'。")
+            logger.error(
+                f"从协议传入的 ConversationInfo 对象缺失或无 conversation_id。将创建临时的 EnrichedConversationInfo ID: '{placeholder_conv_id}'。"
+            )
             return cls(
                 conversation_id=placeholder_conv_id,
                 platform=event_platform,
@@ -259,15 +269,25 @@ class DBEventDocument:
         if not isinstance(proto_event, ProtocolEvent):
             raise TypeError("输入对象必须是 aicarus_protocols.Event 的实例。")
         platform_id = proto_event.get_platform() or "unknown"
-        uid_ext = str(proto_event.user_info.user_id) if proto_event.user_info and proto_event.user_info.user_id else None
-        cid_ext = str(proto_event.conversation_info.conversation_id) if proto_event.conversation_info and proto_event.conversation_info.conversation_id else None
+        uid_ext = (
+            str(proto_event.user_info.user_id) if proto_event.user_info and proto_event.user_info.user_id else None
+        )
+        cid_ext = (
+            str(proto_event.conversation_info.conversation_id)
+            if proto_event.conversation_info and proto_event.conversation_info.conversation_id
+            else None
+        )
         content_as_dicts = [seg.to_dict() for seg in proto_event.content] if proto_event.content else []
         user_info_dict = proto_event.user_info.to_dict() if proto_event.user_info else None
         conversation_info_dict = proto_event.conversation_info.to_dict() if proto_event.conversation_info else None
         raw_data_dict = None
         if proto_event.raw_data:
             try:
-                raw_data_dict = json.loads(str(proto_event.raw_data)) if isinstance(proto_event.raw_data, str) else proto_event.raw_data
+                raw_data_dict = (
+                    json.loads(str(proto_event.raw_data))
+                    if isinstance(proto_event.raw_data, str)
+                    else proto_event.raw_data
+                )
                 if not isinstance(raw_data_dict, dict):
                     raw_data_dict = {"_raw_content_as_string_": str(proto_event.raw_data)}
             except (json.JSONDecodeError, TypeError):

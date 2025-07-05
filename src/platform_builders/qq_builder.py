@@ -89,7 +89,8 @@ class QQBuilder(BasePlatformBuilder):
         if not conversation_id or not isinstance(content_segs_data, list):
             logger.warning(
                 "Missing or invalid parameters in _build_send_message: conversation_id=%r, content=%r",
-                conversation_id, content_segs_data
+                conversation_id,
+                content_segs_data,
             )
             return None
         # 注意！send_message比较特殊，它的content就是消息本身，所以Seg的type就是text, image等
@@ -109,9 +110,10 @@ class QQBuilder(BasePlatformBuilder):
         nodes = params.get("nodes", [])
         if not nodes:
             return None
+
         # 合并转发的content也比较特殊，是node列表
         # 验证节点数据结构
-        def is_valid_node_data(node_data):
+        def is_valid_node_data(node_data: dict[str, Any]) -> bool:
             # 检查是否为字典且包含必需字段
             return isinstance(node_data, dict) and "id" in node_data and "content" in node_data
 

@@ -77,14 +77,15 @@ class ConversationStorageService:
             # 合并 attention_profile: 新数据优先，但如果新数据中没有，则保留旧的
             existing_profile = existing_doc.get("attention_profile", {})  # 如果旧文档没有profile，则为空字典
             new_profile_in_data = doc_for_db.get("attention_profile")
-
-            if isinstance(new_profile_in_data, dict):  # 如果新数据中提供了 attention_profile
-                doc_for_db["attention_profile"] = {**existing_profile, **new_profile_in_data}  # 新值覆盖旧值
-            elif isinstance(existing_profile, dict) and existing_profile:  # 新数据中没有，但旧数据中有
-                doc_for_db["attention_profile"] = existing_profile  # 保留旧的
-            else:  # 新旧数据中都没有 attention_profile，或新数据中的非字典
-                #  应该从 AttentionProfile 模型获取默认值
-                from src.database import AttentionProfile  # 避免循环导入，或者在类顶部导入
+            if isinstance(new_profile_in_data, dict):
+                # 使用新数据覆盖旧数据中的相应字段
+                doc_for_db["attention_profile"] = {**existing_profile, **new_profile_in_data}
+            elif isinstance(existing_profile, dict) and existing_profile:
+                # 如果新数据中没有profile，但旧数据中有，则保留旧的
+                doc_for_db["attention_profile"] = existing_profile
+            else:  # 如果两边都没有，或者新的是无效类型
+                # 确保它至少是一个空字典
+                from src.database import AttentionProfile  # 延迟导入，避免循环依赖
 
                 doc_for_db["attention_profile"] = AttentionProfile.get_default_profile().to_dict()
 
@@ -102,7 +103,7 @@ class ConversationStorageService:
                 # collection.update 使用文档中的 _key 匹配并合并更新
                 await collection.update(doc_for_db)
                 logger.info(f"会话 '{doc_key}' 的档案已成功更新。")
-                return doc_key
+                return {"_key": doc_key, "_id": f"{self.COLLECTION_NAME}/{doc_key}"}
             except DocumentUpdateError as e:
                 logger.error(f"更新会话 '{doc_key}' 的档案失败: {e}", exc_info=True)
                 return None

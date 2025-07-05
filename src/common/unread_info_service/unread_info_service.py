@@ -1,5 +1,4 @@
 # src/common/unread_info_service/unread_info_service.py
-import time
 from collections import defaultdict
 from datetime import datetime
 from typing import Any
@@ -115,11 +114,8 @@ class UnreadInfoService:
         for seg in content:
             if seg.get("type") == "at" and seg.get("data", {}).get("user_id") == self.bot_id:
                 is_at_me = True
-            if seg.get("type") == "reply":
-                # 这里的逻辑需要根据你的`reply` seg结构来确定
-                # 假设 `reply` seg 的 data 里有 `replied_user_id`
-                if seg.get("data", {}).get("replied_user_id") == self.bot_id:
-                    is_reply_to_me = True
+            if seg.get("type") == "reply" and seg.get("data", {}).get("replied_user_id") == self.bot_id:
+                is_reply_to_me = True
 
         # 再处理戳一戳这种特殊事件
         if event_type in ("user.poke", "group.user.poke", "private.user.poke"):
@@ -128,7 +124,10 @@ class UnreadInfoService:
                 return f'{display_name} "戳了戳" 你'
             else:
                 target_name = (
-                    event.get("content", [{}])[0].get("data", {}).get("target_user_info", {}).get("user_nickname", "某人")
+                    event.get("content", [{}])[0]
+                    .get("data", {})
+                    .get("target_user_info", {})
+                    .get("user_nickname", "某人")
                 )
                 return f'{display_name} "戳了戳" {target_name}'
 
@@ -169,7 +168,7 @@ class UnreadInfoService:
             full_preview = full_preview[:20] + "..."
 
         if not full_preview:
-            full_preview = "[消息]" # 如果啥也没有，就给个默认的
+            full_preview = "[消息]"  # 如果啥也没有，就给个默认的
 
         # 加上发送者
         final_preview = f"{display_name}：{full_preview}"
@@ -223,7 +222,7 @@ class UnreadInfoService:
                     summary_parts.append(f"  - [ID]：{conv_id}")
                     summary_parts.append(f"  - [最新消息]：{message_preview}")
                     summary_parts.append(f"  - (时间：{time_str}/共 {unread_count} 条未读信息)")
-                    summary_parts.append("") # 加个空行好看点
+                    summary_parts.append("")  # 加个空行好看点
                 summary_parts.append("</from_group>")
 
             if private_chats:

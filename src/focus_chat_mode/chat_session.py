@@ -237,7 +237,9 @@ class ChatSession:
         # 返回一个空的字典，让调用方能安全地 .get()，而不会崩溃
         return {}
 
-    def activate(self, core_last_think: str | None = None, core_last_mood: str | None = None, core_motivation: str | None = None) -> None:
+    def activate(
+        self, core_last_think: str | None = None, core_last_mood: str | None = None, core_motivation: str | None = None
+    ) -> None:
         """激活会话并启动其主动循环。"""
         if self.is_active:
             self.initial_core_think = core_last_think

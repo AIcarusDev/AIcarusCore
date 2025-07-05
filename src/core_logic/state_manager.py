@@ -96,7 +96,7 @@ class AIStateManager:
                     platform, actions = next(iter(action_payload.items()))
                     action_name, params = next(iter(actions.items()))
                     action_desc = f"在平台 '{platform}' 执行 '{action_name}'"
-                else: # 兼容旧结构
+                else:  # 兼容旧结构
                     action_desc = last_action_attempt.get("action_description", "某个动作")
 
                 # 兼容旧格式的 action_motivation
@@ -108,15 +108,18 @@ class AIStateManager:
                 else:
                     action_motive = last_action_attempt.get("action_motivation", "某种动机")
 
-
                 state_blocks["action_request_block"] = f'你刚才试图做的动作是:"{action_desc}"，因为:"{action_motive}"'
 
                 action_status = last_action_attempt.get("status")
                 if action_status in ["COMPLETED_SUCCESS", "COMPLETED_FAILURE", "CRITICAL_FAILURE"]:
                     result_for_shimo = last_action_attempt.get("final_result_for_shimo")
-                    state_blocks["action_response_block"] = f'你刚才的动作"{action_desc}"，{result_for_shimo or "没有返回具体信息。"}'
+                    state_blocks["action_response_block"] = (
+                        f'你刚才的动作"{action_desc}"，{result_for_shimo or "没有返回具体信息。"}'
+                    )
                 elif action_status:
-                    state_blocks["action_response_block"] = f'你刚才的动作"{action_desc}"，目前还在执行中(状态: {action_status})。'
+                    state_blocks["action_response_block"] = (
+                        f'你刚才的动作"{action_desc}"，目前还在执行中(状态: {action_status})。'
+                    )
                 else:
                     state_blocks["action_response_block"] = f'你刚才的动作"{action_desc}"，目前状态未知。'
 

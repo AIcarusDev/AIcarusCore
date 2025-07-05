@@ -369,33 +369,49 @@ async def format_chat_history_for_llm(
             main_content_type = "NOTICE"
             notice_data = event_data_log.content[0].data if event_data_log.content else {}
             # 从事件类型里把具体的通知类型抠出来，比如 'member_increase'
-            notice_subtype = event_data_log.event_type.split('.')[-1]
+            notice_subtype = event_data_log.event_type.split(".")[-1]
 
             # 开始区分不同的通知类型，拼出人话
             if notice_subtype == "member_increase":
                 operator_info = notice_data.get("operator_user_info", {})
                 operator_id = operator_info.get("user_id") if operator_info else None
-                operator_uid = platform_id_to_uid_str.get(operator_id, f"未知用户({str(operator_id)[:4]})") if operator_id else "系统"
+                operator_uid = (
+                    platform_id_to_uid_str.get(operator_id, f"未知用户({str(operator_id)[:4]})")
+                    if operator_id
+                    else "系统"
+                )
 
                 target_id = event_data_log.user_info.user_id if event_data_log.user_info else None
-                target_uid = platform_id_to_uid_str.get(target_id, f"未知用户({str(target_id)[:4]})") if target_id else "一位新成员"
+                target_uid = (
+                    platform_id_to_uid_str.get(target_id, f"未知用户({str(target_id)[:4]})")
+                    if target_id
+                    else "一位新成员"
+                )
 
                 if notice_data.get("join_type") == "approve":
                     main_content_parts.append(f"{target_uid} 加入了群聊。")
-                else: # invite
+                else:  # invite
                     main_content_parts.append(f"{operator_uid} 邀请 {target_uid} 加入了群聊。")
 
             elif notice_subtype == "member_decrease":
                 operator_info = notice_data.get("operator_user_info", {})
                 operator_id = operator_info.get("user_id") if operator_info else None
-                operator_uid = platform_id_to_uid_str.get(operator_id, f"未知用户({str(operator_id)[:4]})") if operator_id else "系统"
+                operator_uid = (
+                    platform_id_to_uid_str.get(operator_id, f"未知用户({str(operator_id)[:4]})")
+                    if operator_id
+                    else "系统"
+                )
 
                 target_id = event_data_log.user_info.user_id if event_data_log.user_info else None
-                target_uid = platform_id_to_uid_str.get(target_id, f"未知用户({str(target_id)[:4]})") if target_id else "一位成员"
+                target_uid = (
+                    platform_id_to_uid_str.get(target_id, f"未知用户({str(target_id)[:4]})")
+                    if target_id
+                    else "一位成员"
+                )
 
                 if notice_data.get("leave_type") == "kick":
                     main_content_parts.append(f"{operator_uid} 将 {target_uid} 移出了群聊。")
-                else: # leave
+                else:  # leave
                     main_content_parts.append(f"{target_uid} 退出了群聊。")
 
             elif notice_subtype == "member_ban":

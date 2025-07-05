@@ -239,7 +239,9 @@ class CoreLogic:
             #    这是个简化处理，如果不行你再来找我，哼！
             try:
                 unread_convs = await self.prompt_builder.unread_info_service.get_structured_unread_conversations()
-                target_conv_details = next((c for c in unread_convs if c.get("conversation_id") == target_conv_id), None)
+                target_conv_details = next(
+                    (c for c in unread_convs if c.get("conversation_id") == target_conv_id), None
+                )
 
                 if not target_conv_details:
                     logger.error(f"无法激活会话 '{target_conv_id}'，因为它不在未读列表中。")
@@ -264,7 +266,6 @@ class CoreLogic:
 
             except Exception as e:
                 logger.error(f"主意识在处理 'focus' 指令时发生错误: {e}", exc_info=True)
-
 
         # --- 权力寻租结束 ---
         # 把剩下的垃圾（如果有的话）丢给ActionHandler去处理。

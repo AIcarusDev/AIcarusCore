@@ -13,9 +13,9 @@ from arangoasync.exceptions import (
     ArangoClientError,
     ArangoServerError,
     CollectionCreateError,
-    GraphCreateError, # 需要导入图创建错误
+    GraphCreateError,  # 需要导入图创建错误
 )
-from arangoasync.graph import Graph # 导入Graph对象
+from arangoasync.graph import Graph  # 导入Graph对象
 
 from src.common.custom_logging.logging_config import get_logger
 
@@ -122,7 +122,7 @@ class ArangoDBConnectionManager:
                 raise RuntimeError("主图未初始化，无法获取边集合！")
             # 边集合必须通过图对象来获取
             return self.main_graph.edge_collection(name)
-            
+
         index_definitions = self.core_collection_configs.get(name)
         return await self.ensure_collection_with_indexes(name, index_definitions, is_edge=False)
 
@@ -136,7 +136,7 @@ class ArangoDBConnectionManager:
         # 1. 先把所有的“点”集合都创建好
         edge_collection_names = CoreDBCollections.get_edge_collections()
         vertex_collection_names = set(self.core_collection_configs.keys()) - edge_collection_names
-        
+
         for collection_name in vertex_collection_names:
             index_definitions = self.core_collection_configs.get(collection_name)
             await self.ensure_collection_with_indexes(collection_name, index_definitions, is_edge=False)
@@ -149,40 +149,39 @@ class ArangoDBConnectionManager:
             edge_definitions = [
                 {
                     "collection": edge_name,
-                    "from": list(vertex_collection_names), # 允许所有点集合作为起点
-                    "to": list(vertex_collection_names),   # 允许所有点集合作为终点
+                    "from": list(vertex_collection_names),  # 允许所有点集合作为起点
+                    "to": list(vertex_collection_names),  # 允许所有点集合作为终点
                 }
                 for edge_name in edge_collection_names
             ]
             try:
                 self.main_graph = await self.db.create_graph(main_graph_name, edge_definitions=edge_definitions)
             except GraphCreateError as e:
-                 logger.error(f"创建主关系图 '{main_graph_name}' 失败: {e}", exc_info=True)
-                 raise
+                logger.error(f"创建主关系图 '{main_graph_name}' 失败: {e}", exc_info=True)
+                raise
         else:
             logger.info(f"主关系图 '{main_graph_name}' 已存在。")
             self.main_graph = self.db.graph(main_graph_name)
-        
+
         # 3. 通过图对象来确保“边”集合存在
         for edge_name in edge_collection_names:
             if not await self.main_graph.has_edge_definition(edge_name):
-                 logger.warning(f"边定义 '{edge_name}' 不在图中，正在尝试添加...")
-                 # 这里需要简化，因为我们已经创建了图
-                 # 通常在创建图时就应该定义好边
-                 # 如果需要动态添加，逻辑会更复杂
-                 # 这里我们假设创建图时已经定义好了
-            
+                logger.warning(f"边定义 '{edge_name}' 不在图中，正在尝试添加...")
+                # 这里需要简化，因为我们已经创建了图
+                # 通常在创建图时就应该定义好边
+                # 如果需要动态添加，逻辑会更复杂
+                # 这里我们假设创建图时已经定义好了
+
             # 检查边集合本身是否存在，如果不存在，图的创建应该已经失败了
             if not await self.db.has_collection(edge_name):
-                 logger.error(f"严重错误：图 '{main_graph_name}' 已存在，但其边集合 '{edge_name}' 丢失！")
-                 # 可以在这里尝试修复，比如重新添加边定义
-            
+                logger.error(f"严重错误：图 '{main_graph_name}' 已存在，但其边集合 '{edge_name}' 丢失！")
+                # 可以在这里尝试修复，比如重新添加边定义
+
             # 最后，为边集合应用索引
             index_definitions = self.core_collection_configs.get(edge_name)
             edge_collection_obj = self.main_graph.edge_collection(edge_name)
             if edge_collection_obj and index_definitions:
                 await self._apply_indexes_to_collection(edge_collection_obj, index_definitions)
-
 
         logger.debug("核心数据库基础设施已保障。")
 
@@ -190,7 +189,7 @@ class ArangoDBConnectionManager:
         self,
         collection_name: str,
         index_definitions: list[tuple[list[str], bool, bool]] | None = None,
-        is_edge: bool = False, # 这个参数现在只给文档集合用了
+        is_edge: bool = False,  # 这个参数现在只给文档集合用了
     ) -> StandardCollection:
         if not self.db:
             return None  # type: ignore
@@ -208,7 +207,7 @@ class ArangoDBConnectionManager:
 
             except CollectionCreateError as e:
                 logger.warning(f"创建集合 '{collection_name}' 时发生冲突或错误: {e}。将继续尝试获取该集合。")
-        
+
         try:
             collection = self.db.collection(collection_name)
             if collection and index_definitions:
@@ -235,7 +234,9 @@ class ArangoDBConnectionManager:
                 desired_index_signature = ("_".join(sorted(str(f) for f in fields)), index_type, unique, sparse)
                 if desired_index_signature in existing_indexes_set:
                     continue
-                logger.debug(f"正在为集合 '{collection_name}' 应用索引: 字段={fields}, 类型={index_type}, 唯一={unique}, 稀疏={sparse}")
+                logger.debug(
+                    f"正在为集合 '{collection_name}' 应用索引: 字段={fields}, 类型={index_type}, 唯一={unique}, 稀疏={sparse}"
+                )
                 await collection.add_index(
                     type=index_type, fields=fields, options={"unique": unique, "sparse": sparse, "inBackground": True}
                 )
@@ -248,21 +249,30 @@ class ArangoDBConnectionManager:
         self, query: str, bind_vars: Mapping[str, Any] | None = None, stream: bool = False, **kwargs: object
     ) -> list[Any] | AsyncIterator[Any]:
         if not self.db:
+
             async def empty_iterator() -> AsyncIterator[Any]:
-                if False: yield
+                if False:
+                    yield
+
             return empty_iterator() if stream else []
         try:
             cursor = await self.db.aql.execute(query, bind_vars=bind_vars, **kwargs)
             return cursor if stream else [doc async for doc in cursor]
         except AQLQueryExecuteError as e:
             logger.error(f"AQL查询执行失败: {e.error_message}", exc_info=True)
+
             async def empty_iterator() -> AsyncIterator[Any]:
-                if False: yield
+                if False:
+                    yield
+
             return empty_iterator() if stream else []
         except Exception as e:
             logger.error(f"AQL查询执行期间发生意外错误: {e}", exc_info=True)
+
             async def empty_iterator() -> AsyncIterator[Any]:
-                if False: yield
+                if False:
+                    yield
+
             return empty_iterator() if stream else []
 
     async def close_client(self) -> None:
@@ -306,9 +316,7 @@ class CoreDBCollections:
             (["account_uid"], True, False),
             (["platform", "platform_id"], True, False),
         ],
-        PARTICIPATES_IN: [
-            (["permission_level"], False, True)
-        ],
+        PARTICIPATES_IN: [(["permission_level"], False, True)],
         THOUGHTS: [
             (["timestamp"], False, False),
             (["action_attempted.action_id"], True, True),

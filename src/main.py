@@ -12,6 +12,7 @@ from src.common.intelligent_interrupt_system.iis_main import IISBuilder
 from src.common.intelligent_interrupt_system.intelligent_interrupter import IntelligentInterrupter
 from src.common.intelligent_interrupt_system.models import SemanticModel
 from src.common.summarization_observation.summarization_service import SummarizationService
+from src.common.unread_info_service.unread_info_service import UnreadInfoService
 from src.config import config
 from src.core_communication.action_sender import ActionSender
 from src.core_communication.core_ws_server import CoreWebsocketServer
@@ -25,14 +26,13 @@ from src.core_logic.prompt_builder import ThoughtPromptBuilder
 from src.core_logic.state_manager import AIStateManager  # 确保导入 AIStateManager
 from src.core_logic.thought_generator import ThoughtGenerator
 from src.core_logic.thought_persistor import ThoughtPersistor
-from src.common.unread_info_service.unread_info_service import UnreadInfoService
 from src.database import (
     ActionLogStorageService,
     ArangoDBConnectionManager,
     ConversationStorageService,
     CoreDBCollections,
+    PersonStorageService,  # 把新老鸨请进来！
     ThoughtStorageService,
-    PersonStorageService, # 把新老鸨请进来！
 )
 from src.database.services.event_storage_service import EventStorageService
 from src.database.services.summary_storage_service import SummaryStorageService
@@ -53,7 +53,7 @@ class CoreSystemInitializer:
         self.thought_storage_service: ThoughtStorageService | None = None
         self.action_log_service: ActionLogStorageService | None = None
         self.summary_storage_service: SummaryStorageService | None = None
-        self.person_storage_service: PersonStorageService | None = None # 给新老鸨一个位置
+        self.person_storage_service: PersonStorageService | None = None  # 给新老鸨一个位置
 
         self.main_consciousness_llm_client: ProcessorClient | None = None
         self.summary_llm_client: ProcessorClient | None = None
@@ -152,7 +152,7 @@ class CoreSystemInitializer:
             "conversation_storage_service": ConversationStorageService,
             "thought_storage_service": ThoughtStorageService,
             "action_log_service": ActionLogStorageService,
-            "person_storage_service": PersonStorageService, # 把新老鸨也加进来初始化
+            "person_storage_service": PersonStorageService,  # 把新老鸨也加进来初始化
         }
         for attr_name, service_class in services_to_init.items():
             instance = service_class(conn_manager=self.conn_manager)
@@ -223,7 +223,7 @@ class CoreSystemInitializer:
                     self.main_consciousness_llm_client,
                     self.interrupt_model_instance,
                     self.action_log_service,
-                    self.person_storage_service, # 确保老鸨也到岗了！
+                    self.person_storage_service,  # 确保老鸨也到岗了！
                 ]
             ):
                 raise RuntimeError("一个或多个基础服务未能初始化。")
@@ -290,7 +290,7 @@ class CoreSystemInitializer:
             self.message_processor = DefaultMessageProcessor(
                 event_service=self.event_storage_service,
                 conversation_service=self.conversation_storage_service,
-                person_service=self.person_storage_service, # 把新老鸨介绍给消息处理器
+                person_service=self.person_storage_service,  # 把新老鸨介绍给消息处理器
                 semantic_model=self.semantic_model_instance,
                 qq_chat_session_manager=self.qq_chat_session_manager,
             )

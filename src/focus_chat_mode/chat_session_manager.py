@@ -249,9 +249,7 @@ class ChatSessionManager:
 
             if session:
                 session.activate(
-                    core_last_think=core_last_think,
-                    core_last_mood=core_last_mood,
-                    core_motivation=core_motivation
+                    core_last_think=core_last_think, core_last_mood=core_last_mood, core_motivation=core_motivation
                 )
                 logger.info(f"[SessionManager] 会话 '{conversation_id}' 已成功激活，并传递了主意识的想法和心情。")
         except Exception as e:
