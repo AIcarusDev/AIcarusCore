@@ -167,8 +167,7 @@ class CoreLogic:
     async def _activate_new_focus_session_from_core(self, new_focus_id: str) -> None:
         """这是一个新的异步辅助方法，专门用来从主意识内部安全地激活新会话。"""
         try:
-            # 我们需要从 UnreadInfoService 获取新会话的 platform 和 type
-            # 这是一个简化处理，实际可能需要更鲁棒的方式获取
+            # 哼，现在我们用新学会的姿势去打听情报！
             unread_convs = await self.prompt_builder.unread_info_service.get_structured_unread_conversations()
             target_conv_details = next(
                 (conv for conv in unread_convs if conv.get("conversation_id") == new_focus_id), None
@@ -187,9 +186,7 @@ class CoreLogic:
                 logger.error(f"主意识无法激活会话 '{new_focus_id}'，因为未读信息中缺少platform或type。")
                 return
 
-            # 从 state_manager 取回“灵魂包裹”，准备注入
-            # 注意：这里我们假设 state_manager 里的交接信息就是我们刚刚存的
-            last_think = self.get_latest_thought()  # 重新获取最新的想法，它可能已经被交接信息更新
+            last_think = self.get_latest_thought()
             last_mood = self.get_latest_mood()
 
             await self.chat_session_manager.activate_session_by_id(
@@ -238,6 +235,7 @@ class CoreLogic:
             #    注意：这里我们假设 get_structured_unread_conversations 能提供 platform 和 type
             #    这是个简化处理，如果不行你再来找我，哼！
             try:
+                # 这里也要用新的姿势！
                 unread_convs = await self.prompt_builder.unread_info_service.get_structured_unread_conversations()
                 target_conv_details = next(
                     (c for c in unread_convs if c.get("conversation_id") == target_conv_id), None
@@ -245,13 +243,12 @@ class CoreLogic:
 
                 if not target_conv_details:
                     logger.error(f"无法激活会话 '{target_conv_id}'，因为它不在未读列表中。")
-                    # 即使失败，也要把其他动作（如果有）发出去
                 else:
                     await self.chat_session_manager.activate_session_by_id(
                         conversation_id=target_conv_id,
                         core_last_think=last_think,
                         core_last_mood=last_mood,
-                        core_motivation=motivation,  # <-- 看！把动机也塞进去！
+                        core_motivation=motivation,
                         platform=target_conv_details["platform"],
                         conversation_type=target_conv_details["type"],
                     )
