@@ -351,13 +351,13 @@ async def format_chat_history_for_llm(
                 else:
                     main_content_parts.append(f"{operator_uid} 解除了 {target_uid} 的禁言。")
 
-            elif notice_subtype == "message_recalled":
+            elif notice_subtype == "recalled":
                 operator_info = notice_data.get("operator_user_info", {})
                 operator_id = operator_info.get("user_id") if operator_info else None
                 operator_uid = platform_id_to_uid_str.get(operator_id, "一位用户") if operator_id else "一位用户"
                 main_content_parts.append(f"{operator_uid} 撤回了一条消息。")
 
-            elif notice_subtype == "user.poke":
+            elif notice_subtype == "poke":
                 sender_info = notice_data.get("sender_user_info", {})
                 sender_id = sender_info.get("user_id") if sender_info else None
                 sender_uid = platform_id_to_uid_str.get(sender_id, "一位用户") if sender_id else "一位用户"
