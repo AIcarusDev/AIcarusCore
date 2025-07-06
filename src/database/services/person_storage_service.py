@@ -3,7 +3,7 @@ import time
 from typing import Any
 
 from aicarus_protocols import UserInfo as ProtocolUserInfo
-from arangoasync.collection import Collection, StandardCollection, EdgeCollection # 确保导入 EdgeCollection
+from arangoasync.collection import EdgeCollection, StandardCollection  # 确保导入 EdgeCollection
 
 from src.common.custom_logging.logging_config import get_logger
 from src.database import (
