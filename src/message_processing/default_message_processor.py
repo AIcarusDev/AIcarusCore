@@ -115,9 +115,7 @@ class DefaultMessageProcessor:
                 # ❤❤❤❤ 在这里开始榨汁！❤❤❤❤
                 # 1. 检查是不是文本消息，并且我们有榨汁机
                 if proto_event.event_type.startswith("message.") and self.semantic_model:
-                    # 2. 从消息里把文字内容榨出来
-                    text_content = proto_event.get_text_content()
-                    if text_content:
+                    if text_content := proto_event.get_text_content():
                         # 3. 用榨汁机把文字变成向量
                         #    encode 方法需要一个列表，所以我们把文字放进列表里
                         #    结果也是个列表，我们取第一个就行了
