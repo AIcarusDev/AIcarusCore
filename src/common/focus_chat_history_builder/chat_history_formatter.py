@@ -238,9 +238,7 @@ async def format_chat_history_for_llm(
                 # ↓↓↓↓ 这次我们只认 "quote"！ ↓↓↓↓
                 if seg.type == "quote":
                     quoted_message_id = seg.data.get("message_id", "unknown_id")
-                    quoted_user_id = seg.data.get("user_id")  # 优先用适配器直接给的
-
-                    if quoted_user_id:
+                    if quoted_user_id := seg.data.get("user_id"):
                         # 如果适配器很乖，直接给了我们ID，就用它
                         quoted_user_uid = platform_id_to_uid_str.get(
                             str(quoted_user_id), f"未知用户({str(quoted_user_id)[:4]})"
