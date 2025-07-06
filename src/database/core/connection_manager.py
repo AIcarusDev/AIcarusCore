@@ -252,18 +252,22 @@ class ArangoDBConnectionManager:
 
         # 3. 现在，所有的“砖块”（集合）都准备好了，可以开始盖“房子”（图）了
         graph_name = CoreDBCollections.MAIN_GRAPH_NAME
-        graph_vertex_names = CoreDBCollections.get_vertex_collection_names()
+        # graph_vertex_names = CoreDBCollections.get_vertex_collection_names()
 
         if not await self.db.has_graph(graph_name):
             logger.info(f"主关系图 '{graph_name}' 不存在，正在创建...")
 
             edge_definitions = [
                 {
-                    "collection": edge_name,
-                    "from": list(graph_vertex_names),
-                    "to": list(graph_vertex_names),
-                }
-                for edge_name in graph_edge_names
+                    "collection": CoreDBCollections.HAS_ACCOUNT,
+                    "from": [CoreDBCollections.PERSONS],
+                    "to": [CoreDBCollections.ACCOUNTS],
+                },
+                {
+                    "collection": CoreDBCollections.PARTICIPATES_IN,
+                    "from": [CoreDBCollections.ACCOUNTS],
+                    "to": [CoreDBCollections.CONVERSATIONS],
+                },
             ]
 
             try:
@@ -276,17 +280,17 @@ class ArangoDBConnectionManager:
             self.main_graph = self.db.graph(graph_name)
 
         # 4. 检查图定义是否完整
-        for edge_name in graph_edge_names:
-            if not await self.main_graph.has_edge_definition(edge_name):
-                logger.warning(f"图 '{graph_name}' 中缺少边定义 '{edge_name}'，正在尝试补上...")
-                try:
-                    await self.main_graph.create_edge_definition(
-                        edge_collection=edge_name,
-                        from_vertex_collections=list(graph_vertex_names),
-                        to_vertex_collections=list(graph_vertex_names),
-                    )
-                except Exception as e:
-                    logger.error(f"为图 '{graph_name}' 补全边定义 '{edge_name}' 失败: {e}", exc_info=True)
+        # for edge_name in graph_edge_names:
+        #     if not await self.main_graph.has_edge_definition(edge_name):
+        #         logger.warning(f"图 '{graph_name}' 中缺少边定义 '{edge_name}'，正在尝试补上...")
+        #         try:
+        #             await self.main_graph.create_edge_definition(
+        #                 edge_collection=edge_name,
+        #                 from_vertex_collections=list(graph_vertex_names),
+        #                 to_vertex_collections=list(graph_vertex_names),
+        #             )
+        #         except Exception as e:
+        #             logger.error(f"为图 '{graph_name}' 补全边定义 '{edge_name}' 失败: {e}", exc_info=True)
 
         logger.info("核心数据库基础设施已确认就绪。")
 
@@ -303,7 +307,7 @@ class ArangoDBConnectionManager:
                 logger.debug(f"集合 '{collection_name}' 创建成功。")
             except CollectionCreateError as e:
                 logger.warning(f"创建集合 '{collection_name}' 时发生冲突或错误: {e}。将继续尝试获取该集合。")
-        
+
         try:
             collection = self.db.collection(collection_name)
             if collection and index_definitions:
