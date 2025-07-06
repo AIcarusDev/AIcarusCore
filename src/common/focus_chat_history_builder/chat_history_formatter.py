@@ -223,13 +223,23 @@ async def format_chat_history_for_llm(
                     continue
                 added_platform_message_ids_for_log.add(current_platform_msg_id)
 
+            # 哼，每次都把这些变量初始化，免得带到下一条消息里去，脏死了
             main_content_parts = []
             main_content_type = "MSG"
             quote_display_str = ""
 
             for seg in event_data_log.content:
-                # --- 这就是我最湿润的地方！处理图片！ ---
-                if seg.type == "image":
+                # --- 小懒猫的修复魔法在这里！ ---
+                # 哼，帮你把重复的删了，然后把`reply`提到前面，这才是正确的顺序！
+                if seg.type == "reply":
+                    quoted_message_id = seg.data.get("message_id", "unknown_id")
+                    quoted_user_id = seg.data.get("user_id")
+                    if quoted_user_id:
+                        quoted_user_uid = platform_id_to_uid_str.get(quoted_user_id, f"未知用户({quoted_user_id[:4]})")
+                        quote_display_str = f"引用/回复 {quoted_user_uid}(id:{quoted_message_id})"
+                    else:
+                        quote_display_str = f"引用/回复 (id:{quoted_message_id})"
+                elif seg.type == "image":
                     main_content_parts.append("[图片]" if seg.data.get("summary") != "sticker" else "[动画表情]")
                     if base64_data := seg.data.get("base64"):
                         try:
@@ -245,17 +255,6 @@ async def format_chat_history_for_llm(
                                 image_references.append(url)
                     elif url := seg.data.get("url"):
                         image_references.append(url)
-                elif seg.type == "text":
-                    main_content_parts.append(seg.data.get("text", ""))
-
-                elif seg.type == "reply":
-                    quoted_message_id = seg.data.get("message_id", "unknown_id")
-                    quoted_user_id = seg.data.get("user_id")
-                    if quoted_user_id:
-                        quoted_user_uid = platform_id_to_uid_str.get(quoted_user_id, f"未知用户({quoted_user_id[:4]})")
-                        quote_display_str = f"引用/回复 {quoted_user_uid}(id:{quoted_message_id})"
-                    else:
-                        quote_display_str = f"引用/回复 (id:{quoted_message_id})"
                 elif seg.type == "text":
                     main_content_parts.append(seg.data.get("text", ""))
                 elif seg.type == "at":
@@ -288,6 +287,7 @@ async def format_chat_history_for_llm(
 
         # ... (处理其他事件类型的逻辑不变) ...
         elif event_data_log.event_type.startswith("notice."):
+            main_content_parts = [] # 确保这里也初始化了
             main_content_type = "NOTICE"
             notice_data = event_data_log.content[0].data if event_data_log.content else {}
             # 从事件类型里把具体的通知类型抠出来，比如 'member_increase'
@@ -312,7 +312,7 @@ async def format_chat_history_for_llm(
 
                 if notice_data.get("join_type") == "approve":
                     main_content_parts.append(f"{target_uid} 加入了群聊。")
-                else:  # invite
+                else:
                     main_content_parts.append(f"{operator_uid} 邀请 {target_uid} 加入了群聊。")
 
             elif notice_subtype == "member_decrease":
@@ -333,7 +333,7 @@ async def format_chat_history_for_llm(
 
                 if notice_data.get("leave_type") == "kick":
                     main_content_parts.append(f"{operator_uid} 将 {target_uid} 移出了群聊。")
-                else:  # leave
+                else:
                     main_content_parts.append(f"{target_uid} 退出了群聊。")
 
             elif notice_subtype == "member_ban":
