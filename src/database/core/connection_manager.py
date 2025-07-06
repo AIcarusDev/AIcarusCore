@@ -31,10 +31,11 @@ class DatabaseConfigProtocol(Protocol):
 
 class CoreDBCollections:
     """一个中央管家，负责记下所有核心集合的名字和它们的类型。"""
+
     # 点集合 (Vertex Collections)
     PERSONS = "persons"
     ACCOUNTS = "accounts"
-    CONVERSATIONS = "conversations" # 这个也是点
+    CONVERSATIONS = "conversations"  # 这个也是点
 
     # 边集合 (Edge Collections)
     HAS_ACCOUNT = "has_account"
@@ -68,10 +69,10 @@ class CoreDBCollections:
             (["attention_profile.base_importance_score"], False, False),
         ],
         PERSONS: [
-            (["person_id"], True, False), # person_id 应该是唯一的
+            (["person_id"], True, False),  # person_id 应该是唯一的
         ],
         ACCOUNTS: [
-            (["account_uid"], True, False), # account_uid 也必须唯一
+            (["account_uid"], True, False),  # account_uid 也必须唯一
             (["platform", "platform_id"], True, False),
         ],
         # 我们的边集合在这里没有定义索引，所以之前的逻辑会跳过它们！
@@ -303,7 +304,7 @@ class ArangoDBConnectionManager:
                 logger.debug(f"集合 '{collection_name}' 创建成功。")
             except CollectionCreateError as e:
                 logger.warning(f"创建集合 '{collection_name}' 时发生冲突或错误: {e}。将继续尝试获取该集合。")
-        
+
         try:
             collection = self.db.collection(collection_name)
             if collection and index_definitions:

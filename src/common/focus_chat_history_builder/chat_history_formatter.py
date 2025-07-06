@@ -238,18 +238,22 @@ async def format_chat_history_for_llm(
                 # ↓↓↓↓ 这次我们只认 "quote"！ ↓↓↓↓
                 if seg.type == "quote":
                     quoted_message_id = seg.data.get("message_id", "unknown_id")
-                    quoted_user_id = seg.data.get("user_id") # 优先用适配器直接给的
+                    quoted_user_id = seg.data.get("user_id")  # 优先用适配器直接给的
 
                     if quoted_user_id:
                         # 如果适配器很乖，直接给了我们ID，就用它
-                        quoted_user_uid = platform_id_to_uid_str.get(str(quoted_user_id), f"未知用户({str(quoted_user_id)[:4]})")
+                        quoted_user_uid = platform_id_to_uid_str.get(
+                            str(quoted_user_id), f"未知用户({str(quoted_user_id)[:4]})"
+                        )
                         quote_display_str = f"引用/回复 {quoted_user_uid}(id:{quoted_message_id})"
                     else:
                         # 如果适配器偷懒了，我们就自己翻小本本！
                         original_message_event = message_id_to_event_map.get(quoted_message_id)
                         if original_message_event and original_message_event.user_info:
                             original_sender_id = original_message_event.user_info.user_id
-                            quoted_user_uid = platform_id_to_uid_str.get(original_sender_id, f"未知用户({original_sender_id[:4]})")
+                            quoted_user_uid = platform_id_to_uid_str.get(
+                                original_sender_id, f"未知用户({original_sender_id[:4]})"
+                            )
                             quote_display_str = f"引用/回复 {quoted_user_uid}(id:{quoted_message_id})"
                         else:
                             # 连小本本上都找不到，那就没办法了
