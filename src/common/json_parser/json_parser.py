@@ -40,7 +40,7 @@ def parse_llm_json_response(raw_response_text: str | None) -> dict[str, Any] | N
             logger.debug("策略二命中：通过查找第一个 '{' 和最后一个 '}' 来提取潜在的JSON。")
         else:
             # 如果连花括号都找不到，那就真的没救了
-            logger.warning(f"响应中找不到有效的JSON对象结构。原始响应 (前200字符): {text_to_parse[:200]}...")
+            logger.warning(f"响应中找不到有效的JSON对象结构。原始响应: {text_to_parse}")
             return None
 
     # 开始解析前，先对提取出来的字符串做个小手术，处理掉讨厌的末尾逗号
