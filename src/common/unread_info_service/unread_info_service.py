@@ -254,7 +254,9 @@ class UnreadInfoService:
         # 把所有行用换行符合并起来，但是要处理一下空行的问题
         return "\n".join(line for line in summary_parts if line is not None).replace("\n\n\n", "\n\n").strip()
 
-    async def get_structured_unread_conversations(self, exclude_conversation_id: str | None = None) -> list[dict[str, Any]]:
+    async def get_structured_unread_conversations(
+        self, exclude_conversation_id: str | None = None
+    ) -> list[dict[str, Any]]:
         """
         获取所有有新消息的会话的结构化信息列表。
         这下 CoreLogic 就知道该怎么玩了。
@@ -271,15 +273,17 @@ class UnreadInfoService:
             latest_event = events[-1]
             sender_name = self._get_sender_display_name(latest_event, conv_doc.get("type", "unknown"))
 
-            structured_list.append({
-                "conversation_id": conv_doc.get("conversation_id"),
-                "platform": conv_doc.get("platform"),
-                "type": conv_doc.get("type"),
-                "name": conv_doc.get("name") or sender_name, # 优先用数据库里的名字
-                "unread_count": len(events),
-                "latest_message_preview": self._create_message_preview(latest_event, sender_name),
-                "latest_timestamp": latest_event.get("timestamp", 0)
-            })
+            structured_list.append(
+                {
+                    "conversation_id": conv_doc.get("conversation_id"),
+                    "platform": conv_doc.get("platform"),
+                    "type": conv_doc.get("type"),
+                    "name": conv_doc.get("name") or sender_name,  # 优先用数据库里的名字
+                    "unread_count": len(events),
+                    "latest_message_preview": self._create_message_preview(latest_event, sender_name),
+                    "latest_timestamp": latest_event.get("timestamp", 0),
+                }
+            )
 
         # 按时间倒序排，最新的在最前面，方便 CoreLogic 偷窥
-        return sorted(structured_list, key=lambda x: x['latest_timestamp'], reverse=True)
+        return sorted(structured_list, key=lambda x: x["latest_timestamp"], reverse=True)

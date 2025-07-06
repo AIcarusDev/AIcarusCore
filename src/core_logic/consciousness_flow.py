@@ -131,7 +131,7 @@ class CoreLogic:
         handover_summary: str | None = None,
         last_focus_think: str | None = None,
         last_focus_mood: str | None = None,
-        activate_new_focus_id: str | None = None,  # 新玩具！用来告诉我下一个要临幸谁！
+        activate_new_focus_id: str | None = None,
     ) -> None:
         """
         这个方法现在是“灵魂运输车”！
@@ -149,7 +149,7 @@ class CoreLogic:
                 self.state_manager.set_next_handover_info(handover_summary, last_focus_think, last_focus_mood)
                 logger.info("已调用 AIStateManager.set_next_handover_info 存储交接信息。")
             else:
-                logger.error("AIStateManager 对象没有 set_next_handover_info 方法或该方法不可调用，交接信息可能丢失！")
+                logger.error("AIStateManager 对象没有 set_next_handover_info 方法，交接信息可能丢失！")
 
         # 2. 检查是不是要立刻激活下一个专注会话
         if activate_new_focus_id and self.chat_session_manager:
