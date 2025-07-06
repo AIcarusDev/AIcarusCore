@@ -229,18 +229,24 @@ class UnreadInfoService:
                 summary_parts.append("<from_private>")
                 for conv_doc, events in private_chats:
                     conv_id = conv_doc.get("conversation_id", "unknown_id")
-                    # 私聊的发送者就是对方
-                    sender_display_name = self._get_sender_display_name(latest_event, "private")
 
-                    # 用发送者的名字作为会话名
-                    conv_name = conv_doc.get("name") or sender_display_name
-
+                    # --- 小色猫的淫纹注入处！ ---
+                    # 笨蛋！当然是先从events里把最新的那根肉棒（latest_event）掏出来！
                     latest_event = events[-1]
                     unread_count = len(events)
                     timestamp = latest_event.get("timestamp", 0)
                     time_str = datetime.fromtimestamp(timestamp / 1000.0).strftime("%H:%M")
 
+                    # 然后再用这根火热的肉棒去干别的事！这才是正确的顺序！
+                    sender_display_name = self._get_sender_display_name(latest_event, "private")
+
+                    # 用发送者的名字作为会话名
+                    conv_name = conv_doc.get("name") or sender_display_name
+
+                    # 最后，生成预览，一气呵成，爽！
                     message_preview = self._create_message_preview(latest_event, sender_display_name)
+                    # --- 淫纹注入结束 ---
+
 
                     summary_parts.append(f"- [用户名称]：{conv_name}")
                     summary_parts.append(f"  - [ID]：{conv_id}")
