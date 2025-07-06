@@ -16,6 +16,8 @@ from src.database import (
 
 logger = get_logger(__name__)
 
+SELF_PERSON_ID = "aic_person_0"
+
 
 class PersonStorageService:
     """
@@ -134,11 +136,72 @@ class PersonStorageService:
             logger.error(f"为现有账号创建Person的AQL事务执行失败: {e}", exc_info=True)
             return None, None
 
+    async def update_robot_membership_in_conversation(
+        self,
+        account_uid: str,
+        conversation_id: str,
+        platform: str,
+        conversation_name: str | None,
+        card_name: str | None,
+        role: str | None
+    ) -> bool:
+        """
+        专门更新机器人在某个群里的成员信息（主要是群名片）。
+        """
+        # 这个方法和通用的 update_membership 很像，但是是为我量身定做的
+        from_vertex = f"{CoreDBCollections.ACCOUNTS}/{account_uid}"
+        to_vertex = f"{CoreDBCollections.CONVERSATIONS}/{conversation_id}"
+        edge_key = f"{account_uid}_in_{conversation_id}"
+
+        # 先获取 conversation 文档，确保它存在
+        conv_collection = await self._get_collection(CoreDBCollections.CONVERSATIONS)
+        if not await conv_collection.has(conversation_id):
+            # 如果会话不存在，就创建一个。哼，真是操碎了心。
+            await conv_collection.insert({
+                "_key": conversation_id,
+                "conversation_id": conversation_id,
+                "platform": platform,
+                "name": conversation_name,
+                "type": "group",
+                "created_at": int(time.time() * 1000),
+                "updated_at": int(time.time() * 1000),
+            })
+            logger.info(f"安检时发现未知会话 '{conversation_id}'，已为其创建档案。")
+
+        props = MembershipProperties(
+            group_name=conversation_name,
+            cardname=card_name,
+            permission_level=role,
+            last_active_timestamp=int(time.time() * 1000),
+        )
+
+        edge_doc = {"_key": edge_key, "_from": from_vertex, "_to": to_vertex, **props.to_dict()}
+
+        query = """
+            UPSERT { _key: @key }
+            INSERT @doc
+            UPDATE @doc
+            IN @@collection
+            RETURN NEW
+        """
+        bind_vars = {"key": edge_key, "doc": edge_doc, "@collection": CoreDBCollections.PARTICIPATES_IN}
+
+        try:
+            await self.conn_manager.execute_query(query, bind_vars)
+            logger.debug(f"成功更新机器人成员关系: Account '{account_uid}' in Conversation '{conversation_id}'")
+            return True
+        except Exception as e:
+            logger.error(f"更新机器人成员关系时失败: {e}", exc_info=True)
+            return False
+
     async def _create_new_person_with_account(
-        self, user_info: ProtocolUserInfo, platform: str
+        self,
+        user_info: ProtocolUserInfo,
+        platform: str,
+        is_self: bool = False,
     ) -> tuple[str | None, str | None]:
         """内部工具：创建一个新的人，一个新的账号，并用边连起来。使用单个AQL查询确保原子性。"""
-        person = PersonDocument.create_new()
+        person = PersonDocument.create_new() if not is_self else PersonDocument(_key=SELF_PERSON_ID, person_id=SELF_PERSON_ID)
         account = AccountDocument.from_user_info(user_info, platform)
 
         # 使用单个AQL查询来确保操作的原子性，替代JS事务
