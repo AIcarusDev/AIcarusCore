@@ -69,7 +69,7 @@ CORE_RESPONSE_SCHEMA = {
             },
         },
     },
-    "required": ["mood", "think"],
+    "required": ["mood", "think", "goal"],
 }
 
 
