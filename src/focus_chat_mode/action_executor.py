@@ -229,7 +229,7 @@ class ActionExecutor:
         payload = []
         if index == 0:
             if quote_id:
-                payload.append(SegBuilder.reply(message_id=quote_id).to_dict())
+                payload.append(Seg(type="quote", data={"message_id": str(quote_id)}).to_dict())
             if at_raw:
                 raw_targets = []
                 if isinstance(at_raw, str):

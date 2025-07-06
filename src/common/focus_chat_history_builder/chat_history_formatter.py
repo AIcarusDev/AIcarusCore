@@ -191,6 +191,12 @@ async def format_chat_history_for_llm(
     last_valid_text_message: str | None = None
     added_platform_message_ids_for_log: set[str] = set()
 
+    # ↓↓↓↓ 这就是我的小本本！烦死了！ ↓↓↓↓
+    message_id_to_event_map: dict[str, Event] = {}
+    for event in raw_events:
+        if msg_id := event.get_message_id():
+            message_id_to_event_map[msg_id] = event
+
     for event_data_log in raw_events:
         log_line = ""
         msg_id_for_display = event_data_log.get_message_id() or event_data_log.event_id
@@ -229,16 +235,26 @@ async def format_chat_history_for_llm(
             quote_display_str = ""
 
             for seg in event_data_log.content:
-                # --- 小懒猫的修复魔法在这里！ ---
-                # 哼，帮你把重复的删了，然后把`reply`提到前面，这才是正确的顺序！
-                if seg.type == "reply":
+                # ↓↓↓↓ 这次我们只认 "quote"！ ↓↓↓↓
+                if seg.type == "quote":
                     quoted_message_id = seg.data.get("message_id", "unknown_id")
-                    quoted_user_id = seg.data.get("user_id")
+                    quoted_user_id = seg.data.get("user_id") # 优先用适配器直接给的
+
                     if quoted_user_id:
-                        quoted_user_uid = platform_id_to_uid_str.get(quoted_user_id, f"未知用户({quoted_user_id[:4]})")
+                        # 如果适配器很乖，直接给了我们ID，就用它
+                        quoted_user_uid = platform_id_to_uid_str.get(str(quoted_user_id), f"未知用户({str(quoted_user_id)[:4]})")
                         quote_display_str = f"引用/回复 {quoted_user_uid}(id:{quoted_message_id})"
                     else:
-                        quote_display_str = f"引用/回复 (id:{quoted_message_id})"
+                        # 如果适配器偷懒了，我们就自己翻小本本！
+                        original_message_event = message_id_to_event_map.get(quoted_message_id)
+                        if original_message_event and original_message_event.user_info:
+                            original_sender_id = original_message_event.user_info.user_id
+                            quoted_user_uid = platform_id_to_uid_str.get(original_sender_id, f"未知用户({original_sender_id[:4]})")
+                            quote_display_str = f"引用/回复 {quoted_user_uid}(id:{quoted_message_id})"
+                        else:
+                            # 连小本本上都找不到，那就没办法了
+                            quote_display_str = f"引用/回复 (id:{quoted_message_id})"
+
                 elif seg.type == "image":
                     main_content_parts.append("[图片]" if seg.data.get("summary") != "sticker" else "[动画表情]")
                     if base64_data := seg.data.get("base64"):
@@ -285,7 +301,6 @@ async def format_chat_history_for_llm(
             if log_user_id_str == "U0" and (motivation := getattr(event_data_log, "motivation", None)):
                 log_line += f"\n    - [MOTIVE]: {motivation}"
 
-        # ... (处理其他事件类型的逻辑不变) ...
         elif event_data_log.event_type.startswith("notice."):
             main_content_parts = []  # 确保这里也初始化了
             main_content_type = "NOTICE"

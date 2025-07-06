@@ -114,7 +114,7 @@ class UnreadInfoService:
         for seg in content:
             if seg.get("type") == "at" and seg.get("data", {}).get("user_id") == self.bot_id:
                 is_at_me = True
-            if seg.get("type") == "reply" and seg.get("data", {}).get("replied_user_id") == self.bot_id:
+            if seg.get("type") == "quote" and seg.get("data", {}).get("user_id") == self.bot_id:
                 is_reply_to_me = True
 
         # 再处理戳一戳这种特殊事件

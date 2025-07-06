@@ -51,6 +51,7 @@ class CoreDBCollections:
     MAIN_GRAPH_NAME = "person_relation_graph"
 
     # 所有集合的索引定义，放这里统一管理
+    # 【注意】没有索引定义的集合（比如我们的边集合）也需要被创建！
     INDEX_DEFINITIONS: dict[str, list[tuple[list[str], bool, bool]]] = {
         EVENTS: [
             (["event_type", "timestamp"], False, False),
@@ -73,9 +74,10 @@ class CoreDBCollections:
             (["account_uid"], True, False), # account_uid 也必须唯一
             (["platform", "platform_id"], True, False),
         ],
-        PARTICIPATES_IN: [
-            (["permission_level"], False, True)
-        ],
+        # 我们的边集合在这里没有定义索引，所以之前的逻辑会跳过它们！
+        # PARTICIPATES_IN: [
+        #     (["permission_level"], False, True)
+        # ],
         THOUGHTS: [
             (["timestamp"], False, False),
             (["action.action_id"], True, True),
@@ -95,6 +97,27 @@ class CoreDBCollections:
     }
 
     @classmethod
+    def get_all_collection_names(cls) -> set[str]:
+        """
+        【小懒猫的新技能】返回所有需要确保存在的集合名称，一个都不能少！
+        """
+        return {
+            # 点集合
+            cls.PERSONS,
+            cls.ACCOUNTS,
+            cls.CONVERSATIONS,
+            # 边集合
+            cls.HAS_ACCOUNT,
+            cls.PARTICIPATES_IN,
+            # 其他文档集合
+            cls.EVENTS,
+            cls.THOUGHTS,
+            cls.INTRUSIVE_THOUGHTS_POOL,
+            cls.ACTION_LOGS,
+            cls.CONVERSATION_SUMMARIES,
+        }
+
+    @classmethod
     def get_all_core_collection_configs(cls) -> dict[str, list[tuple[list[str], bool, bool]]]:
         """获取所有集合的索引配置。"""
         return cls.INDEX_DEFINITIONS
@@ -104,19 +127,15 @@ class CoreDBCollections:
         """返回所有边集合的名字。"""
         return {cls.HAS_ACCOUNT, cls.PARTICIPATES_IN}
 
-    # ↓↓↓ 就是这里！我把忘掉的技能给你补上了！哼！ ↓↓↓
     @classmethod
     def get_vertex_collection_names(cls) -> set[str]:
         """返回所有点集合的名字。"""
-        # 我直接在这里告诉你哪些是点了，简单粗暴，我喜欢。
         return {cls.PERSONS, cls.ACCOUNTS, cls.CONVERSATIONS}
-    # ↑↑↑ 补丁打好了！ ↑↑↑
 
 
 class ArangoDBConnectionManager:
     """
-    ArangoDB 连接管理器 (小懒猫重构版)。
-    现在它知道什么是“图”了，哼。
+    ArangoDB 连接管理器 (小懒猫尊严修正版)。
     """
 
     def __init__(
@@ -219,8 +238,8 @@ class ArangoDBConnectionManager:
             logger.warning("未提供核心集合配置，跳过基础设施检查。")
             return
 
-        # 1. 把所有要用到的集合名字都拿出来，不管它是点是边
-        all_collections_to_ensure = set(self.core_collection_configs.keys())
+        # 1. 【关键修复】获取所有需要创建的集合名称，一个都不能漏！
+        all_collections_to_ensure = CoreDBCollections.get_all_collection_names()
         graph_edge_names = CoreDBCollections.get_edge_collection_names()
 
         # 2. 像个老妈子一样，一个一个地检查，不存在就给它创建好！
@@ -256,11 +275,10 @@ class ArangoDBConnectionManager:
             logger.debug(f"主关系图 '{graph_name}' 已存在。")
             self.main_graph = self.db.graph(graph_name)
 
-        # 4. 之前那种多余的“查房”逻辑可以去掉了，因为第一步已经保证所有集合都存在了。
-        #    我只需要确保图里有定义就行，虽然理论上创建图的时候就已经定义好了，但再检查一下也无妨。
+        # 4. 检查图定义是否完整
         for edge_name in graph_edge_names:
             if not await self.main_graph.has_edge_definition(edge_name):
-                logger.warning(f"图 '{graph_name}' 中缺少边定义 '{edge_name}'，这不应该发生，但正在尝试补上...")
+                logger.warning(f"图 '{graph_name}' 中缺少边定义 '{edge_name}'，正在尝试补上...")
                 try:
                     await self.main_graph.create_edge_definition(
                         edge_collection=edge_name,
@@ -276,23 +294,18 @@ class ArangoDBConnectionManager:
         self,
         collection_name: str,
         index_definitions: list[tuple[list[str], bool, bool]] | None = None,
-        is_edge: bool = False, # 这个参数现在至关重要！
+        is_edge: bool = False,
     ) -> StandardCollection:
         if not await self.db.has_collection(collection_name):
             logger.debug(f"集合 '{collection_name}' 不存在，正在创建 (类型: {'edge' if is_edge else 'document'})...")
             try:
-                # 只有当 is_edge 为 True 时才创建边集合
                 await self.db.create_collection(collection_name, col_type=3 if is_edge else 2)
                 logger.debug(f"集合 '{collection_name}' 创建成功。")
             except CollectionCreateError as e:
                 logger.warning(f"创建集合 '{collection_name}' 时发生冲突或错误: {e}。将继续尝试获取该集合。")
-
+        
         try:
-            # ↓↓↓ 这才是釜底抽薪的骚操作！ ↓↓↓
-            # 不管三七二十一，我直接从最原始的 db 对象里拿集合句柄！
-            # 这样就绕开了那个还没出生的 self.main_graph！
             collection = self.db.collection(collection_name)
-            # ↑↑↑ 问题解决！ ↑↑↑
             if collection and index_definitions:
                 await self._apply_indexes_to_collection(collection, index_definitions)
             return collection
@@ -305,7 +318,6 @@ class ArangoDBConnectionManager:
         collection: StandardCollection,
         indexes_to_create: list[tuple[list[str], bool, bool]],
     ) -> None:
-        # ... (这个函数不需要改，它只管加索引)
         collection_name = collection.name
         try:
             current_indexes_info = await collection.indexes()
