@@ -117,7 +117,7 @@ async def format_chat_history_for_llm(
         for event_obj in sorted(raw_events, key=lambda e: e.time, reverse=True):
             dedup_key: str | None = None
             if event_obj.event_type.startswith("message.") and (platform_msg_id := event_obj.get_message_id()):
-                    dedup_key = f"msg_{platform_msg_id}"
+                dedup_key = f"msg_{platform_msg_id}"
             if not dedup_key:
                 dedup_key = f"core_{event_obj.event_id}"
             if dedup_key not in unique_events_dict:
@@ -287,7 +287,7 @@ async def format_chat_history_for_llm(
 
         # ... (处理其他事件类型的逻辑不变) ...
         elif event_data_log.event_type.startswith("notice."):
-            main_content_parts = [] # 确保这里也初始化了
+            main_content_parts = []  # 确保这里也初始化了
             main_content_type = "NOTICE"
             notice_data = event_data_log.content[0].data if event_data_log.content else {}
             # 从事件类型里把具体的通知类型抠出来，比如 'member_increase'

@@ -1,9 +1,9 @@
 # src/focus_chat_mode/action_executor.py
 import asyncio
+import json
 import random
 import time
 import uuid
-import json
 from typing import TYPE_CHECKING
 
 from aicarus_protocols import ConversationInfo, Seg, SegBuilder, UserInfo
@@ -168,9 +168,11 @@ class ActionExecutor:
 
                     # --- ❤❤❤ 看这里！这就是塞纸条的地方！❤❤❤ ---
                     extra_data_for_backpack = {}
-                    motivation_for_log = current_motivation if i == 0 and current_motivation and current_motivation.strip() else None
+                    motivation_for_log = (
+                        current_motivation if i == 0 and current_motivation and current_motivation.strip() else None
+                    )
                     if motivation_for_log:
-                        extra_data_for_backpack['motivation'] = motivation_for_log
+                        extra_data_for_backpack["motivation"] = motivation_for_log
 
                     # 把小背包（字典）变成一个字符串，这样才能塞进 raw_data
                     raw_data_string = json.dumps(extra_data_for_backpack) if extra_data_for_backpack else None
@@ -189,10 +191,9 @@ class ActionExecutor:
                         content=final_content_segs,
                         user_info=UserInfo(user_id=correct_bot_id, user_nickname=bot_profile.get("nickname")),
                         conversation_info=ConversationInfo(
-                            conversation_id=self.session.conversation_id,
-                            type=self.session.conversation_type
+                            conversation_id=self.session.conversation_id, type=self.session.conversation_type
                         ),
-                        raw_data=raw_data_string, # <-- 看！把带小纸条的背包塞进去了！
+                        raw_data=raw_data_string,  # <-- 看！把带小纸条的背包塞进去了！
                     )
 
                     db_doc_to_save = DBEventDocument.from_protocol(my_message_event)

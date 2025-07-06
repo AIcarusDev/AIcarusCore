@@ -247,7 +247,6 @@ class UnreadInfoService:
                     message_preview = self._create_message_preview(latest_event, sender_display_name)
                     # --- 淫纹注入结束 ---
 
-
                     summary_parts.append(f"- [用户名称]：{conv_name}")
                     summary_parts.append(f"  - [ID]：{conv_id}")
                     summary_parts.append(f"  - [最新消息]：{message_preview}")

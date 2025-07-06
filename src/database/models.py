@@ -306,7 +306,7 @@ class DBEventDocument:
             content=content_as_dicts,
             user_info=user_info_dict,
             conversation_info=conversation_info_dict,
-            raw_data=raw_data_dict, # 把解析后的字典存起来
+            raw_data=raw_data_dict,  # 把解析后的字典存起来
             protocol_version=__import__("aicarus_protocols").__version__ or "1.6.0",
             user_id_extracted=uid_ext,
             conversation_id_extracted=cid_ext,

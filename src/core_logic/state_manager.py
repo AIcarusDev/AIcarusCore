@@ -78,7 +78,11 @@ class AIStateManager:
             think_db = latest_thought.get("think") or latest_thought.get("think_output")
             state_blocks["think_block"] = f"你刚才的内心想法是：{think_db}" if think_db else state_blocks["think_block"]
 
-            goal_db = latest_thought.get("goal") or latest_thought.get("to_do_output")
+            goal_db = (
+                latest_thought.get("goal")
+                if latest_thought.get("goal") != "null"
+                else latest_thought.get("to_do_output")
+            )
             state_blocks["goal_block"] = f"你当前的目标是：【{goal_db}】" if goal_db else state_blocks["goal_block"]
 
             # --- 动作处理也得改！ ---
