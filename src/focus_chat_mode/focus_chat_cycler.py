@@ -220,9 +220,7 @@ class FocusChatCycler:
                         interrupt_checker_task.cancel()  # 叫停还在偷窥的那个小骚货
 
                     llm_response = await llm_task
-                    if parsed_decision := self.llm_response_handler.parse(
-                        llm_response.get("text", "")
-                    ):
+                    if parsed_decision := self.llm_response_handler.parse(llm_response.get("text", "")):
                         # 赶紧把这次成功的思考结果存起来，作为下一次的“前戏”
                         self.session.last_llm_decision = parsed_decision
                         self._last_completed_llm_decision = parsed_decision

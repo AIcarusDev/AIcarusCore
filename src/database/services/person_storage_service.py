@@ -19,8 +19,8 @@ logger = get_logger(__name__)
 
 class PersonStorageService:
     """
-    哼，这里就是我们新的“老鸨”，管理人际关系！
-    负责处理 Person, Account 以及它们之间关系的图数据库操作。
+    此类负责管理人与账号之间的关系。
+    主要处理 Person、Account 及其关联关系的图数据库操作。
     """
 
     def __init__(self, conn_manager: ArangoDBConnectionManager) -> None:
@@ -68,10 +68,9 @@ class PersonStorageService:
             }
             person_results = await self.conn_manager.execute_query(query, bind_vars)
 
-            if person_results:
-                if person_id := person_results[0].get("person_id"):
-                    logger.debug(f"账号 {account_uid} 已关联到Person: {person_id}")
-                    return person_id, account_uid
+            if person_results and (person_id := person_results[0].get("person_id")):
+                logger.debug(f"账号 {account_uid} 已关联到Person: {person_id}")
+                return person_id, account_uid
 
             # 这种情况不应该发生，除非数据不一致。我们创建一个新的人并关联。
             logger.warning(f"数据不一致！账号 {account_uid} 存在但没有关联的Person。将为其创建新的Person。")

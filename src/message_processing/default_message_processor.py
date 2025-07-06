@@ -112,17 +112,19 @@ class DefaultMessageProcessor:
                 db_event_document.status = event_status
                 db_event_document.person_id_associated = person_id  # 把person_id也存进去！
 
-                # ❤❤❤❤ 在这里开始榨汁！❤❤❤❤
-                # 1. 检查是不是文本消息，并且我们有榨汁机
-                if proto_event.event_type.startswith("message.") and self.semantic_model:
-                    if text_content := proto_event.get_text_content():
-                        # 3. 用榨汁机把文字变成向量
-                        #    encode 方法需要一个列表，所以我们把文字放进列表里
-                        #    结果也是个列表，我们取第一个就行了
-                        embedding_vector = self.semantic_model.encode([text_content])[0]
-                        # 4. 把向量（NumPy数组）变成普通的列表，这样数据库才喜欢
-                        db_event_document.embedding = embedding_vector.tolist()
-                        logger.debug(f"已为事件 '{proto_event.event_id}' 生成并添加了句向量。")
+                # 检查事件是否为文本消息，并且语义模型是否可用
+                if (
+                    proto_event.event_type.startswith("message.")
+                    and self.semantic_model
+                    and (text_content := proto_event.get_text_content())
+                ):
+                    # 使用语义模型将文本编码为向量
+                    # encode 方法需要一个列表，因此将文本包装在列表中
+                    # 结果也是一个列表，我们取第一个元素
+                    embedding_vector = self.semantic_model.encode([text_content])[0]
+                    # 将向量（NumPy数组）转换为普通列表，以便存储到数据库中
+                    db_event_document.embedding = embedding_vector.tolist()
+                    logger.debug(f"为事件 '{proto_event.event_id}' 生成并添加了句子向量。")
 
                 event_doc_to_save = db_event_document.to_dict()
                 await self.event_service.save_event_document(event_doc_to_save)
