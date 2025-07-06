@@ -280,18 +280,22 @@ class DBEventDocument:
         content_as_dicts = [seg.to_dict() for seg in proto_event.content] if proto_event.content else []
         user_info_dict = proto_event.user_info.to_dict() if proto_event.user_info else None
         conversation_info_dict = proto_event.conversation_info.to_dict() if proto_event.conversation_info else None
+        motivation_from_raw = None
         raw_data_dict = None
+
         if proto_event.raw_data:
             try:
-                raw_data_dict = (
-                    json.loads(str(proto_event.raw_data))
-                    if isinstance(proto_event.raw_data, str)
-                    else proto_event.raw_data
-                )
-                if not isinstance(raw_data_dict, dict):
-                    raw_data_dict = {"_raw_content_as_string_": str(proto_event.raw_data)}
+                # 尝试把背包里的东西当JSON解析
+                parsed_raw_data = json.loads(str(proto_event.raw_data))
+                if isinstance(parsed_raw_data, dict):
+                    raw_data_dict = parsed_raw_data
+                    # 从解析后的字典里找 motivation
+                    motivation_from_raw = raw_data_dict.get("motivation")
             except (json.JSONDecodeError, TypeError):
+                # 如果背包里的不是JSON，就当成普通字符串存起来
                 raw_data_dict = {"_raw_content_as_string_": str(proto_event.raw_data)}
+
+        # --- ❤❤❤ 组装最终文档！❤❤❤ ---
         return cls(
             _key=str(proto_event.event_id),
             event_id=str(proto_event.event_id),
@@ -302,11 +306,12 @@ class DBEventDocument:
             content=content_as_dicts,
             user_info=user_info_dict,
             conversation_info=conversation_info_dict,
-            raw_data=raw_data_dict,
+            raw_data=raw_data_dict, # 把解析后的字典存起来
             protocol_version=__import__("aicarus_protocols").__version__ or "1.6.0",
             user_id_extracted=uid_ext,
             conversation_id_extracted=cid_ext,
-            motivation=getattr(proto_event, "motivation", None),
+            # 如果从背包里掏出了动机，就用它！
+            motivation=motivation_from_raw,
         )
 
     def to_dict(self) -> dict[str, Any]:

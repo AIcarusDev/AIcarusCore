@@ -68,7 +68,7 @@ async def format_chat_history_for_llm(
         event_dicts = await event_storage.get_recent_chat_message_documents(
             conversation_id=conversation_id,
             limit=50,  # 每次最多吞50条，免得被噎死
-            fetch_all_event_types=True,
+            fetch_all_event_types=False,
         )
 
     # 把粗糙的字典，都变成我喜欢的、光滑的 Event 对象
