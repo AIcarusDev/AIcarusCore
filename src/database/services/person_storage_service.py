@@ -69,8 +69,7 @@ class PersonStorageService:
             person_results = await self.conn_manager.execute_query(query, bind_vars)
 
             if person_results:
-                person_id = person_results[0].get("person_id")
-                if person_id:
+                if person_id := person_results[0].get("person_id"):
                     logger.debug(f"账号 {account_uid} 已关联到Person: {person_id}")
                     return person_id, account_uid
 
