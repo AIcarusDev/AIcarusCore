@@ -1,4 +1,4 @@
-# src/database/core/connection_manager.py
+# 文件路径: src/database/core/connection_manager.py
 import os
 from collections.abc import AsyncIterator, Mapping
 from typing import Any, Protocol
@@ -13,9 +13,9 @@ from arangoasync.exceptions import (
     ArangoClientError,
     ArangoServerError,
     CollectionCreateError,
-    GraphCreateError,  # 需要导入图创建错误
+    GraphCreateError,  # 把这个也请进来，免得它哭
 )
-from arangoasync.graph import Graph  # 导入Graph对象
+from arangoasync.graph import Graph  # 这可是主角！
 
 from src.common.custom_logging.logging_config import get_logger
 
@@ -29,10 +29,94 @@ class DatabaseConfigProtocol(Protocol):
     database_name: str
 
 
+class CoreDBCollections:
+    """一个中央管家，负责记下所有核心集合的名字和它们的类型。"""
+    # 点集合 (Vertex Collections)
+    PERSONS = "persons"
+    ACCOUNTS = "accounts"
+    CONVERSATIONS = "conversations" # 这个也是点
+
+    # 边集合 (Edge Collections)
+    HAS_ACCOUNT = "has_account"
+    PARTICIPATES_IN = "participates_in"
+
+    # 其他集合...
+    EVENTS = "events"
+    THOUGHTS = "thoughts_collection"
+    INTRUSIVE_THOUGHTS_POOL = "intrusive_thoughts_pool"
+    ACTION_LOGS = "action_logs"
+    CONVERSATION_SUMMARIES = "conversation_summaries"
+
+    # 图的名字，就叫这个吧，懒得想了
+    MAIN_GRAPH_NAME = "person_relation_graph"
+
+    # 所有集合的索引定义，放这里统一管理
+    INDEX_DEFINITIONS: dict[str, list[tuple[list[str], bool, bool]]] = {
+        EVENTS: [
+            (["event_type", "timestamp"], False, False),
+            (["platform", "bot_id", "timestamp"], False, False),
+            (["conversation_id_extracted", "timestamp"], False, True),
+            (["user_id_extracted", "timestamp"], False, True),
+            (["timestamp"], False, False),
+        ],
+        CONVERSATIONS: [
+            (["platform", "type"], False, False),
+            (["updated_at"], False, False),
+            (["parent_id"], False, True),
+            (["attention_profile.is_suspended_by_ai"], False, True),
+            (["attention_profile.base_importance_score"], False, False),
+        ],
+        PERSONS: [
+            (["person_id"], True, False), # person_id 应该是唯一的
+        ],
+        ACCOUNTS: [
+            (["account_uid"], True, False), # account_uid 也必须唯一
+            (["platform", "platform_id"], True, False),
+        ],
+        PARTICIPATES_IN: [
+            (["permission_level"], False, True)
+        ],
+        THOUGHTS: [
+            (["timestamp"], False, False),
+            (["action.action_id"], True, True),
+        ],
+        ACTION_LOGS: [
+            (["action_id"], True, False),
+            (["timestamp"], False, False),
+        ],
+        CONVERSATION_SUMMARIES: [
+            (["conversation_id", "timestamp"], False, False),
+            (["timestamp"], False, False),
+        ],
+        INTRUSIVE_THOUGHTS_POOL: [
+            (["timestamp"], False, False),
+            (["used"], False, False),
+        ],
+    }
+
+    @classmethod
+    def get_all_core_collection_configs(cls) -> dict[str, list[tuple[list[str], bool, bool]]]:
+        """获取所有集合的索引配置。"""
+        return cls.INDEX_DEFINITIONS
+
+    @classmethod
+    def get_edge_collection_names(cls) -> set[str]:
+        """返回所有边集合的名字。"""
+        return {cls.HAS_ACCOUNT, cls.PARTICIPATES_IN}
+
+    # ↓↓↓ 就是这里！我把忘掉的技能给你补上了！哼！ ↓↓↓
+    @classmethod
+    def get_vertex_collection_names(cls) -> set[str]:
+        """返回所有点集合的名字。"""
+        # 我直接在这里告诉你哪些是点了，简单粗暴，我喜欢。
+        return {cls.PERSONS, cls.ACCOUNTS, cls.CONVERSATIONS}
+    # ↑↑↑ 补丁打好了！ ↑↑↑
+
+
 class ArangoDBConnectionManager:
     """
-    ArangoDB 连接管理器 (arangoasync 库终极正确用法版)。
-    这次，我直接和图对话。
+    ArangoDB 连接管理器 (小懒猫重构版)。
+    现在它知道什么是“图”了，哼。
     """
 
     def __init__(
@@ -119,114 +203,114 @@ class ArangoDBConnectionManager:
         # 这个方法现在主要是给文档集合用的
         if is_edge:
             if not self.main_graph:
-                raise RuntimeError("主图未初始化，无法获取边集合！")
-            # 边集合必须通过图对象来获取
+                raise RuntimeError("主图未初始化，无法获取边集合！这不科学！")
             return self.main_graph.edge_collection(name)
 
         index_definitions = self.core_collection_configs.get(name)
         return await self.ensure_collection_with_indexes(name, index_definitions, is_edge=False)
 
     async def ensure_core_infrastructure(self) -> None:
-        logger.debug("正在确保核心数据库基础设施 (集合和图) 已按配置就绪...")
+        """
+        确保核心的数据库基础设施（集合和图）都准备好了。
+        这是小懒猫的终极忏悔修正版，这次我再也不相信任何人了！
+        """
+        logger.debug("正在检查数据库基础设施 (集合与图)...")
         if not self.core_collection_configs:
-            logger.warning("未提供核心集合配置 (core_collection_configs)，跳过基础设施保障步骤。")
+            logger.warning("未提供核心集合配置，跳过基础设施检查。")
             return
 
-        # --- 核心改造点 ---
-        # 1. 先把所有的“点”集合都创建好
-        edge_collection_names = CoreDBCollections.get_edge_collections()
-        vertex_collection_names = set(self.core_collection_configs.keys()) - edge_collection_names
+        # 1. 把所有要用到的集合名字都拿出来，不管它是点是边
+        all_collections_to_ensure = set(self.core_collection_configs.keys())
+        graph_edge_names = CoreDBCollections.get_edge_collection_names()
 
-        for collection_name in vertex_collection_names:
+        # 2. 像个老妈子一样，一个一个地检查，不存在就给它创建好！
+        #    这次我明确告诉它哪个是边集合，免得又搞错。
+        for collection_name in all_collections_to_ensure:
+            is_edge = collection_name in graph_edge_names
             index_definitions = self.core_collection_configs.get(collection_name)
-            await self.ensure_collection_with_indexes(collection_name, index_definitions, is_edge=False)
+            # ensure_collection_with_indexes 这个方法现在要能正确处理 is_edge 参数了
+            await self.ensure_collection_with_indexes(collection_name, index_definitions, is_edge=is_edge)
 
-        # 2. 确保我们的“总图”存在
-        main_graph_name = "person_relation_graph"
-        if not await self.db.has_graph(main_graph_name):
-            logger.info(f"主关系图 '{main_graph_name}' 不存在，正在创建...")
-            # 创建图时，需要定义边。我们把所有的边集合都放进去。
+        # 3. 现在，所有的“砖块”（集合）都准备好了，可以开始盖“房子”（图）了
+        graph_name = CoreDBCollections.MAIN_GRAPH_NAME
+        graph_vertex_names = CoreDBCollections.get_vertex_collection_names()
+
+        if not await self.db.has_graph(graph_name):
+            logger.info(f"主关系图 '{graph_name}' 不存在，正在创建...")
+
             edge_definitions = [
                 {
                     "collection": edge_name,
-                    "from": list(vertex_collection_names),  # 允许所有点集合作为起点
-                    "to": list(vertex_collection_names),  # 允许所有点集合作为终点
+                    "from": list(graph_vertex_names),
+                    "to": list(graph_vertex_names),
                 }
-                for edge_name in edge_collection_names
+                for edge_name in graph_edge_names
             ]
+
             try:
-                self.main_graph = await self.db.create_graph(main_graph_name, edge_definitions=edge_definitions)
+                self.main_graph = await self.db.create_graph(graph_name, edge_definitions=edge_definitions)
             except GraphCreateError as e:
-                logger.error(f"创建主关系图 '{main_graph_name}' 失败: {e}", exc_info=True)
+                logger.error(f"创建主关系图 '{graph_name}' 失败: {e}", exc_info=True)
                 raise
         else:
-            logger.info(f"主关系图 '{main_graph_name}' 已存在。")
-            self.main_graph = self.db.graph(main_graph_name)
+            logger.debug(f"主关系图 '{graph_name}' 已存在。")
+            self.main_graph = self.db.graph(graph_name)
 
-        # 3. 通过图对象来确保“边”集合存在
-        for edge_name in edge_collection_names:
+        # 4. 之前那种多余的“查房”逻辑可以去掉了，因为第一步已经保证所有集合都存在了。
+        #    我只需要确保图里有定义就行，虽然理论上创建图的时候就已经定义好了，但再检查一下也无妨。
+        for edge_name in graph_edge_names:
             if not await self.main_graph.has_edge_definition(edge_name):
-                logger.warning(f"边定义 '{edge_name}' 不在图中，正在尝试添加...")
-                # 这里需要简化，因为我们已经创建了图
-                # 通常在创建图时就应该定义好边
-                # 如果需要动态添加，逻辑会更复杂
-                # 这里我们假设创建图时已经定义好了
+                logger.warning(f"图 '{graph_name}' 中缺少边定义 '{edge_name}'，这不应该发生，但正在尝试补上...")
+                try:
+                    await self.main_graph.create_edge_definition(
+                        edge_collection=edge_name,
+                        from_vertex_collections=list(graph_vertex_names),
+                        to_vertex_collections=list(graph_vertex_names),
+                    )
+                except Exception as e:
+                    logger.error(f"为图 '{graph_name}' 补全边定义 '{edge_name}' 失败: {e}", exc_info=True)
 
-            # 检查边集合本身是否存在，如果不存在，图的创建应该已经失败了
-            if not await self.db.has_collection(edge_name):
-                logger.error(f"严重错误：图 '{main_graph_name}' 已存在，但其边集合 '{edge_name}' 丢失！")
-                # 可以在这里尝试修复，比如重新添加边定义
-
-            # 最后，为边集合应用索引
-            index_definitions = self.core_collection_configs.get(edge_name)
-            edge_collection_obj = self.main_graph.edge_collection(edge_name)
-            if edge_collection_obj and index_definitions:
-                await self._apply_indexes_to_collection(edge_collection_obj, index_definitions)
-
-        logger.debug("核心数据库基础设施已保障。")
+        logger.info("核心数据库基础设施已确认就绪。")
 
     async def ensure_collection_with_indexes(
         self,
         collection_name: str,
         index_definitions: list[tuple[list[str], bool, bool]] | None = None,
-        is_edge: bool = False,  # 这个参数现在只给文档集合用了
+        is_edge: bool = False, # 这个参数现在至关重要！
     ) -> StandardCollection:
-        if not self.db:
-            return None  # type: ignore
-
         if not await self.db.has_collection(collection_name):
-            logger.debug(f"文档集合 '{collection_name}' 不存在，正在创建...")
+            logger.debug(f"集合 '{collection_name}' 不存在，正在创建 (类型: {'edge' if is_edge else 'document'})...")
             try:
-                # 只处理文档集合的创建
-                if not is_edge:
-                    await self.db.create_collection(collection_name)
-                    logger.debug(f"文档集合 '{collection_name}' 创建成功。")
-                else:
-                    # 边集合的创建由 ensure_core_infrastructure 中的图创建逻辑处理
-                    logger.debug(f"跳过边集合 '{collection_name}' 的直接创建，将由图管理。")
-
+                # 只有当 is_edge 为 True 时才创建边集合
+                await self.db.create_collection(collection_name, col_type=3 if is_edge else 2)
+                logger.debug(f"集合 '{collection_name}' 创建成功。")
             except CollectionCreateError as e:
                 logger.warning(f"创建集合 '{collection_name}' 时发生冲突或错误: {e}。将继续尝试获取该集合。")
 
         try:
+            # ↓↓↓ 这才是釜底抽薪的骚操作！ ↓↓↓
+            # 不管三七二十一，我直接从最原始的 db 对象里拿集合句柄！
+            # 这样就绕开了那个还没出生的 self.main_graph！
             collection = self.db.collection(collection_name)
+            # ↑↑↑ 问题解决！ ↑↑↑
             if collection and index_definitions:
                 await self._apply_indexes_to_collection(collection, index_definitions)
             return collection
         except Exception as e:
             logger.error(f"最终获取集合 '{collection_name}' 失败: {e}", exc_info=True)
-            return None  # type: ignore
+            raise
 
     async def _apply_indexes_to_collection(
         self,
         collection: StandardCollection,
         indexes_to_create: list[tuple[list[str], bool, bool]],
     ) -> None:
+        # ... (这个函数不需要改，它只管加索引)
         collection_name = collection.name
         try:
             current_indexes_info = await collection.indexes()
             existing_indexes_set = {
-                ("_".join(sorted(idx["fields"])), idx["type"], idx.get("unique", False), idx.get("sparse", False))
+                ("_".join(sorted(idx.fields)), idx.type, idx.unique or False, idx.sparse or False)
                 for idx in current_indexes_info
             }
             for fields, unique, sparse in indexes_to_create:
@@ -276,69 +360,6 @@ class ArangoDBConnectionManager:
             return empty_iterator() if stream else []
 
     async def close_client(self) -> None:
-        # arangoasync 的 client 没有 close 方法，所以我们什么都不做
-        logger.info("arangoasync 客户端无需显式关闭。")
-        pass
-
-
-class CoreDBCollections:
-    EVENTS: str = "events"
-    CONVERSATIONS: str = "conversations"
-    PERSONS: str = "persons"
-    ACCOUNTS: str = "accounts"
-    HAS_ACCOUNT: str = "has_account"
-    PARTICIPATES_IN: str = "participates_in"
-    THOUGHTS: str = "thoughts_collection"
-    INTRUSIVE_THOUGHTS_POOL: str = "intrusive_thoughts_pool"
-    ACTION_LOGS: str = "action_logs"
-    CONVERSATION_SUMMARIES: str = "conversation_summaries"
-
-    INDEX_DEFINITIONS: dict[str, list[tuple[list[str], bool, bool]]] = {
-        EVENTS: [
-            (["event_type", "timestamp"], False, False),
-            (["platform", "bot_id", "timestamp"], False, False),
-            (["conversation_id_extracted", "timestamp"], False, True),
-            (["user_id_extracted", "timestamp"], False, True),
-            (["timestamp"], False, False),
-        ],
-        CONVERSATIONS: [
-            (["platform", "type"], False, False),
-            (["updated_at"], False, False),
-            (["parent_id"], False, True),
-            (["attention_profile.is_suspended_by_ai"], False, True),
-            (["attention_profile.base_importance_score"], False, False),
-        ],
-        PERSONS: [
-            (["person_id"], True, False),
-            (["metadata.last_seen_at"], False, False),
-        ],
-        ACCOUNTS: [
-            (["account_uid"], True, False),
-            (["platform", "platform_id"], True, False),
-        ],
-        PARTICIPATES_IN: [(["permission_level"], False, True)],
-        THOUGHTS: [
-            (["timestamp"], False, False),
-            (["action_attempted.action_id"], True, True),
-        ],
-        ACTION_LOGS: [
-            (["action_id"], True, False),
-            (["timestamp"], False, False),
-        ],
-        CONVERSATION_SUMMARIES: [
-            (["conversation_id", "timestamp"], False, False),
-            (["timestamp"], False, False),
-        ],
-        INTRUSIVE_THOUGHTS_POOL: [
-            (["timestamp_generated"], False, False),
-            (["used"], False, False),
-        ],
-    }
-
-    @classmethod
-    def get_all_core_collection_configs(cls) -> dict[str, list[tuple[list[str], bool, bool]]]:
-        return cls.INDEX_DEFINITIONS
-
-    @classmethod
-    def get_edge_collections(cls) -> set[str]:
-        return {cls.HAS_ACCOUNT, cls.PARTICIPATES_IN}
+        if self.client:
+            await self.client.close()
+            logger.info("arangoasync 客户端连接已关闭。")

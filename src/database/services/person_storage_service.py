@@ -1,9 +1,9 @@
-# src/database/services/person_storage_service.py
+# 文件路径: src/database/services/person_storage_service.py
 import time
 from typing import Any
 
 from aicarus_protocols import UserInfo as ProtocolUserInfo
-from arangoasync.collection import Collection  # Ensure this import exists
+from arangoasync.collection import Collection, StandardCollection, EdgeCollection # 确保导入 EdgeCollection
 
 from src.common.custom_logging.logging_config import get_logger
 from src.database import (
@@ -26,9 +26,11 @@ class PersonStorageService:
     def __init__(self, conn_manager: ArangoDBConnectionManager) -> None:
         self.conn_manager = conn_manager
 
-    async def _get_collection(self, name: str, is_edge: bool = False) -> Collection:
-        """一个懒人工具，用来获取集合实例。"""
-        return await self.conn_manager.get_collection(name, is_edge)
+    async def _get_collection(self, name: str, is_edge: bool = False) -> StandardCollection | EdgeCollection:
+        """
+        一个懒人工具，用来获取集合实例。现在它知道边集合要特殊对待了。
+        """
+        return await self.conn_manager.get_collection(name, is_edge=is_edge)
 
     async def find_or_create_person_and_account(
         self, user_info: ProtocolUserInfo, platform: str
@@ -207,8 +209,8 @@ class PersonStorageService:
         self, account_uid: str, conversation_id: str, user_info: ProtocolUserInfo, conversation_name: str | None
     ) -> None:
         """更新账号在会话中的成员信息（边属性）。"""
-        _participates_in_collection = await self._get_collection(CoreDBCollections.PARTICIPATES_IN, is_edge=True)
-
+        # ↓↓↓ 这里的调用现在是正确的了，因为 is_edge=True 会通过图对象获取集合 ↓↓↓
+        _ = await self._get_collection(CoreDBCollections.PARTICIPATES_IN, is_edge=True)
         from_vertex = f"{CoreDBCollections.ACCOUNTS}/{account_uid}"
         to_vertex = f"{CoreDBCollections.CONVERSATIONS}/{conversation_id}"
 
