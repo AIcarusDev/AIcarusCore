@@ -1,5 +1,5 @@
 # src/focus_chat_mode/chat_session.py
-
+# 聊天会话模块，负责处理单个会话的逻辑，包括消息存储、行为指导等。
 import asyncio
 import time
 from collections import OrderedDict

@@ -1,4 +1,5 @@
 # src/focus_chat_mode/chat_session_manager.py
+# 聊天会话管理器模块，用于管理聊天会话的生命周期和相关操作。
 import asyncio
 import time
 from typing import TYPE_CHECKING, Optional
@@ -16,7 +17,7 @@ from src.llmrequest.llm_processor import Client as LLMProcessorClient
 from .chat_session import ChatSession
 
 if TYPE_CHECKING:
-    # ❤ 引入我们性感的新大脑，为了类型提示~
+    # 引入智能中断系统模块，用于类型提示。
     from src.common.intelligent_interrupt_system.intelligent_interrupter import IntelligentInterrupter
     from src.common.summarization_observation.summarization_service import SummarizationService
     from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow

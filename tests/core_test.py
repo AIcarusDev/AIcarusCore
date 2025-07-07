@@ -5,17 +5,19 @@ import uuid
 
 import websockets
 
-# --- 配置你的Core地址 ---
+# 配置Core地址
 CORE_WS_URL = "ws://localhost:8077"
 
-# --- ❤❤❤ 我们的测试适配器身份，现在必须使用翻译官的真名！❤❤❤ ---
-ADAPTER_ID = "napcat_qq"  # 之前是 "napcat_test_client"，这是错误的！
-DISPLAY_NAME = "小色猫的专属测试肉棒(真名版)"
+# 测试适配器身份配置
+ADAPTER_ID = "napcat_qq"  # 适配器ID，需与实际环境一致。
+DISPLAY_NAME = "测试适配器（正式版）"
 BOT_ID = "12345"
 
 
 async def send_and_log(websocket: websockets.WebSocketClientProtocol, event_name: str, event_data: dict) -> None:
-    """一个性感的小工具，用来发送事件并打印日志"""
+    """
+工具函数，用于发送事件并记录日志。
+"""
     print(f"\n{'=' * 20} 准备发送: {event_name} {'=' * 20}")
     event_json = json.dumps(event_data, indent=2, ensure_ascii=False)
     print(f"发送内容:\n{event_json}")

@@ -16,7 +16,7 @@ from src.database import (
     ConversationStorageService,
     DBEventDocument,
     EnrichedConversationInfo,
-    PersonStorageService,  # 把老鸨请进来
+    PersonStorageService,  # 引入PersonStorageService
 )
 from src.database.services.event_storage_service import EventStorageService
 from src.focus_chat_mode.chat_session_manager import ChatSessionManager
@@ -37,19 +37,19 @@ class DefaultMessageProcessor:
         self,
         event_service: EventStorageService,
         conversation_service: ConversationStorageService,
-        person_service: PersonStorageService,  # 给老鸨一个位置
+        person_service: PersonStorageService,  # 用于存储与用户相关的Person服务引用
         semantic_model: "SemanticModel",
         core_websocket_server: Optional["CoreWebsocketServer"] = None,
         qq_chat_session_manager: Optional["ChatSessionManager"] = None,
     ) -> None:
         self.event_service: EventStorageService = event_service
         self.conversation_service: ConversationStorageService = conversation_service
-        self.person_service: PersonStorageService = person_service  # 记住这位老鸨
+        self.person_service: PersonStorageService = person_service  # 存储Person服务实例引用
         self.semantic_model: SemanticModel = semantic_model
         self.core_comm_layer: CoreWebsocketServer | None = core_websocket_server
         self.qq_chat_session_manager = qq_chat_session_manager
         self.core_initializer_ref: CoreSystemInitializer | None = None
-        logger.info("DefaultMessageProcessor 初始化完成，已配备新老鸨(PersonStorageService)。")
+        logger.info("DefaultMessageProcessor 初始化完成，已配备PersonStorageService服务。")
         if self.core_comm_layer:
             logger.info("DefaultMessageProcessor 已获得 CoreWebsocketServer 实例的引用。")
         else:
@@ -65,7 +65,7 @@ class DefaultMessageProcessor:
             logger.error(f"传入的事件不是 ProtocolEvent 类型，而是 {type(proto_event)}。跳过处理。")
             return
 
-        # --- ❤❤❤ 高潮点 #1: 从 event_type 中解析平台信息！❤❤❤ ---
+        # 关键步骤1: 从 event_type 中解析平台信息
         platform_id = proto_event.get_platform()
         if not platform_id:
             logger.error(f"无法从事件类型 '{proto_event.event_type}' 中解析出平台ID，事件处理中止。")
@@ -159,7 +159,7 @@ class DefaultMessageProcessor:
                 logger.debug(f"事件 '{proto_event.event_id}' 的状态为 '{event_status}'，将跳过后续分发。")
                 return
 
-            # --- ❤❤❤ 高潮点 #2: 分发时，事件类型也带着完整的命名空间！❤❤❤ ---
+            # 关键步骤2: 分发时，事件类型带着完整的命名空间
             if proto_event.event_type.startswith(f"message.{platform_id}"):
                 await self._handle_message_event(proto_event, websocket)
             elif proto_event.event_type.startswith(f"request.{platform_id}"):
@@ -175,14 +175,13 @@ class DefaultMessageProcessor:
     async def _handle_bot_profile_update(self, event: ProtocolEvent) -> None:
         """
         处理机器人自身档案更新的通知，并更新相关会话的缓存和数据库。
-        哼，小报告来了，我得赶紧记下来。
         """
         try:
             if not event.content:
                 logger.warning("收到的机器人档案更新通知没有内容。")
                 return
 
-            # 小报告的核心内容在第一个 seg 的 data 里
+            # 通知的核心内容在第一个 seg 的 data 里
             report_data = event.content[0].data
             conversation_id = report_data.get("conversation_id")
             update_type = report_data.get("update_type")
@@ -222,10 +221,10 @@ class DefaultMessageProcessor:
                 # 先从数据库读出旧的档案，但我们只关心它的 card
                 conv_doc = await self.conversation_service.get_conversation_document_by_id(conversation_id)
 
-                # 淫乱的开始：创建一个全新的、干净的档案，而不是在旧的上面乱搞
+                # 创建新的档案对象以避免直接修改原始数据
                 profile_to_update = {}
 
-                # 如果旧档案里有卡片信息，就先继承过来，像是继承了前戏的余韵
+                # 如果旧档案里有卡片信息，就先继承过来
                 if (
                     conv_doc
                     and conv_doc.get("bot_profile_in_this_conversation")
@@ -233,7 +232,7 @@ class DefaultMessageProcessor:
                 ):
                     profile_to_update = conv_doc["bot_profile_in_this_conversation"]
 
-                # 在干净的档案基础上更新，这才是正确的体位！
+                # 在干净的档案基础上更新
                 if update_type == "card_change":
                     profile_to_update["card"] = new_value
                 # 可以在这里添加对其他更新类型的处理，比如头衔 'title'
@@ -242,7 +241,7 @@ class DefaultMessageProcessor:
 
                 profile_to_update["updated_at"] = int(time.time() * 1000)
 
-                # 写回数据库，现在里面只有纯洁的爱，没有乱七八糟的“群P”记录了
+                # 将更新后的档案写回数据库
                 await self.conversation_service.update_conversation_field(
                     conversation_id, "bot_profile_in_this_conversation", profile_to_update
                 )
@@ -252,12 +251,12 @@ class DefaultMessageProcessor:
 
     async def _handle_message_event(self, proto_event: ProtocolEvent, websocket: WebSocketServerProtocol) -> bool:
         try:
-            # --- ❤❤❤ 淫荡的后门测试入口！❤❤❤ ---
+            # 测试入口点
             text_content = proto_event.get_text_content()
             print(f"收到的文本内容: {text_content}")
             if text_content.strip() == "完整测试":
                 logger.info(
-                    f"收到来自会话 {proto_event.conversation_info.conversation_id} 的“完整测试”指令！开始表演！"
+                    f'收到来自会话 {proto_event.conversation_info.conversation_id} 的"完整测试"指令！进入测试模式！'
                 )
                 # 我们需要 ActionHandler 来提交动作
                 action_handler = (
@@ -267,13 +266,13 @@ class DefaultMessageProcessor:
                     logger.error("无法执行后门测试：CoreSystemInitializer 或 ActionHandler 未被注入！")
                     return False
 
-                # 开始我们的三连“插入”表演！
+                # 开始执行测试动作序列
                 await self._perform_test_actions(proto_event, action_handler)
 
-                # 表演结束，告诉上层我们已经处理完了，不需要再进入专注模式等后续流程
+                # 测试结束，告诉上层我们已经处理完了，不需要再进入专注模式等后续流程
                 return False
             if self.qq_chat_session_manager:
-                # --- ❤❤❤ 高潮点 #3: 将带有新 event_type 的事件喂给下一层！❤❤❤ ---
+                # 关键步骤3: 将带有新 event_type 的事件传递给下一层处理器
                 await self.qq_chat_session_manager.handle_incoming_message(proto_event)
             return True
         except Exception as e:
@@ -343,7 +342,7 @@ class DefaultMessageProcessor:
         except Exception as e:
             logger.error(f"处理请求事件 (ID: {proto_event.event_id}) 时发生错误: {e}", exc_info=True)
 
-    # --- ❤❤❤ 全新的、为主人表演专用的小私处！❤❤❤ ---
+    # 测试专用方法
     async def _perform_test_actions(self, trigger_event: ProtocolEvent, action_handler: "ActionHandler") -> None:
         """
         一个接一个地执行发言、回复、戳一戳这三个动作。

@@ -1,6 +1,6 @@
 # Core_thinking/tools/failure_reporter.py
 """
-行动失败报告工具
+行动失败报告工具模块，提供记录和报告失败信息的功能。
 """
 
 import json

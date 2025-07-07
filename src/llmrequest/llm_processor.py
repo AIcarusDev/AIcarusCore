@@ -1,5 +1,5 @@
 # 文件: llmrequest/llm_processor.py
-# 我要修改这个文件，哼！
+# LLM处理器模块，负责与语言模型进行交互并处理相关请求。
 
 import asyncio
 from collections.abc import Callable, Coroutine
@@ -13,7 +13,7 @@ from .utils_model import LLMClient as UnderlyingLLMClient
 # 获取日志记录器实例
 logger = get_logger(__name__)
 
-# 定义回调函数类型，用于处理流式数据的块
+# 定义回调函数类型，用于处理流式数据块
 # 参数：块数据，块类型（例如 'chunk', 'finish', 'error'），元数据字典
 ChunkCallbackType = Callable[[Any, str, dict[str, Any] | None], Coroutine[Any, Any, None]]
 
@@ -60,6 +60,7 @@ class _StreamingWorkflowManager:
         #     "utils_model.py 中的 UnderlyingLLMClient 类（特别是 _handle_streaming_response_for_style 方法）可能需要进行修改以支持此功能 " #
         #     "(例如，通过接受一个块接收器回调并逐块调用它，而不是自己打印或累积完整文本)。" #
         #     "当前此处的 chunk_callback 主要设计用于在流结束、出错或被中断时获得通知和最终/部分结果。" #
+        #     "如果您对流式数据的逐块处理有更细粒度的需求，可能需要对底层实现进行更深入的定制。" #
         # )
 
     async def _internal_chunk_handler(
@@ -112,7 +113,8 @@ class _StreamingWorkflowManager:
                 logger.info(f"流式任务 ID: {task_id} 的中断信号先前已被设置。")
         else:
             # 如果任务ID未知或任务已完成（事件已被清除），则记录警告
-            logger.warning(f"尝试中断一个未知的或已完成/清理的流式任务 ID: {task_id}")
+            logger.warning(f"尝试中断未知或已终止的流式任务 ID: {task_id}")
+            # 说明：任务可能因超时、用户取消或系统清理而终止
 
     async def interrupt_current_processing_task(self) -> None:
         """
@@ -128,7 +130,7 @@ class _StreamingWorkflowManager:
         task_id: str,  # 任务的唯一标识符 #
         prompt: str,  # LLM 的文本提示 #
         # ███ 小懒猫改动开始 ███
-        system_prompt: str | None = None,  # 新增 system_prompt 参数，哎，真麻烦
+        system_prompt: str | None = None,
         # ███ 小懒猫改动结束 ███
         # 以下参数与 UnderlyingLLMClient.make_request 的参数对应
         is_multimodal: bool = False,
@@ -166,7 +168,7 @@ class _StreamingWorkflowManager:
             result_from_llm_client: dict[str, Any] = await self.llm_client.make_request(
                 prompt=prompt,
                 # ███ 小懒猫改动开始 ███
-                system_prompt=system_prompt,  # 把这个参数也传下去，累死我了
+                system_prompt=system_prompt,
                 # ███ 小懒猫改动结束 ███
                 is_stream=True,  # 明确指示进行流式处理 #
                 is_multimodal=is_multimodal,
@@ -384,7 +386,7 @@ class Client:  # 这是 llm_processor.Client，是暴露给外部使用者的高
             if tools or image_inputs:
                 logger.warning("为嵌入请求提供了 'tools' 或 'image_inputs'；这些参数将被忽略。")
             if system_prompt:
-                logger.warning("为嵌入请求提供了 'system_prompt'；此参数将被忽略。哼，白传了！")
+                logger.warning("为嵌入请求提供了 'system_prompt'；此参数在嵌入请求中无效")
 
             # 准备传递给底层 get_embedding 方法的生成参数 (尽管嵌入通常参数较少)
             embedding_gen_params: GenerationParams = additional_generation_params.copy()
@@ -417,7 +419,7 @@ class Client:  # 这是 llm_processor.Client，是暴露给外部使用者的高
                 task_id=task_id,
                 prompt=prompt,
                 # ███ 小懒猫改动开始 ███
-                system_prompt=system_prompt,  # 唉，又是我，继续传参数
+                system_prompt=system_prompt,  # 传递系统提示词参数以支持多轮对话上下文
                 # ███ 小懒猫改动结束 ███
                 is_multimodal=is_multimodal,
                 image_inputs=image_inputs,
