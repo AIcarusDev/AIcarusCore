@@ -11,8 +11,7 @@ logger = get_logger(__name__)
 
 
 class UnreadInfoService:
-    """
-    一个被小懒猫重构过的、专门处理未读信息的服务。
+    """一个被小懒猫重构过的、专门处理未读信息的服务。
     哼，现在它能生成你想要的、花里胡哨的摘要格式了。
     """
 
@@ -28,8 +27,7 @@ class UnreadInfoService:
     async def _get_unread_conversations_with_events(
         self, exclude_conversation_id: str | None = None
     ) -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
-        """
-        内部核心方法，获取所有有新消息的会话及其对应的新消息事件列表。
+        """内部核心方法，获取所有有新消息的会话及其对应的新消息事件列表。
         哼，我在这里加了个“门禁”，可以把某个讨厌鬼关在门外。
         """
         logger.debug(f"开始检查所有活跃会话的新消息... (将排除: {exclude_conversation_id})")
@@ -67,8 +65,7 @@ class UnreadInfoService:
         return unread_conversations_with_events
 
     def _get_sender_display_name(self, event: dict, conversation_type: str) -> str:
-        """
-        根据事件和会话类型，智能地获取最佳的显示名称。
+        """根据事件和会话类型，智能地获取最佳的显示名称。
         这就是我新加的“智慧核心”！
         """
         user_info = event.get("user_info", {})
@@ -96,8 +93,7 @@ class UnreadInfoService:
         return "未知用户"
 
     def _create_message_preview(self, event: dict, display_name: str) -> str:
-        """
-        我新建的“小作坊”，专门生产那条恶心的“最新消息”预览。
+        """我新建的“小作坊”，专门生产那条恶心的“最新消息”预览。
         哼，你那15条破规则，都在这里处理了。
         """
         content = event.get("content", [])
@@ -119,7 +115,12 @@ class UnreadInfoService:
 
         # 再处理戳一戳这种特殊事件
         if event_type in ("user.poke", "group.user.poke", "private.user.poke"):
-            target_id = event.get("content", [{}])[0].get("data", {}).get("target_user_info", {}).get("user_id")
+            target_id = (
+                event.get("content", [{}])[0]
+                .get("data", {})
+                .get("target_user_info", {})
+                .get("user_id")
+            )
             if str(target_id) == self.bot_id:
                 return f'{display_name} "戳了戳" 你'
             else:
@@ -182,11 +183,11 @@ class UnreadInfoService:
         return final_preview
 
     async def generate_unread_summary_text(self, exclude_conversation_id: str | None = None) -> str:
-        """
-        生成最终的、符合你那变态要求的、带XML标签的未读消息摘要。
-        """
+        """生成最终的、符合你那变态要求的、带XML标签的未读消息摘要."""
         logger.debug(f"开始生成精装修版未读消息摘要... (将排除: {exclude_conversation_id})")
-        unread_convs_with_events = await self._get_unread_conversations_with_events(exclude_conversation_id)
+        unread_convs_with_events = await self._get_unread_conversations_with_events(
+            exclude_conversation_id
+        )
 
         if not unread_convs_with_events:
             return "所有其他会话均无未读消息。"
@@ -216,7 +217,9 @@ class UnreadInfoService:
                     time_str = datetime.fromtimestamp(timestamp / 1000.0).strftime("%H:%M")
 
                     sender_display_name = self._get_sender_display_name(latest_event, "group")
-                    message_preview = self._create_message_preview(latest_event, sender_display_name)
+                    message_preview = self._create_message_preview(
+                        latest_event, sender_display_name
+                    )
 
                     summary_parts.append(f"- [群名称]：{conv_name}")
                     summary_parts.append(f"  - [ID]：{conv_id}")
@@ -244,7 +247,9 @@ class UnreadInfoService:
                     conv_name = conv_doc.get("name") or sender_display_name
 
                     # 最后，生成预览，一气呵成，爽！
-                    message_preview = self._create_message_preview(latest_event, sender_display_name)
+                    message_preview = self._create_message_preview(
+                        latest_event, sender_display_name
+                    )
                     # --- 淫纹注入结束 ---
 
                     summary_parts.append(f"- [用户名称]：{conv_name}")
@@ -257,17 +262,22 @@ class UnreadInfoService:
             summary_parts.append(f"</from_{platform}>")
 
         # 把所有行用换行符合并起来，但是要处理一下空行的问题
-        return "\n".join(line for line in summary_parts if line is not None).replace("\n\n\n", "\n\n").strip()
+        return (
+            "\n".join(line for line in summary_parts if line is not None)
+            .replace("\n\n\n", "\n\n")
+            .strip()
+        )
 
     async def get_structured_unread_conversations(
         self, exclude_conversation_id: str | None = None
     ) -> list[dict[str, Any]]:
-        """
-        获取所有有新消息的会话的结构化信息列表。
+        """获取所有有新消息的会话的结构化信息列表。
         这下 CoreLogic 就知道该怎么玩了。
         """
         logger.debug(f"正在获取结构化的未读会话列表... (将排除: {exclude_conversation_id})")
-        unread_convs_with_events = await self._get_unread_conversations_with_events(exclude_conversation_id)
+        unread_convs_with_events = await self._get_unread_conversations_with_events(
+            exclude_conversation_id
+        )
 
         if not unread_convs_with_events:
             return []
@@ -276,7 +286,9 @@ class UnreadInfoService:
         for conv_doc, events in unread_convs_with_events:
             # 随便拿一条消息来获取最新的会话名和发送者信息
             latest_event = events[-1]
-            sender_name = self._get_sender_display_name(latest_event, conv_doc.get("type", "unknown"))
+            sender_name = self._get_sender_display_name(
+                latest_event, conv_doc.get("type", "unknown")
+            )
 
             structured_list.append(
                 {
@@ -285,7 +297,9 @@ class UnreadInfoService:
                     "type": conv_doc.get("type"),
                     "name": conv_doc.get("name") or sender_name,  # 优先用数据库里的名字
                     "unread_count": len(events),
-                    "latest_message_preview": self._create_message_preview(latest_event, sender_name),
+                    "latest_message_preview": self._create_message_preview(
+                        latest_event, sender_name
+                    ),
                     "latest_timestamp": latest_event.get("timestamp", 0),
                 }
             )

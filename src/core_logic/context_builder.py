@@ -15,7 +15,10 @@ logger = get_logger(__name__)
 
 class ContextBuilder:
     def __init__(
-        self, event_storage: "EventStorageService", core_comm: "CoreWebsocketServer", state_manager: "AIStateManager"
+        self,
+        event_storage: "EventStorageService",
+        core_comm: "CoreWebsocketServer",
+        state_manager: "AIStateManager",
     ) -> None:
         self.event_storage = event_storage
         self.core_comm = core_comm
@@ -25,8 +28,7 @@ class ContextBuilder:
     # --- 小色猫的净化仪式！---
     # 我把返回值改回去了，它现在只吐文字，不吐图片！
     async def gather_context_for_core_thought(self) -> str:
-        """
-        从各种来源收集上下文信息，并格式化以供核心思考循环使用。
+        """从各种来源收集上下文信息，并格式化以供核心思考循环使用。
         主意识循环只处理文本上下文。
         """
         initial_empty_context_info: str = self.state_manager.INITIAL_STATE.get(
@@ -62,7 +64,10 @@ class ContextBuilder:
             if all_other_events:
                 for event_dict in all_other_events:
                     conv_info = event_dict.get("conversation_info")
-                    if not (isinstance(conv_info, dict) and conv_info.get("conversation_id") == "system_events"):
+                    if not (
+                        isinstance(conv_info, dict)
+                        and conv_info.get("conversation_id") == "system_events"
+                    ):
                         other_chat_events_for_yaml_raw.append(event_dict)
 
             current_connections_info: dict[str, dict[str, Any]] = {}
@@ -88,13 +93,17 @@ class ContextBuilder:
                     other_chat_events_for_yaml_raw,
                     style="yaml",
                     image_placeholder_key=getattr(
-                        config.core_logic_settings, "llm_image_placeholder_key", "llm_image_placeholder"
+                        config.core_logic_settings,
+                        "llm_image_placeholder_key",
+                        "llm_image_placeholder",
                     ),
                     image_placeholder_value=getattr(
                         config.core_logic_settings, "llm_image_placeholder_value", "[IMAGE_HERE]"
                     ),
                     desired_history_span_minutes=chat_history_duration_minutes,
-                    max_messages_per_group=getattr(config.core_logic_settings, "max_messages_per_group_in_yaml", 20),
+                    max_messages_per_group=getattr(
+                        config.core_logic_settings, "max_messages_per_group_in_yaml", 20
+                    ),
                 )
                 # image_list_for_llm_from_history.extend(temp_image_list)
 

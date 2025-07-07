@@ -101,7 +101,7 @@ _lock = threading.Lock()  # <--- 这就是我们的贞操锁！
 
 
 def _perform_daily_compression(log_file: Path) -> None:
-    """哼，就是把昨天的日志文件打包成zip。小事一桩。"""
+    """哼，就是把昨天的日志文件打包成zip。小事一桩."""
     if not log_file.exists() or log_file.suffix != ".log":
         return
     zip_path = log_file.with_suffix(".log.zip")
@@ -115,7 +115,7 @@ def _perform_daily_compression(log_file: Path) -> None:
 
 
 def _perform_monthly_archival(log_directory: Path, year: int, month: int) -> None:
-    """把指定月份的每日压缩包都吃掉，打包成一个月度大礼包。"""
+    """把指定月份的每日压缩包都吃掉，打包成一个月度大礼包."""
     year_month_str = f"{year:04d}-{month:02d}"
     monthly_archive_name = f"{year_month_str}.zip"
     monthly_archive_path = log_directory / monthly_archive_name
@@ -125,7 +125,9 @@ def _perform_monthly_archival(log_directory: Path, year: int, month: int) -> Non
     if not daily_zips_to_archive:
         return
 
-    logger.info(f"月初大扫除！正在将 {len(daily_zips_to_archive)} 个每日日志归档至 '{monthly_archive_name}'...")
+    logger.info(
+        f"月初大扫除！正在将 {len(daily_zips_to_archive)} 个每日日志归档至 '{monthly_archive_name}'..."
+    )
     try:
         with zipfile.ZipFile(monthly_archive_path, "w", zipfile.ZIP_DEFLATED) as monthly_zf:
             for daily_zip in daily_zips_to_archive:
@@ -140,9 +142,7 @@ def _perform_monthly_archival(log_directory: Path, year: int, month: int) -> Non
 
 
 def catch_up_and_archive_logs(log_directory: Path) -> None:
-    """
-    我全新的主动巡逻函数，现在加上了时间的贞操锁，哼！
-    """
+    """我全新的主动巡逻函数，现在加上了时间的贞操锁，哼！"""
     if not log_directory.exists():
         return
 
@@ -169,7 +169,9 @@ def catch_up_and_archive_logs(log_directory: Path) -> None:
             # --- 这就是我知错就改的地方，看清楚了，笨蛋！ ---
             # 我在这里加了一道淫乱的贞操锁！
             # 只有当年份比今年小，或者年份相同但月份比本月小的时候，我才会把它列为吞噬目标！
-            if file_date.year < today.year or (file_date.year == today.year and file_date.month < today.month):
+            if file_date.year < today.year or (
+                file_date.year == today.year and file_date.month < today.month
+            ):
                 months_to_archive.add((file_date.year, file_date.month))
 
         except ValueError:
@@ -182,8 +184,7 @@ def catch_up_and_archive_logs(log_directory: Path) -> None:
 
 
 def perform_global_log_housekeeping(root_log_dir: Path) -> None:
-    """
-    我全新的淫乱女管家！
+    """我全新的淫乱女管家！
     我会巡视整个 logs 豪宅，闯进每一个房间（模块日志目录），
     然后用我饥渴的 `catch_up_and_archive_logs` 函数，把里面的小骚货们全都调教一遍！
     """
@@ -199,9 +200,7 @@ def perform_global_log_housekeeping(root_log_dir: Path) -> None:
 
 
 def compress_log_on_rotation(file_path_to_compress_str: str, _: str) -> None:
-    """
-    在 loguru 轮替日志文件时被调用的函数。
-    """
+    """在 loguru 轮替日志文件时被调用的函数."""
     file_to_compress = Path(file_path_to_compress_str)
     if not file_to_compress.exists():
         return
@@ -211,13 +210,13 @@ def compress_log_on_rotation(file_path_to_compress_str: str, _: str) -> None:
     today = datetime.now()
     if today.day == 1:
         last_month_date = today - timedelta(days=1)
-        _perform_monthly_archival(file_to_compress.parent, last_month_date.year, last_month_date.month)
+        _perform_monthly_archival(
+            file_to_compress.parent, last_month_date.year, last_month_date.month
+        )
 
 
 def get_logger(module_name: str) -> Logger:
-    """
-    获取一个为指定模块配置好的 logger 实例 (小懒猫·视觉居中完美版)。
-    """
+    """获取一个为指定模块配置好的 logger 实例 (小懒猫·视觉居中完美版)."""
     # 找到最匹配的别名和颜色
     best_match_key = ""
     for prefix in MODULE_CONFIG_MAP:
@@ -293,7 +292,9 @@ def get_logger(module_name: str) -> Logger:
             # ----------------------------------------------------
 
             # 文件日志也用同样的方式对齐
-            file_format_str = "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <7} | {extra[padded_alias]} | {message}"
+            file_format_str = (
+                "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <7} | {extra[padded_alias]} | {message}"
+            )
 
             logger.add(
                 sink=log_file_path,

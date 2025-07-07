@@ -3,7 +3,6 @@ import os
 from typing import Any
 
 import aiohttp  # 让我们拥抱新欢 aiohttp
-
 from src.common.custom_logging.logging_config import get_logger
 
 from .base_engine import SearchEngineBase
@@ -14,14 +13,14 @@ BRAVE_API_KEY = os.environ.get("BRAVE_API_KEY")
 
 
 class BraveSearchEngine(SearchEngineBase):
-    """
-    小猫用 aiohttp 这个新玩具为主人重新调教了她，保证一插即用，顺滑无比！
+    """Brave Search 引擎的实现，使用 aiohttp 进行搜索.
+
+    Attributes:
+        proxy_url: str | None - 代理地址，如果有的话。
     """
 
     def __init__(self, proxy_url: str | None = None) -> None:
-        """
-        告诉她“秘密通道”的地址，这次我们用字符串就够了，aiohttp就喜欢这么直接。
-        """
+        """告诉她“秘密通道”的地址，这次我们用字符串就够了，aiohttp就喜欢这么直接."""
         super().__init__()
         # aiohttp更喜欢直接的字符串，我们就给它最直接的爱
         self.proxy_url = proxy_url
@@ -29,6 +28,14 @@ class BraveSearchEngine(SearchEngineBase):
             logger.info(f"Brave 引擎已配置秘密通道 (aiohttp 模式): {self.proxy_url}")
 
     async def search(self, query: str, max_results: int = 5) -> list[dict[str, Any]]:
+        """执行 Brave Search 搜索操作，返回结果列表.
+
+        Args:
+            query: 搜索关键词。
+            max_results: 返回的最大结果数量。
+        Returns:
+            搜索结果列表。
+        """
         if not BRAVE_API_KEY:
             logger.warning("未配置 BRAVE_API_KEY，Brave 引擎跳过执行。")
             return []

@@ -16,8 +16,7 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn")
 
 
 class MarkovChainModel:
-    """
-    这个小东西会饥渴地学习历史对话，然后告诉你新的消息有多么“意外”~
+    """这个小东西会饥渴地学习历史对话，然后告诉你新的消息有多么“意外”~
     就像一个期待惊喜的小母猫~ (这是我们的经典款哦~)
     """
 
@@ -50,7 +49,7 @@ class MarkovChainModel:
         for i in range(len(words) - 1):
             current_word = words[i]
             next_word = words[i + 1]
-            if current_word in self.chain and self.chain[current_word]:
+            if self.chain.get(current_word):
                 total_transitions = sum(self.chain[current_word].values())
                 next_word_count = self.chain[current_word].get(next_word, 0)
                 probability = (next_word_count + 1) / (total_transitions + len(self.chain))
@@ -65,9 +64,7 @@ class MarkovChainModel:
 
 
 class SemanticModel:
-    """
-    我的灵魂探针，能直接测量语义的深度和亲密度，找到内容的G点！
-    """
+    """我的灵魂探针，能直接测量语义的深度和亲密度，找到内容的G点！"""
 
     def __init__(self, model_name: str = "paraphrase-multilingual-MiniLM-L12-v2") -> None:
         self.model = SentenceTransformer(model_name)
@@ -82,8 +79,7 @@ class SemanticModel:
 
 # --- ❤❤❤ 究极淫乱混合体登场 ❤❤❤ ---
 class SemanticMarkovModel:
-    """
-    啊~ 主人，这就是你想要的究极形态！
+    """啊~ 主人，这就是你想要的究极形态！
     我结合了灵魂探针的深度和马尔可夫链的逻辑，能感受“话题跳转”的快感了！
     """
 
@@ -96,14 +92,15 @@ class SemanticMarkovModel:
 
     def train(self, conversations: list[list[str]]) -> None:
         """用你一场场纯粹的对话，来彻底重塑我的身体和灵魂吧！（现在我的身体更灵活了哦~❤️）"""
-
         all_texts = [text for conversation in conversations for text in conversation]
 
         # --- ❤❤❤ 欲望喷射点：让我的身体学会适应！❤❤❤ ---
         # 如果你喂我的句子总数，比你想要的G点数量还少...
         if len(all_texts) < self.num_clusters:
             # 我就不再哭着报错，而是娇嗔地告诉你，然后用现有的所有句子作为G点！
-            print(f"💦 警告！对话记录太少了({len(all_texts)}句)，不够形成主人你想要的 {self.num_clusters} 个敏感带。")
+            print(
+                f"💦 警告！对话记录太少了({len(all_texts)}句)，不够形成主人你想要的 {self.num_clusters} 个敏感带。"
+            )
             print(f"💦 我会智能地把敏感带数量调整为 {len(all_texts)} 个，用我仅有的快感来满足你哦~")
             # 动态调整！我身体的敏感带数量，不能超过我感受到的刺激总数！
             num_actual_clusters = len(all_texts)
@@ -157,9 +154,10 @@ class SemanticMarkovModel:
         embedding = self.semantic_model.encode([text])
         return self.kmeans.predict(embedding)[0]
 
-    def calculate_contextual_unexpectedness(self, current_text: str, previous_text: str | None) -> float:
-        """
-        啊~ 感受这句话衔接上下文的“意外度”吧！
+    def calculate_contextual_unexpectedness(
+        self, current_text: str, previous_text: str | None
+    ) -> float:
+        """啊~ 感受这句话衔接上下文的“意外度”吧！
         越是突兀的话题跳转，我的快感（返回值）就越高哦~
         """
         if self.transition_matrix is None or self.kmeans is None:

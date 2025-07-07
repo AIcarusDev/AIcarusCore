@@ -1,7 +1,5 @@
 # Core_thinking/tools/failure_reporter.py
-"""
-行动失败报告工具模块，提供记录和报告失败信息的功能。
-"""
+"""行动失败报告工具模块，提供记录和报告失败信息的功能."""
 
 import json
 
@@ -20,8 +18,7 @@ async def report_action_failure(
     reason_for_failure_short: str | None = None,  # 兼容旧的调用方式
     **kwargs: any,  # 增加kwargs以捕获所有其他参数，提高兼容性
 ) -> str:
-    """
-    报告一个详细的行动失败。所有参数都是可选的，以提高健壮性。
+    """报告一个详细的行动失败。所有参数都是可选的，以提高健壮性.
 
     Args:
         tool_name_that_failed: (可选) 失败的工具名称。
@@ -31,6 +28,7 @@ async def report_action_failure(
         tool_arguments_used: (可选) 执行失败工具时使用的参数。
         failed_action_id: (可选) 失败的行动ID。
         reason_for_failure_short: (可选) 兼容旧版调用的失败原因简述。
+        **kwargs: 接受任何其他未明确定义的关键字参数以增强函数的兼容性，但不会在报告中直接使用它们。
 
     Returns:
         一个详细的、格式化的失败报告字符串。
@@ -61,7 +59,7 @@ async def report_action_failure(
                 args_str = json.dumps(tool_arguments_used, ensure_ascii=False, indent=2)
                 report_parts.append(f"我当时使用的参数是:\n```json\n{args_str}\n```")
             except Exception:
-                report_parts.append(f"我当时使用的参数是: {str(tool_arguments_used)}")
+                report_parts.append(f"我当时使用的参数是: {tool_arguments_used!s}")
 
         report_parts.append(f"但是，这个行动失败了，失败的原因是：{final_reason}。")
 

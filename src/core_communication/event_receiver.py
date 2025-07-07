@@ -4,9 +4,8 @@ from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 from aicarus_protocols import Event as ProtocolEvent
-from websockets.server import WebSocketServerProtocol
-
 from src.common.custom_logging.logging_config import get_logger
+from websockets.server import WebSocketServerProtocol
 
 if TYPE_CHECKING:
     from src.action.action_handler import ActionHandler
@@ -18,9 +17,7 @@ AdapterEventCallback = Callable[[ProtocolEvent, WebSocketServerProtocol, bool], 
 
 
 class EventReceiver:
-    """
-    负责处理从适配器接收到的原始消息，解析它们，并分发到相应的处理器。
-    """
+    """负责处理从适配器接收到的原始消息，解析它们，并分发到相应的处理器."""
 
     def __init__(
         self,
@@ -35,7 +32,7 @@ class EventReceiver:
         logger.info("EventReceiver 初始化完成。")
 
     def _needs_persistence(self, event: ProtocolEvent) -> bool:
-        """判断一个事件是否需要被持久化。"""
+        """判断一个事件是否需要被持久化."""
         non_persistent_types = ["meta.lifecycle.connect", "meta.lifecycle.disconnect"]
         # action_response 应该被持久化，因为它代表了一个已完成动作的事实
         if event.event_type.startswith("action_response."):
@@ -43,10 +40,13 @@ class EventReceiver:
         return event.event_type not in non_persistent_types
 
     async def handle_message(
-        self, message_str: str, websocket: WebSocketServerProtocol, adapter_id: str, display_name: str
+        self,
+        message_str: str,
+        websocket: WebSocketServerProtocol,
+        adapter_id: str,
+        display_name: str,
     ) -> None:
-        """
-        处理单条来自适配器的消息。
+        """处理单条来自适配器的消息。
 
         Args:
             message_str: 接收到的原始消息字符串。
@@ -54,7 +54,9 @@ class EventReceiver:
             adapter_id: 发送消息的适配器ID。
             display_name: 适配器的显示名称。
         """
-        logger.debug(f"EventReceiver 正在处理来自 '{display_name}({adapter_id})' 的消息: {message_str[:200]}...")
+        logger.debug(
+            f"EventReceiver 正在处理来自 '{display_name}({adapter_id})' 的消息: {message_str[:200]}..."
+        )
 
         try:
             message_dict = json.loads(message_str)
@@ -81,13 +83,22 @@ class EventReceiver:
                 try:
                     aicarus_event = ProtocolEvent.from_dict(message_dict)
                     # 调用注册的回调函数（即 DefaultMessageProcessor.process_event）
-                    await self._event_handler_callback(aicarus_event, websocket, self._needs_persistence(aicarus_event))
+                    await self._event_handler_callback(
+                        aicarus_event, websocket, self._needs_persistence(aicarus_event)
+                    )
                 except Exception as e_parse:
-                    logger.error(f"解析或处理 Event 时出错: {e_parse}. 数据: {message_dict}", exc_info=True)
+                    logger.error(
+                        f"解析或处理 Event 时出错: {e_parse}. 数据: {message_dict}", exc_info=True
+                    )
             else:
                 logger.warning(f"收到的消息结构不像标准的 AIcarus Event. 数据: {message_dict}")
 
         except json.JSONDecodeError:
-            logger.error(f"从适配器 '{display_name}({adapter_id})' 解码 JSON 失败. 原始消息: {message_str[:200]}")
+            logger.error(
+                f"从适配器 '{display_name}({adapter_id})' 解码 JSON 失败. 原始消息: {message_str[:200]}"
+            )
         except Exception as e:
-            logger.error(f"处理来自适配器 '{display_name}({adapter_id})' 的消息时发生错误: {e}", exc_info=True)
+            logger.error(
+                f"处理来自适配器 '{display_name}({adapter_id})' 的消息时发生错误: {e}",
+                exc_info=True,
+            )

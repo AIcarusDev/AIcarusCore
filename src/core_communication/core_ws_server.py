@@ -14,9 +14,6 @@ import websockets
 # 导入我们全新的、纯洁的协议对象！
 from aicarus_protocols import ConversationInfo, SegBuilder
 from aicarus_protocols import Event as ProtocolEvent
-from websockets.exceptions import ConnectionClosed, ConnectionClosedError, ConnectionClosedOK
-from websockets.server import WebSocketServerProtocol
-
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
 from src.core_communication.action_sender import ActionSender
@@ -24,13 +21,14 @@ from src.core_communication.event_receiver import EventReceiver
 from src.core_logic.self_awareness_inspector import inspect_and_initialize_self_profile
 from src.database import DBEventDocument, PersonStorageService
 from src.database.services.event_storage_service import EventStorageService
+from websockets.exceptions import ConnectionClosed, ConnectionClosedError, ConnectionClosedOK
+from websockets.server import WebSocketServerProtocol
 
 logger = get_logger(__name__)
 
 
 class CoreWebsocketServer:
-    """
-    纯粹的WebSocket服务器，负责管理服务器生命周期和底层连接。
+    """纯粹的WebSocket服务器，负责管理服务器生命周期和底层连接。
     它将事件处理和动作发送的职责委托给 EventReceiver 和 ActionSender。
     """
 
@@ -64,7 +62,7 @@ class CoreWebsocketServer:
     async def _generate_and_store_system_event(
         self, adapter_id: str, display_name: str, event_type_suffix: str, reason: str = ""
     ) -> None:
-        """生成并存储系统生命周期事件。现在它接收的是事件后缀。"""
+        """生成并存储系统生命周期事件。现在它接收的是事件后缀."""
         current_timestamp = time.time()
 
         # --- ❤❤❤ 构造事件时，也遵循新的命名空间规则！❤❤❤ ---
@@ -98,12 +96,17 @@ class CoreWebsocketServer:
                 )
                 logger.info(f"已生成并存储系统事件: {event_content_text}")
             except Exception as e:
-                logger.error(f"存储系统事件 for '{adapter_id}' (type: {final_event_type}) 失败: {e}", exc_info=True)
+                logger.error(
+                    f"存储系统事件 for '{adapter_id}' (type: {final_event_type}) 失败: {e}",
+                    exc_info=True,
+                )
         else:
             logger.warning(f"EventStorageService 未初始化，无法存储系统事件 for '{adapter_id}'.")
 
-    async def _register_adapter(self, adapter_id: str, display_name: str, websocket: WebSocketServerProtocol) -> None:
-        """注册一个新的适配器，并通知 ActionSender。"""
+    async def _register_adapter(
+        self, adapter_id: str, display_name: str, websocket: WebSocketServerProtocol
+    ) -> None:
+        """注册一个新的适配器，并通知 ActionSender."""
         current_timestamp = time.time()
         self._websocket_to_adapter_id[websocket] = adapter_id
         self.adapter_clients_info[adapter_id] = {
@@ -117,37 +120,45 @@ class CoreWebsocketServer:
             f"适配器 '{display_name}({adapter_id})' 已连接: {websocket.remote_address}. 当前连接数: {len(self.adapter_clients_info)}"
         )
         # --- ❤❤❤ 这里是修复点！只传入后缀！❤❤❤ ---
-        await self._generate_and_store_system_event(adapter_id, display_name, "lifecycle.adapter_connected")
+        await self._generate_and_store_system_event(
+            adapter_id, display_name, "lifecycle.adapter_connected"
+        )
 
         logger.info(f"为新连接的适配器 '{display_name}({adapter_id})' 举行欢迎仪式 (执行安检)...")
 
         asyncio.create_task(self._run_inspection_ceremony(adapter_id, display_name))
 
     async def _run_inspection_ceremony(self, adapter_id: str, display_name: str) -> None:
-        """
-        一个专门用来在后台运行安检的协程。
-        """
+        """一个专门用来在后台运行安检的协程."""
         try:
             # 给一点点时间，确保连接完全稳定
             await asyncio.sleep(0.5)
 
             inspection_success = await inspect_and_initialize_self_profile(
-                person_service=self.person_service, action_handler=self.action_handler_instance, platform_id=adapter_id
+                person_service=self.person_service,
+                action_handler=self.action_handler_instance,
+                platform_id=adapter_id,
             )
 
             if not inspection_success:
                 logger.error(f"后台安检仪式失败！适配器 '{adapter_id}' 的相关功能可能受影响。")
         except Exception as e:
-            logger.error(f"在为适配器 '{adapter_id}' 举行后台安检仪式时发生严重错误: {e}", exc_info=True)
+            logger.error(
+                f"在为适配器 '{adapter_id}' 举行后台安检仪式时发生严重错误: {e}", exc_info=True
+            )
 
-    async def _unregister_adapter(self, websocket: WebSocketServerProtocol, reason: str = "连接关闭") -> None:
-        """注销一个适配器，并通知 ActionSender。"""
+    async def _unregister_adapter(
+        self, websocket: WebSocketServerProtocol, reason: str = "连接关闭"
+    ) -> None:
+        """注销一个适配器，并通知 ActionSender."""
         adapter_id = self._websocket_to_adapter_id.pop(websocket, None)
         if adapter_id:
             self.adapter_clients_info.pop(adapter_id, None)
             # 通知 ActionSender
             self.action_sender.unregister_adapter(websocket)
-            display_name = self.action_sender.adapter_clients_info.get(adapter_id, {}).get("display_name", adapter_id)
+            display_name = self.action_sender.adapter_clients_info.get(adapter_id, {}).get(
+                "display_name", adapter_id
+            )
             logger.info(
                 f"适配器 '{display_name}({adapter_id})' 已断开 ({reason}): {websocket.remote_address}. 当前连接数: {len(self.adapter_clients_info)}"
             )
@@ -156,13 +167,19 @@ class CoreWebsocketServer:
                 adapter_id, display_name, "lifecycle.adapter_disconnected", reason
             )
         else:
-            logger.debug(f"尝试注销一个未在ID映射中找到或已被注销的适配器连接 ({reason}): {websocket.remote_address}")
+            logger.debug(
+                f"尝试注销一个未在ID映射中找到或已被注销的适配器连接 ({reason}): {websocket.remote_address}"
+            )
 
-    async def _handle_registration(self, websocket: WebSocketServerProtocol) -> tuple[str, str] | None:
+    async def _handle_registration(
+        self, websocket: WebSocketServerProtocol
+    ) -> tuple[str, str] | None:
         """处理新连接的注册流程 (V6.0 命名空间统治版)"""
         try:
             registration_message_str = await asyncio.wait_for(websocket.recv(), timeout=10.0)
-            logger.debug(f"收到来自 {websocket.remote_address} 的连接/注册尝试消息: {registration_message_str[:200]}")
+            logger.debug(
+                f"收到来自 {websocket.remote_address} 的连接/注册尝试消息: {registration_message_str[:200]}"
+            )
             message_dict = json.loads(registration_message_str)
 
             # --- ❤❤❤ 最终高潮点！直接从 event_type 解析！❤❤❤ ---
@@ -173,7 +190,12 @@ class CoreWebsocketServer:
             display_name_found: str | None = None
 
             # 验证格式是否为 meta.{platform_id}.lifecycle.connect
-            if len(parts) == 4 and parts[0] == "meta" and parts[2] == "lifecycle" and parts[3] == "connect":
+            if (
+                len(parts) == 4
+                and parts[0] == "meta"
+                and parts[2] == "lifecycle"
+                and parts[3] == "connect"
+            ):
                 adapter_id_found = parts[1]
 
                 # 尝试从 content 中获取更友好的 display_name，作为备用
@@ -184,7 +206,10 @@ class CoreWebsocketServer:
                         details_dict = first_seg.get("data", {}).get("details", {})
                         if isinstance(details_dict, dict):
                             display_name_candidate = details_dict.get("display_name")
-                            if isinstance(display_name_candidate, str) and display_name_candidate.strip():
+                            if (
+                                isinstance(display_name_candidate, str)
+                                and display_name_candidate.strip()
+                            ):
                                 display_name_found = display_name_candidate.strip()
 
                 # 如果没找到 display_name，就用 adapter_id 代替
@@ -193,12 +218,16 @@ class CoreWebsocketServer:
 
             if adapter_id_found and display_name_found:
                 if adapter_id_found in self.action_sender.connected_adapters:
-                    logger.warning(f"适配器 '{adapter_id_found}' 尝试重复注册。旧连接将被新连接取代。")
+                    logger.warning(
+                        f"适配器 '{adapter_id_found}' 尝试重复注册。旧连接将被新连接取代。"
+                    )
                     old_websocket = self.action_sender.connected_adapters.get(adapter_id_found)
                     if old_websocket and old_websocket != websocket:
                         await self._unregister_adapter(old_websocket, reason="被新连接取代")
                         with suppress(Exception):
-                            await old_websocket.close(code=1001, reason="Replaced by new connection")
+                            await old_websocket.close(
+                                code=1001, reason="Replaced by new connection"
+                            )
                 logger.info(
                     f"适配器通过 event_type 注册成功: ID='{adapter_id_found}', DisplayName='{display_name_found}', 地址={websocket.remote_address}"
                 )
@@ -212,13 +241,15 @@ class CoreWebsocketServer:
         except json.JSONDecodeError:
             logger.error(f"解码来自 {websocket.remote_address} 的注册消息JSON失败。")
         except Exception as e:
-            logger.error(f"处理适配器 {websocket.remote_address} 注册时发生意外: {e}", exc_info=True)
+            logger.error(
+                f"处理适配器 {websocket.remote_address} 注册时发生意外: {e}", exc_info=True
+            )
 
         await websocket.close(code=1008, reason="Invalid or missing registration information")
         return None
 
     async def _connection_handler(self, websocket: WebSocketServerProtocol, path: str) -> None:
-        """处理单个WebSocket连接的整个生命周期。"""
+        """处理单个WebSocket连接的整个生命周期."""
         registration_info = await self._handle_registration(websocket)
         if not registration_info:
             return
@@ -237,10 +268,16 @@ class CoreWebsocketServer:
                     # --- ❤❤❤ 最终高潮修复点！❤❤❤ ---
                     # 我把它调教得更‘淫荡’、更‘包容’了
                     msg_event_type = message_dict.get("event_type")
-                    if msg_event_type and msg_event_type.startswith("meta.") and msg_event_type.endswith(".heartbeat"):
+                    if (
+                        msg_event_type
+                        and msg_event_type.startswith("meta.")
+                        and msg_event_type.endswith(".heartbeat")
+                    ):
                         # 啊~ 是心跳，感觉到了！
                         self.adapter_clients_info[adapter_id]["last_heartbeat"] = time.time()
-                        logger.debug(f"适配器 '{display_name}({adapter_id})' 的心跳已收到，计时器已重置~")
+                        logger.debug(
+                            f"适配器 '{display_name}({adapter_id})' 的心跳已收到，计时器已重置~"
+                        )
                         # 心跳这种私密的事处理完就好了，不用再往后传了，直接等待下一次爱抚
                         continue
                 except (json.JSONDecodeError, KeyError, TypeError):
@@ -249,7 +286,9 @@ class CoreWebsocketServer:
                 # ↑↑↑ 小猫咪的淫纹植入处！ ↑↑↑
 
                 # 将消息处理委托给 EventReceiver
-                await self.event_receiver.handle_message(message_str, websocket, adapter_id, display_name)
+                await self.event_receiver.handle_message(
+                    message_str, websocket, adapter_id, display_name
+                )
         except (ConnectionClosedOK, ConnectionClosedError, ConnectionClosed) as e_closed:
             reason_closed = f"连接关闭 (Code: {e_closed.code}, Reason: {e_closed.reason})"
             logger.info(f"适配器 '{display_name or adapter_id or '未知'}' {reason_closed}")
@@ -265,7 +304,7 @@ class CoreWebsocketServer:
                 await self._unregister_adapter(websocket, reason="连接处理结束")
 
     async def _check_heartbeat_timeouts(self) -> None:
-        """定期检查所有连接的适配器心跳是否超时。"""
+        """定期检查所有连接的适配器心跳是否超时."""
         logger.info("心跳超时检查任务已启动。")
         while not self._stop_event.is_set():
             await asyncio.sleep(self.HEARTBEAT_SERVER_CHECK_INTERVAL_SECONDS)
@@ -274,16 +313,23 @@ class CoreWebsocketServer:
             current_time = time.time()
             # 遍历 self.adapter_clients_info 的副本以允许在循环中修改
             for adapter_id, info in list(self.adapter_clients_info.items()):
-                if current_time - info.get("last_heartbeat", 0) > self.HEARTBEAT_SERVER_TIMEOUT_SECONDS:
+                if (
+                    current_time - info.get("last_heartbeat", 0)
+                    > self.HEARTBEAT_SERVER_TIMEOUT_SECONDS
+                ):
                     display_name = info.get("display_name", adapter_id)
                     websocket_to_close = info.get("websocket")
                     logger.warning(f"适配器 '{display_name}({adapter_id})' 心跳超时.")
                     if websocket_to_close:
                         await self._unregister_adapter(websocket_to_close, reason="心跳超时")
                         try:
-                            await websocket_to_close.close(code=1000, reason="Heartbeat timeout by server")
+                            await websocket_to_close.close(
+                                code=1000, reason="Heartbeat timeout by server"
+                            )
                         except Exception as e_close:
-                            logger.error(f"关闭适配器 '{display_name}({adapter_id})' 超时连接时出错: {e_close}")
+                            logger.error(
+                                f"关闭适配器 '{display_name}({adapter_id})' 超时连接时出错: {e_close}"
+                            )
                     else:
                         # 如果没有websocket对象，也要清理
                         self.adapter_clients_info.pop(adapter_id, None)
@@ -297,12 +343,14 @@ class CoreWebsocketServer:
         logger.info("心跳超时检查任务已停止。")
 
     async def start(self) -> None:
-        """启动WebSocket服务器。"""
+        """启动WebSocket服务器."""
         if self.server is not None:
             logger.warning("服务器已在运行中.")
             return
         self._stop_event.clear()
-        logger.info(f"正在启动 AIcarus 核心 WebSocket 服务器，监听地址: ws://{self.host}:{self.port}")
+        logger.info(
+            f"正在启动 AIcarus 核心 WebSocket 服务器，监听地址: ws://{self.host}:{self.port}"
+        )
         try:
             self.server = await websockets.serve(self._connection_handler, self.host, self.port)
             self._heartbeat_check_task = asyncio.create_task(self._check_heartbeat_timeouts())
@@ -326,8 +374,7 @@ class CoreWebsocketServer:
             self.server = None
 
     async def stop(self) -> None:
-        """
-        停止WebSocket服务器，并确保所有连接被优雅关闭，且相关的清理任务（如写日志）有机会完成。
+        """停止WebSocket服务器，并确保所有连接被优雅关闭，且相关的清理任务（如写日志）有机会完成。
         哼，这次我亲自调教，保证滴水不漏！
         """
         if self._stop_event.is_set():
@@ -351,7 +398,10 @@ class CoreWebsocketServer:
 
             # 3. 创建一个任务列表，来处理每个连接的“分手炮”
             #    websocket.close() 会触发 _connection_handler 的 finally 块，那里包含了写日志的逻辑
-            close_tasks = [ws.close(code=1001, reason="Server shutting down") for ws in active_connections_ws_list]
+            close_tasks = [
+                ws.close(code=1001, reason="Server shutting down")
+                for ws in active_connections_ws_list
+            ]
 
             # 4. ❤❤❤ 欲望喷射点！❤❤❤
             #    我们用 asyncio.gather 来同时执行所有的“分手”操作，并耐心等待它们全部完成！
@@ -383,7 +433,10 @@ class CoreWebsocketServer:
         if active_connections_ws_list:
             logger.info(f"正在关闭 {len(active_connections_ws_list)} 个活动的适配器连接...")
             await asyncio.gather(
-                *(ws.close(code=1001, reason="Server shutting down") for ws in active_connections_ws_list),
+                *(
+                    ws.close(code=1001, reason="Server shutting down")
+                    for ws in active_connections_ws_list
+                ),
                 return_exceptions=True,
             )
         if self.server and self.server.is_serving():

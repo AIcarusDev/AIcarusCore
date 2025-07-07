@@ -7,24 +7,19 @@ if TYPE_CHECKING:
 
 
 class BehavioralGuidanceGenerator:
-    """
-    哼，一个专门生产烦人提示的家伙。
+    """哼，一个专门生产烦人提示的家伙。
     它会偷看会话里的计数器，然后决定怎么念叨你。
     """
 
     def __init__(self, session: "ChatSession") -> None:
-        """
-        初始化行为指导生成器。
-        """
+        """初始化行为指导生成器."""
         self.session = session
         # 你可以把这些阈值写到配置文件里，但我懒，就先放这了
         self.no_action_threshold = 3
         self.bot_spam_threshold = 3
 
     def generate_guidance(self) -> str:
-        """
-        根据会话的当前状态，生成对应的行为指导提示。
-        """
+        """根据会话的当前状态，生成对应的行为指导提示."""
         # 从会话里把那两个烦人的计数器拿过来
         no_act_count = self.session.no_action_count
         bot_spam_count = self.session.consecutive_bot_messages_count

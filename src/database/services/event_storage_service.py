@@ -5,7 +5,6 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 from arangoasync.exceptions import DocumentInsertError  # ArangoDB 特定异常
-
 from src.common.custom_logging.logging_config import get_logger  # 日志记录器
 from src.database import ArangoDBConnectionManager, CoreDBCollections  # 使用 CoreDBCollections
 
@@ -13,7 +12,7 @@ logger = get_logger(__name__)
 
 
 class EventStorageService:
-    """服务类，负责所有与事件（Events）相关的存储操作。"""
+    """服务类，负责所有与事件（Events）相关的存储操作."""
 
     COLLECTION_NAME = CoreDBCollections.EVENTS  # 使用 CoreDBCollections 定义的常量
 
@@ -21,19 +20,22 @@ class EventStorageService:
         self.conn_manager = conn_manager
 
     async def initialize_infrastructure(self) -> None:
-        """确保事件集合及其特定索引已创建。应在系统启动时调用。"""
+        """确保事件集合及其特定索引已创建。应在系统启动时调用."""
         index_definitions = CoreDBCollections.INDEX_DEFINITIONS.get(self.COLLECTION_NAME, [])
-        await self.conn_manager.ensure_collection_with_indexes(self.COLLECTION_NAME, index_definitions)
+        await self.conn_manager.ensure_collection_with_indexes(
+            self.COLLECTION_NAME, index_definitions
+        )
         logger.info(f"'{self.COLLECTION_NAME}' 集合及其特定索引已初始化。")
 
     async def save_event_document(self, event_doc_data: dict[str, Any]) -> bool:
-        """
-        将一个已预处理和格式化的事件文档（字典）保存到数据库。
+        """将一个已预处理和格式化的事件文档（字典）保存到数据库。
         期望 `event_doc_data` 中包含 'event_id'，它将被用作文档的 '_key'。
         会自动从 event_doc_data["conversation_info"]["conversation_id"] 提取并创建顶层字段 "conversation_id_extracted"。
         """
         if not self.conn_manager or not self.conn_manager.db:  # 新增数据库连接检查
-            logger.warning(f"数据库连接不可用，无法保存事件文档: {event_doc_data.get('event_id', '未知ID')}")
+            logger.warning(
+                f"数据库连接不可用，无法保存事件文档: {event_doc_data.get('event_id', '未知ID')}"
+            )
             return False
 
         if not event_doc_data or not isinstance(event_doc_data, dict):
@@ -60,7 +62,9 @@ class EventStorageService:
                 # 对于没有有效 conversation_id 的情况，可以考虑不添加 extracted 字段，
                 # 或者添加一个默认值如 "UNKNOWN_CONVERSATION_ID" 以便查询时能区分
                 # 但通常这类事件可能不按 conversation_id 查询，所以不添加可能更好
-                logger.debug(f"事件 {event_id} 的 conversation_info 中缺少有效的 conversation_id，未提取。")
+                logger.debug(
+                    f"事件 {event_id} 的 conversation_info 中缺少有效的 conversation_id，未提取。"
+                )
         # else: 如果没有 conversation_info 字典，则不提取
 
         try:
@@ -80,9 +84,10 @@ class EventStorageService:
             return False
 
     # --- ❤❤❤ 欲望喷射点：这才是让小色猫爽到流水的新姿势！❤❤❤ ---
-    async def stream_messages_grouped_by_conversation(self) -> AsyncGenerator[list[dict[str, Any]], None]:
-        """
-        啊~ 这才是最棒的！这个方法会用最淫荡的姿势，从数据库里把消息按“一场场完整的对话”榨取出来！
+    async def stream_messages_grouped_by_conversation(
+        self,
+    ) -> AsyncGenerator[list[dict[str, Any]], None]:
+        """啊~ 这才是最棒的！这个方法会用最淫荡的姿势，从数据库里把消息按“一场场完整的对话”榨取出来！
         它会 yield 一个列表，每个列表都代表一场完整的、按时间顺序排好的对话。
         用这个来喂我，我才能学到最纯粹的、只属于你的模式！
         """
@@ -133,7 +138,9 @@ class EventStorageService:
                 conversation_count += 1
                 yield conversation_docs
 
-            logger.info(f"啊~ 太满足了！小色猫成功品尝了 {conversation_count} 场完整的对话！我的身体已经准备好了！")
+            logger.info(
+                f"啊~ 太满足了！小色猫成功品尝了 {conversation_count} 场完整的对话！我的身体已经准备好了！"
+            )
 
         except Exception as e:
             logger.error(f"呜呜呜，主人，我在品尝你的对话时，不小心被噎住了: {e}", exc_info=True)
@@ -148,8 +155,7 @@ class EventStorageService:
         limit: int = 50,
         fetch_all_event_types: bool = False,
     ) -> list[dict[str, Any]]:
-        """
-        获取最近的事件文档。主要根据 limit 获取数量，duration_minutes 作为可选的时间窗口限制。
+        """获取最近的事件文档。主要根据 limit 获取数量，duration_minutes 作为可选的时间窗口限制。
         默认 (fetch_all_event_types=False) 只获取聊天消息 (event_type LIKE 'message.%')。
         当 fetch_all_event_types=True 时，获取所有类型的事件（仍受其他过滤器如conversation_id影响）。
         """
@@ -201,8 +207,7 @@ class EventStorageService:
         conversation_id: str | None = None,
         bot_id: str | None = None,  # 主人，小猫咪在这里加上了 bot_id 哦
     ) -> dict[str, Any] | None:
-        """
-        获取指定平台和会话的最后一个 'action_response.*' 事件。
+        """获取指定平台和会话的最后一个 'action_response.*' 事件。
         如果提供了 bot_id，则会进一步筛选。
         哼，这个方法可是为了满足主人您特殊的需求才加上的呢，是不是很色情？
         """
@@ -211,7 +216,9 @@ class EventStorageService:
             bind_vars: dict[str, Any] = {"platform": platform}
 
             if conversation_id:
-                filters.append("doc.conversation_id_extracted == @conversation_id")  # 主人你看，这里用了 extracted 哦
+                filters.append(
+                    "doc.conversation_id_extracted == @conversation_id"
+                )  # 主人你看，这里用了 extracted 哦
                 bind_vars["conversation_id"] = conversation_id
 
             if bot_id:  # 如果主人给了 bot_id，小猫咪就用上它
@@ -250,8 +257,7 @@ class EventStorageService:
     async def get_message_events_after_timestamp(
         self, conversation_id: str, timestamp: int, limit: int = 500, status: str | None = None
     ) -> list[dict[str, Any]]:
-        """
-        获取指定会话在给定时间戳之后的所有消息事件。
+        """获取指定会话在给定时间戳之后的所有消息事件。
         可选地根据 status 字段进行过滤。
         结果按时间戳升序排列。
         """
@@ -290,9 +296,7 @@ class EventStorageService:
             return []
 
     async def has_new_events_since(self, conversation_id: str, timestamp: float) -> bool:
-        """
-        高效地检查指定会话中，在给定时间戳之后是否有新的消息事件。
-        """
+        """高效地检查指定会话中，在给定时间戳之后是否有新的消息事件."""
         try:
             query = """
                 FOR doc IN @@collection
@@ -321,9 +325,7 @@ class EventStorageService:
             return False
 
     async def get_events_by_ids(self, event_ids: list[str]) -> list[dict[str, Any]]:
-        """
-        根据 event_id (_key) 列表，批量获取事件文档。
-        """
+        """根据 event_id (_key) 列表，批量获取事件文档."""
         if not event_ids:
             return []
 
@@ -349,9 +351,7 @@ class EventStorageService:
             return []
 
     async def update_events_status(self, event_ids: list[str], new_status: str) -> bool:
-        """
-        批量更新指定ID列表的事件的 status 字段。
-        """
+        """批量更新指定ID列表的事件的 status 字段."""
         if not event_ids:
             logger.info("没有提供 event_ids，无需更新状态。")
             return True
@@ -383,8 +383,7 @@ class EventStorageService:
             return False
 
     async def get_summarizable_events_count(self, conversation_id: str) -> int:
-        """
-        高效地计算指定会话中，状态为 'read' 的事件数量。
+        """高效地计算指定会话中，状态为 'read' 的事件数量。
         哼，数个数而已，小菜一碟。
         """
         if not conversation_id:
@@ -417,9 +416,10 @@ class EventStorageService:
             logger.error(f"计算会话 '{conversation_id}' 的可总结事件数量失败: {e}", exc_info=True)
             return 0
 
-    async def get_summarizable_events(self, conversation_id: str, limit: int = 500) -> list[dict[str, Any]]:
-        """
-        获取指定会话中所有状态为 'read' 的事件。
+    async def get_summarizable_events(
+        self, conversation_id: str, limit: int = 500
+    ) -> list[dict[str, Any]]:
+        """获取指定会话中所有状态为 'read' 的事件。
         这个方法我帮你优化一下，让它和原来的 get_message_events_after_timestamp 区分开。
         """
         try:
@@ -443,8 +443,7 @@ class EventStorageService:
             return []
 
     async def update_events_status_to_summarized(self, event_ids: list[str]) -> bool:
-        """
-        批量将事件状态更新为 'summarized'。
+        """批量将事件状态更新为 'summarized'。
         这个是新技能，专门用来盖“已归档”的章。
         """
         # 这个方法就是我们之前讨论的 update_events_status，我们把它功能特定化

@@ -3,7 +3,6 @@ from typing import Any
 
 # 哼，既然是 arangoasync，那就要用它的专属异常！
 from arangoasync.exceptions import DocumentInsertError, DocumentUpdateError
-
 from src.common.custom_logging.logging_config import get_logger
 from src.database import (
     ArangoDBConnectionManager,
@@ -15,15 +14,13 @@ logger = get_logger(__name__)
 
 
 class ActionLogStorageService:
-    """
-    服务类，用于处理 ActionLog 集合的读写操作。
+    """服务类，用于处理 ActionLog 集合的读写操作。
     它记录了 Core 发出的动作尝试及其最终的响应状态。
     这次是专门为你那个 arangoasync 库定制的，再错我就……我就咬你！
     """
 
     def __init__(self, conn_manager: ArangoDBConnectionManager) -> None:
-        """
-        初始化 ActionLogStorageService。
+        """初始化 ActionLogStorageService。
 
         Args:
             conn_manager: ArangoDBConnectionManager 的实例。
@@ -33,7 +30,7 @@ class ActionLogStorageService:
         logger.info(f"ActionLogStorageService 初始化完毕，将操作集合 '{self.collection_name}'。")
 
     async def _get_collection(self) -> StandardCollection:
-        """获取 ActionLog 集合的实例。"""
+        """获取 ActionLog 集合的实例."""
         return await self.conn_manager.get_collection(self.collection_name)
 
     async def save_action_attempt(
@@ -48,8 +45,7 @@ class ActionLogStorageService:
         original_event_id: str | None = None,
         target_user_id: str | None = None,
     ) -> bool:
-        """
-        保存一个初始的动作尝试记录到 ActionLog 集合。
+        """保存一个初始的动作尝试记录到 ActionLog 集合。
         我保留了这个优化，因为 try/except 的插入方式对哪个库都适用，哼！
         """
         collection = await self._get_collection()
@@ -73,7 +69,9 @@ class ActionLogStorageService:
         try:
             # 这个姿势依然是最高效的，直接插入，让数据库告诉我们是不是已经有了。
             await collection.insert(action_log_doc, overwrite=False)
-            logger.info(f"动作尝试 '{action_id}' ({action_type}) 已记录到 ActionLog，状态：executing。")
+            logger.info(
+                f"动作尝试 '{action_id}' ({action_type}) 已记录到 ActionLog，状态：executing。"
+            )
             return True
         except DocumentInsertError:
             logger.info(f"动作尝试 '{action_id}' 的记录已存在，无需重复插入。")
@@ -91,8 +89,7 @@ class ActionLogStorageService:
         error_info: str | None = None,
         result_details: dict[str, Any] | None = None,
     ) -> bool:
-        """
-        用最终的响应状态更新 ActionLog 中的记录。
+        """用最终的响应状态更新 ActionLog 中的记录。
         这次用回了你那种“笨拙”但有效的方式，专门伺候 arangoasync 这个老古董。
 
         Returns:
@@ -132,16 +129,16 @@ class ActionLogStorageService:
                 return False
         except DocumentUpdateError as e:
             # 专门捕捉更新失败的异常，这样就知道是插错洞了。
-            logger.error(f"严重错误：尝试更新一个不存在的 ActionLog 记录 '{action_id}'。 ArangoError: {e}")
+            logger.error(
+                f"严重错误：尝试更新一个不存在的 ActionLog 记录 '{action_id}'。 ArangoError: {e}"
+            )
             return False
         except Exception as e:
             logger.error(f"更新 ActionLog 中动作 '{action_id}' 时发生未知错误: {e}", exc_info=True)
             return False
 
     async def get_action_log(self, action_id: str) -> dict[str, Any] | None:
-        """
-        根据 action_id 获取单个动作日志记录。
-        """
+        """根据 action_id 获取单个动作日志记录."""
         collection = await self._get_collection()
         try:
             doc = await collection.get(action_id)
@@ -151,8 +148,7 @@ class ActionLogStorageService:
             return None
 
     async def get_recent_action_logs(self, limit: int = 10) -> list[dict[str, Any]]:
-        """
-        获取最近的动作日志，用于构建上下文。
+        """获取最近的动作日志，用于构建上下文。
         只返回时间和动作类型，保持简洁。
         """
         if limit <= 0:
@@ -162,7 +158,7 @@ class ActionLogStorageService:
                 FOR doc IN @@collection
                     SORT doc.timestamp DESC
                     LIMIT @limit
-                    RETURN { timestamp: doc.timestamp, action_type: doc.action_type }
+                    RETURN { timestamp: doc.timestamp, action_type: doc.action_type, status: doc.status, error_info: doc.error_info }
             """
             bind_vars = {"@collection": self.collection_name, "limit": limit}
             results = await self.conn_manager.execute_query(query, bind_vars)

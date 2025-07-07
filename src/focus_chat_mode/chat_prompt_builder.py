@@ -58,7 +58,9 @@ class ChatPromptBuilder:
                     project_root_guess = os.path.dirname(
                         os.path.dirname(os.path.dirname(os.path.dirname(current_file_path)))
                     )
-                    self._temp_image_dir = os.path.join(project_root_guess, "temp_images_runtime_fallback")
+                    self._temp_image_dir = os.path.join(
+                        project_root_guess, "temp_images_runtime_fallback"
+                    )
         except AttributeError as e:
             logger.error(
                 f"无法从配置 (config.runtime_environment.temp_file_directory) 获取临时文件目录: {e}。"
@@ -76,7 +78,9 @@ class ChatPromptBuilder:
                 project_root_guess = os.path.dirname(
                     os.path.dirname(os.path.dirname(os.path.dirname(current_file_path)))
                 )
-                self._temp_image_dir = os.path.join(project_root_guess, "temp_images_runtime_fallback_attr_error")
+                self._temp_image_dir = os.path.join(
+                    project_root_guess, "temp_images_runtime_fallback_attr_error"
+                )
 
         os.makedirs(self._temp_image_dir, exist_ok=True)
         logger.info(
@@ -93,8 +97,7 @@ class ChatPromptBuilder:
         was_last_turn_interrupted: bool = False,
         interrupting_event_text: str | None = None,
     ) -> PromptComponents:
-        """
-        构建专注聊天模式下给LLM的System Prompt和User Prompt。
+        """构建专注聊天模式下给LLM的System Prompt和User Prompt。
         哼，看好了，这才叫专业的组装方式！
         """
         # --- 步骤1：准备模板和一些通用信息 ---
@@ -111,7 +114,9 @@ class ChatPromptBuilder:
         current_time_str = get_formatted_time_for_llm()
         persona_config = config.persona
         bot_name_str = persona_config.bot_name or "AI"
-        bot_description_str = f"\n{persona_config.description}" if persona_config.description else ""
+        bot_description_str = (
+            f"\n{persona_config.description}" if persona_config.description else ""
+        )
         bot_profile_str = f"\n{persona_config.profile}" if persona_config.profile else ""
 
         # 看这里！现在多省事，直接喊小弟过来干活！
@@ -124,16 +129,18 @@ class ChatPromptBuilder:
             and self.session.core_logic.prompt_builder
         ):
             try:
-                unread_summary_str = (
-                    await self.session.core_logic.prompt_builder.unread_info_service.generate_unread_summary_text(
-                        exclude_conversation_id=self.session.conversation_id
-                    )
+                unread_summary_str = await self.session.core_logic.prompt_builder.unread_info_service.generate_unread_summary_text(
+                    exclude_conversation_id=self.session.conversation_id
                 )
             except Exception as e:
-                logger.error(f"[{self.session.conversation_id}] 获取未读消息摘要失败: {e}", exc_info=True)
+                logger.error(
+                    f"[{self.session.conversation_id}] 获取未读消息摘要失败: {e}", exc_info=True
+                )
                 unread_summary_str = "获取其他会话摘要时出错。"
         else:
-            logger.warning(f"[{self.session.conversation_id}] 无法获取 unread_info_service，未读消息摘要将为空。")
+            logger.warning(
+                f"[{self.session.conversation_id}] 无法获取 unread_info_service，未读消息摘要将为空。"
+            )
 
         # --- 步骤2：调用新玩具，获取所有格式化好的聊天记录相关信息 ---
         logger.debug(f"[{self.session.conversation_id}] 调用通用聊天记录格式化工具...")
@@ -170,7 +177,9 @@ class ChatPromptBuilder:
                     break
 
         # // 这是最关键的改造！我们现在直接从数据库拿最新的思考状态！
-        latest_thought_doc = await self.session.thought_storage_service.get_latest_thought_document()
+        latest_thought_doc = (
+            await self.session.thought_storage_service.get_latest_thought_document()
+        )
 
         previous_thoughts_block_str = self._build_previous_thoughts_block(
             is_first_turn=is_first_turn,
@@ -259,7 +268,11 @@ class ChatPromptBuilder:
                     if latest_thought_doc.get("action_payload"):
                         with contextlib.suppress(IndexError, AttributeError):
                             motivation = next(
-                                iter(next(iter(latest_thought_doc["action_payload"].values())).values())
+                                iter(
+                                    next(
+                                        iter(latest_thought_doc["action_payload"].values())
+                                    ).values()
+                                )
                             ).get("motivation", "（动机信息遗失）")
 
                     parts = [
@@ -302,10 +315,14 @@ class ChatPromptBuilder:
                     if action_name == "send_message":
                         content = params.get("content", [])
                         text_parts = [
-                            seg.get("data", {}).get("text", "") for seg in content if seg.get("type") == "text"
+                            seg.get("data", {}).get("text", "")
+                            for seg in content
+                            if seg.get("type") == "text"
                         ]
                         full_text = "".join(text_parts)
-                        action_desc = f"发言（内容：{full_text[:30]}{'...' if len(full_text) > 30 else ''}）"
+                        action_desc = (
+                            f"发言（内容：{full_text[:30]}{'...' if len(full_text) > 30 else ''}）"
+                        )
                     else:
                         action_desc = f"执行了动作：{platform}.{action_name}"
 

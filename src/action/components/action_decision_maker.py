@@ -12,9 +12,7 @@ logger = get_logger(__name__)
 
 @dataclass
 class ActionDecision:
-    """
-    封装LLM的行动决策结果。
-    """
+    """封装LLM的行动决策结果."""
 
     tool_to_use: str | None
     arguments: dict
@@ -23,8 +21,7 @@ class ActionDecision:
 
 
 class ActionDecisionMaker:
-    """
-    负责调用LLM进行工具选择决策。
+    """负责调用LLM进行工具选择决策。
     它构建prompt，调用LLM，并解析返回的JSON决策。
     """
 
@@ -98,7 +95,9 @@ class ActionDecisionMaker:
         )
 
         # 把工具说明书也传给LLM，这样它才能正确地进行 tool_call
-        response = await self.llm_client.make_llm_request(prompt=prompt, is_stream=False, tools=tools_schema)
+        response = await self.llm_client.make_llm_request(
+            prompt=prompt, is_stream=False, tools=tools_schema
+        )
         raw_text = response.get("text", "").strip()
 
         # 检查LLM是否直接返回了tool_calls
@@ -110,7 +109,9 @@ class ActionDecisionMaker:
             try:
                 # LLM返回的arguments可能是字符串，需要解析
                 arguments_str = chosen_tool_call.get("function", {}).get("arguments", "{}")
-                arguments = json.loads(arguments_str) if isinstance(arguments_str, str) else arguments_str
+                arguments = (
+                    json.loads(arguments_str) if isinstance(arguments_str, str) else arguments_str
+                )
             except json.JSONDecodeError:
                 logger.error(f"解析 tool_calls 中的 arguments 失败: {arguments_str}")
                 arguments = {}

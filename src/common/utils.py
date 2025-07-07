@@ -7,7 +7,6 @@ from collections import defaultdict
 from typing import Any
 
 import yaml
-
 from src.common.custom_logging.logging_config import get_logger
 
 # 确保 config 被正确导入，如果 format_messages_for_llm_context 中用到了
@@ -28,7 +27,9 @@ class MyDumper(yaml.SafeDumper):
     pass
 
 
-def force_double_quote_str_representer(dumper: MyDumper, data: ForceDoubleQuoteStr) -> yaml.ScalarNode:
+def force_double_quote_str_representer(
+    dumper: MyDumper, data: ForceDoubleQuoteStr
+) -> yaml.ScalarNode:
     """强制双引号字符串表示器"""
     return dumper.represent_scalar("tag:yaml.org,2002:str", str(data), style='"')
 
@@ -50,7 +51,7 @@ def wrap_string_values_for_yaml(data: JsonValue) -> JsonValue:
 
 
 def is_valid_message(msg: str) -> bool:
-    """检查消息是否有效，过滤掉 null 和占位符。真麻烦。"""
+    """检查消息是否有效，过滤掉 null 和占位符。真麻烦."""
     if not msg or not isinstance(msg, str) or msg.strip().lower() == "null":
         return False
     # // 正则表达式，用来匹配 "text_数字" 这种无聊的占位符
@@ -67,8 +68,7 @@ class MessageContentProcessor:
         image_placeholder_key: str = "llm_image_placeholder",
         image_placeholder_value: str = "[IMAGE_HERE]",
     ) -> tuple[list[dict], list[str]]:
-        """
-        处理内容列表，在图片segment的data中加入占位符标记，并主要通过base64提取图片源列表。
+        """处理内容列表，在图片segment的data中加入占位符标记，并主要通过base64提取图片源列表。
         返回处理后的内容列表 (用于YAML) 和图片源列表 (用于LLM)。
         """
         if not content or not isinstance(content, list):
@@ -114,7 +114,9 @@ class MessageContentProcessor:
                                 f"无法从文件名 '{filename_for_mimetype}' 推断mimetype，将使用默认值: {mimetype}"
                             )
                     else:
-                        logger.debug(f"图片缺少file_id和filename，无法推断mimetype，将使用默认值: {mimetype}")
+                        logger.debug(
+                            f"图片缺少file_id和filename，无法推断mimetype，将使用默认值: {mimetype}"
+                        )
 
                     if img_base64.startswith("data:image"):
                         image_source_to_add = img_base64
@@ -162,8 +164,7 @@ class MessageContentProcessor:
 
 # --- 平台状态摘要格式化 ---
 def parse_system_event_details(event_dict: dict[str, Any]) -> dict[str, Any] | None:
-    """
-    从系统事件字典中严格解析出 adapter_id, display_name, status, reason。
+    """从系统事件字典中严格解析出 adapter_id, display_name, status, reason。
     仅当事件文本格式完全符合预期时才返回解析结果，否则返回 None。
     """
     details: dict[str, Any] = {}
@@ -183,7 +184,9 @@ def parse_system_event_details(event_dict: dict[str, Any]) -> dict[str, Any] | N
 
     if event_type == "meta.lifecycle.adapter_connected":
         # Regex: [状态] DisplayName(AdapterID)连接成功
-        match = re.fullmatch(r"\[状态\]\s*(.+?)\s*\((.*?)\)\s*连接成功", text_content)  # 使用 fullmatch确保完全匹配
+        match = re.fullmatch(
+            r"\[状态\]\s*(.+?)\s*\((.*?)\)\s*连接成功", text_content
+        )  # 使用 fullmatch确保完全匹配
         if match:
             details["display_name"] = match.group(1).strip()
             details["adapter_id"] = match.group(2).strip()
@@ -191,12 +194,16 @@ def parse_system_event_details(event_dict: dict[str, Any]) -> dict[str, Any] | N
             details["reason"] = "连接成功"
             return details
         else:
-            logger.warning(f"无法从连接事件文本严格解析详细信息 (id: {event_id_str}): '{text_content}'")
+            logger.warning(
+                f"无法从连接事件文本严格解析详细信息 (id: {event_id_str}): '{text_content}'"
+            )
             return None
 
     elif event_type == "meta.lifecycle.adapter_disconnected":
         # Regex: [状态] DisplayName(AdapterID)断开(Reason)
-        match = re.fullmatch(r"\[状态\]\s*(.+?)\s*\((.*?)\)\s*断开\s*\((.*?)\)", text_content)  # 使用 fullmatch
+        match = re.fullmatch(
+            r"\[状态\]\s*(.+?)\s*\((.*?)\)\s*断开\s*\((.*?)\)", text_content
+        )  # 使用 fullmatch
         if match:
             details["display_name"] = match.group(1).strip()
             details["adapter_id"] = match.group(2).strip()
@@ -204,10 +211,14 @@ def parse_system_event_details(event_dict: dict[str, Any]) -> dict[str, Any] | N
             details["reason"] = match.group(3).strip()
             return details
         else:
-            logger.warning(f"无法从断开事件文本严格解析详细信息 (id: {event_id_str}): '{text_content}'")
+            logger.warning(
+                f"无法从断开事件文本严格解析详细信息 (id: {event_id_str}): '{text_content}'"
+            )
             return None
 
-    logger.debug(f"事件 (type: {event_type}, id: {event_id_str}) 不是预期的系统状态事件或其文本格式不符。")
+    logger.debug(
+        f"事件 (type: {event_type}, id: {event_id_str}) 不是预期的系统状态事件或其文本格式不符。"
+    )
     return None
 
 
@@ -216,7 +227,9 @@ def format_platform_status_summary(
     recent_system_events: list[dict[str, Any]],
     status_timespan_minutes: int = 10,
 ) -> str:
-    summary_lines = [f"平台连接状态摘要 (基于最近{status_timespan_minutes}分钟及当前状态):"]  # 修改标题以包含时间窗口
+    summary_lines = [
+        f"平台连接状态摘要 (基于最近{status_timespan_minutes}分钟及当前状态):"
+    ]  # 修改标题以包含时间窗口
 
     adapter_final_statuses: dict[str, dict[str, Any]] = {}
 
@@ -269,7 +282,8 @@ def format_platform_status_summary(
     recent_changes_lines = []
 
     sorted_adapter_ids = sorted(
-        adapter_final_statuses.keys(), key=lambda aid: adapter_final_statuses[aid].get("display_name", aid)
+        adapter_final_statuses.keys(),
+        key=lambda aid: adapter_final_statuses[aid].get("display_name", aid),
     )
 
     for adapter_id in sorted_adapter_ids:
@@ -333,7 +347,9 @@ def format_messages_for_llm_context(
 
     if style == "simple":
         formatted_lines = []
-        sorted_messages = sorted(raw_messages_from_db, key=lambda msg: msg.get("time", msg.get("timestamp", 0)))
+        sorted_messages = sorted(
+            raw_messages_from_db, key=lambda msg: msg.get("time", msg.get("timestamp", 0))
+        )
         for msg in sorted_messages:
             try:
                 ts_ms = msg.get("time", msg.get("timestamp", 0))
@@ -365,16 +381,22 @@ def format_messages_for_llm_context(
                 if role != "未知":
                     formatted_lines.append(f"{time_str} {role}：{text_content}")
             except Exception as e:
-                logger.warning(f"格式化(simple)单条聊天记录时出错: {e}, 消息ID: {msg.get('event_id', '未知ID')}")
+                logger.warning(
+                    f"格式化(simple)单条聊天记录时出错: {e}, 消息ID: {msg.get('event_id', '未知ID')}"
+                )
                 continue
         if not formatted_lines:
             return "最近的对话中没有有效的文本消息。", []
         return "\n".join(formatted_lines), []
 
     elif style == "yaml":
-        grouped_messages = defaultdict(lambda: {"group_info": {}, "user_info": {}, "chat_history": []})
+        grouped_messages = defaultdict(
+            lambda: {"group_info": {}, "user_info": {}, "chat_history": []}
+        )
         current_utc_time = datetime.datetime.now(datetime.UTC)
-        span_cutoff_timestamp_utc = current_utc_time - datetime.timedelta(minutes=desired_history_span_minutes)
+        span_cutoff_timestamp_utc = current_utc_time - datetime.timedelta(
+            minutes=desired_history_span_minutes
+        )
 
         for msg_dict in raw_messages_from_db:
             if not isinstance(msg_dict, dict):
@@ -384,7 +406,9 @@ def format_messages_for_llm_context(
                 continue
 
             try:
-                parsed_msg_time_utc = datetime.datetime.fromtimestamp(msg_time_input / 1000.0, datetime.UTC)
+                parsed_msg_time_utc = datetime.datetime.fromtimestamp(
+                    msg_time_input / 1000.0, datetime.UTC
+                )
             except Exception:
                 continue
 
@@ -440,7 +464,9 @@ def format_messages_for_llm_context(
 
             content_list_to_process = msg_dict.get("content", [])
             if not isinstance(content_list_to_process, list):
-                content_list_to_process = [MessageContentProcessor.create_text_segment(str(content_list_to_process))]
+                content_list_to_process = [
+                    MessageContentProcessor.create_text_segment(str(content_list_to_process))
+                ]
 
             final_message_segments_for_yaml, message_images_for_llm_this_message = (
                 MessageContentProcessor.extract_text_content(
@@ -461,9 +487,10 @@ def format_messages_for_llm_context(
                 and final_message_segments_for_yaml
                 and final_message_segments_for_yaml[0].get("type") == "text"
             ):
-                chat_message_entry["message_summary"] = final_message_segments_for_yaml[0].get("data", {}).get("text")
-                if "message_segments" in chat_message_entry:
-                    del chat_message_entry["message_segments"]
+                chat_message_entry["message_summary"] = (
+                    final_message_segments_for_yaml[0].get("data", {}).get("text")
+                )
+                chat_message_entry.pop("message_segments", None)
 
             grouped_messages[group_key]["chat_history"].append(chat_message_entry)
 
@@ -486,7 +513,10 @@ def format_messages_for_llm_context(
                     )
 
         if not output_list_for_yaml:
-            return f"在最近{desired_history_span_minutes}分钟内，或根据数量筛选后，没有有效的聊天记录可供格式化。", []
+            return (
+                f"在最近{desired_history_span_minutes}分钟内，或根据数量筛选后，没有有效的聊天记录可供格式化。",
+                [],
+            )
 
         try:
             data_to_dump = (

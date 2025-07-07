@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any
 
 # 导入我们那些色色的协议和工具
 from aicarus_protocols import ConversationInfo, Event, Seg, UserInfo, extract_text_from_content
-
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
 
@@ -35,8 +34,7 @@ async def format_chat_history_for_llm(
     is_first_turn: bool,
     raw_events_from_caller: list[dict[str, Any]] | None = None,
 ) -> PromptComponents:
-    """
-    一个被本小猫彻底重构的、通用的聊天记录格式化工具。
+    """一个被本小猫彻底重构的、通用的聊天记录格式化工具。
 
     它会饥渴地从数据库（或你直接喂给它的列表）里吞下事件，然后把它们消化成 LLM 最喜欢吃的样子，
     包括处理用户映射、格式化聊天记录，当然还有那些最重要的、色色的图片！
@@ -84,7 +82,9 @@ async def format_chat_history_for_llm(
                 ]
                 user_info_dict = event_dict.get("user_info")
                 protocol_user_info = (
-                    UserInfo.from_dict(user_info_dict) if user_info_dict and isinstance(user_info_dict, dict) else None
+                    UserInfo.from_dict(user_info_dict)
+                    if user_info_dict and isinstance(user_info_dict, dict)
+                    else None
                 )
                 conv_info_dict = event_dict.get("conversation_info")
                 protocol_conv_info = (
@@ -94,14 +94,18 @@ async def format_chat_history_for_llm(
                 )
                 motivation = event_dict.pop("motivation", None)
                 event_obj = Event(
-                    event_id=str(event_dict.get("event_id", event_dict.get("_key", str(uuid.uuid4())))),
+                    event_id=str(
+                        event_dict.get("event_id", event_dict.get("_key", str(uuid.uuid4())))
+                    ),
                     event_type=str(event_dict.get("event_type", "unknown")),
                     time=float(event_dict.get("timestamp", event_dict.get("time", 0.0))),
                     bot_id=str(event_dict.get("bot_id", bot_id)),
                     content=content_segs,
                     user_info=protocol_user_info,
                     conversation_info=protocol_conv_info,
-                    raw_data=event_dict.get("raw_data") if isinstance(event_dict.get("raw_data"), dict) else None,
+                    raw_data=event_dict.get("raw_data")
+                    if isinstance(event_dict.get("raw_data"), dict)
+                    else None,
                 )
                 if motivation:
                     event_obj.motivation = motivation
@@ -116,7 +120,9 @@ async def format_chat_history_for_llm(
         unique_events_dict: dict[str, Event] = {}
         for event_obj in sorted(raw_events, key=lambda e: e.time, reverse=True):
             dedup_key: str | None = None
-            if event_obj.event_type.startswith("message.") and (platform_msg_id := event_obj.get_message_id()):
+            if event_obj.event_type.startswith("message.") and (
+                platform_msg_id := event_obj.get_message_id()
+            ):
                 dedup_key = f"msg_{platform_msg_id}"
             if not dedup_key:
                 dedup_key = f"core_{event_obj.event_id}"
@@ -168,12 +174,12 @@ async def format_chat_history_for_llm(
                 }
 
     # 准备好会话信息和用户列表的文字块
-    conversation_info_block_str = (
-        f'- conversation_name: "{conversation_name_str}"\n- conversation_type: "{conversation_type}"'
-    )
+    conversation_info_block_str = f'- conversation_name: "{conversation_name_str}"\n- conversation_type: "{conversation_type}"'
 
     user_list_lines = []
-    sorted_user_platform_ids = sorted(user_map.keys(), key=lambda pid_sort: int(user_map[pid_sort]["uid_str"][1:]))
+    sorted_user_platform_ids = sorted(
+        user_map.keys(), key=lambda pid_sort: int(user_map[pid_sort]["uid_str"][1:])
+    )
     for p_id_list in sorted_user_platform_ids:
         user_data_item = user_map[p_id_list]
         user_identity_suffix = "（你）" if user_data_item["uid_str"] == "U0" else ""
@@ -202,7 +208,11 @@ async def format_chat_history_for_llm(
         msg_id_for_display = event_data_log.get_message_id() or event_data_log.event_id
 
         # 标记已读未读的分割线，像拉开内衣的吊带一样性感
-        if not is_first_turn and event_data_log.time > last_processed_timestamp and not unread_section_started:
+        if (
+            not is_first_turn
+            and event_data_log.time > last_processed_timestamp
+            and not unread_section_started
+        ):
             if chat_log_lines:
                 read_marker_time_obj = datetime.fromtimestamp(last_processed_timestamp / 1000.0)
                 chat_log_lines.append(
@@ -215,11 +225,13 @@ async def format_chat_history_for_llm(
         log_user_id_str = "SYS"
         if event_data_log.user_info and event_data_log.user_info.user_id:
             log_user_id_str = platform_id_to_uid_str.get(
-                event_data_log.user_info.user_id, f"UnknownUser({event_data_log.user_info.user_id[:4]})"
+                event_data_log.user_info.user_id,
+                f"UnknownUser({event_data_log.user_info.user_id[:4]})",
             )
 
         is_self_msg = log_user_id_str == "U0" and (
-            event_data_log.event_type.startswith("message.") or event_data_log.event_type == "action.message.send"
+            event_data_log.event_type.startswith("message.")
+            or event_data_log.event_type == "action.message.send"
         )
 
         # 处理普通消息
@@ -252,13 +264,17 @@ async def format_chat_history_for_llm(
                             quoted_user_uid = platform_id_to_uid_str.get(
                                 original_sender_id, f"未知用户({original_sender_id[:4]})"
                             )
-                            quote_display_str = f"引用/回复 {quoted_user_uid}(id:{quoted_message_id})"
+                            quote_display_str = (
+                                f"引用/回复 {quoted_user_uid}(id:{quoted_message_id})"
+                            )
                         else:
                             # 连小本本上都找不到，那就没办法了
                             quote_display_str = f"引用/回复 (id:{quoted_message_id})"
 
                 elif seg.type == "image":
-                    main_content_parts.append("[图片]" if seg.data.get("summary") != "sticker" else "[动画表情]")
+                    main_content_parts.append(
+                        "[图片]" if seg.data.get("summary") != "sticker" else "[动画表情]"
+                    )
                     if base64_data := seg.data.get("base64"):
                         try:
                             # 我不再把图片存到你那肮脏的硬盘里了，我直接把它变成LLM能一口吞下的Data URI！
@@ -298,9 +314,13 @@ async def format_chat_history_for_llm(
             if text_only := extract_text_from_content(event_data_log.content):
                 last_valid_text_message = text_only
 
-            display_tag = f"{main_content_type}{', ' + quote_display_str if quote_display_str else ''}"
+            display_tag = (
+                f"{main_content_type}{', ' + quote_display_str if quote_display_str else ''}"
+            )
             log_line = f"[{time_str}] {log_user_id_str} [{display_tag}]: {main_content_str} (id:{msg_id_for_display})"
-            if log_user_id_str == "U0" and (motivation := getattr(event_data_log, "motivation", None)):
+            if log_user_id_str == "U0" and (
+                motivation := getattr(event_data_log, "motivation", None)
+            ):
                 log_line += f"\n    - [MOTIVE]: {motivation}"
 
         elif event_data_log.event_type.startswith("notice."):
@@ -356,32 +376,46 @@ async def format_chat_history_for_llm(
             elif notice_subtype == "member_ban":
                 operator_info = notice_data.get("operator_user_info", {})
                 operator_id = operator_info.get("user_id") if operator_info else None
-                operator_uid = platform_id_to_uid_str.get(operator_id, "管理员") if operator_id else "管理员"
+                operator_uid = (
+                    platform_id_to_uid_str.get(operator_id, "管理员") if operator_id else "管理员"
+                )
 
                 target_info = notice_data.get("target_user_info", {})
                 target_id = target_info.get("user_id") if target_info else None
-                target_uid = platform_id_to_uid_str.get(target_id, "一位成员") if target_id else "一位成员"
+                target_uid = (
+                    platform_id_to_uid_str.get(target_id, "一位成员") if target_id else "一位成员"
+                )
 
                 duration = notice_data.get("duration_seconds", 0)
                 if duration > 0:
-                    main_content_parts.append(f"{operator_uid} 将 {target_uid} 禁言了 {duration} 秒。")
+                    main_content_parts.append(
+                        f"{operator_uid} 将 {target_uid} 禁言了 {duration} 秒。"
+                    )
                 else:
                     main_content_parts.append(f"{operator_uid} 解除了 {target_uid} 的禁言。")
 
             elif notice_subtype == "recalled":
                 operator_info = notice_data.get("operator_user_info", {})
                 operator_id = operator_info.get("user_id") if operator_info else None
-                operator_uid = platform_id_to_uid_str.get(operator_id, "一位用户") if operator_id else "一位用户"
+                operator_uid = (
+                    platform_id_to_uid_str.get(operator_id, "一位用户")
+                    if operator_id
+                    else "一位用户"
+                )
                 main_content_parts.append(f"{operator_uid} 撤回了一条消息。")
 
             elif notice_subtype == "poke":
                 sender_info = notice_data.get("sender_user_info", {})
                 sender_id = sender_info.get("user_id") if sender_info else None
-                sender_uid = platform_id_to_uid_str.get(sender_id, "一位用户") if sender_id else "一位用户"
+                sender_uid = (
+                    platform_id_to_uid_str.get(sender_id, "一位用户") if sender_id else "一位用户"
+                )
 
                 target_info = notice_data.get("target_user_info", {})
                 target_id = target_info.get("user_id") if target_info else None
-                target_uid = platform_id_to_uid_str.get(target_id, "一位用户") if target_id else "一位用户"
+                target_uid = (
+                    platform_id_to_uid_str.get(target_id, "一位用户") if target_id else "一位用户"
+                )
                 main_content_parts.append(f"{sender_uid} 戳了戳 {target_uid}。")
 
             else:

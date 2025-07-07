@@ -4,7 +4,6 @@ import uuid
 from typing import Any
 
 from aicarus_protocols import ConversationInfo, Event, Seg
-
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
 from src.platform_builders.base_builder import BasePlatformBuilder
@@ -13,22 +12,23 @@ logger = get_logger(__name__)
 
 
 class QQBuilder(BasePlatformBuilder):
-    """
-    专门伺候 Napcat QQ 这个平台的翻译官 (V6.0 命名空间统治版)。
-    它知道所有 QQ 平台能干的“脏活累活”，并能把核心的“通用指令”翻译成它们。
+    """QQ平台的构建器，负责将平台特有的动作翻译成标准Event格式.
+
+    这个构建器是为QQ平台定制的，提供了所有QQ特有动作的翻译方法。
+
+    Attributes:
+        platform_id (str): 平台ID，唯一标识一个平台。
+        这个ID必须和Adapter的core_platform_id完全一致，以确保适配器能够正确识别。
     """
 
     @property
     def platform_id(self) -> str:
-        # 哼，我的平台ID是不会变的！
+        """返回平台ID，唯一标识一个平台."""
         # 注意：这里要和Adapter的core_platform_id完全一致！
         return "napcat_qq"
 
     def build_action_event(self, action_name: str, params: dict[str, Any]) -> Event | None:
-        """
-        把平台内唯一的“动作别名”(action_name)和参数，翻译成一个带有完整命名空间的标准Event。
-        """
-        # 我的“服务菜单”，key是动作别名，value是具体的翻译方法
+        """把平台内唯一的“动作别名”(action_name)和参数，翻译成一个带有完整命名空间的标准Event."""
         action_builders = {
             "send_message": self._build_send_message,
             "send_forward_message": self._build_send_forward_message,
@@ -60,7 +60,7 @@ class QQBuilder(BasePlatformBuilder):
 
     # --- 下面是每个动作的具体“翻译”实现 ---
     def _build_get_list(self, params: dict[str, Any]) -> Event | None:
-        """构建获取列表的动作事件，现在群聊和好友都认识了。"""
+        """构建获取列表的动作事件，现在群聊和好友都认识了."""
         list_type = params.get("list_type")
 
         # 哼，现在我只检查你是不是给了我认识的类型
@@ -88,13 +88,15 @@ class QQBuilder(BasePlatformBuilder):
 
         if not conversation_id or not isinstance(content_segs_data, list):
             logger.warning(
-                "Missing or invalid parameters in _build_send_message: conversation_id=%r, content=%r",
+                "缺少或无效的参数: conversation_id=%r, content=%r",
                 conversation_id,
                 content_segs_data,
             )
             return None
         # 注意！send_message比较特殊，它的content就是消息本身，所以Seg的type就是text, image等
-        message_segs = [Seg(type=seg.get("type"), data=seg.get("data", {})) for seg in content_segs_data]
+        message_segs = [
+            Seg(type=seg.get("type"), data=seg.get("data", {})) for seg in content_segs_data
+        ]
         conv_type = params.get("conversation_type", "group")
 
         return Event(
@@ -103,7 +105,9 @@ class QQBuilder(BasePlatformBuilder):
             time=int(time.time() * 1000),
             bot_id=config.persona.qq_id or "unknown_bot",
             content=message_segs,
-            conversation_info=ConversationInfo(conversation_id=str(conversation_id), type=conv_type),
+            conversation_info=ConversationInfo(
+                conversation_id=str(conversation_id), type=conv_type
+            ),
         )
 
     def _build_send_forward_message(self, params: dict[str, Any]) -> Event | None:
@@ -159,7 +163,8 @@ class QQBuilder(BasePlatformBuilder):
         # 啊~❤ 戳进去了！
         final_event_type = f"action.{self.platform_id}.poke_user"
         poke_seg = Seg(
-            type="action_params", data={"target_user_id": str(user_id), "target_group_id": str(conversation_id)}
+            type="action_params",
+            data={"target_user_id": str(user_id), "target_group_id": str(conversation_id)},
         )
         return Event(
             event_id=str(uuid.uuid4()),
@@ -198,7 +203,11 @@ class QQBuilder(BasePlatformBuilder):
         final_event_type = f"action.{self.platform_id}.ban_member"
         ban_seg = Seg(
             type="action_params",
-            data={"group_id": str(group_id), "user_id": str(user_id), "duration": params.get("duration", 60)},
+            data={
+                "group_id": str(group_id),
+                "user_id": str(user_id),
+                "duration": params.get("duration", 60),
+            },
         )
         return Event(
             event_id=str(uuid.uuid4()),
@@ -232,7 +241,11 @@ class QQBuilder(BasePlatformBuilder):
         final_event_type = f"action.{self.platform_id}.set_member_card"
         card_seg = Seg(
             type="action_params",
-            data={"group_id": str(group_id), "user_id": str(user_id), "card": params.get("card", "")},
+            data={
+                "group_id": str(group_id),
+                "user_id": str(user_id),
+                "card": params.get("card", ""),
+            },
         )
         return Event(
             event_id=str(uuid.uuid4()),
@@ -289,7 +302,11 @@ class QQBuilder(BasePlatformBuilder):
         final_event_type = f"action.{self.platform_id}.handle_friend_request"
         req_seg = Seg(
             type="action_params",
-            data={"request_flag": str(request_flag), "approve": approve, "remark": params.get("remark")},
+            data={
+                "request_flag": str(request_flag),
+                "approve": approve,
+                "remark": params.get("remark"),
+            },
         )
         return Event(
             event_id=str(uuid.uuid4()),
@@ -421,9 +438,13 @@ class QQBuilder(BasePlatformBuilder):
         )
 
     def get_action_definitions(self) -> dict[str, Any]:
-        """
-        提供一份我的“服务价目表”(JSON Schema参数定义)，给ActionHandler去看。
-        这里的 key 也要和上面的方法名对应起来，哼！
+        """获取当前平台的所有动作定义.
+
+        返回一个字典，包含所有平台特有的动作定义。
+        每个动作定义包含类型、描述和属性等信息。
+        Returns:
+            dict[str, Any]: 包含当前平台动作定义的字典。
+            键是动作名称，值是该动作的定义。
         """
         base_definitions = {
             "send_message": {
@@ -431,7 +452,11 @@ class QQBuilder(BasePlatformBuilder):
                 "description": "向指定的QQ群或好友发送一条或多条消息。",
                 "properties": {
                     "conversation_id": {"type": "string", "description": "目标群号或QQ号。"},
-                    "conversation_type": {"type": "string", "enum": ["group", "private"], "description": "会话类型。"},
+                    "conversation_type": {
+                        "type": "string",
+                        "enum": ["group", "private"],
+                        "description": "会话类型。",
+                    },
                     "content": {
                         "type": "array",
                         "description": "一个消息段(Segment)列表，定义了要发送的内容。",
@@ -445,7 +470,11 @@ class QQBuilder(BasePlatformBuilder):
                 "description": "发送合并转发消息。",
                 "properties": {
                     "conversation_info": {"type": "object", "description": "目标会话信息。"},
-                    "nodes": {"type": "array", "description": "要转发的消息节点列表。", "items": {"type": "object"}},
+                    "nodes": {
+                        "type": "array",
+                        "description": "要转发的消息节点列表。",
+                        "items": {"type": "object"},
+                    },
                 },
                 "required": ["conversation_info", "nodes"],
             },
@@ -461,7 +490,9 @@ class QQBuilder(BasePlatformBuilder):
             "recall_message": {
                 "type": "object",
                 "description": "撤回一条已发送的消息。",
-                "properties": {"target_message_id": {"type": "string", "description": "要撤回的消息的ID。"}},
+                "properties": {
+                    "target_message_id": {"type": "string", "description": "要撤回的消息的ID。"}
+                },
                 "required": ["target_message_id"],
             },
             "kick_member": {
@@ -470,7 +501,10 @@ class QQBuilder(BasePlatformBuilder):
                 "properties": {
                     "group_id": {"type": "string", "description": "目标群号。"},
                     "user_id": {"type": "string", "description": "要踢出的成员QQ号。"},
-                    "reject_add_request": {"type": "boolean", "description": "是否拒绝该用户后续加群请求。"},
+                    "reject_add_request": {
+                        "type": "boolean",
+                        "description": "是否拒绝该用户后续加群请求。",
+                    },
                 },
                 "required": ["group_id", "user_id"],
             },
@@ -519,7 +553,10 @@ class QQBuilder(BasePlatformBuilder):
                 "description": "退出群聊或解散群聊。",
                 "properties": {
                     "group_id": {"type": "string", "description": "目标群号。"},
-                    "is_dismiss": {"type": "boolean", "description": "是否解散群聊（仅群主可用）。"},
+                    "is_dismiss": {
+                        "type": "boolean",
+                        "description": "是否解散群聊（仅群主可用）。",
+                    },
                 },
                 "required": ["group_id"],
             },
@@ -527,7 +564,10 @@ class QQBuilder(BasePlatformBuilder):
                 "type": "object",
                 "description": "处理好友添加请求。",
                 "properties": {
-                    "request_flag": {"type": "string", "description": "从请求事件中获取的唯一标识。"},
+                    "request_flag": {
+                        "type": "string",
+                        "description": "从请求事件中获取的唯一标识。",
+                    },
                     "approve": {"type": "boolean", "description": "是否同意请求。"},
                     "remark": {"type": "string", "description": "（可选）同意后的备注名。"},
                 },
@@ -537,7 +577,10 @@ class QQBuilder(BasePlatformBuilder):
                 "type": "object",
                 "description": "处理加群请求或邀请。",
                 "properties": {
-                    "request_flag": {"type": "string", "description": "从请求事件中获取的唯一标识。"},
+                    "request_flag": {
+                        "type": "string",
+                        "description": "从请求事件中获取的唯一标识。",
+                    },
                     "approve": {"type": "boolean", "description": "是否同意请求。"},
                     "reason": {"type": "string", "description": "（可选）拒绝理由。"},
                     "original_request_sub_type": {
@@ -558,7 +601,10 @@ class QQBuilder(BasePlatformBuilder):
                 "type": "object",
                 "description": "获取机器人自身在一个或所有群聊中的档案信息。",
                 "properties": {
-                    "group_id": {"type": "string", "description": "（可选）如果提供，则只获取指定群聊中的档案。"}
+                    "group_id": {
+                        "type": "string",
+                        "description": "（可选）如果提供，则只获取指定群聊中的档案。",
+                    }
                 },
             },
             "sign_in": {
@@ -580,7 +626,9 @@ class QQBuilder(BasePlatformBuilder):
             "set_avatar": {
                 "type": "object",
                 "description": "设置机器人头像。",
-                "properties": {"file": {"type": "string", "description": "图片文件路径或URL或Base64。"}},
+                "properties": {
+                    "file": {"type": "string", "description": "图片文件路径或URL或Base64。"}
+                },
                 "required": ["file"],
             },
             "get_history": {

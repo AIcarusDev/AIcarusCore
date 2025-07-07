@@ -11,9 +11,12 @@ logger = get_logger(__name__)
 
 
 class LLMResponseHandler:
-    """
-    LLM响应处理器，专门解析和验证LLM返回的那些乱七八糟的文本。
-    哼，现在我只负责动脑，不负责动手。
+    """LLM响应处理器，用于解析和处理来自LLM的响应数据.
+
+    Attributes:
+        session (ChatSession): 当前会话的实例。
+        core_logic (CoreLogic): 会话的核心逻辑处理器。
+        chat_session_manager (ChatSessionManager): 会话管理器，用于处理会话的激活和停用。
     """
 
     def __init__(self, session: "ChatSession") -> None:
@@ -22,14 +25,23 @@ class LLMResponseHandler:
         self.chat_session_manager = session.chat_session_manager
 
     def parse(self, response_text: str) -> dict | None:
-        """从LLM的文本响应中解析出JSON数据。"""
+        """从LLM的文本响应中解析出JSON数据.
+
+        Args:
+            response_text (str): LLM返回的文本响应，可能包含JSON格式的数据。
+
+        Returns:
+            dict | None: 解析出的JSON数据，如果无法解析则返回None。
+        """
         return parse_llm_json_response(response_text)
 
     async def handle_decision(self, parsed_data: dict) -> bool:
-        """
-        根据解析后的LLM决策，判断是否需要结束或转移会话。
-        我只负责判断，不负责执行动作！
-        返回 True 表示会话应该终止，False 表示继续。
+        """处理LLM的决策逻辑.
+
+        Args:
+            parsed_data (dict): 从LLM响应中解析出的JSON数据。
+        Returns:
+            bool: 如果执行了特定的决策操作，则返回True；否则返回False
         """
         if parsed_data.get("end_focused_chat") is True:
             logger.info(f"[{self.session.conversation_id}] LLM决策结束专注模式。")
@@ -37,7 +49,11 @@ class LLMResponseHandler:
             return True
 
         target_conv_id = parsed_data.get("active_focus_on_conversation_id")
-        if target_conv_id and isinstance(target_conv_id, str) and target_conv_id.strip().lower() != "null":
+        if (
+            target_conv_id
+            and isinstance(target_conv_id, str)
+            and target_conv_id.strip().lower() != "null"
+        ):
             logger.info(f"[{self.session.conversation_id}] LLM决策转移专注到: {target_conv_id}")
             shift_motivation = parsed_data.get("motivation_for_shift", "看到一个更有趣的话题。")
             await self._handle_focus_shift(target_conv_id, shift_motivation)
@@ -47,27 +63,37 @@ class LLMResponseHandler:
         return False
 
     async def _handle_focus_shift(self, target_conv_id: str, shift_motivation: str) -> None:
-        """处理专注模式的转移。我只负责打电话，不带行李。"""
-        # a. 强制执行最终总结，并把“跳槽动机”塞进去
+        """处理专注模式的转移逻辑.
+
+        这个方法会在专注模式转移时调用，执行以下步骤:
+        1. 在当前会话中创建并保存最终摘要。
+        2. 如果有目标会话ID，则创建一个新的专注会话。
+        3. 触发主意识的思考循环，激活新的专注会话。
+        4. 停用当前会话。
+
+        Args:
+            target_conv_id (str): 目标会话ID，表示转移到哪个会话。
+            shift_motivation (str): 转移的动机，用于生成摘要。
+        """
         await self.session.summarization_manager.create_and_save_final_summary(
             shift_motivation=shift_motivation, target_conversation_id=target_conv_id
         )
 
-        # b. 呼叫主意识，告诉它我要“灵魂转移”了
-        #    注意！这里不再需要传递任何参数了！主意识会自己去思想链里找状态。
+        # 注意！这里不再需要传递任何参数了！主意识会自己去思想链里找状态。
         if hasattr(self.core_logic, "trigger_immediate_thought_cycle"):
             # // 直接激活 CoreLogic 的新 focus 流程
             # // CoreLogic 会自己处理后续逻辑
             # 直接激活 CoreLogic 的新 focus 流程
             # CoreLogic 会自己处理后续逻辑
-            logger.info(f"[{self.session.conversation_id}] 请求主意识直接激活新会话: {target_conv_id}")
+            logger.info(
+                f"[{self.session.conversation_id}] 请求主意识直接激活新会话: {target_conv_id}"
+            )
             await self.session.core_logic._activate_new_focus_session_from_core(target_conv_id)
 
-        # c. 让自己这个会话安乐死
         await self.chat_session_manager.deactivate_session(self.session.conversation_id)
 
     async def _trigger_session_deactivation(self) -> None:
-        """触发会话的正常关闭流程。"""
+        """触发会话的正常关闭流程."""
         # 在停用会话时，调用总结
         await self.session.summarization_manager.create_and_save_final_summary()
 

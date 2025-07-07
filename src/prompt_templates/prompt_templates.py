@@ -1,7 +1,7 @@
-"""
-prompt_templates.py
-此文件包含所有的prompt模板，方便统一管理和修改。
-"""
+# ruff: noqa: E501
+
+# prompt_templates.py
+# 此文件包含所有的prompt模板，方便统一管理和修改。
 
 # TODO:
 # 未来所有的 prompt 模板都应该放在这个文件里，方便统一管理和修改。

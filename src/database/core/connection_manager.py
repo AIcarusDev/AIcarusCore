@@ -32,9 +32,7 @@ class DatabaseConfigProtocol(Protocol):
 
 
 class ArangoDBConnectionManager:
-    """
-    ArangoDB 连接管理器 (小懒猫尊严修正版 V3)。
-    """
+    """ArangoDB 连接管理器 (小懒猫尊严修正版 V3)."""
 
     def __init__(
         self,
@@ -44,7 +42,9 @@ class ArangoDBConnectionManager:
     ) -> None:
         self.client: ArangoClient = client
         self.db: StandardDatabase = db
-        self.core_collection_configs: dict[str, list[tuple[list[str], bool, bool]]] = core_collection_configs
+        self.core_collection_configs: dict[str, list[tuple[list[str], bool, bool]]] = (
+            core_collection_configs
+        )
         self.main_graph: Graph | None = None
         self.thought_graph: Graph | None = None
         logger.debug(f"ArangoDBConnectionManager 已使用数据库 '{db.name}' 初始化。")
@@ -91,9 +91,13 @@ class ArangoDBConnectionManager:
             sys_db: StandardDatabase = await client_instance.db("_system", auth=auth_credentials)
             if not await sys_db.has_database(database_name):
                 await sys_db.create_database(database_name)
-            db_instance: StandardDatabase = await client_instance.db(database_name, auth=auth_credentials)
+            db_instance: StandardDatabase = await client_instance.db(
+                database_name, auth=auth_credentials
+            )
             await db_instance.properties()
-            logger.debug(f"已成功连接到 ArangoDB！主机: {host}, 数据库: {database_name} (使用 arangoasync)")
+            logger.debug(
+                f"已成功连接到 ArangoDB！主机: {host}, 数据库: {database_name} (使用 arangoasync)"
+            )
             manager_instance = cls(client_instance, db_instance, core_collection_configs)
             await manager_instance.ensure_core_infrastructure()
             return manager_instance
@@ -133,7 +137,9 @@ class ArangoDBConnectionManager:
         for collection_name in all_collections_to_ensure:
             is_edge = collection_name in CoreDBCollections.get_edge_collection_names()
             index_definitions = self.core_collection_configs.get(collection_name)
-            await self.ensure_collection_with_indexes(collection_name, index_definitions, is_edge=is_edge)
+            await self.ensure_collection_with_indexes(
+                collection_name, index_definitions, is_edge=is_edge
+            )
 
         # ---- 创建主关系图 (person_relation_graph) ----
         main_graph_name = CoreDBCollections.MAIN_GRAPH_NAME
@@ -152,7 +158,9 @@ class ArangoDBConnectionManager:
                 },
             ]
             try:
-                self.main_graph = await self.db.create_graph(main_graph_name, edge_definitions=main_edge_definitions)
+                self.main_graph = await self.db.create_graph(
+                    main_graph_name, edge_definitions=main_edge_definitions
+                )
             except GraphCreateError as e:
                 logger.error(f"创建主关系图 '{main_graph_name}' 失败: {e}", exc_info=True)
                 raise
@@ -196,12 +204,16 @@ class ArangoDBConnectionManager:
         is_edge: bool = False,
     ) -> StandardCollection:
         if not await self.db.has_collection(collection_name):
-            logger.debug(f"集合 '{collection_name}' 不存在，正在创建 (类型: {'edge' if is_edge else 'document'})...")
+            logger.debug(
+                f"集合 '{collection_name}' 不存在，正在创建 (类型: {'edge' if is_edge else 'document'})..."
+            )
             try:
                 await self.db.create_collection(collection_name, col_type=3 if is_edge else 2)
                 logger.debug(f"集合 '{collection_name}' 创建成功。")
             except CollectionCreateError as e:
-                logger.warning(f"创建集合 '{collection_name}' 时发生冲突或错误: {e}。将继续尝试获取该集合。")
+                logger.warning(
+                    f"创建集合 '{collection_name}' 时发生冲突或错误: {e}。将继续尝试获取该集合。"
+                )
 
         try:
             collection = self.db.collection(collection_name)
@@ -221,19 +233,31 @@ class ArangoDBConnectionManager:
         try:
             current_indexes_info = await collection.indexes()
             existing_indexes_set = {
-                ("_".join(sorted(str(f) for f in idx.fields)), idx.type, idx.unique or False, idx.sparse or False)
+                (
+                    "_".join(sorted(str(f) for f in idx.fields)),
+                    idx.type,
+                    idx.unique or False,
+                    idx.sparse or False,
+                )
                 for idx in current_indexes_info
             }
             for fields, unique, sparse in indexes_to_create:
                 index_type = "persistent"
-                desired_index_signature = ("_".join(sorted(str(f) for f in fields)), index_type, unique, sparse)
+                desired_index_signature = (
+                    "_".join(sorted(str(f) for f in fields)),
+                    index_type,
+                    unique,
+                    sparse,
+                )
                 if desired_index_signature in existing_indexes_set:
                     continue
                 logger.debug(
                     f"正在为集合 '{collection_name}' 应用索引: 字段={fields}, 类型={index_type}, 唯一={unique}, 稀疏={sparse}"
                 )
                 await collection.add_index(
-                    type=index_type, fields=fields, options={"unique": unique, "sparse": sparse, "inBackground": True}
+                    type=index_type,
+                    fields=fields,
+                    options={"unique": unique, "sparse": sparse, "inBackground": True},
                 )
         except ArangoServerError as e:
             logger.warning(f"为集合 '{collection_name}' 应用索引时发生数据库错误: {e}。")
@@ -241,7 +265,11 @@ class ArangoDBConnectionManager:
             logger.error(f"为集合 '{collection_name}' 应用索引时发生意外错误: {e}", exc_info=True)
 
     async def execute_query(
-        self, query: str, bind_vars: Mapping[str, Any] | None = None, stream: bool = False, **kwargs: object
+        self,
+        query: str,
+        bind_vars: Mapping[str, Any] | None = None,
+        stream: bool = False,
+        **kwargs: object,
     ) -> list[Any] | AsyncIterator[Any]:
         if not self.db:
 

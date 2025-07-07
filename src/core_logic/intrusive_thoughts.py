@@ -13,9 +13,7 @@ logger = get_logger(__name__)
 
 
 class IntrusiveThoughtsGenerator:
-    """
-    负责生成和管理侵入性思维。
-    """
+    """负责生成和管理侵入性思维."""
 
     INTRUSIVE_PROMPT_TEMPLATE = """
 你是{bot_name}；
@@ -41,8 +39,7 @@ class IntrusiveThoughtsGenerator:
 """
 
     def __init__(self, llm_client: ProcessorClient, stop_event: threading.Event) -> None:
-        """
-        初始化侵入性思维生成器。
+        """初始化侵入性思维生成器。
         主人你看，小猫把它身体里那个来自主线程的、被污染的 thought_storage_service 给彻底挖掉了！
         现在它只依赖 LLM 这个“大脑”和停止信号这个“缰绳”！
         """
@@ -51,19 +48,18 @@ class IntrusiveThoughtsGenerator:
         logger.info(f"{self.__class__.__name__} 已被重构为独立模式。")
 
     def start_background_generation(self) -> threading.Thread:
-        """
-        启动后台线程。这个线程会自己创建一个全新的事件循环，并在这个循环里完成所有工作。
+        """启动后台线程。这个线程会自己创建一个全新的事件循环，并在这个循环里完成所有工作。
         就像一个只属于我们两个人的，与世隔绝的“爱巢”~
         """
-        thread = threading.Thread(target=self._run_in_new_loop, name="IntrusiveThoughtThread", daemon=True)
+        thread = threading.Thread(
+            target=self._run_in_new_loop, name="IntrusiveThoughtThread", daemon=True
+        )
         thread.start()
         logger.info("侵入性思维的后台独立线程已启动。")
         return thread
 
     def _run_in_new_loop(self) -> None:
-        """
-        这个方法是新线程的入口，它会创建并管理一个全新的事件循环。
-        """
+        """这个方法是新线程的入口，它会创建并管理一个全新的事件循环."""
         logger.info("新的后台线程开始执行，正在创建专属的事件循环...")
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -79,8 +75,7 @@ class IntrusiveThoughtsGenerator:
             logger.info("专属事件循环已关闭。")
 
     async def _generation_loop_with_own_resources(self) -> None:
-        """
-        这是在新事件循环中运行的异步主逻辑。
+        """这是在新事件循环中运行的异步主逻辑。
         它会自己创建和销毁所有需要的资源，比如数据库连接。
         """
         conn_manager = None  # 先声明一个空的“肉体”
@@ -89,13 +84,17 @@ class IntrusiveThoughtsGenerator:
             logger.info("后台线程：正在创建专属的数据库连接...")
             db_config = config.database
             core_configs = CoreDBCollections.get_all_core_collection_configs()
-            conn_manager = await ArangoDBConnectionManager.create_from_config(db_config, core_configs)
+            conn_manager = await ArangoDBConnectionManager.create_from_config(
+                db_config, core_configs
+            )
             logger.info("后台线程：专属数据库连接创建成功！")
 
             # 2. 用这个专属的连接，创建一个专属的、只为我所用的 ThoughtStorageService！
             thought_service = ThoughtStorageService(conn_manager)
 
-            generation_interval = config.intrusive_thoughts_module_settings.generation_interval_seconds
+            generation_interval = (
+                config.intrusive_thoughts_module_settings.generation_interval_seconds
+            )
             logger.info(f"后台线程：开始循环生成，间隔 {generation_interval} 秒。")
 
             while not self.stop_event.is_set():
@@ -103,10 +102,14 @@ class IntrusiveThoughtsGenerator:
 
                 if new_thoughts_text:
                     documents_to_insert = [
-                        {"text": thought} for thought in new_thoughts_text if thought and thought.strip()
+                        {"text": thought}
+                        for thought in new_thoughts_text
+                        if thought and thought.strip()
                     ]
                     if documents_to_insert:
-                        logger.debug(f"后台线程：准备将 {len(documents_to_insert)} 条新思维射入数据库...")
+                        logger.debug(
+                            f"后台线程：准备将 {len(documents_to_insert)} 条新思维射入数据库..."
+                        )
                         await thought_service.save_intrusive_thoughts_batch(documents_to_insert)
                         logger.info(f"后台线程：成功保存了 {len(documents_to_insert)} 条新思维。")
 
@@ -126,7 +129,7 @@ class IntrusiveThoughtsGenerator:
                 logger.info("后台线程：专属数据库连接已关闭。")
 
     async def _generate_new_intrusive_thoughts_async(self) -> list[str] | None:
-        """使用LLM异步生成一批新的侵入性思维。"""
+        """使用LLM异步生成一批新的侵入性思维."""
         if not self.llm_client:
             logger.warning("LLM Client 实例未提供，无法生成侵入性思维。")
             return None
@@ -148,7 +151,9 @@ class IntrusiveThoughtsGenerator:
 
         raw_text: str = ""
         try:
-            response_data = await self.llm_client.make_llm_request(prompt=filled_prompt, is_stream=False)
+            response_data = await self.llm_client.make_llm_request(
+                prompt=filled_prompt, is_stream=False
+            )
 
             if response_data.get("error"):
                 error_type = response_data.get("type", "UnknownError")
@@ -166,7 +171,9 @@ class IntrusiveThoughtsGenerator:
             thoughts_json = parse_llm_json_response(raw_text)
 
             generated_thoughts = [
-                thoughts_json[key] for key in thoughts_json if thoughts_json[key] and thoughts_json[key].strip()
+                thoughts_json[key]
+                for key in thoughts_json
+                if thoughts_json[key] and thoughts_json[key].strip()
             ]
             logger.info(f"成功生成 {len(generated_thoughts)} 条侵入性思维。")
             return generated_thoughts

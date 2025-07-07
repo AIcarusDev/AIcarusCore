@@ -15,8 +15,7 @@ ACTION_RESPONSE_TIMEOUT_SECONDS = 30
 
 
 class PendingActionManager:
-    """
-    管理所有待处理的平台动作。
+    """管理所有待处理的平台动作。
     负责跟踪已发送但尚未收到响应的动作，并处理其成功响应、失败响应或超时。
     """
 
@@ -27,7 +26,9 @@ class PendingActionManager:
         event_storage_service: EventStorageService,
         conversation_service: ConversationStorageService,
     ) -> None:
-        self._pending_actions: dict[str, tuple[asyncio.Future, str | None, str, dict[str, Any]]] = {}
+        self._pending_actions: dict[
+            str, tuple[asyncio.Future, str | None, str, dict[str, Any]]
+        ] = {}
         self.action_log_service = action_log_service
         self.thought_storage_service = thought_storage_service
         self.event_storage_service = event_storage_service
@@ -41,8 +42,7 @@ class PendingActionManager:
         original_action_description: str,
         action_to_send: dict[str, Any],
     ) -> tuple[bool, Any]:
-        """
-        添加一个新的待处理动作，并等待其完成（或超时）。
+        """添加一个新的待处理动作，并等待其完成（或超时）。
 
         Returns:
             一个元组 (action_successful, result_payload)。
@@ -81,7 +81,7 @@ class PendingActionManager:
         )
 
     async def handle_response(self, response_event_data: dict[str, Any]) -> None:
-        """处理来自适配器的动作响应事件。"""
+        """处理来自适配器的动作响应事件."""
         original_action_id = self._get_original_id_from_response(response_event_data)
         if not original_action_id:
             return
@@ -90,7 +90,9 @@ class PendingActionManager:
             logger.warning(f"收到未知的或已处理/超时的 action_response，ID: {original_action_id}。")
             return
 
-        pending_future, thought_doc_key, description, sent_dict = self._pending_actions.pop(original_action_id)
+        pending_future, thought_doc_key, description, sent_dict = self._pending_actions.pop(
+            original_action_id
+        )
         logger.info(f"已匹配到等待中的动作 '{original_action_id}' ({description})。")
 
         # 解析响应
@@ -101,7 +103,9 @@ class PendingActionManager:
             logger.info(f"收到来自适配器 '{details.get('platform')}' 的档案同步报告，开始处理...")
             # 把处理报告这个脏活累活，单独丢给一个新方法去做！
             await self._process_bot_profile_report(details)
-        _final_result = self._create_final_result_message(description, successful, error_msg, details)
+        _final_result = self._create_final_result_message(
+            description, successful, error_msg, details
+        )
         response_timestamp = int(time.time() * 1000)
         response_time_ms = response_timestamp - sent_dict.get("timestamp", response_timestamp)
 
@@ -122,11 +126,12 @@ class PendingActionManager:
 
         # 存为事件
         if successful:
-            await self._save_successful_action_as_event(original_action_id, sent_dict, response_event_data)
+            await self._save_successful_action_as_event(
+                original_action_id, sent_dict, response_event_data
+            )
 
     async def _process_bot_profile_report(self, report_data: dict[str, Any]) -> None:
-        """
-        处理从 Adapter 发来的“全身检查报告”。
+        """处理从 Adapter 发来的“全身检查报告”。
         新版：使用 upsert 逻辑，确保即使会话档案不存在也能正确创建和更新。
         """
         if not isinstance(report_data, dict):
@@ -138,7 +143,9 @@ class PendingActionManager:
         groups_info = report_data.get("groups")
 
         if not bot_id or not groups_info or not isinstance(groups_info, dict):
-            logger.warning(f"机器人档案报告缺少 bot_id、platform 或 groups 信息。报告内容: {report_data}")
+            logger.warning(
+                f"机器人档案报告缺少 bot_id、platform 或 groups 信息。报告内容: {report_data}"
+            )
             return
 
         logger.info(f"正在处理机器人(ID: {bot_id})的 {len(groups_info)} 个群聊档案更新...")
@@ -172,14 +179,20 @@ class PendingActionManager:
 
             # 最后，调用那个万能的 upsert 方法！
             # 它会自己判断是该插入还是更新，完美！
-            task = self.conversation_service.upsert_conversation_document(conversation_doc_to_upsert)
+            task = self.conversation_service.upsert_conversation_document(
+                conversation_doc_to_upsert
+            )
             update_tasks.append(task)
 
         if update_tasks:
             results = await asyncio.gather(*update_tasks, return_exceptions=True)
-            success_count = sum(bool(r is not None and not isinstance(r, Exception)) for r in results)
+            success_count = sum(
+                bool(r is not None and not isinstance(r, Exception)) for r in results
+            )
             failure_count = len(results) - success_count
-            logger.info(f"机器人档案同步完成。成功 upsert {success_count} 个会话，失败 {failure_count} 个。")
+            logger.info(
+                f"机器人档案同步完成。成功 upsert {success_count} 个会话，失败 {failure_count} 个。"
+            )
         else:
             logger.info("机器人档案报告中没有需要更新的群聊信息。")
 
@@ -210,7 +223,9 @@ class PendingActionManager:
                 return False, status, error_msg, details
         return False, "unknown_format", "响应格式不正确", None
 
-    def _create_final_result_message(self, desc: str, succ: bool, err: str, det: dict | None) -> str:
+    def _create_final_result_message(
+        self, desc: str, succ: bool, err: str, det: dict | None
+    ) -> str:
         if succ:
             msg = f"动作 '{desc}' 已成功执行。"
             if det:
@@ -241,7 +256,9 @@ class PendingActionManager:
     async def _get_sent_message_id_safe(self, event_data: dict[str, Any]) -> str:
         default_id = "unknow_message_id"
         if not isinstance(event_data, dict):
-            logger.error(f"事件数据不是一个字典，无法从中安全地提取 sent_message_id。事件数据类型: {type(event_data)}")
+            logger.error(
+                f"事件数据不是一个字典，无法从中安全地提取 sent_message_id。事件数据类型: {type(event_data)}"
+            )
             return default_id
         content_list = event_data.get("content")
         if isinstance(content_list, list) and len(content_list) > 0:

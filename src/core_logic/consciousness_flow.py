@@ -108,15 +108,12 @@ class CoreLogic:
         logger.info(f"{self.__class__.__name__} 已创建")
 
     def trigger_immediate_thought_cycle(self) -> None:
-        """
-        这个方法现在就是个闹钟，只负责把主循环叫醒。
-        """
+        """这个方法现在就是个闹钟，只负责把主循环叫醒."""
         logger.info("接收到立即思考触发信号，主意识将被唤醒。")
         self.immediate_thought_trigger.set()
 
     async def _dispatch_action(self, thought_pearl: ThoughtChainDocument) -> bool:
-        """
-        根据思想点里的 action_payload 分发动作。
+        """根据思想点里的 action_payload 分发动作。
         哼，我来当老大，专注指令我亲自处理！
         返回一个布尔值，指示是否执行了 focus 动作。
         """
@@ -195,10 +192,14 @@ class CoreLogic:
 
             # 1. 构建 Prompt (它内部自己会去拿最新的状态，我们不用管了)
             current_time_str = get_formatted_time_for_llm()
-            system_prompt, user_prompt, _ = await self.prompt_builder.build_prompts(current_time_str)
+            system_prompt, user_prompt, _ = await self.prompt_builder.build_prompts(
+                current_time_str
+            )
 
             # 2. 生成思考
-            logger.info(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {config.persona.bot_name} 开始思考...")
+            logger.info(
+                f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {config.persona.bot_name} 开始思考..."
+            )
             generated_thought_json = await self.thought_generator.generate_thought(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
@@ -224,7 +225,9 @@ class CoreLogic:
                 )
 
                 # 4. 把点串到链上去！
-                saved_key = await self.thought_storage_service.save_thought_and_link(new_thought_pearl)
+                saved_key = await self.thought_storage_service.save_thought_and_link(
+                    new_thought_pearl
+                )
 
                 if saved_key:
                     # 5. 分发动作
@@ -236,7 +239,9 @@ class CoreLogic:
 
             # 6. 等待下一次闹钟
             with contextlib.suppress(asyncio.TimeoutError):
-                await asyncio.wait_for(self.immediate_thought_trigger.wait(), timeout=float(thinking_interval_sec))
+                await asyncio.wait_for(
+                    self.immediate_thought_trigger.wait(), timeout=float(thinking_interval_sec)
+                )
                 self.immediate_thought_trigger.clear()
                 logger.info("被动思考被触发，立即开始新一轮思考。")
 
@@ -260,8 +265,7 @@ class CoreLogic:
                 logger.info("主思考循环任务已被取消。")
 
     async def _activate_new_focus_session_from_core(self, target_conv_id: str) -> None:
-        """
-        从 CoreLogic 内部直接激活一个新的专注会话。
+        """从 CoreLogic 内部直接激活一个新的专注会话。
         这个方法是给 LLMResponseHandler 调用的，用于 LLM 决策直接转移专注。
         """
         logger.info(f"CoreLogic 接收到直接激活新专注会话的请求: {target_conv_id}")

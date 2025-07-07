@@ -7,8 +7,6 @@ from typing import TYPE_CHECKING, Optional
 # 导入我们全新的、不带platform字段的协议对象！
 from aicarus_protocols import Event as ProtocolEvent
 from aicarus_protocols import Seg, SegBuilder
-from websockets.server import WebSocketServerProtocol
-
 from src.common.custom_logging.logging_config import get_logger
 from src.common.intelligent_interrupt_system.models import SemanticModel
 from src.config import config
@@ -20,6 +18,7 @@ from src.database import (
 )
 from src.database.services.event_storage_service import EventStorageService
 from src.focus_chat_mode.chat_session_manager import ChatSessionManager
+from websockets.server import WebSocketServerProtocol
 
 if TYPE_CHECKING:
     from src.action.action_handler import ActionHandler  # 确保导入 ActionHandler
@@ -29,8 +28,22 @@ logger = get_logger(__name__)
 
 
 class DefaultMessageProcessor:
-    """
-    默认的消息处理器 (V6.0 + Person图谱版)
+    """默认消息处理器，用于处理来自适配器的事件，并进行必要的存储和分发.
+
+    这个处理器会处理所有来自适配器的事件，并将它们存储到数据库中。
+    它还会根据事件类型分发到不同的处理方法。
+    这个处理器现在集成了 PersonStorageService，用于处理与用户相关的 Person 信息。
+    这样可以更好地管理用户信息和会话档案。
+    这个处理器还可以在收到特定指令时执行一系列测试动作。
+
+    Attributes:
+        event_service: 事件存储服务
+        conversation_service: 对话存储服务
+        person_service: 人物存储服务
+        semantic_model: 语义模型
+        core_comm_layer: 核心通信层
+        qq_chat_session_manager: QQ聊天会话管理器
+        core_initializer_ref: CoreSystemInitializer 的引用
     """
 
     def __init__(
@@ -53,14 +66,17 @@ class DefaultMessageProcessor:
         if self.core_comm_layer:
             logger.info("DefaultMessageProcessor 已获得 CoreWebsocketServer 实例的引用。")
         else:
-            logger.warning("DefaultMessageProcessor 未获得 CoreWebsocketServer 实例的引用，将无法主动发送动作。")
+            logger.warning(
+                "DefaultMessageProcessor 未获得 CoreWebsocketServer 实例的引用，无法主动发送动作。"
+            )
 
     async def process_event(
-        self, proto_event: ProtocolEvent, websocket: WebSocketServerProtocol, needs_persistence: bool = True
+        self,
+        proto_event: ProtocolEvent,
+        websocket: WebSocketServerProtocol,
+        needs_persistence: bool = True,
     ) -> None:
-        """
-        处理来自适配器的事件。
-        """
+        """处理来自适配器的事件."""
         if not isinstance(proto_event, ProtocolEvent):
             logger.error(f"传入的事件不是 ProtocolEvent 类型，而是 {type(proto_event)}。跳过处理。")
             return
@@ -68,11 +84,14 @@ class DefaultMessageProcessor:
         # 关键步骤1: 从 event_type 中解析平台信息
         platform_id = proto_event.get_platform()
         if not platform_id:
-            logger.error(f"无法从事件类型 '{proto_event.event_type}' 中解析出平台ID，事件处理中止。")
+            logger.error(
+                f"无法从事件类型 '{proto_event.event_type}' 中解析出平台ID，事件处理中止。"
+            )
             return
 
         logger.debug(
-            f"开始处理事件: {proto_event.event_type}, ID: {proto_event.event_id}, Platform: {platform_id}, BotID: {proto_event.bot_id}"
+            f"开始处理事件: {proto_event.event_type}, ID: {proto_event.event_id}, ",
+            f"Platform: {platform_id}, BotID: {proto_event.bot_id}",
         )
 
         event_status = "unread"
@@ -83,10 +102,14 @@ class DefaultMessageProcessor:
         if (
             proto_event.event_type.startswith(f"message.{platform_id}")
             and config.test_function.enable_test_group
-            and (not conversation_id_for_check or conversation_id_for_check not in config.test_function.test_group)
+            and (
+                not conversation_id_for_check
+                or conversation_id_for_check not in config.test_function.test_group
+            )
         ):
             logger.debug(
-                f"测试模式下，事件 '{proto_event.event_id}' 来自非测试会话 '{conversation_id_for_check}'，状态将设置为 'ignored'。"
+                f"测试模式下，事件 '{proto_event.event_id}' 来自非测试会话 ",
+                f"'{conversation_id_for_check}'，状态将设置为 'ignored'。",
             )
             event_status = "ignored"
 
@@ -94,7 +117,10 @@ class DefaultMessageProcessor:
             # --- 核心改造点：关联Person ---
             person_id, account_uid = None, None
             if proto_event.user_info and proto_event.user_info.user_id:
-                person_id, account_uid = await self.person_service.find_or_create_person_and_account(
+                (
+                    person_id,
+                    account_uid,
+                ) = await self.person_service.find_or_create_person_and_account(
                     proto_event.user_info, platform_id
                 )
                 if person_id and account_uid and proto_event.conversation_info:
@@ -138,25 +164,33 @@ class DefaultMessageProcessor:
                     event_bot_id=proto_event.bot_id,
                 )
                 conversation_doc_to_upsert = enriched_conv_info.to_db_document()
-                upsert_result = await self.conversation_service.upsert_conversation_document(conversation_doc_to_upsert)
+                upsert_result = await self.conversation_service.upsert_conversation_document(
+                    conversation_doc_to_upsert
+                )
                 # 从返回的字典中安全地获取 '_key' 或 '_id'
                 upsert_result_key = None
                 if upsert_result:  # 增加健壮性检查，防止 upsert_result 为 None
                     upsert_result_key = upsert_result.get("_key") or upsert_result.get("_id")
 
                 if upsert_result_key:
-                    logger.info(f"会话档案 (ConversationInfo) '{upsert_result_key}' 已成功插入或更新。")
+                    logger.info(
+                        f"会话档案 (ConversationInfo) '{upsert_result_key}' 已成功插入或更新。"
+                    )
                 else:
                     logger.error(
-                        f"处理会话档案 (ConversationInfo) '{proto_event.conversation_info.conversation_id}' 时发生错误。"
+                        "处理会话档案 (ConversationInfo) ",
+                        f"'{proto_event.conversation_info.conversation_id}' 时发生错误。",
                     )
             elif proto_event.event_type.startswith(f"message.{platform_id}"):
                 logger.warning(
-                    f"消息类事件 {proto_event.event_id} 缺少有效的 ConversationInfo，无法为其创建或更新会话档案。"
+                    f"消息类事件 {proto_event.event_id} 缺少有效的 ConversationInfo，",
+                    "无法为其创建或更新会话档案。",
                 )
 
             if event_status != "unread":
-                logger.debug(f"事件 '{proto_event.event_id}' 的状态为 '{event_status}'，将跳过后续分发。")
+                logger.debug(
+                    f"事件 '{proto_event.event_id}' 的状态为 '{event_status}'，将跳过后续分发。"
+                )
                 return
 
             # 关键步骤2: 分发时，事件类型带着完整的命名空间
@@ -170,12 +204,12 @@ class DefaultMessageProcessor:
                 logger.debug(f"事件类型 '{proto_event.event_type}' 没有特定的处理器，跳过分发。")
 
         except Exception as e:
-            logger.error(f"处理事件 (ID: {proto_event.event_id}) 的核心逻辑中发生错误: {e}", exc_info=True)
+            logger.error(
+                f"处理事件 (ID: {proto_event.event_id}) 的核心逻辑中发生错误: {e}", exc_info=True
+            )
 
     async def _handle_bot_profile_update(self, event: ProtocolEvent) -> None:
-        """
-        处理机器人自身档案更新的通知，并更新相关会话的缓存和数据库。
-        """
+        """处理机器人自身档案更新的通知，并更新相关会话的缓存和数据库."""
         try:
             if not event.content:
                 logger.warning("收到的机器人档案更新通知没有内容。")
@@ -191,16 +225,23 @@ class DefaultMessageProcessor:
                 logger.warning(f"机器人档案更新通知格式不正确，缺少关键信息: {report_data}")
                 return
 
-            logger.info(f"收到会话 '{conversation_id}' 的机器人档案更新通知: '{update_type}' -> '{new_value}'")
+            logger.info(
+                f"收到会话 '{conversation_id}' 的机器人档案更新通知: ",
+                f"'{update_type}' -> '{new_value}'",
+            )
 
             # 检查这个会话当前是否在专注聊天模式下是活跃的
             session = (
-                self.qq_chat_session_manager.sessions.get(conversation_id) if self.qq_chat_session_manager else None
+                self.qq_chat_session_manager.sessions.get(conversation_id)
+                if self.qq_chat_session_manager
+                else None
             )
 
             if session and session.is_active:
                 # 如果会话活跃，直接更新它的短期记忆（内存缓存）
-                logger.info(f"会话 '{conversation_id}' 处于激活状态，正在实时更新其机器人档案缓存。")
+                logger.info(
+                    f"会话 '{conversation_id}' 处于激活状态，正在实时更新其机器人档案缓存。"
+                )
                 if update_type == "card_change":
                     session.bot_profile_cache["card"] = new_value
                 # 可以在这里添加对其他更新类型的处理，比如头衔 'title'
@@ -219,7 +260,9 @@ class DefaultMessageProcessor:
                 logger.info(f"会话 '{conversation_id}' 不活跃，仅更新其在数据库中的机器人档案。")
 
                 # 先从数据库读出旧的档案，但我们只关心它的 card
-                conv_doc = await self.conversation_service.get_conversation_document_by_id(conversation_id)
+                conv_doc = await self.conversation_service.get_conversation_document_by_id(
+                    conversation_id
+                )
 
                 # 创建新的档案对象以避免直接修改原始数据
                 profile_to_update = {}
@@ -249,21 +292,28 @@ class DefaultMessageProcessor:
         except Exception as e:
             logger.error(f"处理机器人档案更新通知时出错: {e}", exc_info=True)
 
-    async def _handle_message_event(self, proto_event: ProtocolEvent, websocket: WebSocketServerProtocol) -> bool:
+    async def _handle_message_event(
+        self, proto_event: ProtocolEvent, websocket: WebSocketServerProtocol
+    ) -> bool:
         try:
             # 测试入口点
             text_content = proto_event.get_text_content()
             print(f"收到的文本内容: {text_content}")
             if text_content.strip() == "完整测试":
                 logger.info(
-                    f'收到来自会话 {proto_event.conversation_info.conversation_id} 的"完整测试"指令！进入测试模式！'
+                    f"收到来自会话 {proto_event.conversation_info.conversation_id} "
+                    f"的'完整测试'指令！进入测试模式！"
                 )
                 # 我们需要 ActionHandler 来提交动作
                 action_handler = (
-                    self.core_initializer_ref.action_handler_instance if self.core_initializer_ref else None
+                    self.core_initializer_ref.action_handler_instance
+                    if self.core_initializer_ref
+                    else None
                 )
                 if not action_handler:
-                    logger.error("无法执行后门测试：CoreSystemInitializer 或 ActionHandler 未被注入！")
+                    logger.error(
+                        "无法执行后门测试：CoreSystemInitializer 或 ActionHandler 未被注入！"
+                    )
                     return False
 
                 # 开始执行测试动作序列
@@ -276,11 +326,15 @@ class DefaultMessageProcessor:
                 await self.qq_chat_session_manager.handle_incoming_message(proto_event)
             return True
         except Exception as e:
-            logger.error(f"处理消息事件 (ID: {proto_event.event_id}) 时发生错误: {e}", exc_info=True)
+            logger.error(
+                f"处理消息事件 (ID: {proto_event.event_id}) 时发生错误: {e}", exc_info=True
+            )
             return False
 
-    async def _handle_request_event(self, proto_event: ProtocolEvent, websocket: WebSocketServerProtocol) -> None:
-        """处理请求类事件（如好友请求、加群请求）。"""
+    async def _handle_request_event(
+        self, proto_event: ProtocolEvent, websocket: WebSocketServerProtocol
+    ) -> None:
+        """处理请求类事件（如好友请求、加群请求）."""
         try:
             sender_id_log = "未知用户"
             if proto_event.user_info and proto_event.user_info.user_id:  # 安全访问
@@ -291,7 +345,9 @@ class DefaultMessageProcessor:
             if proto_event.event_type.endswith("friend.add"):  # 使用 endswith 更健壮
                 logger.info(f"检测到好友添加请求事件，来自 {sender_id_log}。准备自动同意。")
                 if not self.core_comm_layer:
-                    logger.error("核心通信层 (CoreWebsocketServer) 实例未设置，无法自动同意好友请求。")
+                    logger.error(
+                        "核心通信层 (CoreWebsocketServer) 实例未设置，无法自动同意好友请求。"
+                    )
                     return
 
                 if (
@@ -299,7 +355,9 @@ class DefaultMessageProcessor:
                     or not isinstance(proto_event.content[0], Seg)
                     or not proto_event.content[0].data
                 ):
-                    logger.error("好友请求事件的内容格式不正确或为空，无法获取请求参数 (如 request_flag)。")
+                    logger.error(
+                        "好友请求事件的内容格式不正确或为空，无法获取请求参数 (如 request_flag)。"
+                    )
                     return
 
                 request_params_data: dict = proto_event.content[0].data
@@ -332,21 +390,25 @@ class DefaultMessageProcessor:
                 logger.debug(f"准备自动同意好友请求的动作事件: {approve_action_event.to_dict()}")
 
                 # ActionSender 现在会从 event_type 解析平台ID
-                send_success = await self.core_comm_layer.action_sender.send_action_to_adapter_by_id(
-                    platform_id, approve_action_event.to_dict()
+                send_success = (
+                    await self.core_comm_layer.action_sender.send_action_to_adapter_by_id(
+                        platform_id, approve_action_event.to_dict()
+                    )
                 )
                 if send_success:
                     logger.info(f"自动同意来自 {sender_id_log} 的好友请求的动作已发送。")
                 else:
                     logger.error(f"自动同意来自 {sender_id_log} 的好友请求的动作发送失败。")
         except Exception as e:
-            logger.error(f"处理请求事件 (ID: {proto_event.event_id}) 时发生错误: {e}", exc_info=True)
+            logger.error(
+                f"处理请求事件 (ID: {proto_event.event_id}) 时发生错误: {e}", exc_info=True
+            )
 
     # 测试专用方法
-    async def _perform_test_actions(self, trigger_event: ProtocolEvent, action_handler: "ActionHandler") -> None:
-        """
-        一个接一个地执行发言、回复、戳一戳这三个动作。
-        """
+    async def _perform_test_actions(
+        self, trigger_event: ProtocolEvent, action_handler: "ActionHandler"
+    ) -> None:
+        """一个接一个地执行发言、回复、戳一戳这三个动作."""
         platform_id = trigger_event.get_platform()
         conv_info = trigger_event.conversation_info
         user_info = trigger_event.user_info
@@ -376,10 +438,15 @@ class DefaultMessageProcessor:
                 event_type=f"action.{platform_id}.send_message",
                 time=int(time.time() * 1000),
                 bot_id=trigger_event.bot_id,
-                content=[SegBuilder.reply(trigger_message_id), SegBuilder.text("正在测试回复功能~")],
+                content=[
+                    SegBuilder.reply(trigger_message_id),
+                    SegBuilder.text("正在测试回复功能~"),
+                ],
                 conversation_info=conv_info,
             )
-            await action_handler.submit_constructed_action(reply_event.to_dict(), "后门测试：回复消息")
+            await action_handler.submit_constructed_action(
+                reply_event.to_dict(), "后门测试：回复消息"
+            )
             await asyncio.sleep(2)
         else:
             logger.warning("后门测试：触发消息没有 message_id，无法测试回复功能。")

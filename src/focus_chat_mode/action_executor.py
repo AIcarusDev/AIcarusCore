@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 
 from aicarus_protocols import ConversationInfo, Seg, SegBuilder, UserInfo
 from aicarus_protocols import Event as ProtocolEvent
-
 from src.common.custom_logging.logging_config import get_logger
 from src.common.utils import is_valid_message
 from src.config import config
@@ -21,8 +20,7 @@ logger = get_logger(__name__)
 
 
 class ActionExecutor:
-    """
-    专门负责执行LLM决策的行动执行官。
+    """专门负责执行LLM决策的行动执行官。
     哼，别想让我干别的！
     """
 
@@ -32,9 +30,7 @@ class ActionExecutor:
         self.event_storage = session.event_storage
 
     def _calculate_typing_delay(self, text: str) -> float:
-        """
-        计算模拟打字需要的时间。哼，就是个简单的数学题。
-        """
+        """计算模拟打字需要的时间。哼，就是个简单的数学题."""
         # 定义哪些标点需要停顿久一点，假装在思考
         punctuation_to_pause = "，。！？；、,."
         # 普通字/字母的打字延迟
@@ -62,8 +58,7 @@ class ActionExecutor:
         return final_delay
 
     async def execute_action(self, parsed_data: dict, uid_map: dict) -> tuple[bool, int, int]:
-        """
-        根据LLM的决策执行回复或记录内部思考。
+        """根据LLM的决策执行回复或记录内部思考。
         现在返回一个元组: (是否发生了互动, 实际发送数, 计划发送数)
         """
         # --- Sanitize optional fields ---
@@ -112,14 +107,17 @@ class ActionExecutor:
             await self._log_internal_thought(parsed_data)
             return False, 0, 0
 
-    async def _send_reply(self, parsed_data: dict, uid_map: dict, valid_sentences: list[str]) -> int:
-        """
-        发送回复消息。现在它会返回实际发送的消息数量。
+    async def _send_reply(
+        self, parsed_data: dict, uid_map: dict, valid_sentences: list[str]
+    ) -> int:
+        """发送回复消息。现在它会返回实际发送的消息数量。
         并且在被取消时能优雅地处理。
         """
         # 不再需要自己计算 valid_sentences 了，直接用传进来的
         if not valid_sentences:
-            logger.info(f"[{self.session.conversation_id}] _send_reply 收到空的有效消息列表，不发送。")
+            logger.info(
+                f"[{self.session.conversation_id}] _send_reply 收到空的有效消息列表，不发送。"
+            )
             return 0
 
         at_target_values_raw = parsed_data.get("at_someone")
@@ -159,7 +157,11 @@ class ActionExecutor:
                     description="发送专注模式回复",
                 )
 
-                if success and isinstance(result_payload, dict) and result_payload.get("sent_message_id"):
+                if (
+                    success
+                    and isinstance(result_payload, dict)
+                    and result_payload.get("sent_message_id")
+                ):
                     logger.info(f"发送回复成功，回执: {result_payload}")
                     sent_count += 1  # 发送成功，计数器+1
                     self.session.message_count_since_last_summary += 1
@@ -169,13 +171,17 @@ class ActionExecutor:
                     # --- ❤❤❤ 看这里！这就是塞纸条的地方！❤❤❤ ---
                     extra_data_for_backpack = {}
                     motivation_for_log = (
-                        current_motivation if i == 0 and current_motivation and current_motivation.strip() else None
+                        current_motivation
+                        if i == 0 and current_motivation and current_motivation.strip()
+                        else None
                     )
                     if motivation_for_log:
                         extra_data_for_backpack["motivation"] = motivation_for_log
 
                     # 把小背包（字典）变成一个字符串，这样才能塞进 raw_data
-                    raw_data_string = json.dumps(extra_data_for_backpack) if extra_data_for_backpack else None
+                    raw_data_string = (
+                        json.dumps(extra_data_for_backpack) if extra_data_for_backpack else None
+                    )
 
                     final_content_dicts = [
                         SegBuilder.message_metadata(message_id=sent_message_id).to_dict(),
@@ -189,9 +195,12 @@ class ActionExecutor:
                         time=int(time.time() * 1000),
                         bot_id=correct_bot_id,
                         content=final_content_segs,
-                        user_info=UserInfo(user_id=correct_bot_id, user_nickname=bot_profile.get("nickname")),
+                        user_info=UserInfo(
+                            user_id=correct_bot_id, user_nickname=bot_profile.get("nickname")
+                        ),
                         conversation_info=ConversationInfo(
-                            conversation_id=self.session.conversation_id, type=self.session.conversation_type
+                            conversation_id=self.session.conversation_id,
+                            type=self.session.conversation_type,
                         ),
                         raw_data=raw_data_string,  # <-- 看！把带小纸条的背包塞进去了！
                     )
@@ -220,12 +229,14 @@ class ActionExecutor:
         finally:
             # ❤❤❤ 无论如何，都要留下遗言！❤❤❤
             self.session.messages_sent_this_turn = sent_count
-            logger.debug(f"[{self.session.conversation_id}] ActionExecutor 报告：本轮实际发送 {sent_count} 条消息。")
+            logger.debug(
+                f"[{self.session.conversation_id}] ActionExecutor 报告：本轮实际发送 {sent_count} 条消息。"
+            )
 
     def _build_reply_segments(
         self, index: int, text: str, quote_id: str | None, at_raw: str | list | None, uid_map: dict
     ) -> list:
-        """构建单条回复消息的 segments。"""
+        """构建单条回复消息的 segments."""
         payload = []
         if index == 0:
             if quote_id:
@@ -248,7 +259,7 @@ class ActionExecutor:
         return payload
 
     async def _log_internal_thought(self, parsed_data: dict) -> bool:
-        """记录内部思考（不回复）。"""
+        """记录内部思考（不回复）."""
         motivation = parsed_data.get("motivation")
         if not motivation:
             return False
@@ -265,7 +276,9 @@ class ActionExecutor:
             "time": time.time() * 1000,
             "platform": self.session.platform,
             "bot_id": correct_bot_id,
-            "user_info": UserInfo(user_id=correct_bot_id, user_nickname=correct_bot_nickname).to_dict(),
+            "user_info": UserInfo(
+                user_id=correct_bot_id, user_nickname=correct_bot_nickname
+            ).to_dict(),
             "conversation_info": ConversationInfo(
                 conversation_id=self.session.conversation_id,
                 type=self.session.conversation_type,

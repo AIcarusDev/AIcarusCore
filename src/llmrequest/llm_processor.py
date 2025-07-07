@@ -3,9 +3,11 @@
 
 import asyncio
 from collections.abc import Callable, Coroutine
-from typing import Any, Unpack  # 确保 Unpack 被导入
+from typing import Any, Unpack
 
-from src.common.custom_logging.logging_config import get_logger  # type: ignore # 假设这个导入是有效的，但找不到存根
+from src.common.custom_logging.logging_config import (
+    get_logger,
+)
 
 from .utils_model import APIKeyError, GenerationParams, LLMClientError, NetworkError
 from .utils_model import LLMClient as UnderlyingLLMClient
@@ -13,29 +15,43 @@ from .utils_model import LLMClient as UnderlyingLLMClient
 # 获取日志记录器实例
 logger = get_logger(__name__)
 
-# 定义回调函数类型，用于处理流式数据块
-# 参数：块数据，块类型（例如 'chunk', 'finish', 'error'），元数据字典
 ChunkCallbackType = Callable[[Any, str, dict[str, Any] | None], Coroutine[Any, Any, None]]
 
 
 class StreamInterruptError(Exception):
-    """自定义异常，用于表示流处理被用户或程序逻辑主动中断。"""
+    """自定义异常，用于表示流处理被用户或程序逻辑主动中断.
 
-    def __init__(self, message: str = "流处理被中断。", partial_data: dict[str, Any] | None = None) -> None:
+    Attributes:
+        message (str): 异常消息，默认为 "流处理被中断。
+        partial_data (dict[str, Any] | None): 可选的部分数据字典，
+        包含中断时可能已经处理或接收到的数据。
+    """
+
+    def __init__(
+        self, message: str = "流处理被中断。", partial_data: dict[str, Any] | None = None
+    ) -> None:
         super().__init__(message)
         self.partial_data = partial_data  # 存储中断时可能已经处理或接收到的部分数据 #
 
 
 class _StreamingWorkflowManager:
-    """
-    管理单个流式 LLM 请求的复杂细节，包括处理中断逻辑和基于块的回调。
+    """管理单个流式 LLM 请求的复杂细节，包括处理中断逻辑和基于块的回调.
+
     此类不直接暴露给外部用户，由 llm_processor.Client 内部使用。
+    它负责处理流式任务的生命周期，包括中断、回调和错误处理。
+
+    Attributes:
+        llm_client (UnderlyingLLMClient): 底层 LLM 客户端实例，用于实际的 API 调用。
+        chunk_callback (ChunkCallbackType | None): 用户提供的回调函数，用于处理每个数据块。
+        _task_interruption_events (dict[str, asyncio.Event]): 存储每个任务 ID 对应的中断事件。
+        current_processing_task_id (str | None): 当前正在处理的任务 ID，用于方便地访问。
     """
 
     def __init__(
         self,
         llm_client: UnderlyingLLMClient,  # 依赖注入底层的 LLMClient 实例 #
-        chunk_callback: ChunkCallbackType | None = None,  # 用户提供的可选回调函数，用于处理每个数据块 #
+        chunk_callback: ChunkCallbackType
+        | None = None,  # 用户提供的可选回调函数，用于处理每个数据块 #
     ) -> None:
         # 类型检查，确保传入的是正确的底层LLM客户端实例
         if not isinstance(llm_client, UnderlyingLLMClient):
@@ -43,7 +59,9 @@ class _StreamingWorkflowManager:
 
         self.llm_client: UnderlyingLLMClient = llm_client  # 持有底层LLM客户端的引用 #
         self.chunk_callback: ChunkCallbackType | None = chunk_callback  # 存储回调函数 #
-        self._task_interruption_events: dict[str, asyncio.Event] = {}  # 存储每个 task_id 对应的中断事件 #
+        self._task_interruption_events: dict[
+            str, asyncio.Event
+        ] = {}  # 存储每个 task_id 对应的中断事件 #
 
         # 用于方便地访问当前正在由 process_streaming_task 方法处理的任务的ID
         self.current_processing_task_id: str | None = None
@@ -52,16 +70,10 @@ class _StreamingWorkflowManager:
         if self.chunk_callback:
             logger.info(f"已注册流式数据块回调函数: {self.chunk_callback.__name__}")
         else:
-            logger.info("未注册流式数据块回调函数。将使用 UnderlyingLLMClient 的默认流式行为（通常是打印到控制台）。")
-
-        # # 这是一个重要的提示，关于当前回调机制的实现程度  # 并非重要，此为预期内行为
-        # logger.debug( #
-        #     "请注意：为了使 _StreamingWorkflowManager 的 chunk_callback 能够真正地以编程方式处理 *每一个单独的* 流式数据块， " #
-        #     "utils_model.py 中的 UnderlyingLLMClient 类（特别是 _handle_streaming_response_for_style 方法）可能需要进行修改以支持此功能 " #
-        #     "(例如，通过接受一个块接收器回调并逐块调用它，而不是自己打印或累积完整文本)。" #
-        #     "当前此处的 chunk_callback 主要设计用于在流结束、出错或被中断时获得通知和最终/部分结果。" #
-        #     "如果您对流式数据的逐块处理有更细粒度的需求，可能需要对底层实现进行更深入的定制。" #
-        # )
+            logger.info(
+                "未注册流式数据块回调函数。",
+                "将使用 UnderlyingLLMClient 的默认流式行为（通常是打印到控制台）。",
+            )
 
     async def _internal_chunk_handler(
         self,
@@ -69,9 +81,14 @@ class _StreamingWorkflowManager:
         chunk_type: str,  # 数据块类型，如 'finish', 'error', 'interrupted_finish' #
         metadata: dict[str, Any] | None = None,  # 相关的元数据 #
     ) -> None:
-        """
-        内部辅助方法，用于调用用户提供的 chunk_callback (如果存在)。
+        """内部辅助方法，用于调用用户提供的 chunk_callback (如果存在).
+
         这是对回调调用的一层封装，增加了错误处理。
+
+        Args:
+            chunk_data (dict[str, Any] | str): 数据块内容，可以是字典或字符串。
+            chunk_type (str): 数据块的类型，指示是正常完成、错误还是中断完成。
+            metadata (dict[str, Any] | None): 附加的元数据字典，包含任务ID等信息。
         """
         if self.chunk_callback:  # 仅当回调函数被设置时才调用 #
             try:
@@ -79,12 +96,21 @@ class _StreamingWorkflowManager:
                 await self.chunk_callback(chunk_data, chunk_type, metadata)
             except Exception as e:
                 # 记录回调函数执行时发生的任何错误，但不应让回调的错误中断主流程
-                logger.error(f"用户提供的 chunk_callback (类型: {chunk_type}) 执行时出错: {e}", exc_info=True)
+                logger.error(
+                    f"用户提供的 chunk_callback (类型: {chunk_type}) 执行时出错: {e}", exc_info=True
+                )
 
     def _get_interruption_event(self, task_id: str) -> asyncio.Event:
-        """
-        为给定的 task_id 检索或创建一个 asyncio.Event 对象。
+        """为给定的 task_id 检索或创建一个 asyncio.Event 对象.
+
         此事件用于从外部发出中断信号。
+
+        Args:
+            task_id (str): 任务的唯一标识符
+
+        Returns:
+            asyncio.Event: 对应于 task_id 的中断事件对象.
+            如果该 task_id 尚未存在，则会创建一个新的事件对象。
         """
         # 如果该 task_id 还没有对应的事件，则创建一个新的
         if task_id not in self._task_interruption_events:
@@ -92,17 +118,26 @@ class _StreamingWorkflowManager:
         return self._task_interruption_events[task_id]
 
     def _clear_interruption_event(self, task_id: str) -> None:
-        """
-        当一个任务处理完毕（成功、失败或中断后），清除其对应的中断事件。
+        """当一个任务处理完毕（成功、失败或中断后），清除其对应的中断事件.
+
         这有助于释放资源并避免旧事件影响新任务（如果 task_id 可能被重用）。
+
+        Args:
+            task_id (str): 任务的唯一标识符
         """
         if task_id in self._task_interruption_events:
             del self._task_interruption_events[task_id]
 
     async def interrupt_task(self, task_id: str) -> None:
-        """
-        向指定的流式任务（通过 task_id 标识）发送中断信号。
+        """向指定的流式任务（通过 task_id 标识）发送中断信号.
+
         如果任务正在运行，这将使其尝试优雅地停止。
+
+        Args:
+            task_id (str): 任务的唯一标识符
+
+        Raises:
+            KeyError: 如果 task_id 不存在或任务已完成（事件已被清除）。
         """
         if task_id in self._task_interruption_events:
             event: asyncio.Event = self._task_interruption_events[task_id]
@@ -117,9 +152,7 @@ class _StreamingWorkflowManager:
             # 说明：任务可能因超时、用户取消或系统清理而终止
 
     async def interrupt_current_processing_task(self) -> None:
-        """
-        一个便捷方法，用于中断当前正在由 process_streaming_task 方法处理的任务。
-        """
+        """一个便捷方法，用于中断当前正在由 process_streaming_task 方法处理的任务."""
         if self.current_processing_task_id:
             await self.interrupt_task(self.current_processing_task_id)
         else:
@@ -127,12 +160,9 @@ class _StreamingWorkflowManager:
 
     async def process_streaming_task(
         self,
-        task_id: str,  # 任务的唯一标识符 #
-        prompt: str,  # LLM 的文本提示 #
-        # ███ 小懒猫改动开始 ███
+        task_id: str,
+        prompt: str,
         system_prompt: str | None = None,
-        # ███ 小懒猫改动结束 ███
-        # 以下参数与 UnderlyingLLMClient.make_request 的参数对应
         is_multimodal: bool = False,
         image_inputs: list[str] | None = None,
         temp: float | None = None,
@@ -144,9 +174,34 @@ class _StreamingWorkflowManager:
         use_google_search: bool = False,
         **additional_generation_params: Unpack[GenerationParams],  # 其他特定于模型的生成参数 #
     ) -> dict[str, Any]:
-        """
-        处理单个流式 LLM 任务的核心逻辑。
+        """处理单个流式 LLM 任务的核心逻辑.
+
         它会调用底层的 LLMClient 进行实际的 API 请求，并管理中断和回调。
+
+        Args:
+            task_id (str): 任务的唯一标识符
+            prompt (str): LLM 的文本提示
+            system_prompt (str | None): 系统提示（可选）
+            is_multimodal (bool): 是否为多模态任务
+            image_inputs (list[str] | None): 图像输入（可选）
+            temp (float | None): 温度参数（可选）
+            max_tokens (int | None): 最大输出令牌数（可选）
+            tools (list[dict[str, Any]] | None): 工具列表（可选）
+            tool_choice (str | dict[str, Any] | None): 工具选择（可选）
+            max_retries (int): 最大重试次数
+            image_mime_type_override (str | None): 图像 MIME 类型覆盖（可选）
+            use_google_search (bool): 是否使用 Google 搜索（可选）
+            **additional_generation_params: 其他特定于模型的生成参数，
+            如 temperature, max_output_tokens 等。
+
+        Returns:
+            dict[str, Any]: 包含任务处理结果的字典，可能包含以下键:
+                - "error": 是否发生错误
+                - "type": 错误类型（如果有）
+                - "message": 错误消息（如果有）
+                - "status_code": 状态码（如果有）
+                - "interrupted": 是否被中断
+                - 其他根据 LLMClient.make_request 返回的结果
         """
         self.current_processing_task_id = task_id  # 标记当前正在处理的任务ID #
         interruption_event: asyncio.Event = self._get_interruption_event(task_id)
@@ -155,7 +210,8 @@ class _StreamingWorkflowManager:
         logger.info(f"开始处理流式任务 ID: {task_id} (通过 _StreamingWorkflowManager)")
         if system_prompt:
             logger.info(
-                f"  附带 System Prompt (前50字符): {system_prompt[:50]}{'...' if len(system_prompt) > 50 else ''}"
+                f"  附带 System Prompt (前50字符): {system_prompt[:50]}",
+                f"{'...' if len(system_prompt) > 50 else ''}",
             )
 
         final_result: dict[str, Any] = {}  # 用于存储最终结果的字典 #
@@ -167,9 +223,7 @@ class _StreamingWorkflowManager:
             # 注意 is_stream 参数固定为 True
             result_from_llm_client: dict[str, Any] = await self.llm_client.make_request(
                 prompt=prompt,
-                # ███ 小懒猫改动开始 ███
                 system_prompt=system_prompt,
-                # ███ 小懒猫改动结束 ███
                 is_stream=True,  # 明确指示进行流式处理 #
                 is_multimodal=is_multimodal,
                 image_inputs=image_inputs,
@@ -195,7 +249,9 @@ class _StreamingWorkflowManager:
             if final_result.get("error"):
                 # 如果底层客户端返回错误
                 error_type: str = final_result.get("type", "UnknownError")
-                error_message: str = final_result.get("message", "UnderlyingLLMClient 中发生未知错误。")
+                error_message: str = final_result.get(
+                    "message", "UnderlyingLLMClient 中发生未知错误。"
+                )
                 status_code: int | None = final_result.get("status_code")
                 logger.error(
                     f"流式任务 {task_id} 处理失败 (来自 UnderlyingLLMClient): "
@@ -216,7 +272,9 @@ class _StreamingWorkflowManager:
                 # 如果任务被中断
                 logger.info(f"流式任务 {task_id} 被成功中断。将通过回调返回部分数据。")
                 # 调用中断完成类型的回调
-                await self._internal_chunk_handler(final_result, "interrupted_finish", callback_metadata)
+                await self._internal_chunk_handler(
+                    final_result, "interrupted_finish", callback_metadata
+                )
             else:
                 # 如果任务正常完成
                 logger.info(f"流式任务 {task_id} 由 UnderlyingLLMClient 处理完成。")
@@ -228,26 +286,41 @@ class _StreamingWorkflowManager:
         except (APIKeyError, NetworkError, LLMClientError) as e:
             # 捕获在调用底层客户端时可能发生的、已定义的客户端级别错误
             logger.error(
-                f"流式任务 {task_id} 中发生可捕获的 UnderlyingLLMClient 错误: {type(e).__name__} - {e}",
+                f"流式任务 {task_id} 中发生可捕获的 UnderlyingLLMClient ",
+                f"错误: {type(e).__name__} - {e}",
                 exc_info=True,
             )
             error_type_val: str = type(e).__name__
             message_val: str = str(e)
             status_code_val: int | None = getattr(e, "status_code", None)  # 尝试获取状态码 #
 
-            final_result = {"error": True, "type": error_type_val, "message": message_val, "interrupted": False}
+            final_result = {
+                "error": True,
+                "type": error_type_val,
+                "message": message_val,
+                "interrupted": False,
+            }
             if status_code_val is not None:
                 final_result["status_code"] = status_code_val
 
             # 发生错误时，也尝试调用回调
-            await self._internal_chunk_handler(final_result, "error", {"task_id": task_id, "interrupted": False})
+            await self._internal_chunk_handler(
+                final_result, "error", {"task_id": task_id, "interrupted": False}
+            )
             return final_result
         except Exception as e:
             # 捕获任何其他在流处理过程中发生的意外错误
             logger.error(f"流式任务 {task_id} 中发生未预期的严重错误: {e}", exc_info=True)
-            final_result = {"error": True, "type": "UnhandledException", "message": str(e), "interrupted": False}
+            final_result = {
+                "error": True,
+                "type": "UnhandledException",
+                "message": str(e),
+                "interrupted": False,
+            }
             # 发生严重错误时，也尝试调用回调
-            await self._internal_chunk_handler(final_result, "error", {"task_id": task_id, "interrupted": False})
+            await self._internal_chunk_handler(
+                final_result, "error", {"task_id": task_id, "interrupted": False}
+            )
             return final_result
         finally:
             # 无论任务成功与否，最后都清除中断事件并重置当前处理的任务ID
@@ -257,44 +330,67 @@ class _StreamingWorkflowManager:
 
 
 class Client:  # 这是 llm_processor.Client，是暴露给外部使用者的高级客户端 #
-    """
-    用于向 LLM 发出请求的统一高级客户端。
+    """用于向 LLM 发出请求的统一高级客户端.
+
     它封装了底层 LLM API 交互的复杂性（通过 UnderlyingLLMClient），
     并提供了对流式请求的中断管理和回调机制（通过 _StreamingWorkflowManager）。
     这个类的构造函数现在负责创建和配置其内部使用的 UnderlyingLLMClient 实例。
+
+    Args:
+        model (dict): 必需的模型配置字典，指定模型提供商和名称
+        abandoned_keys_config (list[str] | None): 废弃的API密钥列表（可选）
+        proxy_host (str | None): 代理服务器主机地址（可选）
+        proxy_port (int | None): 代理服务器端口号（可选）
+        image_placeholder_tag (str | None): 图文混排时图像的占位符标签（可选）
+        stream_chunk_delay_seconds (float | None): 流式输出时每个数据块之间的模拟延迟（可选）
+        enable_image_compression (bool | None): 是否启用图像压缩（可选）
+        image_compression_target_bytes (int | None): 图像压缩的目标字节大小（可选）
+        rate_limit_disable_duration_seconds (int | None): API密钥因速率限制被临时禁用的时长（可选）
+        chunk_callback (ChunkCallbackType | None): 可选的回调函数，用于处理流式响应的各个部分
+        **kwargs: 其他特定于模型的生成参数，如 temperature, max_output_tokens 等
+    Raises:
+        TypeError: 如果传入的 model 参数不是字典类型。
     """
 
     def __init__(
         self,
-        *,  # 强制所有后续参数都必须是关键字参数，以提高代码调用的清晰度 #
-        # --- 用于配置内部 UnderlyingLLMClient 的参数 ---
-        model: dict,  # 必需参数，指定模型提供商和名称，例如: {"provider": "GEMINI", "name": "gemini-pro"} #
-        # 以下是 UnderlyingLLMClient 的可选配置参数，如果调用方不提供，
-        # UnderlyingLLMClient 内部会使用其自身的默认值或从环境变量加载。
-        abandoned_keys_config: list[str] | None = None,  # 废弃的API密钥列表 #
-        proxy_host: str | None = None,  # 代理服务器主机地址 #
-        proxy_port: int | None = None,  # 代理服务器端口号 #
-        image_placeholder_tag: str | None = None,  # 图文混排时图像的占位符标签 #
-        stream_chunk_delay_seconds: float | None = None,  # 流式输出时每个数据块之间的模拟延迟 #
-        enable_image_compression: bool | None = None,  # 是否启用图像压缩 #
-        image_compression_target_bytes: int | None = None,  # 图像压缩的目标字节大小 #
-        rate_limit_disable_duration_seconds: int | None = None,  # API密钥因速率限制被临时禁用的时长 #
-        # --- 用于流式处理的回调 ---
-        chunk_callback: ChunkCallbackType | None = None,  # 可选的回调函数，用于处理流式响应的各个部分 #
-        # --- 其他特定于模型的生成参数 (例如 temperature, max_output_tokens) ---
-        # 这些参数将直接传递给 UnderlyingLLMClient 的构造函数或其请求方法。
+        *,  # 强制所有后续参数都必须是关键字参数，以提高代码调用的清晰度
+        model: dict,
+        abandoned_keys_config: list[str] | None = None,
+        proxy_host: str | None = None,
+        proxy_port: int | None = None,
+        image_placeholder_tag: str | None = None,
+        stream_chunk_delay_seconds: float | None = None,
+        enable_image_compression: bool | None = None,
+        image_compression_target_bytes: int | None = None,
+        rate_limit_disable_duration_seconds: int | None = None,
+        chunk_callback: ChunkCallbackType | None = None,
         **kwargs: Unpack[GenerationParams],
     ) -> None:
-        """
-        初始化高级 LLM 客户端。
-        此构造函数现在负责基于传入的参数创建其内部使用的 UnderlyingLLMClient 实例。
-        """
+        """初始化高级 LLM 客户端.
 
+        此构造函数现在负责基于传入的参数创建其内部使用的 UnderlyingLLMClient 实例。
+
+        Args:
+            model: 必需的模型配置字典，指定模型提供商和名称。
+            abandoned_keys_config: 废弃的API密钥列表（可选）。
+            proxy_host: 代理服务器主机地址（可选）。
+            proxy_port: 代理服务器端口号（可选）。
+            image_placeholder_tag: 图文混排时图像的占位符标签（可选）。
+            stream_chunk_delay_seconds: 流式输出时每个数据块之间的模拟延迟（可选）。
+            enable_image_compression: 是否启用图像压缩（可选）。
+            image_compression_target_bytes: 图像压缩的目标字节大小（可选）。
+            rate_limit_disable_duration_seconds: API密钥因速率限制被临时禁用的时长（可选）。
+            chunk_callback: 可选的回调函数，用于处理流式响应的各个部分。
+            **kwargs: 其他特定于模型的生成参数，如 temperature, max_output_tokens 等。
+        Raises:
+            TypeError: 如果传入的 model 参数不是字典类型。
+        """
         # 步骤1：准备用于实例化 UnderlyingLLMClient 的参数字典
         # 我们将明确传入的参数和 **kwargs 中的参数合并
         underlying_client_constructor_args: dict[str, Any] = {
             "model": model,  # 'model' 是必需的 #
-            **kwargs,  # 将 kwargs 中的所有参数（如 temperature, maxOutputTokens 等）加入 #
+            **kwargs,  # 将 kwargs 中的所有参数（如 temperature, maxOutputTokens 等）加入
         }
 
         # 对于可选参数，只有当调用者明确提供了非 None 值时，才将其加入构造参数字典，
@@ -308,11 +404,17 @@ class Client:  # 这是 llm_processor.Client，是暴露给外部使用者的高
         if image_placeholder_tag is not None:
             underlying_client_constructor_args["image_placeholder_tag"] = image_placeholder_tag
         if stream_chunk_delay_seconds is not None:
-            underlying_client_constructor_args["stream_chunk_delay_seconds"] = stream_chunk_delay_seconds
+            underlying_client_constructor_args["stream_chunk_delay_seconds"] = (
+                stream_chunk_delay_seconds
+            )
         if enable_image_compression is not None:
-            underlying_client_constructor_args["enable_image_compression"] = enable_image_compression
+            underlying_client_constructor_args["enable_image_compression"] = (
+                enable_image_compression
+            )
         if image_compression_target_bytes is not None:
-            underlying_client_constructor_args["image_compression_target_bytes"] = image_compression_target_bytes
+            underlying_client_constructor_args["image_compression_target_bytes"] = (
+                image_compression_target_bytes
+            )
         if rate_limit_disable_duration_seconds is not None:
             underlying_client_constructor_args["rate_limit_disable_duration_seconds"] = (
                 rate_limit_disable_duration_seconds
@@ -320,12 +422,14 @@ class Client:  # 这是 llm_processor.Client，是暴露给外部使用者的高
 
         # 步骤2：实例化底层的 UnderlyingLLMClient
         # 这个实例将由当前的 ProcessorClient 实例持有和使用
-        self.llm_client: UnderlyingLLMClient = UnderlyingLLMClient(**underlying_client_constructor_args)
+        self.llm_client: UnderlyingLLMClient = UnderlyingLLMClient(
+            **underlying_client_constructor_args
+        )
 
         # 步骤3：实例化流式工作流管理器，并传入已创建的底层LLM客户端
         self._streaming_manager: _StreamingWorkflowManager = _StreamingWorkflowManager(
-            llm_client=self.llm_client,  # 将创建的底层客户端实例传递给流管理器 #
-            chunk_callback=chunk_callback,  # 传递用户提供的回调函数 #
+            llm_client=self.llm_client,  # 将创建的底层客户端实例传递给流管理器
+            chunk_callback=chunk_callback,  # 传递用户提供的回调函数
         )
 
         logger.info(
@@ -335,14 +439,11 @@ class Client:  # 这是 llm_processor.Client，是暴露给外部使用者的高
 
     async def make_llm_request(
         self,
-        *,  # 强制关键字参数 #
-        prompt: str | None = None,  # 对于嵌入请求，此参数可能为 None #
-        # ███ 小懒猫改动开始 ███
-        system_prompt: str | None = None,  # 新增 system_prompt 参数，又是我！
-        # ███ 小懒猫改动结束 ███
-        is_stream: bool,  # 指示是否进行流式请求 #
-        task_id: str | None = None,  # 流式请求需要 task_id 以支持中断 #
-        # 以下是与 UnderlyingLLMClient.make_request 和 get_embedding 对应的参数
+        *,  # 强制所有后续参数都必须是关键字参数，以提高代码调用的清晰度
+        prompt: str | None = None,
+        system_prompt: str | None = None,
+        is_stream: bool,  # 指示是否进行流式请求
+        task_id: str | None = None,
         is_multimodal: bool = False,
         image_inputs: list[str] | None = None,
         temp: float | None = None,
@@ -351,15 +452,35 @@ class Client:  # 这是 llm_processor.Client，是暴露给外部使用者的高
         tool_choice: str | dict[str, Any] | None = None,
         image_mime_type_override: str | None = None,
         max_retries: int = 3,
-        text_to_embed: str | None = None,  # 特定于嵌入请求 #
+        text_to_embed: str | None = None,  # 特定于嵌入请求
         use_google_search: bool = False,
         response_schema: dict[str, Any] | None = None,
-        **additional_generation_params: Unpack[GenerationParams],  # 其他特定于模型的生成参数 #
+        **additional_generation_params: Unpack[GenerationParams],  # 其他特定于模型的生成参数
     ) -> dict[str, Any]:
-        """
-        向 LLM 发出请求（可能是文本补全、视觉问答、工具调用或嵌入）。
+        """向 LLM 发出请求（可能是文本补全、视觉问答、工具调用或嵌入）.
+
         此方法会根据参数决定是进行流式处理、非流式处理还是嵌入请求，
         并将请求路由到相应的内部处理器。
+
+        Args:
+            prompt: 输入的提示文本。
+            system_prompt: 系统提示文本，用于设置上下文。
+            is_stream: 是否进行流式请求。
+            task_id: 流式请求的任务 ID。
+            is_multimodal: 是否为多模态请求。
+            image_inputs: 图像输入列表。
+            temp: 生成文本的温度。
+            max_tokens: 最大输出令牌数。
+            tools: 工具列表。
+            tool_choice: 工具选择。
+            image_mime_type_override: 图像 MIME 类型覆盖。
+            max_retries: 最大重试次数。
+            text_to_embed: 特定于嵌入请求的文本。
+            use_google_search: 是否使用 Google 搜索。
+            response_schema: 响应的 JSON Schema。
+            additional_generation_params: 其他特定于模型的生成参数。
+        Returns:
+            dict[str, Any]: LLM 响应的结果字典，可能包含生成的文本、嵌入向量或错误信息。
         """
         logger.info(
             f"LLM Processor Client 收到 make_llm_request 调用: "
@@ -368,7 +489,8 @@ class Client:  # 这是 llm_processor.Client，是暴露给外部使用者的高
         )
         if system_prompt:
             logger.info(
-                f"  make_llm_request 收到 System Prompt (前50字符): {system_prompt[:50]}{'...' if len(system_prompt) > 50 else ''}"
+                f"  make_llm_request 收到 System Prompt (前50字符): {system_prompt[:50]}",
+                f"{'...' if len(system_prompt) > 50 else ''}",
             )
 
         # 如果用户传入了 response_schema，就把它加到要传递下去的参数字典里
@@ -382,7 +504,9 @@ class Client:  # 这是 llm_processor.Client，是暴露给外部使用者的高
                 logger.warning("嵌入请求通常是非流式的。参数 'is_stream=True' 在此场景下将被忽略。")
             # 对于嵌入请求，其他一些参数（如 prompt, tools, image_inputs）通常不适用
             if prompt and prompt.strip():
-                logger.warning("同时提供了 'prompt' 和 'text_to_embed'；对于嵌入请求，'prompt' 将被忽略。")
+                logger.warning(
+                    "同时提供了 'prompt' 和 'text_to_embed'；对于嵌入请求，'prompt' 将被忽略。"
+                )
             if tools or image_inputs:
                 logger.warning("为嵌入请求提供了 'tools' 或 'image_inputs'；这些参数将被忽略。")
             if system_prompt:
@@ -418,9 +542,7 @@ class Client:  # 这是 llm_processor.Client，是暴露给外部使用者的高
             return await self._streaming_manager.process_streaming_task(
                 task_id=task_id,
                 prompt=prompt,
-                # ███ 小懒猫改动开始 ███
-                system_prompt=system_prompt,  # 传递系统提示词参数以支持多轮对话上下文
-                # ███ 小懒猫改动结束 ███
+                system_prompt=system_prompt,
                 is_multimodal=is_multimodal,
                 image_inputs=image_inputs,
                 temp=temp,
@@ -430,19 +552,18 @@ class Client:  # 这是 llm_processor.Client，是暴露给外部使用者的高
                 max_retries=max_retries,
                 image_mime_type_override=image_mime_type_override,
                 use_google_search=use_google_search,
-                **additional_generation_params,  # 透传其他生成参数 #
+                **additional_generation_params,
             )
         else:  # 非流式、非嵌入请求 #
             logger.info("路由到内部 UnderlyingLLMClient.make_request 以进行非流式请求。")
             # 直接调用底层 LLMClient 的 make_request 方法
             # is_stream 参数固定为 False
-            # UnderlyingLLMClient.make_request 内部会根据参数（如 tools, is_multimodal）确定具体的请求类型
+            # UnderlyingLLMClient.make_request 内部会根据参数
+            # （如 tools, is_multimodal）确定具体的请求类型
             return await self.llm_client.make_request(
                 prompt=prompt,
-                # ███ 小懒猫改动开始 ███
-                system_prompt=system_prompt,  # 最后一次，在这个文件里，我发誓！
-                # ███ 小懒猫改动结束 ███
-                is_stream=False,  # 明确指示非流式处理 #
+                system_prompt=system_prompt,
+                is_stream=False,
                 is_multimodal=is_multimodal,
                 image_inputs=image_inputs,
                 temp=temp,
@@ -452,12 +573,12 @@ class Client:  # 这是 llm_processor.Client，是暴露给外部使用者的高
                 image_mime_type_override=image_mime_type_override,
                 max_retries=max_retries,
                 use_google_search=use_google_search,
-                **additional_generation_params,  # 透传其他生成参数 #
+                **additional_generation_params,
             )
 
     async def interrupt_stream_task(self, task_id: str) -> None:
-        """
-        便捷方法，用于向当前正在处理的指定流式任务发送中断信号。
-        """
-        logger.info(f"LLM Processor Client 尝试通过 _StreamingWorkflowManager 中断流式任务: {task_id}")
+        """便捷方法，用于向当前正在处理的指定流式任务发送中断信号."""
+        logger.info(
+            f"LLM Processor Client 尝试通过 _StreamingWorkflowManager 中断流式任务: {task_id}"
+        )
         await self._streaming_manager.interrupt_task(task_id)

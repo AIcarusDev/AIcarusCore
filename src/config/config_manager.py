@@ -4,7 +4,6 @@ import sys
 import traceback
 
 from dotenv import load_dotenv
-
 from src.common.custom_logging.logging_config import get_logger
 
 from .aicarus_configs import AlcarusRootConfig
@@ -53,7 +52,9 @@ def load_settings() -> dict:
         # 这取决于环境变量的实际用途和哪个 .env 文件应该优先
         # 为保持 manager 的独立性，它尝试加载它期望位置的 .env
         load_dotenv(dotenv_path=dotenv_path_project_root, override=True, verbose=True)
-        logger.debug(f"ConfigManager尝试从项目根目录加载 .env 文件: {dotenv_path_project_root}")  # INFO -> DEBUG
+        logger.debug(
+            f"ConfigManager尝试从项目根目录加载 .env 文件: {dotenv_path_project_root}"
+        )  # INFO -> DEBUG
     else:
         logger.debug(  # INFO -> DEBUG
             f"ConfigManager未在项目根目录找到 .env 文件: {dotenv_path_project_root}。将依赖已加载的环境变量或配置文件。"

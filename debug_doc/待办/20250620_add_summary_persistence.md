@@ -13,7 +13,7 @@
 ```python
 @dataclass
 class ConversationSummaryDocument:
-    """代表存储在数据库中的会话总结文档结构。"""
+    """代表存储在数据库中的会话总结文档结构."""
 
     _key: str  # summary_id 将作为数据库文档的 _key
     summary_id: str  # 总结的唯一ID

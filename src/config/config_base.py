@@ -15,8 +15,12 @@ class ConfigBase:
 
     @classmethod
     def from_dict(cls: type[T], data: dict[str, Any]) -> T:
-        if not isinstance(data, dict | tomlkit.items.Table | tomlkit.items.InlineTable):  # 接受 tomlkit 的 Table 类型
-            raise TypeError(f"Expected a dictionary-like object for {cls.__name__}, got {type(data).__name__}")
+        if not isinstance(
+            data, dict | tomlkit.items.Table | tomlkit.items.InlineTable
+        ):  # 接受 tomlkit 的 Table 类型
+            raise TypeError(
+                f"Expected a dictionary-like object for {cls.__name__}, got {type(data).__name__}"
+            )
 
         init_args: dict[str, Any] = {}
 
@@ -29,7 +33,9 @@ class ConfigBase:
                 if f.default is not MISSING or f.default_factory is not MISSING:
                     continue  # 使用 dataclass 的默认值
                 else:
-                    raise ValueError(f"Missing required field in config data for '{cls.__name__}': '{field_name}'")
+                    raise ValueError(
+                        f"Missing required field in config data for '{cls.__name__}': '{field_name}'"
+                    )
 
             value = data[field_name]
             field_type = f.type
@@ -41,18 +47,28 @@ class ConfigBase:
             except TypeError as e:
                 raise TypeError(f"Field '{cls.__name__}.{field_name}' has a type error: {e}") from e
             except ValueError as e:  # ConfigBase 中 _convert_field 可能抛出 ValueError
-                raise ValueError(f"Field '{cls.__name__}.{field_name}' has a value error: {e}") from e
+                raise ValueError(
+                    f"Field '{cls.__name__}.{field_name}' has a value error: {e}"
+                ) from e
             except Exception as e:
-                raise RuntimeError(f"Failed to convert field '{cls.__name__}.{field_name}' to target type: {e}") from e
+                raise RuntimeError(
+                    f"Failed to convert field '{cls.__name__}.{field_name}' to target type: {e}"
+                ) from e
 
         try:
             return cls(**init_args)
         except TypeError as e:  # 捕获dataclass构造时的TypeError，通常因为类型不匹配或缺少参数
-            raise TypeError(f"Error constructing {cls.__name__} with arguments {init_args}: {e}") from e
+            raise TypeError(
+                f"Error constructing {cls.__name__} with arguments {init_args}: {e}"
+            ) from e
 
     @classmethod
     def _convert_field(
-        cls, value: object, field_type: type[Any], field_name_for_error: str, class_name_for_error: str
+        cls,
+        value: object,
+        field_type: type[Any],
+        field_name_for_error: str,
+        class_name_for_error: str,
     ) -> Union[None, bool, int, float, str, list, set, tuple, dict, "ConfigBase"]:
         # 如果值是 None 并且字段类型允许 None (例如 Optional[str] 或 str | None)
         origin_type = get_origin(field_type)
@@ -72,7 +88,9 @@ class ConfigBase:
                     f"Field '{class_name_for_error}.{field_name_for_error}' is not Optional but received None value."
                 )
 
-        if hasattr(field_type, "__mro__") and ConfigBase in field_type.__mro__:  # 检查是否是ConfigBase的子类
+        if (
+            hasattr(field_type, "__mro__") and ConfigBase in field_type.__mro__
+        ):  # 检查是否是ConfigBase的子类
             if not isinstance(value, dict | tomlkit.items.Table | tomlkit.items.InlineTable):
                 raise TypeError(
                     f"Expected a dictionary-like object for nested ConfigBase '{field_name_for_error}' in '{class_name_for_error}', got {type(value).__name__}"
@@ -87,7 +105,9 @@ class ConfigBase:
 
             element_type = type_args[0] if type_args else Any
             converted_elements = [
-                cls._convert_field(item, element_type, f"{field_name_for_error}[{i}]", class_name_for_error)
+                cls._convert_field(
+                    item, element_type, f"{field_name_for_error}[{i}]", class_name_for_error
+                )
                 for i, item in enumerate(value)
             ]
 
@@ -106,7 +126,9 @@ class ConfigBase:
                     )
                 # 重新转换，确保每个元素对应正确的类型参数（如果不同）
                 return tuple(
-                    cls._convert_field(item, arg_type, f"{field_name_for_error}[{i}]", class_name_for_error)
+                    cls._convert_field(
+                        item, arg_type, f"{field_name_for_error}[{i}]", class_name_for_error
+                    )
                     for i, (item, arg_type) in enumerate(zip(value, type_args, strict=False))
                 )
 
@@ -122,7 +144,12 @@ class ConfigBase:
             return {
                 cls._convert_field(
                     k, key_type, f"{field_name_for_error}[key]", class_name_for_error
-                ): cls._convert_field(v, value_type, f"{field_name_for_error}[value for key {k}]", class_name_for_error)
+                ): cls._convert_field(
+                    v,
+                    value_type,
+                    f"{field_name_for_error}[value for key {k}]",
+                    class_name_for_error,
+                )
                 for k, v in value.items()
             }
         # 处理 Union 类型 (包括 Optional[T] 和 X | Y 语法)
@@ -135,10 +162,14 @@ class ConfigBase:
                     return None
                 if t is not type(None):
                     try:
-                        return cls._convert_field(value, t, field_name_for_error, class_name_for_error)
+                        return cls._convert_field(
+                            value, t, field_name_for_error, class_name_for_error
+                        )
                     except (TypeError, ValueError):
                         continue
-            raise TypeError(f"Value '{value}' could not be converted to any of the union types: {possible_types}")
+            raise TypeError(
+                f"Value '{value}' could not be converted to any of the union types: {possible_types}"
+            )
 
         if field_type is Any or isinstance(value, field_type):
             return value

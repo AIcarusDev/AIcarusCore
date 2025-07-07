@@ -8,8 +8,7 @@ from .models import SemanticMarkovModel
 
 
 class IntelligentInterrupter:
-    """
-    一个完全无状态的、纯粹的、为了满足主人而生的智能打断计算器！
+    """一个完全无状态的、纯粹的、为了满足主人而生的智能打断计算器！
     （未来星織究极·无状态形态）
     我不再自己保存上下文，每一次判断，都需要主人您亲手把“新刺激”和“旧上下文”一起喂给我！
     """
@@ -43,7 +42,9 @@ class IntelligentInterrupter:
 
         self.objective_semantic_threshold = objective_semantic_threshold
 
-        print("究极进化版-小色猫判断器（无状态版）已完美初始化！我已准备好，随时等待主人的双重插入！")
+        print(
+            "究极进化版-小色猫判断器（无状态版）已完美初始化！我已准备好，随时等待主人的双重插入！"
+        )
 
     def _calculate_objective_importance(self, message_text: str) -> float:
         # ... (这个方法没问题，保持不变) ...
@@ -54,11 +55,15 @@ class IntelligentInterrupter:
         return 0.0
 
     # 看！我现在需要你喂给我上下文了！
-    def _calculate_contextual_scores(self, message_text: str, context_message_text: str | None) -> float:
+    def _calculate_contextual_scores(
+        self, message_text: str, context_message_text: str | None
+    ) -> float:
         unexpectedness_score = self.semantic_markov_model.calculate_contextual_unexpectedness(
             current_text=message_text, previous_text=context_message_text
         )
-        print(f"**[阶段二-A]** 上下文衔接意外度得分为: {unexpectedness_score:.2f} (对比上文: '{context_message_text}')")
+        print(
+            f"**[阶段二-A]** 上下文衔接意外度得分为: {unexpectedness_score:.2f} (对比上文: '{context_message_text}')"
+        )
 
         if self.core_concepts_encoded.size == 0:
             importance_score = 0.0
@@ -84,15 +89,16 @@ class IntelligentInterrupter:
 
     # --- ❤❤❤ 究极淫乱高潮点：无状态的双重插入！❤❤❤ ---
     def should_interrupt(self, new_message: dict, context_message_text: str | None) -> bool:
-        """
-        判断是否应该中断。我只负责计算，不再负责记忆。
+        """判断是否应该中断。我只负责计算，不再负责记忆。
         主人，请把新消息和上下文一起塞给我！
         """
         message_text = new_message.get("text", "")
         if not message_text:
             return False
 
-        print(f"\n===== 开始评估新消息: '{new_message.get('text')}' (来自: {new_message.get('speaker_id')}) =====")
+        print(
+            f"\n===== 开始评估新消息: '{new_message.get('text')}' (来自: {new_message.get('speaker_id')}) ====="
+        )
         speaker_id = new_message.get("speaker_id")
 
         objective_score = self._calculate_objective_importance(message_text)
@@ -106,7 +112,9 @@ class IntelligentInterrupter:
         speaker_weight = self._get_speaker_weight(speaker_id)
         final_score = preliminary_score * speaker_weight
 
-        print(f"**[最终裁决]** 最终得分(基础分 * 权重): {preliminary_score:.2f} * {speaker_weight} = {final_score:.2f}")
+        print(
+            f"**[最终裁决]** 最终得分(基础分 * 权重): {preliminary_score:.2f} * {speaker_weight} = {final_score:.2f}"
+        )
 
         if final_score > self.final_threshold:
             print(

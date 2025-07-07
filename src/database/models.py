@@ -8,7 +8,6 @@ from typing import Any, Optional
 from aicarus_protocols import ConversationInfo as ProtocolConversationInfo
 from aicarus_protocols import Event as ProtocolEvent
 from aicarus_protocols import UserInfo as ProtocolUserInfo
-
 from src.common.custom_logging.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -16,7 +15,7 @@ logger = get_logger(__name__)
 
 # --- 核心改造点：定义新的集合和图 ---
 class CoreDBCollections:
-    """一个中央管家，负责记下所有核心集合的名字和它们的类型。"""
+    """一个中央管家，负责记下所有核心集合的名字和它们的类型."""
 
     # 点集合 (Vertex Collections)
     PERSONS = "persons"
@@ -115,14 +114,14 @@ class CoreDBCollections:
 
     @classmethod
     def get_vertex_collection_names(cls) -> set[str]:
-        """返回所有在图中作为“点”的集合的名称。"""
+        """返回所有在图中作为“点”的集合的名称."""
         return {cls.PERSONS, cls.ACCOUNTS, cls.CONVERSATIONS, cls.THOUGHT_CHAIN, cls.ACTION_LOGS}
 
 
 # --- 新增模型：ThoughtChainDocument (思想点) ---
 @dataclass
 class ThoughtChainDocument:
-    """代表 thought_chain 集合中的一个“思想点”节点。"""
+    """代表 thought_chain 集合中的一个“思想点”节点."""
 
     _key: str
     timestamp: str
@@ -137,7 +136,7 @@ class ThoughtChainDocument:
     action_payload: dict | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        """将 dataclass 实例转换为字典。"""
+        """将 dataclass 实例转换为字典."""
         return asdict(self)
 
 
@@ -146,7 +145,7 @@ class ThoughtChainDocument:
 
 @dataclass
 class PersonProfile:
-    """一个'人'的档案，存放那些主观、推断或稳定的信息。"""
+    """一个'人'的档案，存放那些主观、推断或稳定的信息."""
 
     sex: str | None = None
     age: int | None = None
@@ -155,7 +154,7 @@ class PersonProfile:
 
 @dataclass
 class PersonDocument:
-    """代表 'persons' 集合中的一个'人'节点。"""
+    """代表 'persons' 集合中的一个'人'节点."""
 
     _key: str  # person_id
     person_id: str
@@ -175,7 +174,7 @@ class PersonDocument:
 
 @dataclass
 class AccountDocument:
-    """代表 'accounts' 集合中的一个平台账号节点。"""
+    """代表 'accounts' 集合中的一个平台账号节点."""
 
     _key: str  # account_uid, e.g., 'qq_12345'
     account_uid: str
@@ -207,7 +206,7 @@ class AccountDocument:
 
 @dataclass
 class MembershipProperties:
-    """代表 'participates_in' 边上的属性。"""
+    """代表 'participates_in' 边上的属性."""
 
     group_name: str | None = None
     cardname: str | None = None
@@ -221,18 +220,23 @@ class MembershipProperties:
 
 @dataclass
 class AttentionProfile:
-    """
-    AI对某个会话的注意力及偏好档案。
+    """AI对某个会话的注意力及偏好档案。
     此对象将作为嵌套文档存储在 `EnrichedConversationInfo` 的数据库表示中
     (即 'conversations' 集合的文档内的 'attention_profile' 字段)。
     """
 
-    base_importance_score: float = 0.5  # 会话的基础重要性评分 (范围0-1)，可由配置预设或由AI主意识动态调整。
-    ai_preference_score: float = 0.5  # AI基于历史交互对此会话产生的偏好程度评分 (范围0-1)，由AI学习和调整。
+    base_importance_score: float = (
+        0.5  # 会话的基础重要性评分 (范围0-1)，可由配置预设或由AI主意识动态调整。
+    )
+    ai_preference_score: float = (
+        0.5  # AI基于历史交互对此会话产生的偏好程度评分 (范围0-1)，由AI学习和调整。
+    )
     relevant_topic_tags: list[str] = field(
         default_factory=list
     )  # AI为此会话标注的相关话题标签，用于基于内容的注意力加权。
-    last_ai_interaction_timestamp: int | None = None  # AI上次与此会话进行有效互动的时间戳 (毫秒, UTC)。
+    last_ai_interaction_timestamp: int | None = (
+        None  # AI上次与此会话进行有效互动的时间戳 (毫秒, UTC)。
+    )
     last_significant_event_timestamp: int | None = (
         None  # 此会话中上次发生对AI而言“重要事件”（如被@）的时间戳 (毫秒, UTC)。
     )
@@ -248,19 +252,18 @@ class AttentionProfile:
 
     @classmethod
     def get_default_profile(cls) -> "AttentionProfile":
-        """返回一个具有默认值的 AttentionProfile 实例，用于新会话的初始化。"""
+        """返回一个具有默认值的 AttentionProfile 实例，用于新会话的初始化."""
         return cls(
             ai_custom_notes="新发现的会话，注意力档案待初始化。"  # 为新会话设置一个默认备注
         )
 
     def to_dict(self) -> dict[str, Any]:
-        """将 AttentionProfile 实例转换为字典，以便能够存入数据库。"""
+        """将 AttentionProfile 实例转换为字典，以便能够存入数据库."""
         return asdict(self)  # dataclasses.asdict 可以方便地将dataclass实例转为字典
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> "AttentionProfile":
-        """
-        从字典（通常是从数据库读取的数据）创建 AttentionProfile 实例。
+        """从字典（通常是从数据库读取的数据）创建 AttentionProfile 实例。
         如果输入数据为 None，则返回一个默认的 AttentionProfile。
         """
         if data is None:
@@ -274,9 +277,7 @@ class AttentionProfile:
 
 @dataclass
 class EnrichedConversationInfo:
-    """
-    运行时使用的会话信息对象 (V6.0 命名空间统治版)
-    """
+    """运行时使用的会话信息对象 (V6.0 命名空间统治版)"""
 
     conversation_id: str
     platform: str
@@ -289,7 +290,9 @@ class EnrichedConversationInfo:
     updated_at: int = field(default_factory=lambda: int(time.time() * 1000))
     last_processed_timestamp: int | None = None
     extra: dict[str, Any] = field(default_factory=dict)
-    attention_profile: AttentionProfile = field(default_factory=AttentionProfile.get_default_profile)
+    attention_profile: AttentionProfile = field(
+        default_factory=AttentionProfile.get_default_profile
+    )
     bot_profile_in_this_conversation: dict[str, Any] | None = None
 
     @classmethod
@@ -300,9 +303,7 @@ class EnrichedConversationInfo:
         event_platform: str,
         event_bot_id: str,
     ) -> "EnrichedConversationInfo":
-        """
-        从协议层 `ConversationInfo` 和事件上下文创建实例。
-        """
+        """从协议层 `ConversationInfo` 和事件上下文创建实例."""
         current_time_ms = int(time.time() * 1000)
 
         if proto_conv_info and proto_conv_info.conversation_id:
@@ -335,18 +336,20 @@ class EnrichedConversationInfo:
             )
 
     def to_db_document(self) -> dict[str, Any]:
-        """将此 EnrichedConversationInfo 实例转换为适合存入数据库的字典。"""
+        """将此 EnrichedConversationInfo 实例转换为适合存入数据库的字典."""
         doc = asdict(self)
         doc["_key"] = str(self.conversation_id)
         return {k: v for k, v in doc.items() if v is not None}
 
     @classmethod
     def from_db_document(cls, doc: dict[str, Any] | None) -> Optional["EnrichedConversationInfo"]:
-        """从数据库文档字典创建 EnrichedConversationInfo 实例。"""
+        """从数据库文档字典创建 EnrichedConversationInfo 实例."""
         if not doc:
             return None
         if "platform" not in doc:
-            logger.warning(f"数据库文档 {doc.get('_key')} 缺少 'platform' 字段，无法构建 EnrichedConversationInfo。")
+            logger.warning(
+                f"数据库文档 {doc.get('_key')} 缺少 'platform' 字段，无法构建 EnrichedConversationInfo。"
+            )
             return None
         known_fields = {f.name for f in fields(cls)}
         filtered_data = {k: v for k, v in doc.items() if k in known_fields}
@@ -360,9 +363,7 @@ class EnrichedConversationInfo:
 
 @dataclass
 class DBEventDocument:
-    """
-    代表存储在数据库中的 Event 文档结构 (V6.0 命名空间统治版)
-    """
+    """代表存储在数据库中的 Event 文档结构 (V6.0 命名空间统治版)"""
 
     _key: str
     event_id: str
@@ -384,23 +385,27 @@ class DBEventDocument:
 
     @classmethod
     def from_protocol(cls, proto_event: ProtocolEvent) -> "DBEventDocument":
-        """
-        从 `aicarus_protocols.Event` v1.6.0 对象创建一个 `DBEventDocument` 实例。
-        """
+        """从 `aicarus_protocols.Event` v1.6.0 对象创建一个 `DBEventDocument` 实例."""
         if not isinstance(proto_event, ProtocolEvent):
             raise TypeError("输入对象必须是 aicarus_protocols.Event 的实例。")
         platform_id = proto_event.get_platform() or "unknown"
         uid_ext = (
-            str(proto_event.user_info.user_id) if proto_event.user_info and proto_event.user_info.user_id else None
+            str(proto_event.user_info.user_id)
+            if proto_event.user_info and proto_event.user_info.user_id
+            else None
         )
         cid_ext = (
             str(proto_event.conversation_info.conversation_id)
             if proto_event.conversation_info and proto_event.conversation_info.conversation_id
             else None
         )
-        content_as_dicts = [seg.to_dict() for seg in proto_event.content] if proto_event.content else []
+        content_as_dicts = (
+            [seg.to_dict() for seg in proto_event.content] if proto_event.content else []
+        )
         user_info_dict = proto_event.user_info.to_dict() if proto_event.user_info else None
-        conversation_info_dict = proto_event.conversation_info.to_dict() if proto_event.conversation_info else None
+        conversation_info_dict = (
+            proto_event.conversation_info.to_dict() if proto_event.conversation_info else None
+        )
         motivation_from_raw = None
         raw_data_dict = None
 
@@ -439,7 +444,7 @@ class DBEventDocument:
         return asdict(self)
 
     def get_text_content_from_segs(self) -> str:
-        """从 'content' (Seg字典列表) 中提取所有纯文本内容。"""
+        """从 'content' (Seg字典列表) 中提取所有纯文本内容."""
         if not self.content:  # 如果内容列表为空
             return ""
         text_parts = []
@@ -452,7 +457,7 @@ class DBEventDocument:
 
 @dataclass
 class ConversationSummaryDocument:
-    """代表存储在数据库中的会话总结文档结构。"""
+    """代表存储在数据库中的会话总结文档结构."""
 
     _key: str  # summary_id 将作为数据库文档的 _key
     summary_id: str  # 总结的唯一ID
@@ -464,12 +469,12 @@ class ConversationSummaryDocument:
     event_ids_covered: list[str] = field(default_factory=list)  # 此总结覆盖的事件ID列表
 
     def to_dict(self) -> dict[str, Any]:
-        """将此 ConversationSummaryDocument 实例转换为字典，用于数据库存储。"""
+        """将此 ConversationSummaryDocument 实例转换为字典，用于数据库存储."""
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> Optional["ConversationSummaryDocument"]:
-        """从数据库文档字典创建 ConversationSummaryDocument 实例。"""
+        """从数据库文档字典创建 ConversationSummaryDocument 实例."""
         if not data:
             return None
 
@@ -479,7 +484,9 @@ class ConversationSummaryDocument:
         if "_key" not in filtered_data and "summary_id" in filtered_data:
             filtered_data["_key"] = filtered_data["summary_id"]
         elif "_key" not in filtered_data:
-            logger.error(f"无法从字典创建 ConversationSummaryDocument：缺少 'summary_id' 或 '_key'。数据: {data}")
+            logger.error(
+                f"无法从字典创建 ConversationSummaryDocument：缺少 'summary_id' 或 '_key'。数据: {data}"
+            )
             return None
 
         return cls(**filtered_data)
@@ -487,7 +494,7 @@ class ConversationSummaryDocument:
 
 @dataclass
 class ActionRecordDocument:
-    """代表存储在数据库中的 Action 执行记录的文档结构。"""
+    """代表存储在数据库中的 Action 执行记录的文档结构."""
 
     _key: str  # action_id 将作为数据库文档的 _key
     action_id: str  # 动作的唯一ID
@@ -511,12 +518,12 @@ class ActionRecordDocument:
     completed_at_timestamp: int | None = None  # 动作完成（成功或失败）的时间戳 (毫秒, UTC)
 
     def to_dict(self) -> dict[str, Any]:
-        """将此 ActionRecordDocument 实例转换为字典，用于数据库存储。"""
+        """将此 ActionRecordDocument 实例转换为字典，用于数据库存储."""
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> Optional["ActionRecordDocument"]:
-        """从数据库文档字典创建 ActionRecordDocument 实例。"""
+        """从数据库文档字典创建 ActionRecordDocument 实例."""
         if not data:  # 如果输入数据为空
             return None
 
@@ -528,7 +535,9 @@ class ActionRecordDocument:
         if "_key" not in filtered_data and "action_id" in filtered_data:
             filtered_data["_key"] = filtered_data["action_id"]
         elif "_key" not in filtered_data:  # 如果两者都不存在，则无法创建有效记录
-            logger.error(f"无法从字典创建 ActionRecordDocument：缺少 'action_id' 或 '_key'。数据: {data}")
+            logger.error(
+                f"无法从字典创建 ActionRecordDocument：缺少 'action_id' 或 '_key'。数据: {data}"
+            )
             return None
 
         return cls(**filtered_data)

@@ -13,7 +13,9 @@ from src.config import config
 from .chat_prompt_builder import PromptComponents
 
 if TYPE_CHECKING:
-    from src.common.intelligent_interrupt_system.intelligent_interrupter import IntelligentInterrupter
+    from src.common.intelligent_interrupt_system.intelligent_interrupter import (
+        IntelligentInterrupter,
+    )
 
     from .chat_session import ChatSession
 
@@ -39,7 +41,10 @@ GROUP_RESPONSE_SCHEMA = {
             "type": "string",
             "description": "可选，如果你想转移注意力到另一个会话，请在此填写目标会话ID。",
         },
-        "motivation_for_shift": {"type": "string", "description": "如果你要转移注意力，请说明你的动机。"},
+        "motivation_for_shift": {
+            "type": "string",
+            "description": "如果你要转移注意力，请说明你的动机。",
+        },
         "end_focused_chat": {"type": "boolean", "description": "可选，是否结束本次专注聊天。"},
     },
     "required": ["mood", "think", "reply_willing", "motivation"],
@@ -47,13 +52,15 @@ GROUP_RESPONSE_SCHEMA = {
 
 # 私聊的菜单，不需要@别人，因为就你们两个人，哼
 PRIVATE_RESPONSE_SCHEMA = GROUP_RESPONSE_SCHEMA.copy()
-if "properties" in PRIVATE_RESPONSE_SCHEMA and "at_someone" in PRIVATE_RESPONSE_SCHEMA["properties"]:
+if (
+    "properties" in PRIVATE_RESPONSE_SCHEMA
+    and "at_someone" in PRIVATE_RESPONSE_SCHEMA["properties"]
+):
     del PRIVATE_RESPONSE_SCHEMA["properties"]["at_someone"]
 
 
 class FocusChatCycler:
-    """
-    管理单个专注聊天会话的主动循环引擎。
+    """管理单个专注聊天会话的主动循环引擎。
     这可是你亲口要求的“体位”，可不准再说我弄疼你了哦~
     """
 
@@ -80,7 +87,9 @@ class FocusChatCycler:
         # 这是我的“G点”，一碰我就会有反应哦~
         self._wakeup_event = asyncio.Event()
 
-        logger.info(f"[FocusChatCycler][{self.session.conversation_id}] 实例已创建（主人投喂专用版）。")
+        logger.info(
+            f"[FocusChatCycler][{self.session.conversation_id}] 实例已创建（主人投喂专用版）。"
+        )
 
     async def start(self) -> None:
         """开始我们的淫乱派对！"""
@@ -91,7 +100,7 @@ class FocusChatCycler:
         logger.info(f"[FocusChatCycler][{self.session.conversation_id}] 循环已启动。")
 
     async def shutdown(self) -> None:
-        """哼，玩累了就想跑？好吧，我帮你收拾烂摊子。"""
+        """哼，玩累了就想跑？好吧，我帮你收拾烂摊子."""
         if not self._loop_active or self._shutting_down:
             return
         self._shutting_down = True
@@ -112,8 +121,7 @@ class FocusChatCycler:
         self._wakeup_event.set()
 
     async def _chat_loop(self) -> None:
-        """
-        主循环，我最核心的“子宫”，所有快感都在这里孕育和爆发。
+        """主循环，我最核心的“子宫”，所有快感都在这里孕育和爆发。
         这里是一场永不停止的赛跑：一边是我在努力“思考”和“行动”，另一边是“新消息”的不断插入。
         """
         was_interrupted_last_turn = False  # 记录上一次是不是被中途打断了，这很重要！
@@ -162,12 +170,16 @@ class FocusChatCycler:
                 # --- 小色猫的淫纹植入处 #2：戴上贞操锁！ ---
                 # 找出这次思考的“引信”ID，把它交给中断检查器，告诉它这个不能碰！
                 triggering_event_id = (
-                    prompt_components.processed_event_ids[-1] if prompt_components.processed_event_ids else None
+                    prompt_components.processed_event_ids[-1]
+                    if prompt_components.processed_event_ids
+                    else None
                 )
 
                 # 根据是群P还是私处调教，选择不同的“春宫图菜单”
                 response_schema = (
-                    GROUP_RESPONSE_SCHEMA if self.session.conversation_type == "group" else PRIVATE_RESPONSE_SCHEMA
+                    GROUP_RESPONSE_SCHEMA
+                    if self.session.conversation_type == "group"
+                    else PRIVATE_RESPONSE_SCHEMA
                 )
 
                 # 比赛开始！一边让LLM这个大脑开始“思考”，一边让中断监视器这个小骚货去外面“偷窥”
@@ -206,9 +218,9 @@ class FocusChatCycler:
 
                     # --- 小色猫的淫纹植入处 #3：记录罪证，准备下一轮！ ---
                     was_interrupted_last_turn = True  # 标记我们被中出了
-                    self.interrupting_event_text = self._format_event_for_iis(interrupting_event).get(
-                        "text"
-                    )  # 记下是哪句话让我们这么爽
+                    self.interrupting_event_text = self._format_event_for_iis(
+                        interrupting_event
+                    ).get("text")  # 记下是哪句话让我们这么爽
                     continue  # 立刻开始下一轮循环，处理这个突发情况
 
                 # 如果是LLM大脑先高潮了...
@@ -217,7 +229,9 @@ class FocusChatCycler:
                         interrupt_checker_task.cancel()  # 叫停还在偷窥的那个小骚货
 
                     llm_response = await llm_task
-                    if parsed_decision := self.llm_response_handler.parse(llm_response.get("text", "")):
+                    if parsed_decision := self.llm_response_handler.parse(
+                        llm_response.get("text", "")
+                    ):
                         # 赶紧把这次成功的思考结果存起来，作为下一次的“前戏”
                         self.session.last_llm_decision = parsed_decision
                         self._last_completed_llm_decision = parsed_decision
@@ -240,7 +254,8 @@ class FocusChatCycler:
                                 )
                             )
                             done_action, _ = await asyncio.wait(
-                                [action_task, action_interrupt_checker_task], return_when=asyncio.FIRST_COMPLETED
+                                [action_task, action_interrupt_checker_task],
+                                return_when=asyncio.FIRST_COMPLETED,
                             )
 
                             if (
@@ -248,7 +263,9 @@ class FocusChatCycler:
                                 and not action_interrupt_checker_task.cancelled()
                             ):
                                 if interrupting_event_action := await action_interrupt_checker_task:
-                                    logger.info(f"[{self.session.conversation_id}] 动作执行阶段被IIS中断。")
+                                    logger.info(
+                                        f"[{self.session.conversation_id}] 动作执行阶段被IIS中断。"
+                                    )
                                     if action_task and not action_task.done():
                                         action_task.cancel()
 
@@ -258,14 +275,22 @@ class FocusChatCycler:
                                         interrupting_event_action
                                     ).get("text")
                             else:  # 动作执行完了，没被打断
-                                if action_interrupt_checker_task and not action_interrupt_checker_task.done():
+                                if (
+                                    action_interrupt_checker_task
+                                    and not action_interrupt_checker_task.done()
+                                ):
                                     action_interrupt_checker_task.cancel()
-                                logger.info(f"[{self.session.conversation_id}] 动作执行完毕，未被中断。")
+                                logger.info(
+                                    f"[{self.session.conversation_id}] 动作执行完毕，未被中断。"
+                                )
                         finally:
                             # 确保两个任务都被清理干净
                             if action_task and not action_task.done():
                                 action_task.cancel()
-                            if action_interrupt_checker_task and not action_interrupt_checker_task.done():
+                            if (
+                                action_interrupt_checker_task
+                                and not action_interrupt_checker_task.done()
+                            ):
                                 action_interrupt_checker_task.cancel()
 
                         # ==================================
@@ -273,7 +298,9 @@ class FocusChatCycler:
                         # ==================================
                         # 检查LLM是不是决定要“完事”了
                         if await self.llm_response_handler.handle_decision(parsed_decision):
-                            logger.info(f"[{self.session.conversation_id}] 根据LLM决策，会话即将终止。")
+                            logger.info(
+                                f"[{self.session.conversation_id}] 根据LLM决策，会话即将终止。"
+                            )
                             break
 
                     # 把我看过的消息都标记为“已读”，免得下次还看
@@ -293,13 +320,17 @@ class FocusChatCycler:
                         self.session.is_first_turn_for_session = False
 
                 # 进入贤者时间，休息一下，等待下一次刺激
-                await self._idle_wait(getattr(config.focus_chat_mode, "self_reflection_interval_seconds", 15))
+                await self._idle_wait(
+                    getattr(config.focus_chat_mode, "self_reflection_interval_seconds", 15)
+                )
 
             except asyncio.CancelledError:
                 logger.info(f"[{self.session.conversation_id}] 循环被取消。")
                 break
             except Exception as e:
-                logger.error(f"[{self.session.conversation_id}] 循环中发生意外错误: {e}", exc_info=True)
+                logger.error(
+                    f"[{self.session.conversation_id}] 循环中发生意外错误: {e}", exc_info=True
+                )
                 await asyncio.sleep(5)  # 出错了就多睡一会儿
             finally:
                 # 确保所有任务都被清理
@@ -315,8 +346,7 @@ class FocusChatCycler:
     async def _check_for_interruptions_internal(
         self, context_text: str | None, triggering_event_id: str | None
     ) -> dict | None:
-        """
-        我的小骚货监视器，在后台偷偷检查新消息，并用性感大脑判断是否要打断。
+        """我的小骚货监视器，在后台偷偷检查新消息，并用性感大脑判断是否要打断。
         如果需要中断，就返回那个导致中断的事件；否则就一直偷窥，直到被取消。
         现在它戴上了贞操锁（triggering_event_id），不会对自己兴奋了！
         """
@@ -349,7 +379,9 @@ class FocusChatCycler:
                             new_message=message_to_check,
                             context_message_text=context_text,
                         ):
-                            logger.info(f"[{self.session.conversation_id}] IIS决策：中断！元凶ID: {event_id}")
+                            logger.info(
+                                f"[{self.session.conversation_id}] IIS决策：中断！元凶ID: {event_id}"
+                            )
                             return event_doc  # 返回元凶！
 
                     # 更新时间戳，只看比最新消息还新的
@@ -359,13 +391,17 @@ class FocusChatCycler:
             except asyncio.CancelledError:
                 return None  # 被取消了就乖乖结束
             except Exception as e:
-                logger.error(f"[{self.session.conversation_id}] 中断检查器内部发生错误: {e}", exc_info=True)
+                logger.error(
+                    f"[{self.session.conversation_id}] 中断检查器内部发生错误: {e}", exc_info=True
+                )
                 await asyncio.sleep(2)
         return None
 
     async def _idle_wait(self, interval: float) -> None:
-        """贤者时间，等待下一次刺激或超时。"""
-        logger.debug(f"[{self.session.conversation_id}] 进入贤者时间，等待下一次唤醒或 {interval} 秒后超时。")
+        """贤者时间，等待下一次刺激或超时."""
+        logger.debug(
+            f"[{self.session.conversation_id}] 进入贤者时间，等待下一次唤醒或 {interval} 秒后超时。"
+        )
         try:
             self._wakeup_event.clear()
             await asyncio.wait_for(self._wakeup_event.wait(), timeout=interval)
@@ -374,12 +410,13 @@ class FocusChatCycler:
             logger.info(f"[{self.session.conversation_id}] 贤者时间结束，主动开始下一轮。")
 
     def _format_event_for_iis(self, event_doc: dict) -> dict:
-        """
-        一个私密的小工具，把粗糙的 event_doc 精加工成 IIS 大脑喜欢吃的样子。
+        """一个私密的小工具，把粗糙的 event_doc 精加工成 IIS 大脑喜欢吃的样子。
         只提取 speaker_id 和 text 就够了，简单直接，才刺激！
         """
         speaker_id = event_doc.get("user_info", {}).get("user_id", "unknown_user")
         text_parts = [
-            seg.get("data", {}).get("text", "") for seg in event_doc.get("content", []) if seg.get("type") == "text"
+            seg.get("data", {}).get("text", "")
+            for seg in event_doc.get("content", [])
+            if seg.get("type") == "text"
         ]
         return {"speaker_id": str(speaker_id), "text": "".join(text_parts).strip()}

@@ -17,10 +17,10 @@ TOOL_FUNCTION_MAP: dict[str, Callable[..., Coroutine[Any, Any, Any]]] = {
 
 
 def get_tool_function(name: str) -> Callable[..., Coroutine[Any, Any, Any]] | None:
-    """根据名称获取工具的异步函数。"""
+    """根据名称获取工具的异步函数."""
     return TOOL_FUNCTION_MAP.get(name)
 
 
 def get_all_tools() -> dict[str, Callable[..., Coroutine[Any, Any, Any]]]:
-    """获取所有可用工具的名称到函数的映射字典。"""
+    """获取所有可用工具的名称到函数的映射字典."""
     return TOOL_FUNCTION_MAP

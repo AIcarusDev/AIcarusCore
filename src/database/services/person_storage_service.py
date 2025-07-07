@@ -4,7 +4,6 @@ from typing import Any
 
 from aicarus_protocols import UserInfo as ProtocolUserInfo
 from arangoasync.collection import EdgeCollection, StandardCollection  # 确保导入 EdgeCollection
-
 from src.common.custom_logging.logging_config import get_logger
 from src.database import (
     AccountDocument,
@@ -20,25 +19,23 @@ SELF_PERSON_ID = "aic_person_0"
 
 
 class PersonStorageService:
-    """
-    此类负责管理人与账号之间的关系。
+    """此类负责管理人与账号之间的关系。
     主要处理 Person、Account 及其关联关系的图数据库操作。
     """
 
     def __init__(self, conn_manager: ArangoDBConnectionManager) -> None:
         self.conn_manager = conn_manager
 
-    async def _get_collection(self, name: str, is_edge: bool = False) -> StandardCollection | EdgeCollection:
-        """
-        一个懒人工具，用来获取集合实例。现在它知道边集合要特殊对待了。
-        """
+    async def _get_collection(
+        self, name: str, is_edge: bool = False
+    ) -> StandardCollection | EdgeCollection:
+        """一个懒人工具，用来获取集合实例。现在它知道边集合要特殊对待了."""
         return await self.conn_manager.get_collection(name, is_edge=is_edge)
 
     async def find_or_create_person_and_account(
         self, user_info: ProtocolUserInfo, platform: str
     ) -> tuple[str | None, str | None]:
-        """
-        根据用户和平台信息，查找或创建“人”和“账号”节点，并确保它们之间有'has_account'关系。
+        """根据用户和平台信息，查找或创建“人”和“账号”节点，并确保它们之间有'has_account'关系。
         返回 (person_id, account_uid)。
         """
         if not user_info or not user_info.user_id:
@@ -56,8 +53,13 @@ class PersonStorageService:
             logger.debug(f"找到了已存在的账号: {account_uid}")
 
             # 更新一下账号昵称，万一他改名了呢
-            if user_info.user_nickname and account_doc.get("last_known_nickname") != user_info.user_nickname:
-                await accounts_collection.update({"_key": account_uid, "last_known_nickname": user_info.user_nickname})
+            if (
+                user_info.user_nickname
+                and account_doc.get("last_known_nickname") != user_info.user_nickname
+            ):
+                await accounts_collection.update(
+                    {"_key": account_uid, "last_known_nickname": user_info.user_nickname}
+                )
 
             # AQL图遍历查询，从账号节点出发，反向查找拥有它的“人”
             query = """
@@ -75,15 +77,19 @@ class PersonStorageService:
                 return person_id, account_uid
 
             # 这种情况不应该发生，除非数据不一致。我们创建一个新的人并关联。
-            logger.warning(f"数据不一致！账号 {account_uid} 存在但没有关联的Person。将为其创建新的Person。")
+            logger.warning(
+                f"数据不一致！账号 {account_uid} 存在但没有关联的Person。将为其创建新的Person。"
+            )
             return await self._create_person_for_existing_account(account_doc)
         else:
             # 没找到账号，说明是新面孔，创建人和账号，再把他们绑一起
             logger.debug(f"未找到账号: {account_uid}，将创建新的Person和Account。")
             return await self._create_new_person_with_account(user_info, platform)
 
-    async def _create_person_for_existing_account(self, account_doc: dict[str, Any]) -> tuple[str | None, str | None]:
-        """内部工具：为一个已存在的账号创建一个新的人，并用边连起来。"""
+    async def _create_person_for_existing_account(
+        self, account_doc: dict[str, Any]
+    ) -> tuple[str | None, str | None]:
+        """内部工具：为一个已存在的账号创建一个新的人，并用边连起来."""
         person = PersonDocument.create_new()
         account_uid = account_doc["_key"]
         account_id = account_doc["_id"]
@@ -129,7 +135,9 @@ class PersonStorageService:
                     )
                     return person_id, returned_account_uid
 
-            logger.error(f"为现有账号创建Person的AQL事务执行后未能返回有效的ID, 返回结果: {results}")
+            logger.error(
+                f"为现有账号创建Person的AQL事务执行后未能返回有效的ID, 返回结果: {results}"
+            )
             return None, None
 
         except Exception as e:
@@ -145,9 +153,7 @@ class PersonStorageService:
         card_name: str | None,
         role: str | None,
     ) -> bool:
-        """
-        专门更新机器人在某个群里的成员信息（主要是群名片）。
-        """
+        """专门更新机器人在某个群里的成员信息（主要是群名片）."""
         # 这个方法和通用的 update_membership 很像，但是是为我量身定做的
         from_vertex = f"{CoreDBCollections.ACCOUNTS}/{account_uid}"
         to_vertex = f"{CoreDBCollections.CONVERSATIONS}/{conversation_id}"
@@ -186,11 +192,17 @@ class PersonStorageService:
             IN @@collection
             RETURN NEW
         """
-        bind_vars = {"key": edge_key, "doc": edge_doc, "@collection": CoreDBCollections.PARTICIPATES_IN}
+        bind_vars = {
+            "key": edge_key,
+            "doc": edge_doc,
+            "@collection": CoreDBCollections.PARTICIPATES_IN,
+        }
 
         try:
             await self.conn_manager.execute_query(query, bind_vars)
-            logger.debug(f"成功更新机器人成员关系: Account '{account_uid}' in Conversation '{conversation_id}'")
+            logger.debug(
+                f"成功更新机器人成员关系: Account '{account_uid}' in Conversation '{conversation_id}'"
+            )
             return True
         except Exception as e:
             logger.error(f"更新机器人成员关系时失败: {e}", exc_info=True)
@@ -202,7 +214,7 @@ class PersonStorageService:
         platform: str,
         is_self: bool = False,
     ) -> tuple[str | None, str | None]:
-        """内部工具：创建一个新的人，一个新的账号，并用边连起来。使用单个AQL查询确保原子性。"""
+        """内部工具：创建一个新的人，一个新的账号，并用边连起来。使用单个AQL查询确保原子性."""
         person = (
             PersonDocument.create_new()
             if not is_self
@@ -262,7 +274,9 @@ class PersonStorageService:
                 person_id = result.get("person_id")
                 account_uid = result.get("account_uid")
                 if person_id and account_uid:
-                    logger.info(f"AQL事务成功：创建/关联了 Person '{person_id}' 和 Account '{account_uid}'。")
+                    logger.info(
+                        f"AQL事务成功：创建/关联了 Person '{person_id}' 和 Account '{account_uid}'。"
+                    )
                     return person_id, account_uid
 
             logger.error(f"AQL事务执行后未能返回有效的ID, 返回结果: {results}")
@@ -273,9 +287,13 @@ class PersonStorageService:
             return None, None
 
     async def update_membership(
-        self, account_uid: str, conversation_id: str, user_info: ProtocolUserInfo, conversation_name: str | None
+        self,
+        account_uid: str,
+        conversation_id: str,
+        user_info: ProtocolUserInfo,
+        conversation_name: str | None,
     ) -> None:
-        """更新账号在会话中的成员信息（边属性）。"""
+        """更新账号在会话中的成员信息（边属性）."""
         # ↓↓↓ 这里的调用现在是正确的了，因为 is_edge=True 会通过图对象获取集合 ↓↓↓
         _ = await self._get_collection(CoreDBCollections.PARTICIPATES_IN, is_edge=True)
         from_vertex = f"{CoreDBCollections.ACCOUNTS}/{account_uid}"
@@ -302,18 +320,24 @@ class PersonStorageService:
             IN @@collection
             RETURN NEW
         """
-        bind_vars = {"key": edge_key, "doc": edge_doc, "@collection": CoreDBCollections.PARTICIPATES_IN}
+        bind_vars = {
+            "key": edge_key,
+            "doc": edge_doc,
+            "@collection": CoreDBCollections.PARTICIPATES_IN,
+        }
 
         try:
             await self.conn_manager.execute_query(query, bind_vars)
-            logger.debug(f"成功更新成员关系: Account '{account_uid}' in Conversation '{conversation_id}'")
+            logger.debug(
+                f"成功更新成员关系: Account '{account_uid}' in Conversation '{conversation_id}'"
+            )
         except Exception as e:
             logger.error(f"更新成员关系时失败: {e}", exc_info=True)
 
-    async def get_person_details_by_account(self, platform: str, platform_id: str) -> dict[str, Any] | None:
-        """
-        根据平台和平台ID，获取这个“人”的完整信息，包括他所有的马甲。
-        """
+    async def get_person_details_by_account(
+        self, platform: str, platform_id: str
+    ) -> dict[str, Any] | None:
+        """根据平台和平台ID，获取这个“人”的完整信息，包括他所有的马甲."""
         account_uid = f"{platform}_{platform_id}"
 
         query = """

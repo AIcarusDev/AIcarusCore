@@ -9,13 +9,10 @@ logger = get_logger(__name__)
 
 
 class SummaryStorageService:
-    """
-    服务类，负责处理会话总结的数据库存储操作。
-    """
+    """服务类，负责处理会话总结的数据库存储操作."""
 
     def __init__(self, db_manager: ArangoDBConnectionManager) -> None:
-        """
-        初始化服务。
+        """初始化服务。
         :param db_manager: ArangoDBManager 的实例。
         """
         self.db_manager = db_manager
@@ -29,8 +26,7 @@ class SummaryStorageService:
         bot_id: str,
         event_ids_covered: list[str],
     ) -> bool:
-        """
-        将一个会话的最终总结保存到数据库。
+        """将一个会话的最终总结保存到数据库。
 
         :param conversation_id: 会话的ID。
         :param summary_text: 总结的文本内容。

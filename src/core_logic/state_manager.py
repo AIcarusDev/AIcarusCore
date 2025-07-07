@@ -9,8 +9,7 @@ logger = get_logger(__name__)
 
 
 class AIStateManager:
-    """
-    管理AI的内心世界，现在清爽多了，哼。
+    """管理AI的内心世界，现在清爽多了，哼。
     我只负责从思想链里拿最新的状态。
     """
 
@@ -25,10 +24,10 @@ class AIStateManager:
         "action_log_block": "你最近没有执行过任何动作。",
     }
 
-    def __init__(self, thought_service: ThoughtStorageService, action_log_service: ActionLogStorageService) -> None:
-        """
-        初始化需要 thought_storage_service 和 action_log_service 才能干活，哼。
-        """
+    def __init__(
+        self, thought_service: ThoughtStorageService, action_log_service: ActionLogStorageService
+    ) -> None:
+        """初始化需要 thought_storage_service 和 action_log_service 才能干活，哼."""
         self.thought_service = thought_service
         self.action_log_service = action_log_service
         logger.info("AIStateManager (思想链版) 初始化完毕。")
@@ -36,9 +35,7 @@ class AIStateManager:
     # // 看！那个烦人的 set_next_handover_info 不见了！我们再也不需要它了！
 
     async def get_current_state_for_prompt(self) -> dict[str, str]:
-        """
-        从思想链获取最新的状态，构建Prompt需要的所有状态块。
-        """
+        """从思想链获取最新的状态，构建Prompt需要的所有状态块."""
         state_blocks = self.INITIAL_STATE.copy()
 
         # 1. 获取最新的思想点
@@ -47,7 +44,9 @@ class AIStateManager:
         # 2. 从点里拿出我们需要的东西，填充状态块
         if latest_thought:
             state_blocks["mood_block"] = f"你刚才的心情是：{latest_thought.get('mood', '平静')}"
-            state_blocks["think_block"] = f"你刚才的内心想法是：{latest_thought.get('think', '我好像忘了刚才在想啥')}"
+            state_blocks["think_block"] = (
+                f"你刚才的内心想法是：{latest_thought.get('think', '我好像忘了刚才在想啥')}"
+            )
 
             goal_db = latest_thought.get("goal")
             if goal_db and goal_db.strip().lower() != "null":
@@ -68,8 +67,12 @@ class AIStateManager:
                         if platform and action_name:
                             action_desc = f"在平台 '{platform}' 执行 '{action_name}'"
 
-                state_blocks["action_request_block"] = f'你刚才的想法导致你试图执行动作"{action_desc}"。'
-                state_blocks["action_response_block"] = "该行动的后续状态和结果，请参考下面的行动日志。"
+                state_blocks["action_request_block"] = (
+                    f'你刚才的想法导致你试图执行动作"{action_desc}"。'
+                )
+                state_blocks["action_response_block"] = (
+                    "该行动的后续状态和结果，请参考下面的行动日志。"
+                )
             else:
                 # 如果最新的思考没有附带动作，就用初始的默认值
                 state_blocks["action_request_block"] = self.INITIAL_STATE["action_request_block"]
@@ -86,9 +89,13 @@ class AIStateManager:
                 error_info = log.get("error_info")
                 status_display = f"状态: {status}"
                 if error_info:
-                    status_display += f" (原因: {error_info[:30]}{'...' if len(error_info) > 30 else ''})"
+                    status_display += (
+                        f" (原因: {error_info[:30]}{'...' if len(error_info) > 30 else ''})"
+                    )
 
-                log_lines.append(f"- 在 {time_str}，你执行了动作: {log.get('action_type')}，{status_display}")
+                log_lines.append(
+                    f"- 在 {time_str}，你执行了动作: {log.get('action_type')}，{status_display}"
+                )
             state_blocks["action_log_block"] = "\n".join(log_lines)
         else:
             state_blocks["action_log_block"] = self.INITIAL_STATE["action_log_block"]

@@ -10,9 +10,7 @@ logger = get_logger(__name__)
 
 
 class ToolResultSummarizer:
-    """
-    负责将工具执行的原始结果总结为对AI更有用的自然语言。
-    """
+    """负责将工具执行的原始结果总结为对AI更有用的自然语言."""
 
     def __init__(self, llm_client: ProcessorClient) -> None:
         logger = get_logger(f"AIcarusCore.{self.__class__.__name__}")
@@ -21,9 +19,10 @@ class ToolResultSummarizer:
         self.llm_client = llm_client
         logger.info(f"{self.__class__.__name__} instance created.")
 
-    async def summarize(self, original_query: str, original_motivation: str, tool_output: str | list | dict) -> str:
-        """
-        调用LLM对工具的原始输出进行总结。
+    async def summarize(
+        self, original_query: str, original_motivation: str, tool_output: str | list | dict
+    ) -> str:
+        """调用LLM对工具的原始输出进行总结。
 
         Args:
             original_query: 触发工具调用的原始查询或动作。

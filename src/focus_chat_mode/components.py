@@ -5,7 +5,7 @@ from typing import Any
 
 @dataclass
 class PromptComponents:
-    """一个性感的数据容器，把所有Prompt零件都紧紧锁住。"""
+    """一个性感的数据容器，把所有Prompt零件都紧紧锁住."""
 
     system_prompt: str = ""
     user_prompt: str = ""

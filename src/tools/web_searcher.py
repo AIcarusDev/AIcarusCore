@@ -9,8 +9,8 @@ logger = get_logger(__name__)
 
 
 async def search_web(query: str, max_results: int = 5) -> list[dict[str, Any]]:
-    """
-    使用系统集成的搜索服务执行网络搜索操作
+    """使用系统集成的搜索服务执行网络搜索操作.
+
     本函数作为搜索功能的入口接口，负责请求分发和结果返回
     """
     logger.info(f"接收到搜索请求，已转发至搜索服务处理: {query}")

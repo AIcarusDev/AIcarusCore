@@ -20,11 +20,11 @@ class ThoughtPersistor:
     async def store_thought(
         self, thought_json: dict[str, Any], source_type: str, source_id: str | None = None
     ) -> str | None:
-        """
-        处理并存储思考结果到数据库，这次我们用统一的、全新的思想链！
-        """
+        """处理并存储思考结果到数据库，这次我们用统一的、全新的思想链！"""
         action_payload = thought_json.get("action")
-        action_id = str(uuid.uuid4()) if action_payload and isinstance(action_payload, dict) else None
+        action_id = (
+            str(uuid.uuid4()) if action_payload and isinstance(action_payload, dict) else None
+        )
 
         # 1. 把思考结果打包成一颗新的“思想点”
         new_thought_pearl = ThoughtChainDocument(

@@ -4,8 +4,7 @@ from datetime import datetime
 
 # 这是个时间处理的工具模块，整个项目都可以用来获取格式化的时间字符串，并且定义了具体的时间段和季节名称。
 def get_formatted_time_for_llm(now: datetime | None = None) -> str:
-    """
-    就...就是根据你那个麻烦的规则生成时间字符串啦，还给你加上了季节！
+    """就...就是根据你那个麻烦的规则生成时间字符串啦，还给你加上了季节！
     如果不给我时间，我就用现在的时间，哼。
 
     Args:

@@ -6,7 +6,6 @@ import random
 import re
 
 import regex
-
 from src.config import config
 
 # --- 全局常量和预编译正则表达式 ---
@@ -96,8 +95,7 @@ KNOWN_ABBREVIATIONS_ENDING_WITH_DOT = {
 
 
 def is_letter_not_han(char_str: str) -> bool:
-    """
-    检查单个字符是否为“字母”且“非汉字”。
+    """检查单个字符是否为“字母”且“非汉字”。
     例如拉丁字母、西里尔字母、韩文等返回True。
     汉字、数字、标点、空格等返回False。
 
@@ -117,8 +115,7 @@ def is_letter_not_han(char_str: str) -> bool:
 
 
 def is_han_character(char_str: str) -> bool:
-    r"""
-    检查单个字符是否为汉字 (使用 Unicode \p{Han} 属性)。
+    r"""检查单个字符是否为汉字 (使用 Unicode \p{Han} 属性)。
 
     Args:
         char_str: 待检查的单个字符。
@@ -132,8 +129,7 @@ def is_han_character(char_str: str) -> bool:
 
 
 def is_digit(char_str: str) -> bool:
-    """
-    检查单个字符是否为Unicode数字 (十进制数字)。
+    """检查单个字符是否为Unicode数字 (十进制数字)。
 
     Args:
         char_str: 待检查的单个字符。
@@ -147,8 +143,7 @@ def is_digit(char_str: str) -> bool:
 
 
 def is_relevant_word_char(char_str: str) -> bool:
-    """
-    检查字符是否为“相关词语字符”（即非汉字字母或数字）。
+    """检查字符是否为“相关词语字符”（即非汉字字母或数字）。
     此函数用于判断在非中文语境下，空格两侧的字符是否应被视为构成一个连续词语的部分，
     从而决定该空格是否作为分割点。
     例如拉丁字母、西里尔字母、数字等返回True。
@@ -168,8 +163,7 @@ def is_relevant_word_char(char_str: str) -> bool:
 
 
 def is_english_letter(char: str) -> bool:
-    """
-    检查单个字符是否为英文字母（忽略大小写）。
+    """检查单个字符是否为英文字母（忽略大小写）。
 
     Args:
         char: 待检查的单个字符。
@@ -181,8 +175,7 @@ def is_english_letter(char: str) -> bool:
 
 
 def protect_book_titles(text: str) -> tuple[str, dict[str, str]]:
-    """
-    保护文本中的书名号内容，将其替换为唯一的占位符。
+    """保护文本中的书名号内容，将其替换为唯一的占位符。
     返回保护后的文本和占位符到原始内容的映射。
 
     Args:
@@ -206,8 +199,7 @@ def protect_book_titles(text: str) -> tuple[str, dict[str, str]]:
 
 
 def recover_book_titles(sentences: list[str], book_title_mapping: dict[str, str]) -> list[str]:
-    """
-    将句子列表中的书名号占位符恢复为原始的书名号内容。
+    """将句子列表中的书名号占位符恢复为原始的书名号内容。
 
     Args:
         sentences: 包含可能书名号占位符的句子列表。
@@ -230,8 +222,7 @@ def recover_book_titles(sentences: list[str], book_title_mapping: dict[str, str]
 
 
 def protect_ellipsis(text: str) -> tuple[str, dict[str, str]]:
-    """
-    保护文本中的省略号，将其替换为唯一的占位符。
+    """保护文本中的省略号，将其替换为唯一的占位符。
     匹配连续三个或更多点号，以及Unicode省略号字符。
     返回保护后的文本和占位符到原始内容的映射。
 
@@ -256,8 +247,7 @@ def protect_ellipsis(text: str) -> tuple[str, dict[str, str]]:
 
 
 def recover_ellipsis(sentences: list[str], ellipsis_mapping: dict[str, str]) -> list[str]:
-    """
-    将句子列表中的省略号占位符恢复为原始的省略号字符串。
+    """将句子列表中的省略号占位符恢复为原始的省略号字符串。
 
     Args:
         sentences: 包含可能省略号占位符的句子列表。
@@ -280,8 +270,7 @@ def recover_ellipsis(sentences: list[str], ellipsis_mapping: dict[str, str]) -> 
 
 
 def split_into_sentences_w_remove_punctuation(original_text: str) -> list[str]:
-    """
-    将输入文本分割成句子列表。
+    """将输入文本分割成句子列表。
     此过程包括：
     1. 保护书名号和省略号。
     2. 文本预处理（如处理换行符）。
@@ -343,11 +332,8 @@ def split_into_sentences_w_remove_punctuation(original_text: str) -> list[str]:
 
             if char == ".":
                 can_split_this_dot = True
-                if (
+                if (0 < i < len_text - 1 and is_digit(text[i - 1]) and is_digit(text[i + 1])) or (
                     0 < i < len_text - 1
-                    and is_digit(text[i - 1])
-                    and is_digit(text[i + 1])
-                    or 0 < i < len_text - 1
                     and is_letter_not_han(text[i - 1])
                     and is_letter_not_han(text[i + 1])
                 ):
@@ -488,12 +474,20 @@ def split_into_sentences_w_remove_punctuation(original_text: str) -> list[str]:
                 ):
                     should_merge_based_on_punctuation = False
 
-                if random.random() < actual_merge_probability and temp_sentence and should_merge_based_on_punctuation:
+                if (
+                    random.random() < actual_merge_probability
+                    and temp_sentence
+                    and should_merge_based_on_punctuation
+                ):
                     # 检查是否需要添加空格
                     need_space = False
                     if temp_sentence and current_sentence_to_merge:
                         last_char = temp_sentence.strip()[-1] if temp_sentence.strip() else ""
-                        first_char = current_sentence_to_merge.strip()[0] if current_sentence_to_merge.strip() else ""
+                        first_char = (
+                            current_sentence_to_merge.strip()[0]
+                            if current_sentence_to_merge.strip()
+                            else ""
+                        )
 
                         # 如果前后都是非中文字符（如英文、俄文等），才添加空格
                         if (is_letter_not_han(last_char) or is_digit(last_char)) and (
@@ -501,7 +495,11 @@ def split_into_sentences_w_remove_punctuation(original_text: str) -> list[str]:
                         ):
                             need_space = True
 
-                    if need_space and not temp_sentence.endswith(" ") and not current_sentence_to_merge.startswith(" "):
+                    if (
+                        need_space
+                        and not temp_sentence.endswith(" ")
+                        and not current_sentence_to_merge.startswith(" ")
+                    ):
                         temp_sentence += " "
                     temp_sentence += current_sentence_to_merge
                 else:
@@ -532,7 +530,9 @@ def split_into_sentences_w_remove_punctuation(original_text: str) -> list[str]:
 
     final_sentences_recovered = []
     if local_ellipsis_mapping:
-        final_sentences_recovered = recover_ellipsis(sentences_after_book_title_recovery, local_ellipsis_mapping)
+        final_sentences_recovered = recover_ellipsis(
+            sentences_after_book_title_recovery, local_ellipsis_mapping
+        )
     else:
         final_sentences_recovered = sentences_after_book_title_recovery
 
@@ -593,8 +593,7 @@ def protect_kaomoji(sentence: str) -> tuple[str, dict[str, str]]:
 
 
 def recover_kaomoji(sentences: list[str], placeholder_to_kaomoji: dict[str, str]) -> list[str]:
-    """
-    根据映射表恢复句子中的颜文字。
+    """根据映射表恢复句子中的颜文字。
     Args:
         sentences (list): 含有占位符的句子列表
         placeholder_to_kaomoji (dict): 占位符到颜文字的映射表
@@ -636,8 +635,7 @@ def process_llm_response(
     max_length: int = config.focus_chat_mode.max_length,
     max_sentence_num: int = config.focus_chat_mode.max_sentence_num,
 ) -> list[str]:
-    """
-    处理LLM的响应文本，包括可选的颜文字保护、文本清洗和句子分割。
+    """处理LLM的响应文本，包括可选的颜文字保护、文本清洗和句子分割。
 
     Args:
         text (str): 从LLM获取的原始文本。
@@ -670,7 +668,11 @@ def process_llm_response(
         return ["话太多了，不想说。"]
 
     # 根据配置决定是否分割句子
-    sentences = split_into_sentences_w_remove_punctuation(cleaned_text) if enable_splitter else [cleaned_text]
+    sentences = (
+        split_into_sentences_w_remove_punctuation(cleaned_text)
+        if enable_splitter
+        else [cleaned_text]
+    )
 
     # 检查分割后的句子数量是否超限
     if len(sentences) > max_sentence_num:

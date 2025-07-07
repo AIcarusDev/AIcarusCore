@@ -9,10 +9,9 @@ from collections.abc import Callable, MutableMapping, MutableSequence
 from typing import Any
 
 import tomlkit  # TOML 文件处理，我的好帮手！现在用它来玩更刺激的play！
+from src.common.custom_logging.logging_config import get_logger
 from tomlkit.items import AoT, Array, Table  # 导入这些销魂小组件
 from tomlkit.items import Item as TomlItem
-
-from src.common.custom_logging.logging_config import get_logger
 
 from .config_io import ConfigIOHandler  # 从隔壁 config_io 借工具人 ConfigIOHandler
 from .config_paths import EXPECTED_CONFIG_VERSION  # 版本号标准得听 config_paths 的
@@ -26,14 +25,16 @@ logger = get_logger(__name__)
 def _sophisticated_merge_configs(
     new_template_base_doc: Table
     | TomlItem,  # 这是新模板的身体，我们要往里面注入灵魂 (tomlkit.Table 或更具体的 TomlItem)
-    old_user_config_doc: Table | TomlItem,  # 这是主人你旧配置的精华 (tomlkit.Table 或更具体的 TomlItem)
+    old_user_config_doc: Table
+    | TomlItem,  # 这是主人你旧配置的精华 (tomlkit.Table 或更具体的 TomlItem)
 ) -> None:
-    """
-    以 new_template_base_doc (新模板结构) 为基础，递归地将 old_user_config_doc (旧用户配置值) 中的值合并进去。
+    """以 new_template_base_doc (新模板结构) 为基础，递归地将 old_user_config_doc (旧用户配置值) 中的值合并进去。
     这个过程非常“深入”，会直接修改 new_template_base_doc 哦，主人要小心~
     特别强化了对数组表 (AoT) 和多行字符串的处理，确保它们既能保留用户数据，又能适应新模板的结构。
     """
-    if not isinstance(new_template_base_doc, MutableMapping) or not isinstance(old_user_config_doc, MutableMapping):
+    if not isinstance(new_template_base_doc, MutableMapping) or not isinstance(
+        old_user_config_doc, MutableMapping
+    ):
         # 如果不是字典类的东西 (比如直接传了个 String 进去)，那就没法按键合并了，直接不处理
         # 这种情况通常发生在递归到叶子节点，而类型不匹配时，外层逻辑会处理
         return
@@ -82,13 +83,17 @@ def _sophisticated_merge_configs(
                 for i, template_aot_table_item in enumerate(new_aot_items_from_template):
                     if isinstance(template_aot_table_item, Table):
                         # 创建一个当前模板条目的“深喉”副本，作为融合的基础
-                        merged_aot_table_item = tomlkit.parse(tomlkit.dumps(template_aot_table_item))
+                        merged_aot_table_item = tomlkit.parse(
+                            tomlkit.dumps(template_aot_table_item)
+                        )
 
                         if i < len(old_aot_items_from_user):
                             user_aot_table_item = old_aot_items_from_user[i]
                             if isinstance(user_aot_table_item, Table):
                                 # 用旧用户条目的数据来“滋养”这个模板条目的副本
-                                _sophisticated_merge_configs(merged_aot_table_item, user_aot_table_item)
+                                _sophisticated_merge_configs(
+                                    merged_aot_table_item, user_aot_table_item
+                                )
                         # else: 用户旧AoT中没有对应索引的条目了，merged_aot_table_item 保持为模板条目的样子
 
                         final_aot_entries.append(merged_aot_table_item)
@@ -116,7 +121,9 @@ def _sophisticated_merge_configs(
 
             # 姿势四：如果它们是简单类型（字符串、数字、布尔等），并且类型兼容，就用旧的“爱液”覆盖新的
             # 这里要确保 template_value 和 old_value 都是 tomlkit 的 Item 类型，或者能被 tomlkit.item() 正确处理
-            elif not isinstance(template_value, Table | AoT | Array) and not isinstance(old_value, Table | AoT | Array):
+            elif not isinstance(template_value, Table | AoT | Array) and not isinstance(
+                old_value, Table | AoT | Array
+            ):
                 # old_value 已经是 tomlkit item 了 (因为它来自解析后的 tomlkit.TOMLDocument)
                 # 直接赋值，tomlkit 会处理好类型和格式，包括多行字符串的风骚哦~
                 new_template_base_doc[key] = old_value
@@ -138,10 +145,11 @@ def _sophisticated_merge_configs(
 
 
 def substitute_env_vars_recursive(  # 改为公开函数，因为 config_manager 可能也需要直接调用
-    config_node: MutableMapping[str, Any] | MutableSequence[Any] | TomlItem,  # 接受更广泛的 tomlkit 类型
+    config_node: MutableMapping[str, Any]
+    | MutableSequence[Any]
+    | TomlItem,  # 接受更广泛的 tomlkit 类型
 ) -> None:
-    """
-    递归地扫描配置，把所有 "ENV_YOUR_VARIABLE" 这样的占位符替换成真正的环境变量值。
+    """递归地扫描配置，把所有 "ENV_YOUR_VARIABLE" 这样的占位符替换成真正的环境变量值。
     就像一个勤劳的小蜜蜂，把花蜜（环境变量）采到配置的每个角落！🐝
     支持字典、列表、以及 tomlkit 的 Table 和 Array 的递归处理哦。
     """
@@ -169,7 +177,9 @@ def substitute_env_vars_recursive(  # 改为公开函数，因为 config_manager
                                 ):
                                     try:
                                         parsed_item = tomlkit.parse(f"temp_key = {env_value}")
-                                        processed_value = parsed_item["temp_key"]  # 这会是 tomlkit item
+                                        processed_value = parsed_item[
+                                            "temp_key"
+                                        ]  # 这会是 tomlkit item
                                     except Exception:
                                         processed_value = tomlkit.string(env_value)
                                 else:
@@ -180,7 +190,9 @@ def substitute_env_vars_recursive(  # 改为公开函数，因为 config_manager
                     logger.warning(
                         f"  环境变量警告：配置项 '{key}' 想用环境变量 '{env_var_name}', 但它好像没设置哦。保留占位符 '{value}'。"
                     )
-            elif isinstance(value, MutableMapping | MutableSequence | TomlItem):  # 如果值是嵌套结构或者其他TomlItem
+            elif isinstance(
+                value, MutableMapping | MutableSequence | TomlItem
+            ):  # 如果值是嵌套结构或者其他TomlItem
                 # 对于 TomlItem, 如果它是 StringItem 且值为 "ENV_...", 也应处理
                 if isinstance(value, tomlkit.items.String) and value.value.startswith("ENV_"):
                     env_var_name = value.value[4:]
@@ -210,7 +222,9 @@ def substitute_env_vars_recursive(  # 改为公开函数，因为 config_manager
                                     else:
                                         processed_env_val = tomlkit.string(env_value)
                         config_node[key] = processed_env_val
-                        logger.debug(f"  环境变量替换：配置项 '{key}' (TomlString) 已从 '{env_var_name}' 加载。")
+                        logger.debug(
+                            f"  环境变量替换：配置项 '{key}' (TomlString) 已从 '{env_var_name}' 加载。"
+                        )
                     else:
                         logger.warning(
                             f"  环境变量警告：配置项 '{key}' (TomlString) 想用环境变量 '{env_var_name}', 但它好像没设置哦。保留原样。"
@@ -274,7 +288,9 @@ def substitute_env_vars_recursive(  # 改为公开函数，因为 config_manager
                                     else:
                                         processed_list_env_item = tomlkit.string(env_value)
                         config_node[i] = processed_list_env_item
-                        logger.debug(f"  环境变量替换：列表索引 {i} (TomlString) 的元素已从 '{env_var_name}' 加载。")
+                        logger.debug(
+                            f"  环境变量替换：列表索引 {i} (TomlString) 的元素已从 '{env_var_name}' 加载。"
+                        )
                     else:
                         logger.warning(
                             f"  环境变量警告：列表索引 {i} (TomlString) 的元素想用环境变量 '{env_var_name}', 但它也没设置。保留原样。"
@@ -286,15 +302,18 @@ def substitute_env_vars_recursive(  # 改为公开函数，因为 config_manager
         # 这种情况通常在外层容器的迭代中处理，但作为一种保险或直接调用时的处理
         # 这里我们不能直接修改 config_node，因为它是被传入的，可能需要返回新值
         # 但我们约定此函数是原地修改，所以这种情况可能较少直接触发，更多是在容器内处理
-        logger.warning(f"  环境变量替换：尝试替换独立的 TomlString '{config_node.value}'，但这通常在容器内完成。")
+        logger.warning(
+            f"  环境变量替换：尝试替换独立的 TomlString '{config_node.value}'，但这通常在容器内完成。"
+        )
 
 
 # --- 核心配置更新检查逻辑 ---
 
 
-def perform_config_update_check(io_handler: ConfigIOHandler, prompt_user_and_exit_fn: Callable[[str], None]) -> bool:
-    """
-    执行配置文件的核心检查和更新流程。小猫我可是专业的！而且现在更“淫荡”了！
+def perform_config_update_check(
+    io_handler: ConfigIOHandler, prompt_user_and_exit_fn: Callable[[str], None]
+) -> bool:
+    """执行配置文件的核心检查和更新流程。小猫我可是专业的！而且现在更“淫荡”了！
     返回一个布尔值，告诉你配置是不是刚刚新鲜出炉或者焕然一新了。
     """
     logger.debug("开始仔细检查和更新配置文件，请稍等片刻，小猫正在施展魔法...")
@@ -302,12 +321,16 @@ def perform_config_update_check(io_handler: ConfigIOHandler, prompt_user_and_exi
     config_was_created_or_updated: bool = False
 
     if not io_handler.template_exists():
-        message = f"天哪！配置文件模板 '{io_handler.template_path}' 居然不见了！程序没法继续了，嘤嘤嘤..."
+        message = (
+            f"天哪！配置文件模板 '{io_handler.template_path}' 居然不见了！程序没法继续了，嘤嘤嘤..."
+        )
         logger.critical(message)
         raise FileNotFoundError(message)
 
     if not io_handler.runtime_config_exists():
-        logger.info(f"运行时配置文件 '{io_handler.runtime_path}' 好像还没出生，让我从模板创造一个吧！")
+        logger.info(
+            f"运行时配置文件 '{io_handler.runtime_path}' 好像还没出生，让我从模板创造一个吧！"
+        )
         if io_handler.copy_template_to_runtime():
             config_was_created_or_updated = True
             logger.info("新的运行时配置文件已成功创建！撒花！✿✿ヽ(°▽°)ノ✿")
@@ -328,11 +351,15 @@ def perform_config_update_check(io_handler: ConfigIOHandler, prompt_user_and_exi
     actual_config_doc = io_handler.load_toml_file(io_handler.runtime_path)
 
     if actual_config_doc is None:
-        logger.warning(f"哎呀！现有的运行时配置文件 '{io_handler.runtime_path}' 可能坏掉了，读不出来。")
+        logger.warning(
+            f"哎呀！现有的运行时配置文件 '{io_handler.runtime_path}' 可能坏掉了，读不出来。"
+        )
         io_handler.backup_runtime_config(prefix="broken_")
         if io_handler.copy_template_to_runtime():
             config_was_created_or_updated = True
-            logger.info("已从模板重新创建了配置文件。你可能需要从那个标记为 'broken_' 的备份里找回你之前的设置哦。")
+            logger.info(
+                "已从模板重新创建了配置文件。你可能需要从那个标记为 'broken_' 的备份里找回你之前的设置哦。"
+            )
             # 同样，对新创建的进行环境变量替换
             recreated_config = io_handler.load_toml_file(io_handler.runtime_path)
             if recreated_config:
@@ -340,7 +367,9 @@ def perform_config_update_check(io_handler: ConfigIOHandler, prompt_user_and_exi
                 substitute_env_vars_recursive(recreated_config)
                 io_handler.save_toml_file(io_handler.runtime_path, recreated_config)
         else:
-            message = f"雪上加霜！从模板重新创建损坏的配置文件 '{io_handler.runtime_path}' 也失败了！"
+            message = (
+                f"雪上加霜！从模板重新创建损坏的配置文件 '{io_handler.runtime_path}' 也失败了！"
+            )
             logger.critical(message)
             prompt_user_and_exit_fn(message)
         return config_was_created_or_updated
@@ -352,7 +381,9 @@ def perform_config_update_check(io_handler: ConfigIOHandler, prompt_user_and_exi
         logger.critical(message)
         raise RuntimeError(message)
 
-    current_template_version = str(template_config_doc.get("inner", {}).get("version", EXPECTED_CONFIG_VERSION))
+    current_template_version = str(
+        template_config_doc.get("inner", {}).get("version", EXPECTED_CONFIG_VERSION)
+    )
     actual_runtime_version = str(actual_config_doc.get("inner", {}).get("version", "未知版本"))
 
     if actual_runtime_version == current_template_version:
@@ -362,7 +393,9 @@ def perform_config_update_check(io_handler: ConfigIOHandler, prompt_user_and_exi
         # 版本一致，但仍然需要处理环境变量占位符，以防上次启动时某些环境变量未设置
         logger.debug("即使版本一致，也检查一下运行时配置的环境变量占位符...")
         substitute_env_vars_recursive(actual_config_doc)  # 对用户当前的配置进行环境变量替换
-        io_handler.save_toml_file(io_handler.runtime_path, actual_config_doc)  # 保存可能替换后的结果
+        io_handler.save_toml_file(
+            io_handler.runtime_path, actual_config_doc
+        )  # 保存可能替换后的结果
         return False  # 版本相同，结构不更新，返回 False
 
     logger.info(
@@ -384,12 +417,18 @@ def perform_config_update_check(io_handler: ConfigIOHandler, prompt_user_and_exi
         substitute_env_vars_recursive(new_config_base_doc)  # 在保存前替换环境变量
 
         if io_handler.save_toml_file(io_handler.runtime_path, new_config_base_doc):
-            logger.info(f"配置文件已成功更新并融合旧值到 '{io_handler.runtime_path}'！完美！小猫爽翻了！")
+            logger.info(
+                f"配置文件已成功更新并融合旧值到 '{io_handler.runtime_path}'！完美！小猫爽翻了！"
+            )
             config_was_created_or_updated = True
         else:
-            logger.error(f"致命错误！保存融合后的配置文件 '{io_handler.runtime_path}' 失败了！程序可能要出问题了！")
+            logger.error(
+                f"致命错误！保存融合后的配置文件 '{io_handler.runtime_path}' 失败了！程序可能要出问题了！"
+            )
             # 此时可以考虑是否要恢复备份，或者强烈建议用户手动检查
     else:
-        logger.critical("致命错误！备份旧的运行时配置文件失败了！不敢继续更新了，怕弄丢主人的宝贝！")
+        logger.critical(
+            "致命错误！备份旧的运行时配置文件失败了！不敢继续更新了，怕弄丢主人的宝贝！"
+        )
 
     return config_was_created_or_updated

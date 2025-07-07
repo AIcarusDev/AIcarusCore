@@ -12,9 +12,7 @@ logger = get_logger("AIcarusCore.tools.search_service")
 
 
 class SearchService:
-    """
-    后宫总管现在手握“秘密通道”的钥匙，权力更大了！
-    """
+    """后宫总管现在手握“秘密通道”的钥匙，权力更大了!"""
 
     def __init__(self) -> None:
         # 读取“秘密通道”的配置
@@ -37,6 +35,14 @@ class SearchService:
         self.t2_engines = [DuckDuckGoEngine(proxies=proxy_url)]
 
     async def search(self, query: str, max_results: int = 5) -> list[dict[str, Any]]:
+        """执行搜索操作，返回结果列表.
+
+        Args:
+            query: 搜索关键词。
+            max_results: 返回的最大结果数量。
+        Returns:
+            搜索结果列表。
+        """
         logger.info(f"搜索服务收到请求: {query}")
 
         # 优先尝试 T1 引擎

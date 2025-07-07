@@ -11,8 +11,7 @@ logger = get_logger(__name__)
 
 
 class ThoughtPromptBuilder:
-    """
-    哼，专门负责构建思考时用的Prompt，别来烦我。
+    """哼，专门负责构建思考时用的Prompt，别来烦我。
     我只负责拼接，材料都让 state_manager 和 unread_info_service 给我准备好。
     """
 
@@ -21,9 +20,7 @@ class ThoughtPromptBuilder:
         unread_info_service: UnreadInfoService,
         state_manager: AIStateManager,
     ) -> None:
-        """
-        初始化 ThoughtPromptBuilder。
-        """
+        """初始化 ThoughtPromptBuilder."""
         self.unread_info_service = unread_info_service
         self.state_manager = state_manager
         # 缓存机器人档案，免得每次都查
@@ -33,7 +30,7 @@ class ThoughtPromptBuilder:
         }
 
     async def _get_bot_profile(self) -> dict[str, str | None]:
-        """获取并缓存机器人档案，懒得每次都去问。"""
+        """获取并缓存机器人档案，懒得每次都去问."""
         # 简单实现：目前只从config读。未来可以扩展成从适配器动态获取。
         if not self.bot_profile_cache.get("id"):
             self.bot_profile_cache["id"] = config.persona.qq_id
@@ -41,9 +38,7 @@ class ThoughtPromptBuilder:
         return self.bot_profile_cache
 
     async def build_prompts(self, current_time_str: str) -> tuple[str, str, dict[str, Any]]:
-        """
-        构建System和User的Prompt，返回一个包含所有填充块的字典。
-        """
+        """构建System和User的Prompt，返回一个包含所有填充块的字典."""
         # 1. 准备 System Prompt 的材料
         bot_profile = await self._get_bot_profile()
         system_prompt = prompt_templates.CORE_SYSTEM_PROMPT.format(

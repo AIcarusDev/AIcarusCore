@@ -21,7 +21,9 @@ from .llm_response_handler import LLMResponseHandler
 from .summarization_manager import SummarizationManager
 
 if TYPE_CHECKING:
-    from src.common.intelligent_interrupt_system.intelligent_interrupter import IntelligentInterrupter
+    from src.common.intelligent_interrupt_system.intelligent_interrupter import (
+        IntelligentInterrupter,
+    )
     from src.common.summarization_observation.summarization_service import SummarizationService
     from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
     from src.database.services.summary_storage_service import SummaryStorageService
@@ -34,9 +36,7 @@ logger = get_logger(__name__)
 
 
 class ChatSession:
-    """
-    管理单个专注聊天会话的状态和逻辑。
-    """
+    """管理单个专注聊天会话的状态和逻辑."""
 
     def __init__(
         self,
@@ -69,7 +69,9 @@ class ChatSession:
         self.summarization_service = summarization_service
         self.summary_storage_service = summary_storage_service
         self.intelligent_interrupter: IntelligentInterrupter = intelligent_interrupter
-        self.thought_storage_service: ThoughtStorageService = thought_storage_service  # 哼，新来的！
+        self.thought_storage_service: ThoughtStorageService = (
+            thought_storage_service  # 哼，新来的！
+        )
 
         # --- 模块化组件 --
         self.action_executor = ActionExecutor(self)
@@ -120,14 +122,14 @@ class ChatSession:
 
     # // 这就是我们新的“情报获取术”，喵~ 【小色猫·直捣黄龙·最终版】
     async def get_conversation_details(self) -> dict[str, Any]:
-        """
-        智能获取会话的详细信息，比如成员数。
+        """智能获取会话的详细信息，比如成员数。
         有缓存就用缓存，没有或者过期了就去问，懒得每次都问。
         哼，这次我直接告诉 ActionHandler 我要用哪个姿势，一步到胃！
         """
         # 1. 先看看脑子里有没有，并且还没发霉 (这部分逻辑不变，缓存是好文明！)
         if self.conversation_details_cache and (
-            time.time() - self.last_details_update_time < CONVERSATION_DETAILS_CACHE_EXPIRATION_SECONDS
+            time.time() - self.last_details_update_time
+            < CONVERSATION_DETAILS_CACHE_EXPIRATION_SECONDS
         ):
             logger.debug(f"[{self.conversation_id}] 使用缓存的会话详情。")
             return self.conversation_details_cache
@@ -159,7 +161,9 @@ class ChatSession:
                 )
         else:
             # 如果不成功，result_payload 就是错误信息字符串
-            logger.error(f"[{self.conversation_id}] 通过 execute_simple_action 获取群聊详情失败: {result_payload}")
+            logger.error(
+                f"[{self.conversation_id}] 通过 execute_simple_action 获取群聊详情失败: {result_payload}"
+            )
 
         if details:
             # 问到了！赶紧记下来！
@@ -169,12 +173,13 @@ class ChatSession:
             return details
 
         # 如果连问都问不到，就用旧的缓存（总比没有好）
-        logger.warning(f"[{self.conversation_id}] 无法获取新的会话详情，将使用旧的缓存（如果存在）。")
+        logger.warning(
+            f"[{self.conversation_id}] 无法获取新的会话详情，将使用旧的缓存（如果存在）。"
+        )
         return self.conversation_details_cache or {}
 
     async def update_counters_on_new_events(self) -> None:
-        """
-        根据新消息重置计数器。
+        """根据新消息重置计数器。
         如果检测到有别人说话，就重置我（机器人）的连续发言计数。
         """
         new_events = await self.event_storage.get_message_events_after_timestamp(
@@ -207,19 +212,22 @@ class ChatSession:
                 break
 
     async def get_bot_profile(self) -> dict[str, Any]:
-        """
-        智能获取机器人档案，优先使用缓存，再查数据库。
+        """智能获取机器人档案，优先使用缓存，再查数据库。
         哼，这才叫高效的懒！【小色猫最终治愈版】
         """
         # 1. 检查短期记忆（内存缓存）是否有效
-        if self.bot_profile_cache and (time.time() - self.last_profile_update_time < CACHE_EXPIRATION_SECONDS):
+        if self.bot_profile_cache and (
+            time.time() - self.last_profile_update_time < CACHE_EXPIRATION_SECONDS
+        ):
             logger.debug(f"[{self.conversation_id}] 使用内存缓存的机器人档案。")
             return self.bot_profile_cache
 
         # 2. 尝试从长期记忆（数据库）加载
         #    这是我们最可靠的信息来源，由“上线安检”和“档案更新通知”来维护
         # TODO: 优化缓存机制，全部改为直接从数据库中读取
-        conv_doc = await self.conversation_service.get_conversation_document_by_id(self.conversation_id)
+        conv_doc = await self.conversation_service.get_conversation_document_by_id(
+            self.conversation_id
+        )
         if conv_doc and conv_doc.get("bot_profile_in_this_conversation"):
             db_profile = conv_doc["bot_profile_in_this_conversation"]
             if db_profile:
@@ -244,11 +252,13 @@ class ChatSession:
         self,
         core_motivation: str | None = None,  # // 只接收动机
     ) -> None:
-        """激活会话并启动其主动循环。"""
+        """激活会话并启动其主动循环."""
         if self.is_active:
             self.is_first_turn_for_session = True
             self.initial_core_motivation = core_motivation
-            logger.info(f"[ChatSession][{self.conversation_id}] 会话已激活，但收到新的激活指令，重置为第一轮思考。")
+            logger.info(
+                f"[ChatSession][{self.conversation_id}] 会话已激活，但收到新的激活指令，重置为第一轮思考。"
+            )
             self.cycler.wakeup()  # 唤醒循环，让它立刻开始
             return
 
@@ -273,8 +283,7 @@ class ChatSession:
         asyncio.create_task(self.cycler.start())
 
     def deactivate(self) -> None:
-        """
-        发起停用流程。
+        """发起停用流程。
         这只是一个信号，真正的关闭逻辑在 shutdown 里。
         """
         if not self.is_active:
@@ -290,8 +299,7 @@ class ChatSession:
             asyncio.create_task(self.shutdown())
 
     async def shutdown(self) -> None:
-        """
-        执行并等待会话的优雅关闭。
+        """执行并等待会话的优雅关闭。
         由 deactivate 触发，或者在 cycler 结束后调用。
         """
         if not self.is_active and not self.cycler._loop_active:

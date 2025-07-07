@@ -3,7 +3,6 @@ import asyncio
 from typing import TYPE_CHECKING
 
 from aicarus_protocols import UserInfo as ProtocolUserInfo
-
 from src.common.custom_logging.logging_config import get_logger
 from src.database.services.person_storage_service import SELF_PERSON_ID
 
@@ -18,8 +17,7 @@ logger = get_logger(__name__)
 async def inspect_and_initialize_self_profile(
     person_service: "PersonStorageService", action_handler: "ActionHandler", platform_id: str
 ) -> bool:
-    """
-    检查并初始化机器人自身在特定平台上的档案。
+    """检查并初始化机器人自身在特定平台上的档案。
     这是一个独立的异步函数，在适配器连接后被调用。
 
     Args:
@@ -36,7 +34,9 @@ async def inspect_and_initialize_self_profile(
     persons_collection = await person_service._get_collection("persons")
     if await persons_collection.has(SELF_PERSON_ID):
         # TODO: 未来可以在这里加入“定期复查”的逻辑
-        logger.info(f"核心档案 '{SELF_PERSON_ID}' 已存在。未来可在此处添加对平台 '{platform_id}' 信息的更新检查。")
+        logger.info(
+            f"核心档案 '{SELF_PERSON_ID}' 已存在。未来可在此处添加对平台 '{platform_id}' 信息的更新检查。"
+        )
         return True
 
     logger.info("未发现自身核心档案，启动首次检查流程。")
@@ -52,14 +52,18 @@ async def inspect_and_initialize_self_profile(
     # --- 修改结束 ---
 
     if not success or not profile_data or not isinstance(profile_data, dict):
-        logger.critical(f"检查失败！无法从平台 '{platform_id}' 获取自身基础档案。返回: {profile_data}")
+        logger.critical(
+            f"检查失败！无法从平台 '{platform_id}' 获取自身基础档案。返回: {profile_data}"
+        )
         return False
 
     bot_qq_id = profile_data.get("user_id")
     bot_nickname = profile_data.get("nickname")
 
     if not bot_qq_id or not bot_nickname:
-        logger.critical(f"检查失败！适配器返回的档案不完整。ID: {bot_qq_id}, Nickname: {bot_nickname}")
+        logger.critical(
+            f"检查失败！适配器返回的档案不完整。ID: {bot_qq_id}, Nickname: {bot_nickname}"
+        )
         return False
 
     logger.success(f"获取到自身ID: {bot_qq_id}, 昵称: {bot_nickname}")

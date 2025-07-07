@@ -1,7 +1,11 @@
 # src/database/__init__.py
 
 # 导出连接管理器、新的服务类、以及相关的核心模型和常量类
-from .core.connection_manager import ArangoDBConnectionManager, CoreDBCollections, StandardCollection
+from .core.connection_manager import (
+    ArangoDBConnectionManager,
+    CoreDBCollections,
+    StandardCollection,
+)
 from .models import (
     AccountDocument,
     ActionRecordDocument,

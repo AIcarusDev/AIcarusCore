@@ -23,8 +23,7 @@ class ThoughtGenerator:
         image_inputs: list[str],
         response_schema: dict[str, Any] | None = None,  # <--- 看这里！我给它加上了！
     ) -> dict[str, Any] | None:
-        """
-        调用LLM生成思考结果，并解析响应。
+        """调用LLM生成思考结果，并解析响应。
         确保 response_schema 被正确传递。
         """
         try:
@@ -59,7 +58,9 @@ class ThoughtGenerator:
             # 在这里，我们给生成的思考结果也加上唯一的ID，方便追踪
             if "action" in parsed_json and isinstance(parsed_json["action"], dict):
                 # 如果有动作，就用 action_id 作为整个思考的ID
-                parsed_json["thought_id"] = parsed_json.get("action", {}).get("action_id", str(uuid.uuid4()))
+                parsed_json["thought_id"] = parsed_json.get("action", {}).get(
+                    "action_id", str(uuid.uuid4())
+                )
             else:
                 parsed_json["thought_id"] = str(uuid.uuid4())
 

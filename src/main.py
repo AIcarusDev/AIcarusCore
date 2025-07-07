@@ -46,6 +46,46 @@ logger = get_logger(__name__)
 
 
 class CoreSystemInitializer:
+    """核心系统初始化器，负责 AIcarus Core 系统的所有核心组件初始化流程.
+
+    这个类就像是一个总指挥，负责协调所有核心组件的初始化工作。
+    它会确保所有必要的服务、LLM客户端、通信层和核心逻辑都被正确地创建和配置。
+    这个类的实例应该在系统启动时创建，并调用 `initialize` 方法来执行初始化流程。
+
+    Attributes:
+        conn_manager: ArangoDBConnectionManager | None - 数据库连接管理器实例。
+        event_storage_service: EventStorageService | None - 事件存储服务实例。
+        conversation_storage_service: ConversationStorageService | None - 会话存储服务实例。
+        thought_storage_service: ThoughtStorageService | None - 思想存储服务实例。
+        action_log_service: ActionLogStorageService | None - 行动日志存储服务实例。
+        summary_storage_service: SummaryStorageService | None - 摘要存储服务实例。
+        person_storage_service: PersonStorageService | None - 人物存储服务实例。
+        main_consciousness_llm_client: ProcessorClient | None - 主意识 LLM 客户端实例。
+        summary_llm_client: ProcessorClient | None - 摘要 LLM 客户端实例。
+        intrusive_thoughts_llm_client: ProcessorClient | None - 入侵性思维 LLM 客户端实例。
+        focused_chat_llm_client: ProcessorClient | None - 专注聊天 LLM 客户端实例。
+        web_search_agent_client: ProcessorClient | None - 新增的网络搜索代理 LLM 客户端实例。
+        core_comm_layer: CoreWebsocketServer | None - 核心通信层实例。
+        message_processor: DefaultMessageProcessor | None - 默认消息处理器实例。
+        action_handler_instance: ActionHandler | None - 动作处理器实例。
+        intrusive_generator_instance: IntrusiveThoughtsGenerator | None - 入侵性思维生成器实例。
+        core_logic_instance: CoreLogicFlow | None - 核心逻辑流程实例。
+        qq_chat_session_manager: ChatSessionManager | None - QQ聊天会话管理器实例。
+        unread_info_service: UnreadInfoService | None - 未读信息服务实例。
+        summarization_service: SummarizationService | None - 摘要服务实例。
+        state_manager_instance: AIStateManager | None - AI状态管理器实例。
+        thought_prompt_builder_instance: ThoughtPromptBuilder | None - 思想提示构建器实例。
+        iis_builder_instance: IISBuilder | None - 中断判断系统构建器实例。
+        interrupt_model_instance: IntelligentInterrupter | None - 智能中断判断模型实例。
+        semantic_model_instance: SemanticModel | None - 语义模型实例。
+        context_builder_instance: ContextBuilder | None - 上下文构建器实例。
+        thought_generator_instance: ThoughtGenerator | None - 思想生成器实例。
+        thought_persistor_instance: ThoughtPersistor | None - 思想持久化器实例。
+        intrusive_thread: threading.Thread | None - 入侵性思维生成线程实例。
+        stop_event: threading.Event - 停止事件，用于控制线程停止。
+        immediate_thought_trigger: asyncio.Event - 立即触发思想生成的事件。
+    """
+
     def __init__(self) -> None:
         self.conn_manager: ArangoDBConnectionManager | None = None
         self.event_storage_service: EventStorageService | None = None
@@ -93,10 +133,16 @@ class CoreSystemInitializer:
             try:
                 keys_from_env = json.loads(env_val_abandoned)
                 if isinstance(keys_from_env, list):
-                    resolved_abandoned_keys = [str(k).strip() for k in keys_from_env if str(k).strip()]
+                    resolved_abandoned_keys = [
+                        str(k).strip() for k in keys_from_env if str(k).strip()
+                    ]
             except json.JSONDecodeError:
-                logger.warning(f"环境变量 'LLM_ABANDONED_KEYS' 非有效JSON列表: {env_val_abandoned[:50]}...")
-                resolved_abandoned_keys = [k.strip() for k in env_val_abandoned.split(",") if k.strip()]
+                logger.warning(
+                    f"环境变量 'LLM_ABANDONED_KEYS' 非有效JSON列表: {env_val_abandoned[:50]}..."
+                )
+                resolved_abandoned_keys = [
+                    k.strip() for k in env_val_abandoned.split(",") if k.strip()
+                ]
             if not resolved_abandoned_keys and env_val_abandoned.strip():
                 resolved_abandoned_keys = [env_val_abandoned.strip()]
 
@@ -109,13 +155,18 @@ class CoreSystemInitializer:
                     "model": {"provider": cfg.provider.upper(), "name": cfg.model_name},
                     **vars(general_llm_settings_obj),
                     **{
-                        k: v for k, v in vars(cfg).items() if v is not None and k not in ["provider", "model_name"]
+                        k: v
+                        for k, v in vars(cfg).items()
+                        if v is not None and k not in ["provider", "model_name"]
                     },  # Add specific params
                 }
                 if resolved_abandoned_keys:
                     args["abandoned_keys_config"] = resolved_abandoned_keys
                 client = ProcessorClient(**{k: v for k, v in args.items() if v is not None})
-                logger.info(f"为用途 '{purpose}' 创建 ProcessorClient 成功 (模型: {client.llm_client.model_name})。")
+                logger.info(
+                    f"为用途 '{purpose}' 创建 ProcessorClient 成功 (模型: ",
+                    f"{client.llm_client.model_name})。",
+                )
                 return client
             except Exception as e:
                 logger.error(f"为用途 '{purpose}' 创建LLM客户端失败: {e}", exc_info=True)
@@ -124,12 +175,16 @@ class CoreSystemInitializer:
         if not config.llm_models:
             raise RuntimeError("[llm_models] 配置块缺失。")
         models = config.llm_models
-        self.main_consciousness_llm_client = _create_client(models.main_consciousness, "main_consciousness")
+        self.main_consciousness_llm_client = _create_client(
+            models.main_consciousness, "main_consciousness"
+        )
         self.summary_llm_client = _create_client(models.information_summary, "information_summary")
         # 初始化新的搜索代理客户端
         self.web_search_agent_client = _create_client(models.web_search_agent, "web_search_agent")
         if config.intrusive_thoughts_module_settings.enabled:
-            self.intrusive_thoughts_llm_client = _create_client(models.intrusive_thoughts, "intrusive_thoughts")
+            self.intrusive_thoughts_llm_client = _create_client(
+                models.intrusive_thoughts, "intrusive_thoughts"
+            )
         if config.focus_chat_mode.enabled:
             self.focused_chat_llm_client = _create_client(models.focused_chat, "focused_chat")
 
@@ -141,7 +196,8 @@ class CoreSystemInitializer:
 
     async def _initialize_database_and_services(self) -> None:
         self.conn_manager = await ArangoDBConnectionManager.create_from_config(
-            config.database, core_collection_configs=CoreDBCollections.get_all_core_collection_configs()
+            config.database,
+            core_collection_configs=CoreDBCollections.get_all_core_collection_configs(),
         )
         if not self.conn_manager or not self.conn_manager.db:
             raise RuntimeError("数据库连接管理器初始化失败。")
@@ -170,7 +226,7 @@ class CoreSystemInitializer:
         logger.info("所有核心数据存储服务均已初始化。")
 
     async def _initialize_interrupt_model(self) -> None:
-        """初始化我们的中断判断模型和其依赖（最终完美对接版）"""
+        """初始化我们的中断判断模型和其依赖."""
         if not self.event_storage_service:
             raise RuntimeError("EventStorageService 未初始化，无法构建记忆模型。")
 
@@ -186,7 +242,9 @@ class CoreSystemInitializer:
 
         # 4. 从config加载我们需要的配置，并以正确的姿势准备好！
         interrupt_config = config.interrupt_model
-        speaker_weights_dict = {entry.id: entry.weight for entry in interrupt_config.speaker_weights}
+        speaker_weights_dict = {
+            entry.id: entry.weight for entry in interrupt_config.speaker_weights
+        }
         if "default" not in speaker_weights_dict:
             speaker_weights_dict["default"] = 1.0
         objective_keywords_list = interrupt_config.objective_keywords
@@ -204,6 +262,7 @@ class CoreSystemInitializer:
         logger.info("=== 中断判断模型（小色猫·无状态版）已成功初始化！我已准备好随时被调用！ ===")
 
     async def initialize(self) -> None:
+        """执行 AIcarus Core 系统的初始化流程."""
         logger.info("=== AIcarus Core 系统开始核心组件初始化流程... ===")
         try:
             platform_builder_registry.discover_and_register_builders(platform_builders)
@@ -280,12 +339,15 @@ class CoreSystemInitializer:
                         summarization_service=self.summarization_service,
                         summary_storage_service=self.summary_storage_service,
                         intelligent_interrupter=self.interrupt_model_instance,
-                        thought_storage_service=self.thought_storage_service,  # 把思想链服务也给它！
-                        core_logic=None,  # CoreLogic 后面再注入
+                        thought_storage_service=self.thought_storage_service,
+                        core_logic=None,
                     )
                     logger.info("ChatSessionManager 初始化完成，并已成功注入智能打断系统。")
                 else:
-                    logger.warning("ChatSessionManager 依赖不足（可能缺少LLM客户端或智能打断模型），无法初始化。")
+                    logger.warning(
+                        "ChatSessionManager 依赖不足（可能缺少LLM客户端或智能打断模型）",
+                        "，无法初始化。",
+                    )
                     self.qq_chat_session_manager = None
             else:
                 self.qq_chat_session_manager = None
@@ -341,7 +403,10 @@ class CoreSystemInitializer:
                 action_handler_instance=self.action_handler_instance,
                 person_service=self.person_storage_service,
             )
-            logger.info(f"CoreWebsocketServer 准备在 ws://{config.server.host}:{config.server.port} 上监听。")
+            logger.info(
+                "CoreWebsocketServer 准备在 ",
+                f"ws://{config.server.host}:{config.server.port} 上监听。",
+            )
 
             self.context_builder_instance = ContextBuilder(
                 event_storage=self.event_storage_service,
@@ -366,10 +431,14 @@ class CoreSystemInitializer:
             else:
                 logger.info("侵入性思维模块未启用。")
 
-            self.thought_generator_instance = ThoughtGenerator(llm_client=self.main_consciousness_llm_client)
+            self.thought_generator_instance = ThoughtGenerator(
+                llm_client=self.main_consciousness_llm_client
+            )
             logger.info("ThoughtGenerator 初始化成功。")
 
-            self.thought_persistor_instance = ThoughtPersistor(thought_storage=self.thought_storage_service)
+            self.thought_persistor_instance = ThoughtPersistor(
+                thought_storage=self.thought_storage_service
+            )
             logger.info("ThoughtPersistor 初始化成功。")
 
             # 10. 最终组装 CoreLogic！
@@ -418,25 +487,36 @@ class CoreSystemInitializer:
             raise
 
     async def start(self) -> None:
+        """启动 AIcarus Core 系统的核心逻辑和通信层."""
         if not self.core_logic_instance or not self.core_comm_layer:
             logger.critical("核心组件未完全初始化，系统无法启动。")
             return
 
         all_tasks: list[asyncio.Task] = []
         try:
-            if self.intrusive_generator_instance and config.intrusive_thoughts_module_settings.enabled:
-                self.intrusive_thread = self.intrusive_generator_instance.start_background_generation()
+            if (
+                self.intrusive_generator_instance
+                and config.intrusive_thoughts_module_settings.enabled
+            ):
+                self.intrusive_thread = (
+                    self.intrusive_generator_instance.start_background_generation()
+                )
                 if self.intrusive_thread:
                     logger.info("侵入性思维后台线程已启动。")
 
             if self.core_comm_layer:
-                all_tasks.append(asyncio.create_task(self.core_comm_layer.start(), name="CoreWSServer"))
+                all_tasks.append(
+                    asyncio.create_task(self.core_comm_layer.start(), name="CoreWSServer")
+                )
             if self.core_logic_instance:
-                all_tasks.append(await self.core_logic_instance.start_thinking_loop())  # This returns a task
+                all_tasks.append(
+                    await self.core_logic_instance.start_thinking_loop()
+                )  # This returns a task
             if self.qq_chat_session_manager and config.focus_chat_mode.enabled:
                 all_tasks.append(
                     asyncio.create_task(
-                        self.qq_chat_session_manager.run_periodic_deactivation_check(), name="ChatDeactivation"
+                        self.qq_chat_session_manager.run_periodic_deactivation_check(),
+                        name="ChatDeactivation",
                     )
                 )
 
@@ -478,6 +558,7 @@ class CoreSystemInitializer:
             await self.shutdown()
 
     async def shutdown(self) -> None:
+        """执行 AIcarus Core 系统的关闭流程."""
         logger.info("--- 正在执行 AIcarus Core 系统关闭流程 ---")
         self.stop_event.set()
 
@@ -523,6 +604,7 @@ class CoreSystemInitializer:
 
 
 async def start_core_system() -> None:
+    """启动 AIcarus Core 系统的入口函数."""
     initializer = CoreSystemInitializer()
     try:
         await initializer.initialize()

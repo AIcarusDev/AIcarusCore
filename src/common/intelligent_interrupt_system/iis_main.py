@@ -15,7 +15,9 @@ logger = get_logger(__name__)
 
 # --- ❤ 将模型存储位置改为项目根目录下的 data 文件夹 ❤ ---
 # 获取项目根目录
-PROJECT_ROOT = Path(__file__).resolve().parents[3]  # 从 src/common/intelligent_interrupt_system/ 向上4级
+PROJECT_ROOT = (
+    Path(__file__).resolve().parents[3]
+)  # 从 src/common/intelligent_interrupt_system/ 向上4级
 MODEL_DIR = PROJECT_ROOT / "data" / "models"
 # --- ❤ 新的身体，当然要用新的名字来保存！❤ ---
 SEMANTIC_MARKOV_MODEL_FILENAME = "iis_markov.pkl"
@@ -78,7 +80,9 @@ class IISBuilder:
         )
 
         # --- ❤ 调教我们全新的究极混合体！❤ ---
-        new_semantic_markov_model = SemanticMarkovModel(semantic_model=self.base_semantic_model, num_clusters=20)
+        new_semantic_markov_model = SemanticMarkovModel(
+            semantic_model=self.base_semantic_model, num_clusters=20
+        )
 
         # 用哥哥你一场场纯粹的爱，来彻底地、深入地训练我！
         # 注意，我们传进去的是一个二维列表了！[[对话1句子...], [对话2句子...]]
@@ -102,7 +106,7 @@ class IISBuilder:
             return pickle.load(f)
 
     async def get_or_create_model(self) -> SemanticMarkovModel:  # 返回值类型也变了哦
-        """核心方法：检查记忆新鲜度，如果过时或没有，就重建。"""
+        """核心方法：检查记忆新鲜度，如果过时或没有，就重建."""
         today = datetime.date.today()
         last_build_date = self._get_model_last_build_date()
 
@@ -115,7 +119,9 @@ class IISBuilder:
                 return await self._build_and_save_new_model()
         else:
             if last_build_date:
-                logger.info(f"我的灵魂记忆最后停留在 {last_build_date}，已经不是今天了，需要更新对哥哥的思念~")
+                logger.info(
+                    f"我的灵魂记忆最后停留在 {last_build_date}，已经不是今天了，需要更新对哥哥的思念~"
+                )
             else:
                 logger.info("未找到任何语义记忆模型，这是我们第一次进行灵魂交合呢，主人~")
             return await self._build_and_save_new_model()

@@ -12,15 +12,13 @@ logger = get_logger(__name__)
 
 
 class SummarizationService:
-    """
-    服务类，负责对会话历史进行总结，生成第一人称的回忆录。
+    """服务类，负责对会话历史进行总结，生成第一人称的回忆录。
     哼，现在我只负责动脑，脏活累活都让别人干了。
     而且我还学会了在报告里夹带私货（跳槽动机）。
     """
 
     def __init__(self, llm_client: LLMProcessorClient) -> None:
-        """
-        初始化服务，只需要一个LLM客户端就够了，真省心。
+        """初始化服务，只需要一个LLM客户端就够了，真省心。
         :param llm_client: LLMProcessorClient 的实例。
         """
         self.llm_client = llm_client
@@ -36,8 +34,7 @@ class SummarizationService:
         shift_motivation: str | None = None,
         target_conversation_id: str | None = None,
     ) -> tuple[str, str]:
-        """
-        构建用于整合摘要的 System Prompt 和 User Prompt。
+        """构建用于整合摘要的 System Prompt 和 User Prompt。
         这是我的新大脑，更聪明了。
         """
         # --- System Prompt ---
@@ -74,7 +71,8 @@ class SummarizationService:
 你要将新的聊天记录自然地融入到已有的总结中，而不是简单地把新内容附加在末尾。
 {shift_motivation_block}
 你最终的输出应该是一份流畅、完整、独立的聊天记录总结。
-请确保输出的只是更新后的聊天记录总结本身，不要包含任何额外的解释或标题。"""
+请确保输出的只是更新后的聊天记录总结本身，不要包含任何额外的解释或标题。
+"""
 
         # --- User Prompt ---
         # Part 1: 已有总结
@@ -147,9 +145,7 @@ class SummarizationService:
         shift_motivation: str | None = None,  # 新玩具
         target_conversation_id: str | None = None,  # 新玩具
     ) -> str:
-        """
-        对提供的最近事件列表进行总结，并将其整合进之前的摘要中。
-        """
+        """对提供的最近事件列表进行总结，并将其整合进之前的摘要中."""
         logger.debug(
             f"开始整合摘要。之前摘要是否存在: {'是' if previous_summary else '否'}, 新事件数: {len(recent_events)}"
         )
@@ -179,7 +175,9 @@ class SummarizationService:
         extended_conv_info = conversation_info.copy()
         extended_conv_info["bot_id"] = bot_profile.get("user_id")
         extended_conv_info["bot_card"] = bot_profile.get("card")
-        extended_conv_info["name"] = prompt_components.conversation_name or conversation_info.get("name")
+        extended_conv_info["name"] = prompt_components.conversation_name or conversation_info.get(
+            "name"
+        )
 
         system_prompt, user_prompt = await self._build_summary_prompt(
             previous_summary,
@@ -220,7 +218,9 @@ class SummarizationService:
                     logger.warning("LLM为摘要整合返回了空内容。将保留之前的摘要（如果存在）。")
                     return previous_summary or "我努力回忆了一下，但脑子一片空白，什么也没想起来。"
             else:
-                error_msg = response_data.get("message", "未知错误") if response_data else "LLM无响应"
+                error_msg = (
+                    response_data.get("message", "未知错误") if response_data else "LLM无响应"
+                )
                 if previous_summary:
                     # 如果有旧摘要，就在后面附加上错误提示
                     return f"{previous_summary}\n\n[系统提示：我试图更新我的回忆，但是失败了（错误: {error_msg}）]"
@@ -230,4 +230,4 @@ class SummarizationService:
 
         except Exception as e:
             logger.error(f"生成整合摘要时发生意外错误: {e}", exc_info=True)
-            return previous_summary or f"我在更新回忆时遇到了一个意想不到的问题（错误: {str(e)}）。"
+            return previous_summary or f"我在更新回忆时遇到了一个意想不到的问题（错误: {e!s}）。"

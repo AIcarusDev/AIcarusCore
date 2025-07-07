@@ -11,13 +11,23 @@ logger = get_logger(__name__)
 
 
 class PlatformBuilderRegistry:
+    """平台构建器注册中心，负责发现和管理所有平台构建器实例.
+
+    这个中介所就像是一个翻译官的登记处，负责管理所有平台的翻译官。
+    它会自动扫描指定的包，找到所有继承自 BasePlatformBuilder 的类，并实例化它们。
+    这样，当需要处理某个平台的请求时，就可以通过平台ID快速找到对应的翻译官。
+
+    Attributes:
+        _builders: dict[str, BasePlatformBuilder] - 存储所有已注册的平台构建器实例。
+        这个字典的键是平台ID，值是对应的 BasePlatformBuilder 实例。
+        这样可以快速通过平台ID获取对应的翻译官实例。
+    """
+
     def __init__(self) -> None:
         self._builders: dict[str, BasePlatformBuilder] = {}
 
     def discover_and_register_builders(self, package: any) -> None:  # 使用 any 兼容旧的调用
-        """
-        自动扫描指定包，把所有翻译官都找出来登记。
-        """
+        """自动扫描指定包，把所有翻译官都找出来登记."""
         logger.info("中介所开门了，正在寻找所有持证上岗的翻译官...")
         for _, name, _ in pkgutil.iter_modules(package.__path__, package.__name__ + "."):
             if name.endswith("_builder"):
@@ -38,18 +48,23 @@ class PlatformBuilderRegistry:
         logger.info(f"中介所登记完毕，目前共有 {len(self._builders)} 位翻译官在岗。")
 
     def get_builder(self, platform_id: str) -> BasePlatformBuilder | None:
-        """根据平台ID，找一个翻译官出来干活。"""
+        """根据平台ID，找一个翻译官出来干活."""
         return self._builders.get(platform_id)
 
     def get_all_builders(self) -> dict[str, BasePlatformBuilder]:
-        """返回所有已注册的翻译官实例。"""
+        """返回所有已注册的翻译官实例."""
         return self._builders.copy()
 
-    # --- ❤❤❤ 全新的方法！用来收集所有平台的“服务价目表”！❤❤❤ ---
     def get_all_action_definitions(self) -> dict[str, Any]:
-        """
-        把所有在岗翻译官的“服务价目表”都收上来，打包成一个大的字典。
-        这是给 ActionHandler 用来构建给LLM的超级工具的。
+        """获取所有平台的动作定义.
+
+        返回一个字典，键是平台ID，值是该平台的动作定义。
+        每个平台的动作定义是一个字典，包含动作类型、描述和属性等信息。
+        这样可以方便地获取所有平台的动作定义，供其他模块使用。
+
+        Returns:
+            dict[str, Any]: 包含所有平台动作定义的字典。
+            键是平台ID，值是该平台的动作定义。
         """
         all_definitions = {}
         for platform_id, builder in self._builders.items():

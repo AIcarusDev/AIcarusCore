@@ -7,7 +7,6 @@ from arangoasync.exceptions import (
     DocumentUpdateError,
     TransactionAbortError,
 )
-
 from src.common.custom_logging.logging_config import get_logger
 from src.database import ArangoDBConnectionManager
 
@@ -20,8 +19,7 @@ LATEST_THOUGHT_POINTER_KEY = "latest_thought_pointer"
 
 
 class ThoughtStorageService:
-    """
-    服务类，负责管理“思想点链”的存储操作。
+    """服务类，负责管理“思想点链”的存储操作。
     它现在是AI意识流连续性的核心保障。
     """
 
@@ -34,13 +32,16 @@ class ThoughtStorageService:
         self.action_edge_coll_name = CoreDBCollections.LEADS_TO_ACTION
         self.intrusive_pool_coll_name = CoreDBCollections.INTRUSIVE_POOL_COLLECTION
         self.main_thoughts_coll_name = CoreDBCollections.THOUGHTS_LEGACY
-        logger.info(f"ThoughtStorageService (思想链版) 初始化完毕，将操作集合 '{self.thoughts_coll_name}'。")
+        logger.info(
+            f"ThoughtStorageService (思想链版) 初始化完毕，将操作集合 '{self.thoughts_coll_name}'。"
+        )
 
     async def initialize_infrastructure(self) -> None:
-        """确保与思考相关的集合和图都已创建。"""
+        """确保与思考相关的集合和图都已创建."""
         # 确保思想链和状态指针集合存在
         await self.conn_manager.ensure_collection_with_indexes(
-            self.thoughts_coll_name, CoreDBCollections.INDEX_DEFINITIONS.get(self.thoughts_coll_name, [])
+            self.thoughts_coll_name,
+            CoreDBCollections.INDEX_DEFINITIONS.get(self.thoughts_coll_name, []),
         )
         await self.conn_manager.ensure_collection_with_indexes(
             self.state_coll_name,
@@ -52,12 +53,12 @@ class ThoughtStorageService:
         # 这里只是再次确认一下，确保万无一失
         if not self.conn_manager.main_graph:
             # 如果图还没初始化，就在这里提醒一下
-            logger.warning("主图未在ThoughtStorageService初始化时就绪，依赖于上游的 ensure_core_infrastructure 调用。")
+            logger.warning(
+                "主图未在ThoughtStorageService初始化时就绪，依赖于上游的 ensure_core_infrastructure 调用。"
+            )
 
     async def save_thought_and_link(self, thought_data: ThoughtChainDocument) -> str | None:
-        """
-        神谕·最终形态：使用流式事务来保证原子性和规避AQL限制。
-        """
+        """神谕·最终形态：使用流式事务来保证原子性和规避AQL限制."""
         # 《arangoasync 踩坑大全（小懒猫）》
         # 陷阱一：天大的误会——AQL事务的幻觉
         # 坑是什么：
@@ -249,10 +250,14 @@ class ThoughtStorageService:
             # 步骤 6: 更新指针
             # UPSERT逻辑在python里实现：先尝试更新，失败则插入
             try:
-                await state_coll.update({"_key": LATEST_THOUGHT_POINTER_KEY, "latest_thought_key": new_thought_key})
+                await state_coll.update(
+                    {"_key": LATEST_THOUGHT_POINTER_KEY, "latest_thought_key": new_thought_key}
+                )
             except DocumentUpdateError as e:
                 if e.error_code == 1202:  # Document not found
-                    await state_coll.insert({"_key": LATEST_THOUGHT_POINTER_KEY, "latest_thought_key": new_thought_key})
+                    await state_coll.insert(
+                        {"_key": LATEST_THOUGHT_POINTER_KEY, "latest_thought_key": new_thought_key}
+                    )
                 else:
                     raise e
 
@@ -273,9 +278,7 @@ class ThoughtStorageService:
             return None
 
     async def get_latest_thought_document(self) -> dict | None:
-        """
-        获取思想链中最新的那颗点。简单、粗暴、有效！
-        """
+        """获取思想链中最新的那颗点。简单、粗暴、有效！"""
         query = """
             LET latest_key = (
                 FOR s IN @@state_coll
@@ -305,7 +308,7 @@ class ThoughtStorageService:
             return None
 
     async def get_latest_main_thought_document(self, limit: int = 1) -> list[dict[str, Any]]:
-        """获取最新的一个或多个主意识思考文档。"""
+        """获取最新的一个或多个主意识思考文档."""
         if limit <= 0:
             logger.warning("获取最新思考文档的 limit 参数必须为正整数。")
             return []
@@ -319,8 +322,10 @@ class ThoughtStorageService:
         results = await self.conn_manager.execute_query(query, bind_vars)
         return results if results is not None else []
 
-    async def save_intrusive_thoughts_batch(self, thought_document_list: list[dict[str, Any]]) -> bool:
-        """批量保存侵入性思维文档到数据库。"""
+    async def save_intrusive_thoughts_batch(
+        self, thought_document_list: list[dict[str, Any]]
+    ) -> bool:
+        """批量保存侵入性思维文档到数据库."""
         if not thought_document_list:
             return True
 
@@ -351,7 +356,9 @@ class ThoughtStorageService:
 
             successful_inserts = sum(bool(not r.get("error")) for r in results)
             if successful_inserts < len(processed_documents_for_db):
-                errors = [r.get("errorMessage", "未知数据库错误") for r in results if r.get("error")]
+                errors = [
+                    r.get("errorMessage", "未知数据库错误") for r in results if r.get("error")
+                ]
                 logger.warning(
                     f"批量保存侵入性思维：{successful_inserts}/{len(processed_documents_for_db)} 条成功。部分错误: {errors[:3]}"
                 )
@@ -364,10 +371,12 @@ class ThoughtStorageService:
             return False
 
     async def get_random_unused_intrusive_thought_document(self) -> dict[str, Any] | None:
-        """从侵入性思维池中获取一个随机的、未被使用过的侵入性思维文档。"""
+        """从侵入性思维池中获取一个随机的、未被使用过的侵入性思维文档."""
         try:
             # (这个方法的逻辑本来就是对的，因为它调用的是我们已经修正过的 execute_query)
-            count_query = "RETURN LENGTH(FOR doc IN @@collection FILTER doc.used == false LIMIT 1 RETURN 1)"
+            count_query = (
+                "RETURN LENGTH(FOR doc IN @@collection FILTER doc.used == false LIMIT 1 RETURN 1)"
+            )
             bind_vars_count = {"@collection": self.intrusive_pool_coll_name}
             count_result = await self.conn_manager.execute_query(count_query, bind_vars_count)
 
@@ -391,7 +400,7 @@ class ThoughtStorageService:
             return None
 
     async def mark_intrusive_thought_document_used(self, thought_doc_key: str) -> bool:
-        """根据侵入性思维文档的 _key，将其标记为已使用。"""
+        """根据侵入性思维文档的 _key，将其标记为已使用."""
         if not thought_doc_key:
             logger.warning("标记已使用需要有效的 thought_doc_key。")
             return False
@@ -414,14 +423,15 @@ class ThoughtStorageService:
             return False
 
     async def mark_action_result_as_seen(self, action_id_to_mark: str) -> bool:
-        """根据 action_id 找到对应的思考文档，并将其 action_attempted.result_seen_by_shimo 标记为 True。"""
+        """根据 action_id 找到对应的思考文档，并将其 action_attempted.result_seen_by_shimo 标记为 True."""
         if not action_id_to_mark:
             return False
 
-        find_query = (
-            "FOR doc IN @@collection FILTER doc.action_attempted.action_id == @action_id LIMIT 1 RETURN doc._key"
-        )
-        bind_vars_find = {"@collection": self.main_thoughts_coll_name, "action_id": action_id_to_mark}
+        find_query = "FOR doc IN @@collection FILTER doc.action_attempted.action_id == @action_id LIMIT 1 RETURN doc._key"
+        bind_vars_find = {
+            "@collection": self.main_thoughts_coll_name,
+            "action_id": action_id_to_mark,
+        }
 
         found_keys = await self.conn_manager.execute_query(find_query, bind_vars_find)
         if not found_keys:
@@ -451,7 +461,9 @@ class ThoughtStorageService:
             patch_for_db = {"action_attempted": action_attempted_updated}
 
             await collection.update({"_key": doc_key_to_update, **patch_for_db})
-            logger.info(f"已将文档 '{doc_key_to_update}' (action_id: {action_id_to_mark}) 的结果标记为已阅。")
+            logger.info(
+                f"已将文档 '{doc_key_to_update}' (action_id: {action_id_to_mark}) 的结果标记为已阅。"
+            )
             return True
         except Exception as e:
             logger.error(f"更新文档 '{doc_key_to_update}' 标记已阅时发生错误: {e}", exc_info=True)

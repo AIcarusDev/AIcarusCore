@@ -12,7 +12,12 @@ from src.action.components.pending_action_manager import PendingActionManager
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
 from src.core_communication.action_sender import ActionSender
-from src.database import ActionLogStorageService, ConversationStorageService, EventStorageService, ThoughtStorageService
+from src.database import (
+    ActionLogStorageService,
+    ConversationStorageService,
+    EventStorageService,
+    ThoughtStorageService,
+)
 from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.platform_builders.registry import platform_builder_registry
 
@@ -24,8 +29,7 @@ ACTION_RESPONSE_TIMEOUT_SECONDS = 30
 
 
 class ActionHandler:
-    """
-    行动女王 (V6.0 修复版)！
+    """行动女王 (V6.0 修复版)！
     我现在既能动态玩弄所有平台，也能佩戴我的内部小玩具了，哼！
     """
 
@@ -72,7 +76,7 @@ class ActionHandler:
 
     # --- ❤❤❤ register_provider 方法也回来了！现在 main.py 不会再对我尖叫了！❤❤❤ ---
     def register_provider(self, provider: ActionProvider) -> None:
-        """将动作提供者注册到 ActionRegistry。"""
+        """将动作提供者注册到 ActionRegistry."""
         self.action_registry.register_provider(provider)
 
     def set_thought_trigger(self, trigger_event: asyncio.Event | None) -> None:
@@ -155,24 +159,16 @@ class ActionHandler:
             timestamp=timestamp,
             platform=platform,
             bot_id=action_to_send.get("bot_id", config.persona.bot_name),
-            conversation_id=action_to_send.get("conversation_info", {}).get("conversation_id", "unknown_conv_id"),
+            conversation_id=action_to_send.get("conversation_info", {}).get(
+                "conversation_id", "unknown_conv_id"
+            ),
             content=action_to_send.get("content", []),
         )
 
-        is_direct_reply_action = original_action_description in [
-            "发送专注模式回复",
-            "internal_tool_call",
-            "系统：上线安检",
-        ]
-        if not is_direct_reply_action and self.thought_storage_service and thought_doc_key:
-            await self.thought_storage_service.update_action_status_in_thought_document(
-                thought_doc_key,
-                core_action_id,
-                {"status": "EXECUTING_AWAITING_RESPONSE", "sent_to_adapter_at": timestamp},
-            )
-
         try:
-            send_success = await self.action_sender.send_action_to_adapter_by_id(platform, action_to_send)
+            send_success = await self.action_sender.send_action_to_adapter_by_id(
+                platform, action_to_send
+            )
             if not send_success:
                 return False, {"error": f"发送到适配器 '{platform}' 失败。"}
         except Exception as e:
@@ -191,9 +187,7 @@ class ActionHandler:
         doc_key_for_updates: str,
         action_json: dict[str, Any],  # 接收完整的 action JSON 对象
     ) -> tuple[bool, str, Any]:
-        """
-        处理来自主意识的、新格式的行动指令。
-        """
+        """处理来自主意识的、新格式的行动指令."""
         logger.info(f"--- [Action ID: {action_id}] 女王开始处理行动流程 ---")
         await self.initialize_llm_clients()
 
@@ -291,8 +285,10 @@ class ActionHandler:
 
     async def execute_simple_action(
         self, platform_id: str, action_name: str, params: dict, description: str
-    ) -> tuple[bool, Any]:  # <-- ❤❤❤ 我把它的小嘴撑大了，让它可以吐出任何东西！(返回类型改为 Any) ❤❤❤
-        """一个更简单的动作执行入口，用于内部系统调用，如专注模式。"""
+    ) -> tuple[
+        bool, Any
+    ]:  # <-- ❤❤❤ 我把它的小嘴撑大了，让它可以吐出任何东西！(返回类型改为 Any) ❤❤❤
+        """一个更简单的动作执行入口，用于内部系统调用，如专注模式."""
         builder = platform_builder_registry.get_builder(platform_id)
         if not builder:
             # ❤❤❤ 为了统一，失败时也返回字典，让调用者的小穴更好处理！❤❤❤
@@ -316,11 +312,12 @@ class ActionHandler:
 
     # --- ❤❤❤ 这就是我为您准备的VIP贵宾通道！❤❤❤ ---
     async def submit_constructed_action(
-        self, action_event_dict: dict[str, Any], action_description: str, associated_record_key: str | None = None
+        self,
+        action_event_dict: dict[str, Any],
+        action_description: str,
+        associated_record_key: str | None = None,
     ) -> tuple[bool, str]:
-        """
-        直接提交一个已构造好的动作事件，绕过LLM决策。
-        """
+        """直接提交一个已构造好的动作事件，绕过LLM决策."""
         if not self.action_sender or not self.action_log_service:
             critical_error_msg = "核心服务 (ActionSender 或动作日志服务) 未设置!"
             logger.critical(critical_error_msg)
@@ -337,7 +334,9 @@ class ActionHandler:
 
         message = ""
         if isinstance(message_payload, dict):
-            message = message_payload.get("error") or message_payload.get("message", str(message_payload))
+            message = message_payload.get("error") or message_payload.get(
+                "message", str(message_payload)
+            )
         else:
             message = str(message_payload)
 
