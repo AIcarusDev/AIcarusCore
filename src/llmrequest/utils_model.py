@@ -143,8 +143,8 @@ def load_custom_env(dotenv_path: str = ".env", override: bool = True) -> bool:
             if key and (override or key not in os.environ):
                 os.environ[key] = final_value
                 logger.debug(
-                    f"Loaded env var: {key}='{final_value[:50]}",
-                    f"{'...' if len(final_value) > 50 else ''}'",
+                    f"Loaded env var: {key}='{final_value[:50]}"
+                    f"{'...' if len(final_value) > 50 else ''}'"
                 )
                 loaded_count += 1
         if loaded_count > 0:
@@ -314,8 +314,8 @@ class LLMClient:
         load_custom_env()
         self.default_generation_config: GenerationParams = kwargs
         logger.debug(
-            f"LLMClient __init__ received model: {model}, ",
-            f"default_generation_config: {self.default_generation_config}",
+            f"LLMClient __init__ received model: {model}, "
+            f"default_generation_config: {self.default_generation_config}"
         )
 
         if not isinstance(model, dict) or "provider" not in model or "name" not in model:
@@ -340,8 +340,8 @@ class LLMClient:
             raw_api_key_config = os.getenv(api_keys_env_var_name_singular)
             if raw_api_key_config:
                 logger.debug(
-                    f"找到环境变量 {api_keys_env_var_name_singular}。推荐使用 ",
-                    f"{api_keys_env_var_name} (如果需要多个密钥)。",
+                    f"找到环境变量 {api_keys_env_var_name_singular}。"
+                    f"推荐使用 {api_keys_env_var_name} (如果需要多个密钥)。"
                 )
             else:
                 raw_api_key_config = os.getenv(api_keys_env_var_name_direct)
@@ -349,8 +349,8 @@ class LLMClient:
                     logger.debug(f"找到环境变量 {api_keys_env_var_name_direct} 作为API密钥源。")
                 else:
                     logger.debug(
-                        f"环境变量 {api_keys_env_var_name}, {api_keys_env_var_name_singular}, ",
-                        f"和 {api_keys_env_var_name_direct} 均未找到。",
+                        f"环境变量 {api_keys_env_var_name}, {api_keys_env_var_name_singular}, "
+                        f"和 {api_keys_env_var_name_direct} 均未找到。"
                     )
 
         self.api_keys_config: list[str] = []
@@ -368,8 +368,8 @@ class LLMClient:
                         self.api_keys_config = [parsed_keys.strip()]
                     else:
                         logger.warning(
-                            f"环境变量 {self.env_provider_prefix} 的API密钥配置解析为意外类型: ",
-                            f"{type(parsed_keys)}。将尝试作为单个密钥处理。",
+                            f"环境变量 {self.env_provider_prefix} 的API密钥配置解析为意外类型: "
+                            f"{type(parsed_keys)}。将尝试作为单个密钥处理。"
                         )
                         self.api_keys_config = [raw_api_key_config.strip()]
                 else:
@@ -381,19 +381,20 @@ class LLMClient:
                     ]
                     if len(self.api_keys_config) > 1:
                         logger.warning(
-                            f"环境变量 {self.env_provider_prefix} 的API密钥 ",
-                            f"'{raw_api_key_config[:20]}...' 不是有效的JSON列表格式，",
-                            "已按逗号分隔处理。推荐使用JSON数组格式来定义多个密钥。",
+                            f"环境变量 {self.env_provider_prefix} 的API密钥 "
+                            f"'{raw_api_key_config[:20]}...' 不是有效的JSON列表格式，"
+                            f"已按逗号分隔处理。推荐使用JSON数组格式来定义多个密钥。"
                         )
                 else:
                     self.api_keys_config = [raw_api_key_config.strip()]
 
         if not self.api_keys_config:
             raise APIKeyError(
-                f"未能为提供商 '{original_provider_name}' ",
+                f"未能为提供商 '{original_provider_name}' "
                 f"(环境变量前缀: {self.env_provider_prefix}) 从环境变量 "
-                f"({api_keys_env_var_name} 或 {api_keys_env_var_name_singular} ",
-                f"或 {api_keys_env_var_name_direct}) 加载任何有效的API密钥。",
+                f"({api_keys_env_var_name} 或 {api_keys_env_var_name_singular} "
+                f"或 {api_keys_env_var_name_direct}) "
+                f"加载任何有效的API密钥。"
             )
 
         self.base_url = os.getenv(f"{self.env_provider_prefix}_BASE_URL")
@@ -401,20 +402,18 @@ class LLMClient:
             if self.provider == "GEMINI" and os.getenv("GEMINI_BASE_URL"):
                 self.base_url = os.getenv("GEMINI_BASE_URL")
                 logger.debug(
-                    "使用了旧的 GEMINI_BASE_URL 环境变量。推荐使用 ",
-                    f"{self.env_provider_prefix}_BASE_URL。",
+                    f"使用了旧的 GEMINI_BASE_URL 环境变量。推荐使用 {self.env_provider_prefix}_BASE_URL。"
                 )
             elif self.provider == "OPENAI" and os.getenv("OPENAI_BASE_URL"):
                 self.base_url = os.getenv("OPENAI_BASE_URL")
                 logger.debug(
-                    "使用了旧的 OPENAI_BASE_URL 环境变量。推荐使用 ",
-                    f"{self.env_provider_prefix}_BASE_URL。",
+                    f"使用了旧的 OPENAI_BASE_URL 环境变量。推荐使用 {self.env_provider_prefix}_BASE_URL。"
                 )
             else:
                 raise ValueError(
-                    f"未能为提供商 '{original_provider_name}' ",
+                    f"未能为提供商 '{original_provider_name}' "
                     f"(环境变量前缀: {self.env_provider_prefix}) 从环境变量 "
-                    f"({self.env_provider_prefix}_BASE_URL) 加载Base URL。",
+                    f"({self.env_provider_prefix}_BASE_URL) 加载Base URL。"
                 )
         self.base_url = self.base_url.rstrip("/")
 
@@ -432,8 +431,8 @@ class LLMClient:
             self.embedding_endpoint_path = DEFAULT_EMBEDDINGS_ENDPOINT_OPENAI
         else:
             logger.warning(
-                f"无法根据Base URL '{self.base_url}' 或提供商 '{self.provider}' 自动确定API风格。",
-                "默认为 'openai' 风格。",
+                f"无法根据Base URL '{self.base_url}' 或提供商 '{self.provider}' 自动确定API风格。"
+                f"默认为 'openai' 风格。"
             )
             self.api_endpoint_style = "openai"
             self.streaming_endpoint_path = DEFAULT_CHAT_COMPLETIONS_ENDPOINT_OPENAI
@@ -510,7 +509,7 @@ class LLMClient:
         if not self.enable_image_compression:
             # 笨蛋主人！如果这里是False，GIF转换就不会发生！API就会继续对你尖叫！
             logger.warning(
-                "enable_image_compression 为 False，GIF转换将不会执行！",
+                "enable_image_compression 为 False，GIF转换将不会执行！"
                 "如果API报错GIF不支持，请检查此项！",
             )
             return base64_data, original_mime_type
@@ -617,11 +616,11 @@ class LLMClient:
             new_size_bytes = len(compressed_bytes)
 
             logger.info(
-                f"图像调教高潮报告: 原始尺寸 {original_width}x{original_height} ",
+                f"图像调教高潮报告: 原始尺寸 {original_width}x{original_height} "
                 f"({original_mime_type}), "
-                f"新尺寸 {new_width}x{new_height} (保存为 {current_save_format}, ",
+                f"新尺寸 {new_width}x{new_height} (保存为 {current_save_format}, "
                 f"MIME类型 {final_mime_type}). "
-                f"体积变化: {current_size_bytes / 1024:.1f}KB -> {new_size_bytes / 1024:.1f}KB",
+                f"体积变化: {current_size_bytes / 1024:.1f}KB -> {new_size_bytes / 1024:.1f}KB"
             )
 
             # 决定最终射出的精液... 啊不，是返回的数据！
@@ -636,8 +635,8 @@ class LLMClient:
                     return base64.b64encode(compressed_bytes).decode("utf-8"), final_mime_type
                 else:
                     logger.info(
-                        f"图像未被压缩或压缩后体积未显著减小 (MIME: {original_mime_type})",
-                        "，返回原始数据。",
+                        f"图像未被压缩或压缩后体积未显著减小 (MIME: {original_mime_type})"
+                        f"，返回原始数据。"
                     )
                     return base64_data, original_mime_type
 
@@ -677,8 +676,8 @@ class LLMClient:
                             )
                     else:
                         logger.error(
-                            f"Img fetch failed {image_path_or_url_or_data_uri}, ",
-                            f"status: {response.status}",
+                            f"Img fetch failed {image_path_or_url_or_data_uri}, "
+                            f"status: {response.status}"
                         )
                         return None
             elif os.path.exists(image_path_or_url_or_data_uri):
@@ -882,8 +881,8 @@ class LLMClient:
                 # 2. 如果有system_prompt，就把它放在名为"system_instruction"的顶级王座上！
                 if system_prompt:
                     logger.debug(
-                        f"为 Google API 添加顶级的 system_instruction: {system_prompt[:50]}",
-                        f"{'...' if len(system_prompt) > 50 else ''}",
+                        f"为 Google API 添加顶级的 system_instruction: {system_prompt[:50]}"
+                        f"{'...' if len(system_prompt) > 50 else ''}"
                     )
                     payload["system_instruction"] = {"parts": [{"text": system_prompt}]}
 
@@ -905,8 +904,8 @@ class LLMClient:
                         if param in gen_config:
                             del gen_config[param]
                             logger.debug(
-                                f"Google Vision: Removed unsupported parameter '{param}' ",
-                                "from generationConfig.",
+                                f"Google Vision: Removed unsupported parameter '{param}' "
+                                f"from generationConfig."
                             )
                 if enable_google_search:
                     logger.debug("为 Google API 请求启用 Google 搜索依据功能。")
@@ -994,8 +993,8 @@ class LLMClient:
         finish_reason_override = None
 
         logger.info(
-            f"Beginning to receive '{self.api_endpoint_style}' stream data for",
-            f" request type '{request_type}'...",
+            f"Beginning to receive '{self.api_endpoint_style}' stream data for"
+            f" request type '{request_type}'..."
         )
         try:
             async for line_bytes in response.content:
@@ -1271,8 +1270,8 @@ class LLMClient:
                     raise PayloadTooLargeError("请求体过大 (413)", status_code, response_text)
                 if status_code == 400:
                     logger.error(
-                        f"请求无效或参数错误 (400) - Key {key_info}. ",
-                        f"Response: {response_text[:500]}",
+                        f"请求无效或参数错误 (400) - Key {key_info}. "
+                        f"Response: {response_text[:500]}"
                     )
                     raise PermissionDeniedError(
                         f"请求无效或参数错误 (400) - Key {key_info}",
@@ -1477,15 +1476,15 @@ class LLMClient:
                         )
                         logger.info(
                             f"尝试轮 {attempt_pass + 1}/{max_retries + 1}, "
-                            f"密钥 {key_idx + 1}/{len(available_keys_this_pass)} ",
+                            f"密钥 {key_idx + 1}/{len(available_keys_this_pass)} "
                             f"(ID: {key_display}): "
-                            f"类型: {request_type}, {'流式' if is_streaming else '非流式'}, ",
-                            f"模型: {self.model_name}",
+                            f"类型: {request_type}, {'流式' if is_streaming else '非流式'}, "
+                            f"模型: {self.model_name}"
                         )
                         if system_prompt and request_type != "embedding":
                             logger.info(
-                                f"  使用 System Prompt (前50字符): {system_prompt[:50]}",
-                                f"{'...' if len(system_prompt) > 50 else ''}",
+                                f"  使用 System Prompt (前50字符): {system_prompt[:50]}"
+                                f"{'...' if len(system_prompt) > 50 else ''}"
                             )
 
                         result = await self._make_api_call_attempt(
@@ -1518,8 +1517,8 @@ class LLMClient:
                                     config.test_function.fallback_model_name
                                 )  # 主人你指定的备用肉棒！
                                 logger.warning(
-                                    f"密钥 {key_display} 的请求成功，但返回的 text 字段为 None。",
-                                    f"将使用备用模型 '{fallback_model_name}' 尝试一次。",
+                                    f"密钥 {key_display} 的请求成功，但返回的 text 字段为 None。"
+                                    f"将使用备用模型 '{fallback_model_name}' 尝试一次。"
                                 )
 
                                 if self.model_name == fallback_model_name:
@@ -1565,8 +1564,8 @@ class LLMClient:
                             else:
                                 if result.get("interrupted"):
                                     logger.info(
-                                        f"API调用在密钥 {key_display} 尝试期间被中断信号中止。",
-                                        "将直接返回中断结果。",
+                                        f"API调用在密钥 {key_display} 尝试期间被中断信号中止。"
+                                        f"将直接返回中断结果。"
                                     )
                                 return result
                         # --- END: 小猫咪的淫纹植入处！ ---
@@ -1574,8 +1573,8 @@ class LLMClient:
                         # 尝试修复无返回导致响应无处理状况
                         if result.get("interrupted"):
                             logger.info(
-                                f"API调用在密钥 {key_display} 尝试期间被中断信号中止。",
-                                "将直接返回中断结果。",
+                                f"API调用在密钥 {key_display} 尝试期间被中断信号中止。"
+                                f"将直接返回中断结果。"
                             )
                             return result
                         return result
@@ -1655,7 +1654,7 @@ class LLMClient:
 
                     except Exception as e_unexpected:
                         logger.error(
-                            f"在尝试轮 {attempt_pass + 1} (密钥 {key_display}) ",
+                            f"在尝试轮 {attempt_pass + 1} (密钥 {key_display}) "
                             f"期间发生意外错误: {e_unexpected!s}",
                             exc_info=True,
                         )
@@ -1710,8 +1709,8 @@ class LLMClient:
 
             raise LLMClientError(
                 "所有API请求尝试轮均失败，或未能找到可用API密钥执行请求。"
-                "最后记录的异常 (如果存在): ",
-                f"{type(last_exception).__name__ if last_exception else '无'}",
+                "最后记录的异常 (如果存在): "
+                f"{type(last_exception).__name__ if last_exception else '无'}"
             )
 
     async def make_request(
@@ -1811,8 +1810,8 @@ class LLMClient:
         logger.info(f"generate_text_completion: {'流式' if is_stream else '非流式'}")
         if system_prompt:
             logger.info(
-                f"  generate_text_completion 收到 System Prompt (前50字符): {system_prompt[:50]}",
-                f"{'...' if len(system_prompt) > 50 else ''}",
+                f"  generate_text_completion 收到 System Prompt (前50字符): {system_prompt[:50]}"
+                f"{'...' if len(system_prompt) > 50 else ''}"
             )
         gen_params = kwargs.copy()
         return await self.make_request(
@@ -1858,13 +1857,13 @@ class LLMClient:
             dict[str, Any]: 生成的响应结果.
         """
         logger.info(
-            f"generate_vision_completion: {'流式' if is_stream else '非流式'}, ",
-            f"图像数量: {len(image_inputs)}",
+            f"generate_vision_completion: {'流式' if is_stream else '非流式'}, "
+            f"图像数量: {len(image_inputs)}"
         )
         if system_prompt:
             logger.info(
-                f"  generate_vision_completion 收到 System Prompt (前50字符): {system_prompt[:50]}",
-                f"{'...' if len(system_prompt) > 50 else ''}",
+                f"  generate_vision_completion 收到 System Prompt (前50字符): {system_prompt[:50]}"
+                f"{'...' if len(system_prompt) > 50 else ''}"
             )
 
         if not image_inputs:
@@ -1923,8 +1922,8 @@ class LLMClient:
         )
         if system_prompt:
             logger.info(
-                f"  generate_with_tools 收到 System Prompt (前50字符): {system_prompt[:50]}",
-                f"{'...' if len(system_prompt) > 50 else ''}",
+                f"  generate_with_tools 收到 System Prompt (前50字符): {system_prompt[:50]}"
+                f"{'...' if len(system_prompt) > 50 else ''}"
             )
 
         if not tools:

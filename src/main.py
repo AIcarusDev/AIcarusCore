@@ -164,8 +164,8 @@ class CoreSystemInitializer:
                     args["abandoned_keys_config"] = resolved_abandoned_keys
                 client = ProcessorClient(**{k: v for k, v in args.items() if v is not None})
                 logger.info(
-                    f"为用途 '{purpose}' 创建 ProcessorClient 成功 (模型: ",
-                    f"{client.llm_client.model_name})。",
+                    f"为用途 '{purpose}' 创建 ProcessorClient 成功 (模型: "
+                    f"{client.llm_client.model_name})。"
                 )
                 return client
             except Exception as e:
@@ -404,8 +404,8 @@ class CoreSystemInitializer:
                 person_service=self.person_storage_service,
             )
             logger.info(
-                "CoreWebsocketServer 准备在 ",
-                f"ws://{config.server.host}:{config.server.port} 上监听。",
+                "CoreWebsocketServer 准备在 "
+                f"ws://{config.server.host}:{config.server.port} 上监听。"
             )
 
             self.context_builder_instance = ContextBuilder(

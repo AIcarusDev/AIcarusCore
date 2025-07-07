@@ -210,8 +210,8 @@ class _StreamingWorkflowManager:
         logger.info(f"开始处理流式任务 ID: {task_id} (通过 _StreamingWorkflowManager)")
         if system_prompt:
             logger.info(
-                f"  附带 System Prompt (前50字符): {system_prompt[:50]}",
-                f"{'...' if len(system_prompt) > 50 else ''}",
+                f"  附带 System Prompt (前50字符): {system_prompt[:50]}"
+                f"{'...' if len(system_prompt) > 50 else ''}"
             )
 
         final_result: dict[str, Any] = {}  # 用于存储最终结果的字典 #
@@ -286,7 +286,7 @@ class _StreamingWorkflowManager:
         except (APIKeyError, NetworkError, LLMClientError) as e:
             # 捕获在调用底层客户端时可能发生的、已定义的客户端级别错误
             logger.error(
-                f"流式任务 {task_id} 中发生可捕获的 UnderlyingLLMClient ",
+                f"流式任务 {task_id} 中发生可捕获的 UnderlyingLLMClient "
                 f"错误: {type(e).__name__} - {e}",
                 exc_info=True,
             )
@@ -489,8 +489,8 @@ class Client:  # 这是 llm_processor.Client，是暴露给外部使用者的高
         )
         if system_prompt:
             logger.info(
-                f"  make_llm_request 收到 System Prompt (前50字符): {system_prompt[:50]}",
-                f"{'...' if len(system_prompt) > 50 else ''}",
+                f"  make_llm_request 收到 System Prompt (前50字符): {system_prompt[:50]}"
+                f"{'...' if len(system_prompt) > 50 else ''}"
             )
 
         # 如果用户传入了 response_schema，就把它加到要传递下去的参数字典里
