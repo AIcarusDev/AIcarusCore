@@ -1,28 +1,28 @@
 # run_core_logic.py
 import asyncio
+import os
+import traceback
 
-from src.core_logic import main as core_main_module
+# 导入主启动函数
+from src.main import start_core_system
 
 if __name__ == "__main__":
-    # 初始化日志记录器 (可选，如果你的 get_logger 首次调用时会自动配置)
-    # main_run_logger = get_logger("AIcarusCore.Run")
-    # main_run_logger.info("AIcarus Core 正在通过 run_core_logic.py 启动...")
-
-    # 确保 .env 文件和 config.toml 文件位于正确的位置
-    # config_manager 会在 PROJECT_ROOT (基于它自己的位置) 查找它们
-    # 如果 run_core_logic.py 的位置与 config_manager.py 计算 PROJECT_ROOT 的方式不一致，
-    # 可能需要调整 config_manager.py 中的 PROJECT_ROOT 定义，或确保运行环境正确。
-
+    print("AIcarus Core 正在通过 run_core_logic.py 启动...")
     try:
-        asyncio.run(core_main_module.start_consciousness_flow())
-    except KeyboardInterrupt:
-        # logger 在 asyncio.run 内部的 finally 中处理关闭信息
-        print("\nAIcarus Core (run_core_logic.py): 收到 KeyboardInterrupt，程序正在退出...")
-    except Exception as e:
-        # 对于顶层未捕获的异常，打印出来帮助调试
-        print(f"AIcarus Core (run_core_logic.py): 发生未处理的严重错误: {e}")
-        import traceback
+        # 调试模式配置：仅当环境变量 DEBUG_ASYNCIO 设置为 "true" 时启用 asyncio 调试模式
+        if os.environ.get("DEBUG_ASYNCIO", "false").lower() == "true":
+            print("启用 asyncio 调试模式，将检测耗时超过 0.5 秒的同步回调！")
+            loop = asyncio.get_event_loop()
+            # slow_callback_duration 设置为 0.5 秒，用于检测阻塞时间超过 0.5 秒的同步调用
+            loop.set_debug(True)
+            loop.slow_callback_duration = 0.5
+        # 调试模式配置结束
 
+        asyncio.run(start_core_system())
+    except KeyboardInterrupt:
+        print("\nAIcarus Core (run_core_logic.py): 收到 KeyboardInterrupt 信号，程序正在退出...")
+    except Exception as e:
+        print(f"AIcarus Core (run_core_logic.py): 发生未处理的严重错误: {e}")
         traceback.print_exc()
     finally:
         print("AIcarus Core (run_core_logic.py): 程序执行完毕。")

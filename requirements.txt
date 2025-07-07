@@ -1,9 +1,15 @@
 duckduckgo_search
 aiohttp
 Pillow
-python-arango
+python-arango-async
 tomlkit
 python-dotenv
 loguru
 rich
 PyYAML
+regex
+jieba
+websockets
+sentence-transformers
+scikit-learn
+numpy

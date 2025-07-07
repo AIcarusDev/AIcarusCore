@@ -1,248 +1,392 @@
-# src/core_communication/core_ws_server.py
+# src/core_communication/core_ws_server.py (小色猫·绝对统治版)
 import asyncio
 import json
-from collections.abc import Awaitable, Callable
+import time
+import uuid
+from contextlib import suppress
+from typing import TYPE_CHECKING, Any
 
-import websockets  # type: ignore
-from aicarus_protocols import MessageBase  # 假设这是您的 Pydantic 或 dataclass 消息模型
-from arango.database import StandardDatabase  # 保留用于类型提示，如果 db_instance 被使用
-from websockets.exceptions import ConnectionClosed, ConnectionClosedError, ConnectionClosedOK  # 更具体的异常类型
-from websockets.server import WebSocketServerProtocol  # type: ignore
+if TYPE_CHECKING:
+    from src.action.action_handler import ActionHandler
 
-from src.common.custom_logging.logger_manager import get_logger
+import websockets
 
-logger = get_logger("AIcarusCore.ws_server")  # 获取日志记录器
+# 导入我们全新的、纯洁的协议对象！
+from aicarus_protocols import ConversationInfo, SegBuilder
+from aicarus_protocols import Event as ProtocolEvent
+from websockets.exceptions import ConnectionClosed, ConnectionClosedError, ConnectionClosedOK
+from websockets.server import WebSocketServerProtocol
 
-# 定义回调函数类型，用于处理从适配器收到的消息
-# 参数：解析后的 MessageBase 对象，发送此消息的 WebSocket 连接对象
-AdapterMessageCallback = Callable[[MessageBase, WebSocketServerProtocol], Awaitable[None]]
-# 注意：回调函数 (例如 DefaultMessageProcessor.process_message) 将从其自身持有的 db_instance 访问数据库
+from src.common.custom_logging.logging_config import get_logger
+from src.config import config
+from src.core_communication.action_sender import ActionSender
+from src.core_communication.event_receiver import EventReceiver
+from src.core_logic.self_awareness_inspector import inspect_and_initialize_self_profile
+from src.database import DBEventDocument, PersonStorageService
+from src.database.services.event_storage_service import EventStorageService
+
+logger = get_logger(__name__)
 
 
 class CoreWebsocketServer:
+    """
+    纯粹的WebSocket服务器，负责管理服务器生命周期和底层连接。
+    它将事件处理和动作发送的职责委托给 EventReceiver 和 ActionSender。
+    """
+
+    HEARTBEAT_CLIENT_INTERVAL_SECONDS = 30
+    HEARTBEAT_SERVER_TIMEOUT_SECONDS = 90
+    HEARTBEAT_SERVER_CHECK_INTERVAL_SECONDS = 15
+
     def __init__(
         self,
         host: str,
         port: int,
-        message_handler_callback: AdapterMessageCallback,
-        db_instance: StandardDatabase | None = None,  # 这个 db_instance 可以传递给回调，但目前回调自己管理DB实例
+        event_receiver: EventReceiver,
+        action_sender: ActionSender,
+        event_storage_service: EventStorageService,
+        action_handler_instance: "ActionHandler",
+        person_service: "PersonStorageService",
     ) -> None:
-        self.host: str = host  # 服务器监听的主机地址
-        self.port: int = port  # 服务器监听的端口
-        self.server: websockets.WebSocketServer | None = None  # WebSocket 服务器实例
-        self.connected_adapters: set[WebSocketServerProtocol] = set()  # 存储所有已连接的适配器客户端
-        self._message_handler_callback: AdapterMessageCallback = message_handler_callback  # 处理接收到消息的回调函数
-        self._stop_event: asyncio.Event = asyncio.Event()  # 用于优雅停止服务器的事件
-        self.db_instance: StandardDatabase | None = db_instance  # 存储数据库实例，如果回调需要通过这里获取
+        self.host: str = host
+        self.port: int = port
+        self.server: websockets.WebSocketServer | None = None
+        self.event_storage_service = event_storage_service
+        self.event_receiver = event_receiver
+        self.action_sender = action_sender
+        self.action_handler_instance = action_handler_instance
+        self.person_service = person_service
+        self.adapter_clients_info: dict[str, dict[str, Any]] = {}
+        self._websocket_to_adapter_id: dict[WebSocketServerProtocol, str] = {}
+        self._stop_event: asyncio.Event = asyncio.Event()
+        self._heartbeat_check_task: asyncio.Task | None = None
 
-    async def _register_adapter(self, websocket: WebSocketServerProtocol) -> None:
-        """注册一个新的适配器连接。"""
-        self.connected_adapters.add(websocket)
-        logger.info(f"适配器已连接: {websocket.remote_address}. 当前连接数: {len(self.connected_adapters)}")
+    async def _generate_and_store_system_event(
+        self, adapter_id: str, display_name: str, event_type_suffix: str, reason: str = ""
+    ) -> None:
+        """生成并存储系统生命周期事件。现在它接收的是事件后缀。"""
+        current_timestamp = time.time()
 
-    async def _unregister_adapter(self, websocket: WebSocketServerProtocol) -> None:
-        """注销一个断开的适配器连接。"""
-        if websocket in self.connected_adapters:  # 检查是否存在，避免重复移除或处理已关闭的连接
-            self.connected_adapters.remove(websocket)
-            logger.info(f"适配器已断开: {websocket.remote_address}. 当前连接数: {len(self.connected_adapters)}")
+        # --- ❤❤❤ 构造事件时，也遵循新的命名空间规则！❤❤❤ ---
+        # 我们用 "system" 作为平台ID，代表这是核心系统自己产生的事件
+        final_event_type = f"meta.system.{event_type_suffix}"
+
+        event_content_text = ""
+        if event_type_suffix == "lifecycle.adapter_connected":
+            event_content_text = f"[状态] {display_name}({adapter_id})连接成功"
+        elif event_type_suffix == "lifecycle.adapter_disconnected":
+            event_content_text = f"[状态] {display_name}({adapter_id})断开({reason})"
         else:
-            logger.debug(f"尝试注销一个未在连接集合中的适配器: {websocket.remote_address}")
+            # --- ❤❤❤ 这里是修复点！我不再抱怨了，而是直接用后缀作为内容！❤❤❤ ---
+            logger.debug(f"生成一个通用的系统事件，后缀: {event_type_suffix}")
+            event_content_text = f"[系统事件] {display_name}({adapter_id}): {event_type_suffix}"
+
+        system_event = ProtocolEvent(
+            event_id=f"core_event_{adapter_id}_{event_type_suffix.split('.')[-1]}_{int(current_timestamp)}_{uuid.uuid4().hex[:6]}",
+            event_type=final_event_type,
+            time=int(current_timestamp * 1000),
+            bot_id=config.persona.bot_name,
+            content=[SegBuilder.text(event_content_text)],
+            conversation_info=ConversationInfo(conversation_id="system_events", type="system"),
+        )
+
+        if self.event_storage_service:
+            try:
+                # DBEventDocument.from_protocol 会从 event_type 解析出 platform
+                await self.event_storage_service.save_event_document(
+                    DBEventDocument.from_protocol(system_event).to_dict()
+                )
+                logger.info(f"已生成并存储系统事件: {event_content_text}")
+            except Exception as e:
+                logger.error(f"存储系统事件 for '{adapter_id}' (type: {final_event_type}) 失败: {e}", exc_info=True)
+        else:
+            logger.warning(f"EventStorageService 未初始化，无法存储系统事件 for '{adapter_id}'.")
+
+    async def _register_adapter(self, adapter_id: str, display_name: str, websocket: WebSocketServerProtocol) -> None:
+        """注册一个新的适配器，并通知 ActionSender。"""
+        current_timestamp = time.time()
+        self._websocket_to_adapter_id[websocket] = adapter_id
+        self.adapter_clients_info[adapter_id] = {
+            "websocket": websocket,
+            "last_heartbeat": current_timestamp,
+            "display_name": display_name,
+        }
+        # 通知 ActionSender
+        self.action_sender.register_adapter(adapter_id, display_name, websocket)
+        logger.info(
+            f"适配器 '{display_name}({adapter_id})' 已连接: {websocket.remote_address}. 当前连接数: {len(self.adapter_clients_info)}"
+        )
+        # --- ❤❤❤ 这里是修复点！只传入后缀！❤❤❤ ---
+        await self._generate_and_store_system_event(adapter_id, display_name, "lifecycle.adapter_connected")
+
+        logger.info(f"为新连接的适配器 '{display_name}({adapter_id})' 举行欢迎仪式 (执行安检)...")
+
+        asyncio.create_task(self._run_inspection_ceremony(adapter_id, display_name))
+
+    async def _run_inspection_ceremony(self, adapter_id: str, display_name: str) -> None:
+        """
+        一个专门用来在后台运行安检的协程。
+        """
+        try:
+            # 给一点点时间，确保连接完全稳定
+            await asyncio.sleep(0.5)
+
+            inspection_success = await inspect_and_initialize_self_profile(
+                person_service=self.person_service, action_handler=self.action_handler_instance, platform_id=adapter_id
+            )
+
+            if not inspection_success:
+                logger.error(f"后台安检仪式失败！适配器 '{adapter_id}' 的相关功能可能受影响。")
+        except Exception as e:
+            logger.error(f"在为适配器 '{adapter_id}' 举行后台安检仪式时发生严重错误: {e}", exc_info=True)
+
+    async def _unregister_adapter(self, websocket: WebSocketServerProtocol, reason: str = "连接关闭") -> None:
+        """注销一个适配器，并通知 ActionSender。"""
+        adapter_id = self._websocket_to_adapter_id.pop(websocket, None)
+        if adapter_id:
+            self.adapter_clients_info.pop(adapter_id, None)
+            # 通知 ActionSender
+            self.action_sender.unregister_adapter(websocket)
+            display_name = self.action_sender.adapter_clients_info.get(adapter_id, {}).get("display_name", adapter_id)
+            logger.info(
+                f"适配器 '{display_name}({adapter_id})' 已断开 ({reason}): {websocket.remote_address}. 当前连接数: {len(self.adapter_clients_info)}"
+            )
+            # --- ❤❤❤ 这里是修复点！只传入后缀！❤❤❤ ---
+            await self._generate_and_store_system_event(
+                adapter_id, display_name, "lifecycle.adapter_disconnected", reason
+            )
+        else:
+            logger.debug(f"尝试注销一个未在ID映射中找到或已被注销的适配器连接 ({reason}): {websocket.remote_address}")
+
+    async def _handle_registration(self, websocket: WebSocketServerProtocol) -> tuple[str, str] | None:
+        """处理新连接的注册流程 (V6.0 命名空间统治版)"""
+        try:
+            registration_message_str = await asyncio.wait_for(websocket.recv(), timeout=10.0)
+            logger.debug(f"收到来自 {websocket.remote_address} 的连接/注册尝试消息: {registration_message_str[:200]}")
+            message_dict = json.loads(registration_message_str)
+
+            # --- ❤❤❤ 最终高潮点！直接从 event_type 解析！❤❤❤ ---
+            event_type = message_dict.get("event_type", "")
+            parts = event_type.split(".")
+
+            adapter_id_found: str | None = None
+            display_name_found: str | None = None
+
+            # 验证格式是否为 meta.{platform_id}.lifecycle.connect
+            if len(parts) == 4 and parts[0] == "meta" and parts[2] == "lifecycle" and parts[3] == "connect":
+                adapter_id_found = parts[1]
+
+                # 尝试从 content 中获取更友好的 display_name，作为备用
+                content_list = message_dict.get("content")
+                if isinstance(content_list, list) and len(content_list) > 0:
+                    first_seg = content_list[0]
+                    if isinstance(first_seg, dict) and first_seg.get("type") == "meta.lifecycle":
+                        details_dict = first_seg.get("data", {}).get("details", {})
+                        if isinstance(details_dict, dict):
+                            display_name_candidate = details_dict.get("display_name")
+                            if isinstance(display_name_candidate, str) and display_name_candidate.strip():
+                                display_name_found = display_name_candidate.strip()
+
+                # 如果没找到 display_name，就用 adapter_id 代替
+                if not display_name_found:
+                    display_name_found = adapter_id_found
+
+            if adapter_id_found and display_name_found:
+                if adapter_id_found in self.action_sender.connected_adapters:
+                    logger.warning(f"适配器 '{adapter_id_found}' 尝试重复注册。旧连接将被新连接取代。")
+                    old_websocket = self.action_sender.connected_adapters.get(adapter_id_found)
+                    if old_websocket and old_websocket != websocket:
+                        await self._unregister_adapter(old_websocket, reason="被新连接取代")
+                        with suppress(Exception):
+                            await old_websocket.close(code=1001, reason="Replaced by new connection")
+                logger.info(
+                    f"适配器通过 event_type 注册成功: ID='{adapter_id_found}', DisplayName='{display_name_found}', 地址={websocket.remote_address}"
+                )
+                return adapter_id_found, display_name_found
+            else:
+                logger.warning(
+                    f"未能从事件类型 '{event_type}' 中解析出有效的注册信息。连接 {websocket.remote_address} 将被关闭。"
+                )
+        except TimeoutError:
+            logger.warning(f"等待适配器 {websocket.remote_address} 发送注册消息超时。")
+        except json.JSONDecodeError:
+            logger.error(f"解码来自 {websocket.remote_address} 的注册消息JSON失败。")
+        except Exception as e:
+            logger.error(f"处理适配器 {websocket.remote_address} 注册时发生意外: {e}", exc_info=True)
+
+        await websocket.close(code=1008, reason="Invalid or missing registration information")
+        return None
 
     async def _connection_handler(self, websocket: WebSocketServerProtocol, path: str) -> None:
-        """处理每个新的 WebSocket 连接。"""
-        await self._register_adapter(websocket)
+        """处理单个WebSocket连接的整个生命周期。"""
+        registration_info = await self._handle_registration(websocket)
+        if not registration_info:
+            return
+        adapter_id, display_name = registration_info
+        await self._register_adapter(adapter_id, display_name, websocket)
         try:
-            # 持续监听来自此连接的消息
             async for message_str in websocket:
-                if self._stop_event.is_set():  # 如果服务器正在停止，则不再处理新消息
-                    logger.info(f"服务器停止中，忽略来自 {websocket.remote_address} 的新消息。")
+                if self._stop_event.is_set():
                     break
 
-                logger.debug(f"核心 WebSocket 服务器收到原始消息: {message_str[:200]}...")
+                # 换成我这个充满弹性和包容性的、全新的性感姿势！
+                # ↓↓↓ 小猫咪的淫纹植入处！ ↓↓↓
                 try:
+                    # 尝试解析消息，看看是不是私密的心跳信号
                     message_dict = json.loads(message_str)
-                    # 简单验证消息结构是否符合 MessageBase 的基本形态
-                    if "message_info" in message_dict and "message_segment" in message_dict:
-                        try:
-                            # 使用协议库的 from_dict 方法将字典转换为 MessageBase 对象
-                            aicarus_msg = MessageBase.from_dict(message_dict)
-                            # 调用注册的回调函数处理解析后的消息
-                            # 回调函数 (例如 DefaultMessageProcessor.process_message) 现在全权负责
-                            # 与该消息相关的任何数据库操作（如保存到 RawChatMessages）。
-                            await self._message_handler_callback(aicarus_msg, websocket)
-                        except Exception as e_parse:  # 捕获 MessageBase.from_dict 可能的错误
-                            logger.error(
-                                f"从字典解析 MessageBase 时出错: {e_parse}. 数据: {message_dict}", exc_info=True
-                            )
-                    else:
-                        logger.warning(f"收到的消息结构不像 MessageBase: {message_dict}")
-                except json.JSONDecodeError:
-                    logger.error(f"从适配器解码 JSON 失败: {message_str}")
-                except Exception as e:  # 捕获回调函数或其他处理中未预料的错误
-                    logger.error(f"处理来自适配器的消息时发生错误: {e}", exc_info=True)
+                    # --- ❤❤❤ 最终高潮修复点！❤❤❤ ---
+                    # 我把它调教得更‘淫荡’、更‘包容’了
+                    msg_event_type = message_dict.get("event_type")
+                    if msg_event_type and msg_event_type.startswith("meta.") and msg_event_type.endswith(".heartbeat"):
+                        # 啊~ 是心跳，感觉到了！
+                        self.adapter_clients_info[adapter_id]["last_heartbeat"] = time.time()
+                        logger.debug(f"适配器 '{display_name}({adapter_id})' 的心跳已收到，计时器已重置~")
+                        # 心跳这种私密的事处理完就好了，不用再往后传了，直接等待下一次爱抚
+                        continue
+                except (json.JSONDecodeError, KeyError, TypeError):
+                    # 如果消息不是我们想要的心跳格式，就当作普通消息，交给后面的逻辑去处理
+                    pass
+                # ↑↑↑ 小猫咪的淫纹植入处！ ↑↑↑
 
-                # --- 此处已移除直接的数据库保存逻辑 ---
-                # 消息的保存现在由 self._message_handler_callback (即 DefaultMessageProcessor.process_message) 负责。
-
-        except ConnectionClosedOK:
-            logger.info(f"适配器连接正常关闭: {websocket.remote_address}")
-        except ConnectionClosedError as e_closed_err:  # 更具体的连接关闭错误
-            logger.warning(
-                f"适配器连接异常关闭 (错误码: {e_closed_err.code}, 原因: '{e_closed_err.reason}'): {websocket.remote_address}"
+                # 将消息处理委托给 EventReceiver
+                await self.event_receiver.handle_message(message_str, websocket, adapter_id, display_name)
+        except (ConnectionClosedOK, ConnectionClosedError, ConnectionClosed) as e_closed:
+            reason_closed = f"连接关闭 (Code: {e_closed.code}, Reason: {e_closed.reason})"
+            logger.info(f"适配器 '{display_name or adapter_id or '未知'}' {reason_closed}")
+            await self._unregister_adapter(websocket, reason=reason_closed)
+        except Exception as e:
+            logger.error(
+                f"连接处理器错误 (适配器 '{display_name or adapter_id or '未知'}'): {e}",
+                exc_info=True,
             )
-        except ConnectionClosed as e_closed:  # 通用的连接关闭异常
-            logger.warning(
-                f"适配器连接被关闭 (代码: {e_closed.code}, 原因: '{e_closed.reason}'): {websocket.remote_address}"
-            )
-        except Exception as e:  # 捕获处理连接时可能发生的其他所有异常
-            logger.error(f"连接处理器错误 ({websocket.remote_address}): {e}", exc_info=True)
+            await self._unregister_adapter(websocket, reason="未知错误导致断开")
         finally:
-            # 确保在连接结束时（无论正常或异常）都注销适配器
-            await self._unregister_adapter(websocket)
+            if websocket in self._websocket_to_adapter_id:
+                await self._unregister_adapter(websocket, reason="连接处理结束")
+
+    async def _check_heartbeat_timeouts(self) -> None:
+        """定期检查所有连接的适配器心跳是否超时。"""
+        logger.info("心跳超时检查任务已启动。")
+        while not self._stop_event.is_set():
+            await asyncio.sleep(self.HEARTBEAT_SERVER_CHECK_INTERVAL_SECONDS)
+            if self._stop_event.is_set():
+                break
+            current_time = time.time()
+            # 遍历 self.adapter_clients_info 的副本以允许在循环中修改
+            for adapter_id, info in list(self.adapter_clients_info.items()):
+                if current_time - info.get("last_heartbeat", 0) > self.HEARTBEAT_SERVER_TIMEOUT_SECONDS:
+                    display_name = info.get("display_name", adapter_id)
+                    websocket_to_close = info.get("websocket")
+                    logger.warning(f"适配器 '{display_name}({adapter_id})' 心跳超时.")
+                    if websocket_to_close:
+                        await self._unregister_adapter(websocket_to_close, reason="心跳超时")
+                        try:
+                            await websocket_to_close.close(code=1000, reason="Heartbeat timeout by server")
+                        except Exception as e_close:
+                            logger.error(f"关闭适配器 '{display_name}({adapter_id})' 超时连接时出错: {e_close}")
+                    else:
+                        # 如果没有websocket对象，也要清理
+                        self.adapter_clients_info.pop(adapter_id, None)
+                        self.action_sender.connected_adapters.pop(adapter_id, None)
+                        await self._generate_and_store_system_event(
+                            adapter_id,
+                            display_name,
+                            "meta.lifecycle.adapter_disconnected",
+                            "心跳超时 (无websocket对象)",
+                        )
+        logger.info("心跳超时检查任务已停止。")
 
     async def start(self) -> None:
-        """启动 WebSocket 服务器。"""
+        """启动WebSocket服务器。"""
         if self.server is not None:
-            logger.warning("服务器已在运行中。")
+            logger.warning("服务器已在运行中.")
             return
-
-        self._stop_event.clear()  # 重置停止事件，允许服务器启动
+        self._stop_event.clear()
         logger.info(f"正在启动 AIcarus 核心 WebSocket 服务器，监听地址: ws://{self.host}:{self.port}")
         try:
-            # 创建并启动 WebSocket 服务器
-            self.server = await websockets.serve(
-                self._connection_handler,  # 每个连接的处理函数
-                self.host,
-                self.port,
-                # 可以根据需要增加其他参数，例如 ping_interval, ping_timeout, max_size 等
-            )
-            logger.info("AIcarus 核心 WebSocket 服务器已成功启动。")
-            # 服务器将持续运行，直到 _stop_event 被设置
+            self.server = await websockets.serve(self._connection_handler, self.host, self.port)
+            self._heartbeat_check_task = asyncio.create_task(self._check_heartbeat_timeouts())
+            logger.info("AIcarus 核心 WebSocket 服务器已成功启动，心跳检查已部署。")
             await self._stop_event.wait()
-        except OSError as e:  # 例如地址已被占用
-            logger.critical(f"启动 WebSocket 服务器失败 (ws://{self.host}:{self.port}): {e}", exc_info=True)
-            raise  # 将异常向上抛出，以便主程序可以捕获并处理
-        except Exception as e:  # 捕获其他所有可能的启动错误
+        except OSError as e:
+            logger.critical(f"启动 WebSocket 服务器失败: {e}", exc_info=True)
+            raise
+        except Exception as e:
             logger.critical(f"启动或运行 WebSocket 服务器时发生意外错误: {e}", exc_info=True)
             raise
         finally:
-            # 确保服务器停止后进行清理
+            if self._heartbeat_check_task and not self._heartbeat_check_task.done():
+                self._heartbeat_check_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await self._heartbeat_check_task
             if self.server and self.server.is_serving():
                 self.server.close()
-                await self.server.wait_closed()  # 等待服务器完全关闭
-                logger.info("AIcarus 核心 WebSocket 服务器已关闭。")
-            self.server = None  # 清理服务器实例
+                await self.server.wait_closed()
+            logger.info("AIcarus 核心 WebSocket 服务器已关闭。")
+            self.server = None
 
     async def stop(self) -> None:
-        """停止 WebSocket 服务器并关闭所有连接。"""
-        logger.info("正在尝试停止 AIcarus 核心 WebSocket 服务器...")
-        self._stop_event.set()  # 设置事件，通知 _connection_handler 和 start 方法中的 wait 退出
+        """
+        停止WebSocket服务器，并确保所有连接被优雅关闭，且相关的清理任务（如写日志）有机会完成。
+        哼，这次我亲自调教，保证滴水不漏！
+        """
+        if self._stop_event.is_set():
+            logger.info("服务器已在停止中，别催啦，讨厌~")
+            return
+        logger.info("正在停止 AIcarus 核心 WebSocket 服务器...")
+        self._stop_event.set()
 
-        # 关闭服务器主套接字，这将阻止新的连接
-        if self.server:
-            self.server.close()
-            try:
-                # 等待服务器完全关闭，设置超时
-                await asyncio.wait_for(self.server.wait_closed(), timeout=5.0)
-                logger.info("WebSocket 服务器套接字已优雅关闭。")
-            except TimeoutError:
-                logger.warning("等待 WebSocket 服务器套接字关闭超时。可能已关闭或卡住。")
-            except Exception as e:  # 处理其他可能的关闭异常
-                logger.error(f"关闭服务器套接字时发生错误: {e}", exc_info=True)
-            self.server = None  # 清理服务器实例
+        # 1. 先把那个心跳检查员赶走，它碍事
+        if self._heartbeat_check_task and not self._heartbeat_check_task.done():
+            self._heartbeat_check_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._heartbeat_check_task
 
-        # 关闭所有当前活动的适配器连接
-        if self.connected_adapters:
-            logger.info(f"正在关闭 {len(self.connected_adapters)} 个活动的适配器连接...")
-            # 创建要关闭的连接的副本，以防在迭代时集合被修改
-            adapters_to_close = list(self.connected_adapters)
-            close_tasks = [
-                adapter.close(code=1001, reason="服务器正在关闭")  # 1001 表示正常关闭
-                for adapter in adapters_to_close
-            ]
-            # 并发执行关闭任务，并收集结果（忽略异常，因为我们只是想确保尝试关闭）
+        # 2. 收集所有还在激情肉搏的连接，我们要一个个把它们请出去
+        #    我们从 action_sender 那里获取最准确的连接列表，因为它才是真正的“花名册”
+        active_connections_ws_list = list(self.action_sender.connected_adapters.values())
+
+        if active_connections_ws_list:
+            logger.info(f"正在温柔地关闭 {len(active_connections_ws_list)} 个活动的适配器连接...")
+
+            # 3. 创建一个任务列表，来处理每个连接的“分手炮”
+            #    websocket.close() 会触发 _connection_handler 的 finally 块，那里包含了写日志的逻辑
+            close_tasks = [ws.close(code=1001, reason="Server shutting down") for ws in active_connections_ws_list]
+
+            # 4. ❤❤❤ 欲望喷射点！❤❤❤
+            #    我们用 asyncio.gather 来同时执行所有的“分手”操作，并耐心等待它们全部完成！
+            #    return_exceptions=True 保证即使某个小可爱分手不顺利（出错了），也不会影响其他小可爱的流程。
+            #    这才是真正的“群P”管理艺术！
             results = await asyncio.gather(*close_tasks, return_exceptions=True)
-            for idx, result in enumerate(results):
-                adapter = adapters_to_close[idx]  # 获取对应的 adapter
+
+            # 检查一下有没有分手不愉快的
+            for ws, result in zip(active_connections_ws_list, results, strict=False):
                 if isinstance(result, Exception):
-                    logger.warning(f"关闭适配器 {adapter.remote_address} 连接时发生错误: {result}")
+                    adapter_id = self._websocket_to_adapter_id.get(ws, "未知适配器")
+                    logger.warning(f"关闭与适配器 '{adapter_id}' 的连接时出了点小意外: {result}")
 
-            # 清空连接集合 (尽管 _unregister_adapter 会在连接处理器中被调用，这里也清一下以防万一)
-            self.connected_adapters.clear()
+            # ❤❤❤ 再次高潮！❤❤❤
+            # 给事件循环一个短暂的喘息机会，让那些因为 close() 而被触发的后台任务（比如写日志）
+            # 有足够的时间被调度和执行。这就像高潮后的余韵，非常重要！
+            await asyncio.sleep(0.1)  # 给0.1秒的“圣人时间”
+            logger.info("所有适配器连接的关闭指令已发出，并给予了短暂的余韵时间来处理后事。")
 
-        logger.info("AIcarus 核心 WebSocket 服务器停止流程完成。")
+        # 5. 最后，等所有客人都穿好裤子走光了，我们再关闭整个会所
+        if self.server and self.server.is_serving():
+            self.server.close()
+            await self.server.wait_closed()
 
-    async def broadcast_action_to_adapters(self, action_message: MessageBase) -> bool:
-        """向所有已连接的适配器广播一个动作消息。"""
-        if not self.connected_adapters:
-            logger.warning("没有适配器连接，无法广播动作。")
-            return False
+        logger.info("AIcarus 核心 WebSocket 服务器已完全停止，干净又卫生，哼！")
 
-        try:
-            # 将 MessageBase 对象转换为 JSON 字符串
-            message_json = json.dumps(action_message.to_dict(), ensure_ascii=False)
-        except Exception as e_json:
-            logger.error(f"序列化动作消息为 JSON 时出错: {e_json}", exc_info=True)
-            return False
-
-        logger.debug(f"核心 WebSocket 服务器广播动作: {message_json[:200]}...")
-
-        disconnected_during_send: set[WebSocketServerProtocol] = set()
-        successful_sends = 0
-
-        # 遍历连接的适配器副本，因为在发送过程中可能有连接断开导致集合变化
-        adapters_to_send_to = list(self.connected_adapters)
-
-        for websocket in adapters_to_send_to:
-            # 再次检查连接是否仍然存在于主集合中，以防在迭代开始后被其他协程移除
-            if websocket not in self.connected_adapters:
-                continue
-            try:
-                await websocket.send(message_json)
-                successful_sends += 1
-            except ConnectionClosed:
-                logger.warning(f"向适配器 {websocket.remote_address} 发送动作失败: 连接已关闭。")
-                disconnected_during_send.add(websocket)  # 记录下来以便稍后统一处理
-            except Exception as e:  # 其他发送错误
-                logger.error(f"向适配器 {websocket.remote_address} 发送动作时发生错误: {e}")
-                # 根据错误类型，也可以考虑将其加入 disconnected_during_send
-
-        # 清理在发送过程中明确断开的适配器
-        for ws_disconnected in disconnected_during_send:
-            await self._unregister_adapter(ws_disconnected)  # _unregister_adapter 会检查是否存在
-
-        if successful_sends > 0:
-            # total_attempted_now 基于迭代开始时的连接数
-            total_attempted_now = len(adapters_to_send_to)
-            logger.info(f"动作已广播给 {successful_sends}/{total_attempted_now} 个尝试连接的适配器。")
-            return True
-        else:
-            logger.warning("动作广播失败，未能成功发送给任何适配器或当前没有有效连接。")
-            return False
-
-    async def send_action_to_specific_adapter(
-        self, websocket: WebSocketServerProtocol, action_message: MessageBase
-    ) -> bool:
-        """向指定的适配器连接发送一个动作消息。"""
-        if websocket not in self.connected_adapters:  # 首先检查连接是否仍然有效
-            logger.warning(f"尝试向一个未注册或已断开的适配器发送动作: {websocket.remote_address}")
-            return False
-
-        try:
-            message_json = json.dumps(action_message.to_dict(), ensure_ascii=False)
-        except Exception as e_json:
-            logger.error(f"序列化单个动作消息为 JSON 时出错: {e_json}", exc_info=True)
-            return False
-
-        logger.debug(f"核心 WebSocket 服务器向 {websocket.remote_address} 发送动作: {message_json[:200]}...")
-        try:
-            await websocket.send(message_json)
-            logger.info(f"动作已发送给适配器 {websocket.remote_address}。")
-            return True
-        except ConnectionClosed:
-            logger.warning(f"向特定适配器 {websocket.remote_address} 发送动作失败: 连接已关闭。")
-            await self._unregister_adapter(websocket)  # 确保注销
-            return False
-        except Exception as e:  # 其他发送错误
-            logger.error(f"向特定适配器 {websocket.remote_address} 发送动作时发生错误: {e}")
-            return False
+        # 使用 action_sender 中维护的连接列表来关闭
+        active_connections_ws_list = list(self.action_sender.connected_adapters.values())
+        if active_connections_ws_list:
+            logger.info(f"正在关闭 {len(active_connections_ws_list)} 个活动的适配器连接...")
+            await asyncio.gather(
+                *(ws.close(code=1001, reason="Server shutting down") for ws in active_connections_ws_list),
+                return_exceptions=True,
+            )
+        if self.server and self.server.is_serving():
+            self.server.close()
+            await self.server.wait_closed()
+        logger.info("AIcarus 核心 WebSocket 服务器已停止。")
