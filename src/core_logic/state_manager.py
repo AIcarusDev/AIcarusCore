@@ -60,8 +60,7 @@ class AIStateManager:
             # // 因为动作信息已经通过 action_log_block 更清晰地展示
             if latest_thought.get("action_id"):
                 action_desc = "某个动作"
-                action_payload = latest_thought.get("action_payload", {})
-                if action_payload:
+                if action_payload := latest_thought.get("action_payload", {}):
                     # 随便解析第一个动作作为代表
                     platform, actions = next(iter(action_payload.items()), (None, None))
                     if actions:
