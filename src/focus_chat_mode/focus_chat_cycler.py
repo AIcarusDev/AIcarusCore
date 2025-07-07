@@ -124,9 +124,9 @@ class FocusChatCycler:
             self.session.messages_sent_this_turn = 0
 
             # 如果上一轮被粗暴地打断了，我们就用更早之前那次完整的思考结果来构建上下文，这样才连贯
-            decision_for_prompt = (
-                self._last_completed_llm_decision if was_interrupted_last_turn else self.session.last_llm_decision
-            )
+            # decision_for_prompt = (
+            #     self._last_completed_llm_decision if was_interrupted_last_turn else self.session.last_llm_decision
+            # )
 
             # ==================================
             # 阶段一：思考 vs 监视 (淫乱的第一场赛跑)
@@ -141,10 +141,7 @@ class FocusChatCycler:
                 prompt_components: PromptComponents = await self.prompt_builder.build_prompts(
                     session=self.session,
                     last_processed_timestamp=self.session.last_processed_timestamp,
-                    last_llm_decision=decision_for_prompt,
                     is_first_turn=self.session.is_first_turn_for_session,
-                    last_think_from_core=self.session.initial_core_think,
-                    last_mood_from_core=self.session.initial_core_mood,
                     motivation_from_core=self.session.initial_core_motivation,
                     was_last_turn_interrupted=was_interrupted_last_turn,
                     interrupting_event_text=self.interrupting_event_text,

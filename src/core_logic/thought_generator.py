@@ -1,4 +1,5 @@
 # src/core_logic/thought_generator.py
+import uuid
 from typing import TYPE_CHECKING, Any
 
 from src.common.custom_logging.logging_config import get_logger
@@ -24,6 +25,7 @@ class ThoughtGenerator:
     ) -> dict[str, Any] | None:
         """
         调用LLM生成思考结果，并解析响应。
+        确保 response_schema 被正确传递。
         """
         try:
             response_data = await self.llm_client.make_llm_request(
@@ -54,7 +56,14 @@ class ThoughtGenerator:
             if response_data.get("usage"):
                 parsed_json["_llm_usage_info"] = response_data.get("usage")
 
-            logger.info("LLM API 的回应已成功解析为JSON。")
+            # 在这里，我们给生成的思考结果也加上唯一的ID，方便追踪
+            if "action" in parsed_json and isinstance(parsed_json["action"], dict):
+                # 如果有动作，就用 action_id 作为整个思考的ID
+                parsed_json["thought_id"] = parsed_json.get("action", {}).get("action_id", str(uuid.uuid4()))
+            else:
+                parsed_json["thought_id"] = str(uuid.uuid4())
+
+            logger.info(f"LLM API 的回应已成功解析为JSON。Thought ID: {parsed_json['thought_id']}")
             return parsed_json
 
         except Exception as e:

@@ -1,9 +1,10 @@
-# src/core_logic/thought_persistor.py
+# src/core_logic/thought_persistor.py (小懒猫·点打包员版)
 import datetime
 import uuid
 from typing import TYPE_CHECKING, Any
 
 from src.common.custom_logging.logging_config import get_logger
+from src.database.models import ThoughtChainDocument
 
 if TYPE_CHECKING:
     from src.database import ThoughtStorageService
@@ -17,60 +18,38 @@ class ThoughtPersistor:
         logger.info("ThoughtPersistor 已初始化。")
 
     async def store_thought(
-        self, thought_json: dict[str, Any], prompts: dict[str, Any], context: dict[str, Any]
+        self, thought_json: dict[str, Any], source_type: str, source_id: str | None = None
     ) -> str | None:
         """
-        处理并存储思考结果到数据库，这次我们用统一的、全新的字段名！
+        处理并存储思考结果到数据库，这次我们用统一的、全新的思想链！
         """
-        # 小色猫的低语：姐姐好厉害，一下子就找到了G点...
-        initiated_action_data_for_db = None
-        action_id_for_db = thought_json.get("action_id")
-        action_payload = thought_json.get("action")  # 动作现在是嵌套的，得这么拿！
+        action_payload = thought_json.get("action")
+        action_id = str(uuid.uuid4()) if action_payload and isinstance(action_payload, dict) else None
 
-        # 只有当 action 字段存在，并且是个字典，才说明有行动意图
-        if action_payload and isinstance(action_payload, dict):
-            if not action_id_for_db:
-                # 这是一个兜底，理论上不应该发生。如果发生了，说明上游逻辑有漏洞。
-                logger.warning(
-                    f"行动 '{action_payload}' 缺少 action_id，将在 ThoughtPersistor 中生成一个新的。请检查上游逻辑！"
-                )
-                action_id_for_db = str(uuid.uuid4())
-                thought_json["action_id"] = action_id_for_db
+        # 1. 把思考结果打包成一颗新的“思想点”
+        new_thought_pearl = ThoughtChainDocument(
+            _key=str(uuid.uuid4()),  # 给点一个唯一的key
+            timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
+            mood=thought_json.get("mood", "平静"),
+            think=thought_json.get("think", "我刚才好像走神了。"),
+            goal=thought_json.get("goal"),
+            source_type=source_type,
+            source_id=source_id,
+            action_id=action_id,
+            action_payload=action_payload,
+        )
 
-            initiated_action_data_for_db = {
-                # 这里我们直接把整个 action 对象存起来，省得以后再改
-                "action_payload": action_payload,
-                "action_id": action_id_for_db,
-                "status": "PENDING",
-                "result_seen_by_shimo": False,
-                "initiated_at": datetime.datetime.now(datetime.UTC).isoformat(),
-            }
-        else:
-            logger.debug("LLM未指定行动，不记录。")
-
-        document_to_save = {
-            "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
-            "time_injected_to_prompt": prompts.get("current_time"),
-            "system_prompt_sent": prompts.get("system"),
-            "full_user_prompt_sent": prompts.get("user"),
-            "intrusive_thought_injected": context.get("intrusive_thought"),
-            "recent_contextual_information_input": context.get("recent_context"),
-            "think": thought_json.get("think"),
-            "mood": thought_json.get("mood"),
-            "goal": thought_json.get("goal"),
-            "action": initiated_action_data_for_db,
-            "image_inputs_count": len(context.get("images", [])),
-            "image_inputs_preview": [img[:100] for img in context.get("images", [])[:3]],
-            "_llm_usage_info": thought_json.get("_llm_usage_info"),
-        }
-
+        # 2. 把点交给存储服务去串起来
         try:
-            saved_key = await self.thought_storage.save_main_thought_document(document_to_save)
+            # // 注意！我们现在调用的是改造后的 save_thought_and_link 方法！
+            saved_key = await self.thought_storage.save_thought_and_link(new_thought_pearl)
+
             if not saved_key:
-                logger.error("保存思考文档失败！可能是数据库操作异常。")
+                logger.error("保存思想点失败！可能是数据库操作异常。")
                 return None
-            logger.info(f"思考文档已成功保存，key: {saved_key}")
+
+            logger.info(f"思想点 '{saved_key}' 已打包并成功串入思想链。")
             return saved_key
         except Exception as e:
-            logger.error(f"保存思考文档时发生意外错误: {e}", exc_info=True)
+            logger.error(f"打包并保存思想点时发生意外错误: {e}", exc_info=True)
             return None

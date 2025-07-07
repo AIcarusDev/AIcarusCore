@@ -31,7 +31,7 @@ from src.database import (
     ArangoDBConnectionManager,
     ConversationStorageService,
     CoreDBCollections,
-    PersonStorageService,  # 把新老鸨请进来！
+    PersonStorageService,
     ThoughtStorageService,
 )
 from src.database.services.event_storage_service import EventStorageService
@@ -147,12 +147,13 @@ class CoreSystemInitializer:
             raise RuntimeError("数据库连接管理器初始化失败。")
         logger.debug(f"数据库连接管理器已为数据库 '{self.conn_manager.db.name}' 初始化。")
 
+        # --- 核心改造点：用新的 ThoughtStorageService ---
         services_to_init = {
             "event_storage_service": EventStorageService,
             "conversation_storage_service": ConversationStorageService,
-            "thought_storage_service": ThoughtStorageService,
+            "thought_storage_service": ThoughtStorageService,  # 这个现在是新的了！
             "action_log_service": ActionLogStorageService,
-            "person_storage_service": PersonStorageService,  # 把新老鸨也加进来初始化
+            "person_storage_service": PersonStorageService,
         }
         for attr_name, service_class in services_to_init.items():
             instance = service_class(conn_manager=self.conn_manager)
@@ -206,11 +207,7 @@ class CoreSystemInitializer:
         logger.info("=== AIcarus Core 系统开始核心组件初始化流程... ===")
         try:
             platform_builder_registry.discover_and_register_builders(platform_builders)
-        except Exception as e:
-            logger.critical(f"加载平台事件构建器（翻译官）失败！系统无法正常处理平台动作！错误: {e}", exc_info=True)
-            # 这里可以根据你的需要决定是否要直接让程序崩溃
-            raise RuntimeError("平台构建器加载失败，核心功能受损。") from e
-        try:
+
             await self._initialize_llm_clients()
             await self._initialize_database_and_services()
             await self._initialize_interrupt_model()
@@ -228,44 +225,50 @@ class CoreSystemInitializer:
             ):
                 raise RuntimeError("一个或多个基础服务未能初始化。")
 
-            # 先初始化 ActionHandler，因为它不依赖其他组件
+            # 1. 动作处理器 ActionHandler
             self.action_handler_instance = ActionHandler()
             logger.info("ActionHandler 实例已创建。")
 
-            # 再初始化 StateManager，因为它需要数据库服务
+            # 2. 状态管理器 AIStateManager (现在它依赖新的 ThoughtStorageService)
             self.state_manager_instance = AIStateManager(
                 thought_service=self.thought_storage_service,
-                action_log_service=self.action_log_service,  # 注入依赖
+                action_log_service=self.action_log_service,
             )
             logger.info("AIStateManager 初始化成功。")
 
-            # 再初始化 UnreadInfoService
+            # 3. 未读消息服务 UnreadInfoService
             self.unread_info_service = UnreadInfoService(
-                event_storage=self.event_storage_service, conversation_storage=self.conversation_storage_service
+                event_storage=self.event_storage_service,
+                conversation_storage=self.conversation_storage_service,
             )
             logger.info("UnreadInfoService 初始化成功。")
 
+            # 4. Prompt构造器 ThoughtPromptBuilder
             self.thought_prompt_builder_instance = ThoughtPromptBuilder(
                 unread_info_service=self.unread_info_service,
                 state_manager=self.state_manager_instance,  # 把 state_manager 喂给它！
             )
             logger.info("ThoughtPromptBuilder 初始化成功。")
 
+            # 5. 摘要服务 SummarizationService
             summary_llm = self.summary_llm_client or self.main_consciousness_llm_client
             if not summary_llm:
                 raise RuntimeError("无可用LLM客户端初始化SummarizationService。")
             self.summarization_service = SummarizationService(llm_client=summary_llm)
             logger.info("SummarizationService 初始化成功。")
 
+            # 6. 专注聊天管理器 ChatSessionManager (现在它也需要 thought_storage_service)
             if config.focus_chat_mode.enabled:
-                if (
-                    self.focused_chat_llm_client
-                    and config.persona.qq_id
-                    and self.summarization_service
-                    and self.event_storage_service
-                    and self.conversation_storage_service
-                    and self.action_handler_instance
-                    and self.interrupt_model_instance
+                if all(
+                    [
+                        self.focused_chat_llm_client,
+                        config.persona.qq_id,
+                        self.summarization_service,
+                        self.event_storage_service,
+                        self.conversation_storage_service,
+                        self.action_handler_instance,
+                        self.interrupt_model_instance,
+                    ]
                 ):
                     self.qq_chat_session_manager = ChatSessionManager(
                         config=config.focus_chat_mode,
@@ -277,7 +280,8 @@ class CoreSystemInitializer:
                         summarization_service=self.summarization_service,
                         summary_storage_service=self.summary_storage_service,
                         intelligent_interrupter=self.interrupt_model_instance,
-                        core_logic=None,
+                        thought_storage_service=self.thought_storage_service,  # 把思想链服务也给它！
+                        core_logic=None,  # CoreLogic 后面再注入
                     )
                     logger.info("ChatSessionManager 初始化完成，并已成功注入智能打断系统。")
                 else:
@@ -287,27 +291,28 @@ class CoreSystemInitializer:
                 self.qq_chat_session_manager = None
                 logger.info("专注聊天子意识模块未启用。")
 
+            # 7. 消息处理器 DefaultMessageProcessor
             self.message_processor = DefaultMessageProcessor(
                 event_service=self.event_storage_service,
                 conversation_service=self.conversation_storage_service,
-                person_service=self.person_storage_service,  # 把新老鸨介绍给消息处理器
+                person_service=self.person_storage_service,
                 semantic_model=self.semantic_model_instance,
                 qq_chat_session_manager=self.qq_chat_session_manager,
             )
             self.message_processor.core_initializer_ref = self
             logger.info("DefaultMessageProcessor 初始化成功。")
 
-            # --- 重构后的通信层初始化 ---
+            # 8. 通信层 CoreWebsocketServer
             action_sender = ActionSender()
 
             # 把所有依赖都注入给 ActionHandler
             self.action_handler_instance.set_dependencies(
-                thought_service=self.thought_storage_service,
+                thought_service=self.thought_storage_service,  # 注入新服务
                 event_service=self.event_storage_service,
                 action_log_service=self.action_log_service,
                 conversation_service=self.conversation_storage_service,
                 action_sender=action_sender,
-                chat_session_manager=self.qq_chat_session_manager,  # 把 chat_session_manager 也给它
+                chat_session_manager=self.qq_chat_session_manager,
             )
             logger.info("ActionHandler 的依赖已设置。")
 
@@ -336,7 +341,7 @@ class CoreSystemInitializer:
                 action_handler_instance=self.action_handler_instance,
                 person_service=self.person_storage_service,
             )
-            logger.info(f"CoreWebsocketServer (重构版) 准备在 ws://{config.server.host}:{config.server.port} 上监听。")
+            logger.info(f"CoreWebsocketServer 准备在 ws://{config.server.host}:{config.server.port} 上监听。")
 
             self.context_builder_instance = ContextBuilder(
                 event_storage=self.event_storage_service,
@@ -367,6 +372,7 @@ class CoreSystemInitializer:
             self.thought_persistor_instance = ThoughtPersistor(thought_storage=self.thought_storage_service)
             logger.info("ThoughtPersistor 初始化成功。")
 
+            # 10. 最终组装 CoreLogic！
             if not all(
                 [
                     self.core_comm_layer,
@@ -377,6 +383,7 @@ class CoreSystemInitializer:
                     self.thought_generator_instance,
                     self.thought_persistor_instance,
                     self.thought_prompt_builder_instance,
+                    self.thought_storage_service,  # 确保这个也准备好了
                 ]
             ):
                 raise RuntimeError("CoreLogicFlow 的一个或多个核心服务依赖未能初始化。")
@@ -389,18 +396,17 @@ class CoreSystemInitializer:
                 context_builder=self.context_builder_instance,
                 thought_generator=self.thought_generator_instance,
                 thought_persistor=self.thought_persistor_instance,
+                thought_storage_service=self.thought_storage_service,  # 把思想链服务也给它！
                 prompt_builder=self.thought_prompt_builder_instance,
                 stop_event=self.stop_event,
                 immediate_thought_trigger=self.immediate_thought_trigger,
                 intrusive_generator_instance=self.intrusive_generator_instance,
             )
+            logger.info("CoreLogicFlow (意识流版) 初始化成功。")
 
+            # 11. 回填依赖
             if self.qq_chat_session_manager and self.core_logic_instance:
-                if hasattr(self.qq_chat_session_manager, "set_core_logic"):
-                    self.qq_chat_session_manager.set_core_logic(self.core_logic_instance)
-                else:
-                    logger.warning("ChatSessionManager 缺少 set_core_logic 方法，尝试直接设置。")
-                    self.qq_chat_session_manager.core_logic = self.core_logic_instance
+                self.qq_chat_session_manager.set_core_logic(self.core_logic_instance)
 
             if self.action_handler_instance:
                 self.action_handler_instance.set_thought_trigger(self.immediate_thought_trigger)

@@ -107,7 +107,7 @@ def _sophisticated_merge_configs(
                     template_value.append(entry_table)  # 再把新的精华一个个注入！
                 logger.debug(f"  合并数组表 (AoT): '{key}' 已根据新模板结构融合旧值。")
 
-            # 姿势三：如果新旧两边都是普通的“珍珠串” (Array)，小猫觉得主人的旧珍珠串更合心意
+            # 姿势三：如果新旧两边都是普通的“点串” (Array)，小猫觉得主人的旧点串更合心意
             elif isinstance(template_value, Array) and isinstance(old_value, Array):
                 # 对于普通数组，我们直接用旧的覆盖新的，因为用户自定义的列表内容通常更重要。
                 # tomlkit 的 Array 支持 copy()
