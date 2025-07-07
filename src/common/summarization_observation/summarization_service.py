@@ -159,18 +159,7 @@ class SummarizationService:
             logger.info("没有新的事件，也没有转移意图，直接返回之前的摘要。")
             return previous_summary or "我刚才好像走神了，什么也没记住。"
 
-        # --- 【核心改造点】调用通用格式化工具 ---
-        (
-            formatted_chat_history,
-            user_list_block_str,
-            conversation_info_block_str,
-            user_map,
-            _,  # uid_str_to_platform_id_map
-            _,  # processed_event_ids
-            image_references,
-            conversation_name_from_formatter,
-            _,  # last_valid_text_message
-        ) = await format_chat_history_for_llm(
+        prompt_components = await format_chat_history_for_llm(
             event_storage=event_storage,
             conversation_id=conversation_info.get("id"),
             bot_id=bot_profile.get("user_id"),
@@ -185,21 +174,21 @@ class SummarizationService:
 
         # 如果没有新事件，聊天记录就是空的，这没关系
         if not recent_events:
-            formatted_chat_history = "（无新的聊天记录）"
+            prompt_components.chat_history_log_block = "（无新的聊天记录）"
 
         extended_conv_info = conversation_info.copy()
         extended_conv_info["bot_id"] = bot_profile.get("user_id")
         extended_conv_info["bot_card"] = bot_profile.get("card")
-        extended_conv_info["name"] = conversation_name_from_formatter or conversation_info.get("name")
+        extended_conv_info["name"] = prompt_components.conversation_name or conversation_info.get("name")
 
         system_prompt, user_prompt = await self._build_summary_prompt(
             previous_summary,
-            formatted_chat_history,
-            image_references,
+            prompt_components.chat_history_log_block,
+            prompt_components.image_references,
             extended_conv_info,
-            user_map,
+            prompt_components.user_map,
             shift_motivation,
-            target_conversation_id,  # 把新玩具传进去
+            target_conversation_id,
         )
 
         conv_id_for_log = conversation_info.get("id", "未知会话")
@@ -217,8 +206,8 @@ class SummarizationService:
                 prompt=user_prompt,
                 system_prompt=system_prompt,
                 is_stream=False,
-                is_multimodal=bool(image_references),
-                image_inputs=image_references,
+                is_multimodal=bool(prompt_components.image_references),
+                image_inputs=prompt_components.image_references,
                 use_google_search=True,
             )
 

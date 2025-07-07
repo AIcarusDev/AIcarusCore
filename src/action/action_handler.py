@@ -258,22 +258,14 @@ class ActionHandler:
                     use_google_search=True,  # 开启谷歌搜索
                 )
                 final_result = response.get("text", "搜索失败或未返回任何信息。")
-                await self.thought_storage_service.update_action_status_in_thought_document(
-                    doc_key_for_updates,
-                    action_id,
-                    {"status": "COMPLETED_SUCCESS", "final_result_for_shimo": final_result},
-                )
+
                 if self.thought_trigger:
                     self.thought_trigger.set()
                 return True, final_result, None
 
         # 4. 如果啥动作都没有
         final_result_for_shimo = "AI决策的动作对象为空，或没有可执行的动作。"
-        await self.thought_storage_service.update_action_status_in_thought_document(
-            doc_key_for_updates,
-            action_id,
-            {"status": "COMPLETED_NO_TOOL", "final_result_for_shimo": final_result_for_shimo},
-        )
+
         if self.thought_trigger:
             self.thought_trigger.set()
         return True, final_result_for_shimo, None

@@ -80,17 +80,6 @@ class PendingActionManager:
             error_info="Action response timed out",
         )
 
-        if thought_doc_key:
-            timeout_message = f"你尝试执行动作 '{description}' 时，等待响应超时了。"
-            update_payload = {
-                "status": "TIMEOUT_FAILURE",
-                "final_result_for_shimo": timeout_message,
-                "error_message": "Action response timed out.",
-            }
-            await self.thought_storage_service.update_action_status_in_thought_document(
-                thought_doc_key, action_id, update_payload
-            )
-
     async def handle_response(self, response_event_data: dict[str, Any]) -> None:
         """处理来自适配器的动作响应事件。"""
         original_action_id = self._get_original_id_from_response(response_event_data)
@@ -112,7 +101,7 @@ class PendingActionManager:
             logger.info(f"收到来自适配器 '{details.get('platform')}' 的档案同步报告，开始处理...")
             # 把处理报告这个脏活累活，单独丢给一个新方法去做！
             await self._process_bot_profile_report(details)
-        final_result = self._create_final_result_message(description, successful, error_msg, details)
+        _final_result = self._create_final_result_message(description, successful, error_msg, details)
         response_timestamp = int(time.time() * 1000)
         response_time_ms = response_timestamp - sent_dict.get("timestamp", response_timestamp)
 
@@ -130,18 +119,6 @@ class PendingActionManager:
         if not pending_future.done():
             result_payload = details if successful else {"error": error_msg}
             pending_future.set_result((successful, result_payload))
-
-        # 更新思考文档
-        if thought_doc_key:
-            update_payload = {
-                "status": "COMPLETED_SUCCESS" if successful else "COMPLETED_FAILURE",
-                "final_result_for_shimo": final_result,
-                "error_message": "" if successful else error_msg,
-                "response_received_at": response_timestamp,
-            }
-            await self.thought_storage_service.update_action_status_in_thought_document(
-                thought_doc_key, original_action_id, update_payload
-            )
 
         # 存为事件
         if successful:
