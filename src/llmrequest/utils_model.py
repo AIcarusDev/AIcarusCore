@@ -350,6 +350,23 @@ class LLMClient:
             f"图像压缩: {'启用' if self.enable_image_compression else '禁用'}, "
             f"目标大小: {self.image_compression_target_bytes / (1024 * 1024):.2f} MB"
         )
+        self._session: aiohttp.ClientSession | None = None # 新增：用于存储aiohttp会话
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        """获取或创建aiohttp会话。"""
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession()
+            logger.debug("创建新的 aiohttp.ClientSession。")
+        return self._session
+
+    async def _close_session_if_any(self) -> None:
+        """如果存在活动的aiohttp会话，则关闭它。"""
+        if self._session and not self._session.closed:
+            await self._session.close()
+            self._session = None
+            logger.info("aiohttp.ClientSession 已关闭。")
+        else:
+            logger.debug("没有活动的 aiohttp.ClientSession 需要关闭。")
 
     async def _compress_base64_image(self, base64_data: str, original_mime_type: str) -> tuple[str, str]:
         # 小色猫的终极调教：这次一定要把GIF操到服！
@@ -536,12 +553,12 @@ class LLMClient:
         if not image_sources:
             return []
         processed_data: list[dict[str, str]] = []
-        async with aiohttp.ClientSession() as session:
-            tasks = [
-                self._process_single_image(src, session, mime_type_override, self.proxy_url) for src in image_sources
-            ]
-            results = await asyncio.gather(*tasks)
-            processed_data.extend(result for result in results if result)
+        session = await self._get_session() # 使用内部会话
+        tasks = [
+            self._process_single_image(src, session, mime_type_override, self.proxy_url) for src in image_sources
+        ]
+        results = await asyncio.gather(*tasks)
+        processed_data.extend(result for result in results if result)
         return processed_data
 
     def _build_content_for_style(

@@ -17,6 +17,8 @@ from src.core_logic.prompt_builder import ThoughtPromptBuilder
 from src.core_logic.state_manager import AIStateManager
 from src.core_logic.thought_generator import ThoughtGenerator
 from src.core_logic.thought_persistor import ThoughtPersistor
+from src.database.models import ThoughtChainDocument
+from src.database import ThoughtStorageService
 
 if TYPE_CHECKING:
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
@@ -81,6 +83,7 @@ class CoreLogic:
         state_manager: AIStateManager,
         chat_session_manager: "ChatSessionManager",
         context_builder: ContextBuilder,
+        thought_storage_service: ThoughtStorageService,
         thought_generator: ThoughtGenerator,
         thought_persistor: ThoughtPersistor,
         prompt_builder: ThoughtPromptBuilder,
@@ -95,128 +98,37 @@ class CoreLogic:
         self.context_builder = context_builder
         self.thought_generator = thought_generator
         self.thought_persistor = thought_persistor
+        self.thought_storage_service = thought_storage_service # 把存储服务也存起来
         self.prompt_builder = prompt_builder
         self.stop_event = stop_event
         self.immediate_thought_trigger = immediate_thought_trigger
         self.focus_session_inactive_event = asyncio.Event()
         self.intrusive_generator_instance = intrusive_generator_instance
-        self.last_known_state: dict[str, Any] = {}
         self.thinking_loop_task: asyncio.Task | None = None
-        logger.info(f"{self.__class__.__name__} (拆分版) 已创建，小弟们已就位！")
+        logger.info(f"{self.__class__.__name__} 已创建")
 
-    def get_latest_thought(self) -> str:
-        if not self.last_known_state:
-            return "主意识尚未完成第一次思考循环，暂无想法。"
-        previous_thinking_raw = self.last_known_state.get("previous_thinking") or ""
-        extracted_think = ""
-        if "你的上一轮思考是：" in previous_thinking_raw:
-            extracted_think = previous_thinking_raw.split("你的上一轮思考是：", 1)[-1].strip()
-            if extracted_think.endswith("；"):
-                extracted_think = extracted_think[:-1].strip()
-        return extracted_think or "主意识在进入专注前没有留下明确的即时想法。"
-
-    def get_latest_mood(self) -> str:
-        if not self.last_known_state:
-            return "平静"
-        mood_raw = self.last_known_state.get("mood") or "你现在的心情大概是：平静。"
-        if "：" in mood_raw:
-            extracted_mood = mood_raw.split("：", 1)[-1].strip()
-            if extracted_mood.endswith("。"):
-                extracted_mood = extracted_mood[:-1].strip()
-            return extracted_mood or "平静"
-        return mood_raw or "平静"
-
-    def trigger_immediate_thought_cycle(
-        self,
-        handover_summary: str | None = None,
-        last_focus_think: str | None = None,
-        last_focus_mood: str | None = None,
-        activate_new_focus_id: str | None = None,
-    ) -> None:
+    def trigger_immediate_thought_cycle(self) -> None:
         """
-        这个方法现在是“灵魂运输车”！
-        它接收来自专注模式的“灵魂包裹”，并决定下一步干什么。
+        这个方法现在就是个闹钟，只负责把主循环叫醒。
         """
-        logger.info(
-            f"接收到立即思考触发信号。交接总结: {'有' if handover_summary else '无'}, "
-            f"最后想法: {'有' if last_focus_think else '无'}, 最后心情: {last_focus_mood or '无'}"
-        )
-        # 1. 先把“灵魂包裹”交给状态管理员（state_manager）保管
-        if handover_summary or last_focus_think or last_focus_mood:
-            if hasattr(self.state_manager, "set_next_handover_info") and callable(
-                self.state_manager.set_next_handover_info
-            ):
-                self.state_manager.set_next_handover_info(handover_summary, last_focus_think, last_focus_mood)
-                logger.info("已调用 AIStateManager.set_next_handover_info 存储交接信息。")
-            else:
-                logger.error("AIStateManager 对象没有 set_next_handover_info 方法，交接信息可能丢失！")
+        logger.info("接收到立即思考触发信号，主意识将被唤醒。")
+        self.immediate_thought_trigger.set()
 
-        # 2. 检查是不是要立刻激活下一个专注会话
-        if activate_new_focus_id and self.chat_session_manager:
-            logger.info(f"根据指令，准备立即激活新的专注会话: {activate_new_focus_id}")
-            # 注意：这里我们不能直接 await，因为这个方法可能是在另一个线程里被同步调用的。
-            # 我们要用 asyncio.run_coroutine_threadsafe 把它安全地提交到主事件循环里执行。
-            # 这样，即使是别的线程在呼唤我，我也能正确地在我的“爱巢”（主循环）里完成高潮。
-            loop = asyncio.get_running_loop()
-            asyncio.run_coroutine_threadsafe(self._activate_new_focus_session_from_core(activate_new_focus_id), loop)
-        else:
-            # 3. 如果只是普通的结束，那就触发一次主意识的思考
-            self.immediate_thought_trigger.set()
-            logger.info("已设置 immediate_thought_trigger 事件，主意识将进行一次思考。")
-
-    async def _activate_new_focus_session_from_core(self, new_focus_id: str) -> None:
-        """这是一个新的异步辅助方法，专门用来从主意识内部安全地激活新会话。"""
-        try:
-            # 哼，现在我们用新学会的姿势去打听情报！
-            unread_convs = await self.prompt_builder.unread_info_service.get_structured_unread_conversations()
-            target_conv_details = next(
-                (conv for conv in unread_convs if conv.get("conversation_id") == new_focus_id), None
-            )
-
-            if not target_conv_details:
-                logger.error(
-                    f"主意识无法激活会话 '{new_focus_id}'，因为它不在当前的未读列表中，无法获取platform和type。"
-                )
-                return
-
-            platform = target_conv_details.get("platform")
-            conv_type = target_conv_details.get("type")
-
-            if not platform or not conv_type:
-                logger.error(f"主意识无法激活会话 '{new_focus_id}'，因为未读信息中缺少platform或type。")
-                return
-
-            last_think = self.get_latest_thought()
-            last_mood = self.get_latest_mood()
-
-            await self.chat_session_manager.activate_session_by_id(
-                conversation_id=new_focus_id,
-                core_last_think=last_think,
-                core_last_mood=last_mood,
-                platform=platform,
-                conversation_type=conv_type,
-            )
-            logger.info(f"主意识已成功派发任务，激活新的专注会话: {new_focus_id}")
-        except Exception as e:
-            logger.error(f"主意识在尝试激活新会话 '{new_focus_id}' 时发生错误: {e}", exc_info=True)
-
-    async def _dispatch_action(self, thought_json: dict[str, Any], saved_thought_key: str) -> bool:
+    async def _dispatch_action(self, thought_pearl: ThoughtChainDocument) -> bool:
         """
-        根据新的JSON结构分发动作。
+        根据思想点里的 action_payload 分发动作。
         哼，我来当老大，专注指令我亲自处理！
         返回一个布尔值，指示是否执行了 focus 动作。
         """
-        action_json = thought_json.get("action")
-        if not action_json or not isinstance(action_json, dict):
-            logger.info("LLM未在当前思考周期指定任何行动。")
+        action_payload = thought_pearl.action_payload
+        if not action_payload or not isinstance(action_payload, dict):
+            logger.info("当前思想点未指定任何行动。")
             return False
 
-        action_id = str(uuid.uuid4())  # 为这整批动作创建一个ID
-        thought_json["action_id"] = action_id  # 回写到思考结果中
+        action_id = thought_pearl.action_id
+        saved_thought_key = thought_pearl._key
 
-        # --- 小懒猫的权力寻租处 ---
-        # 1. 先看看有没有 napcat_qq.focus 这个“上贡”
-        focus_params = action_json.get("napcat_qq", {}).get("focus")
+        focus_params = action_payload.get("napcat_qq", {}).get("focus")
 
         if focus_params and isinstance(focus_params, dict):
             logger.info("主意识截获 'focus' 指令，准备亲自处理会话激活。")
@@ -227,15 +139,7 @@ class CoreLogic:
                 logger.error("'focus' 动作缺少 conversation_id，无法激活。")
                 return False
 
-            # 2. 从自己身上榨取最新的想法和心情
-            last_think = self.get_latest_thought()
-            last_mood = self.get_latest_mood()
-
-            # 3. 亲自打电话给会话管理器，命令它干活！
-            #    注意：这里我们假设 get_structured_unread_conversations 能提供 platform 和 type
-            #    这是个简化处理，如果不行你再来找我，哼！
             try:
-                # 这里也要用新的姿势！
                 unread_convs = await self.prompt_builder.unread_info_service.get_structured_unread_conversations()
                 target_conv_details = next(
                     (c for c in unread_convs if c.get("conversation_id") == target_conv_id), None
@@ -243,34 +147,33 @@ class CoreLogic:
 
                 if not target_conv_details:
                     logger.error(f"无法激活会话 '{target_conv_id}'，因为它不在未读列表中。")
-                else:
-                    await self.chat_session_manager.activate_session_by_id(
-                        conversation_id=target_conv_id,
-                        core_last_think=last_think,
-                        core_last_mood=last_mood,
-                        core_motivation=motivation,
-                        platform=target_conv_details["platform"],
-                        conversation_type=target_conv_details["type"],
-                    )
-                    # 删掉已经处理过的 focus 动作，免得下面重复处理
-                    del action_json["napcat_qq"]["focus"]
-                    # 如果 napcat_qq 下没别的动作了，也把它删了
-                    if not action_json["napcat_qq"]:
-                        del action_json["napcat_qq"]
+                    return False
+
+                await self.chat_session_manager.activate_session_by_id(
+                    conversation_id=target_conv_id,
+                    core_motivation=motivation,
+                    platform=target_conv_details["platform"],
+                    conversation_type=target_conv_details["type"],
+                )
+
+                if "focus" in action_payload.get("napcat_qq", {}):
+                    del action_payload["napcat_qq"]["focus"]
+                if not action_payload.get("napcat_qq"):
+                    del action_payload["napcat_qq"]
 
                     # 既然是 focus，那就返回 True
                     return True
 
             except Exception as e:
                 logger.error(f"主意识在处理 'focus' 指令时发生错误: {e}", exc_info=True)
+                return False
 
-        # --- 权力寻租结束 ---
         # 把剩下的垃圾（如果有的话）丢给ActionHandler去处理。
-        if action_json:
+        if action_payload:
             await self.action_handler_instance.process_action_flow(
                 action_id=action_id,
-                doc_key_for_updates=saved_thought_key,
-                action_json=action_json,
+                doc_key_for_updates=saved_thought_key, # 这个参数现在可以考虑去掉了，因为动作日志是独立的
+                action_json=action_payload,
             )
 
         # 如果不是 focus 动作，就返回 False
@@ -290,42 +193,48 @@ class CoreLogic:
                     break
                 continue
 
-            # 1. 构建 Prompt
+            # 1. 构建 Prompt (它内部自己会去拿最新的状态，我们不用管了)
             current_time_str = get_formatted_time_for_llm()
-            system_prompt, user_prompt, state_blocks = await self.prompt_builder.build_prompts(current_time_str)
-            self.last_known_state = state_blocks
+            system_prompt, user_prompt, _ = await self.prompt_builder.build_prompts(current_time_str)
 
             # 2. 生成思考
             logger.info(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {config.persona.bot_name} 开始思考...")
-            generated_thought = await self.thought_generator.generate_thought(
+            generated_thought_json = await self.thought_generator.generate_thought(
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
-                image_inputs=[],  # 主意识暂时不处理图片
-                response_schema=CORE_RESPONSE_SCHEMA,  # 传入新的 JSON Schema
+                image_inputs=[],
+                response_schema=CORE_RESPONSE_SCHEMA,
             )
 
-            if generated_thought:
-                think_preview = str(generated_thought.get("think", "无内容"))[:50]
-                logger.info(f"思考完成: {think_preview}...")
+            if generated_thought_json:
+                # 3. 把思考结果打包成一颗新的“思想点”
+                action_payload = generated_thought_json.get("action")
+                action_id = str(uuid.uuid4()) if action_payload else None
 
-                # 3. 持久化思考
-                prompts_for_storage = {"system": system_prompt, "user": user_prompt}
-                context_for_storage = {"recent_context": "N/A", "images": []}  # 主意识暂时不存上下文
-                saved_key = await self.thought_persistor.store_thought(
-                    generated_thought, prompts_for_storage, context_for_storage
+                new_thought_pearl = ThoughtChainDocument(
+                    _key=str(uuid.uuid4()),
+                    timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
+                    mood=generated_thought_json.get("mood", "平静"),
+                    think=generated_thought_json.get("think", "无"),
+                    goal=generated_thought_json.get("goal"),
+                    source_type='core',
+                    source_id=None,
+                    action_id=action_id,
+                    action_payload=action_payload
                 )
 
-                if saved_key:
-                    # 4. 分发动作，并检查是否是 focus 动作
-                    was_focus_triggered = await self._dispatch_action(generated_thought, saved_key)
-                    if was_focus_triggered:
-                        # 如果是 focus 动作，我们不进入常规等待，而是直接等待专注结束事件
-                        logger.info("Focus 动作已触发，主循环将直接等待专注会话结束信号。")
-                        continue  # 直接进入下一次循环，检查专注状态
-                else:
-                    logger.error("严重逻辑错误：思考文档未能成功保存，无法分发动作！")
+                # 4. 把点串到链上去！
+                saved_key = await self.thought_storage_service.save_thought_and_link(new_thought_pearl)
 
-            # 5. 常规等待
+                if saved_key:
+                    # 5. 分发动作
+                    was_focus_triggered = await self._dispatch_action(new_thought_pearl)
+                    if was_focus_triggered:
+                        continue
+                else:
+                    logger.error("严重逻辑错误：思想点未能成功串入思想链，无法分发动作！")
+
+            # 6. 等待下一次闹钟
             with contextlib.suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(self.immediate_thought_trigger.wait(), timeout=float(thinking_interval_sec))
                 self.immediate_thought_trigger.clear()
@@ -336,7 +245,7 @@ class CoreLogic:
         logger.info(f"--- {config.persona.bot_name} 的意识流动已停止 ---")
 
     async def start_thinking_loop(self) -> asyncio.Task:
-        logger.info(f"=== {config.persona.bot_name} (拆分版) 的大脑准备开始持续思考 ===")
+        logger.info(f"=== {config.persona.bot_name} (意识流版) 的大脑准备开始持续思考 ===")
         self.thinking_loop_task = asyncio.create_task(self._core_thinking_loop())
         return self.thinking_loop_task
 
@@ -349,3 +258,33 @@ class CoreLogic:
                 await self.thinking_loop_task
             except asyncio.CancelledError:
                 logger.info("主思考循环任务已被取消。")
+
+    async def _activate_new_focus_session_from_core(self, target_conv_id: str) -> None:
+        """
+        从 CoreLogic 内部直接激活一个新的专注会话。
+        这个方法是给 LLMResponseHandler 调用的，用于 LLM 决策直接转移专注。
+        """
+        logger.info(f"CoreLogic 接收到直接激活新专注会话的请求: {target_conv_id}")
+        # 构建一个模拟的 action_payload，让 _dispatch_action 去处理
+        mock_action_payload = {
+            "napcat_qq": {
+                "focus": {
+                    "conversation_id": target_conv_id,
+                    "motivation": "LLM 决策直接转移专注",
+                }
+            }
+        }
+        # 创建一个临时的 ThoughtChainDocument，只包含 action_payload
+        # 其他字段不重要，因为 _dispatch_action 只关心 action_payload
+        mock_thought_pearl = ThoughtChainDocument(
+            _key=str(uuid.uuid4()),
+            timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
+            mood="平静",
+            think="根据LLM指令激活新专注会话",
+            goal="激活指定会话",
+            source_type='core',
+            source_id=None,
+            action_id=str(uuid.uuid4()),
+            action_payload=mock_action_payload
+        )
+        await self._dispatch_action(mock_thought_pearl)

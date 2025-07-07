@@ -12,6 +12,7 @@ from src.config.aicarus_configs import FocusChatModeSettings
 from src.database import ConversationStorageService
 from src.database.services.event_storage_service import EventStorageService
 from src.database.services.summary_storage_service import SummaryStorageService
+from src.database.services.thought_storage_service import ThoughtStorageService
 from src.llmrequest.llm_processor import Client as LLMProcessorClient
 
 from .chat_session import ChatSession
@@ -42,6 +43,7 @@ class ChatSessionManager:
         summarization_service: "SummarizationService",
         summary_storage_service: "SummaryStorageService",
         intelligent_interrupter: "IntelligentInterrupter",
+        thought_storage_service: "ThoughtStorageService", # 哼，新来的！
         core_logic: Optional["CoreLogicFlow"] = None,
     ) -> None:
         self.config = config
@@ -53,6 +55,7 @@ class ChatSessionManager:
         self.conversation_service = conversation_service
         self.summarization_service = summarization_service
         self.summary_storage_service = summary_storage_service
+        self.thought_storage_service = thought_storage_service # 哼，新来的！
 
         self.intelligent_interrupter = intelligent_interrupter
 
@@ -109,6 +112,7 @@ class ChatSessionManager:
                     summarization_service=self.summarization_service,
                     summary_storage_service=self.summary_storage_service,
                     intelligent_interrupter=self.intelligent_interrupter,
+                    thought_storage_service=self.thought_storage_service, # 哼，新来的！
                 )
 
             return self.sessions[conversation_id]
@@ -191,13 +195,21 @@ class ChatSessionManager:
         # TODO:
         # 激活逻辑：如果被@或收到私聊消息，则激活会话
         # 这里是为了方便测试硬编码的逻辑，未来会进一步优化激活逻辑
+        if self.is_any_session_active():
+            if session.is_active:
+                # 如果消息是给当前激活的会话的，就唤醒它去处理新消息
+                session.cycler.wakeup()
+            else:
+                # 如果消息不是给当前激活会话的，就当没看见，不打扰
+                logger.debug(f"已有其他会话激活中，忽略对非激活会话 '{conv_id}' 的消息。")
+            return
+
+        # // 只有在没有任何会话激活时，才检查@
         is_mentioned = await self._is_bot_mentioned(event, session)
-        if (is_mentioned or event.event_type.startswith("message.private")) and not session.is_active:
-            logger.info(f"会话 '{conv_id}' 满足激活条件 (被@或私聊)，准备激活。")
-            # 从 CoreLogic 获取最新的思考和心情
-            last_think = self.core_logic.get_latest_thought() if self.core_logic else None
-            last_mood = self.core_logic.get_latest_mood() if self.core_logic else "平静"
-            session.activate(core_last_think=last_think, core_last_mood=last_mood)
+        if is_mentioned:
+            logger.info(f"会话 '{conv_id}' 因被@而满足激活条件，准备激活。")
+            # // 看，这里只传递动机，别的什么都不管！
+            session.activate(core_motivation="被一股神秘的力量吸引了，想看看是谁在叫我。")
 
         # 在新的主动循环模型中，管理器不再直接将事件推给会话。
         # 会话的循环 (`FocusChatCycler`) 会自己从数据库拉取最新的事件。
@@ -227,32 +239,32 @@ class ChatSessionManager:
     async def activate_session_by_id(
         self,
         conversation_id: str,
-        core_last_think: str,
-        core_last_mood: str | None,
-        core_motivation: str,
+        core_motivation: str, # // 看！现在只需要动机了！
         platform: str,
         conversation_type: str,
     ) -> None:
         """
-        根据会话ID激活一个专注会话，并传递主意识的最后想法以及会话的platform和type。
-        如果会话不存在，则会使用提供的platform和type创建它。
+        根据会话ID激活一个专注会话。
         哼，这是大老板直接下达的命令，得赶紧办！
         """
         logger.info(
             f"[SessionManager] 收到激活会话 '{conversation_id}' 的请求。"
-            f" Platform: {platform}, Type: {conversation_type}, 主意识想法: '{core_last_think[:50]}...', "
-            f"主意识心情: {core_last_mood}"
+            f" Platform: {platform}, Type: {conversation_type}, 激活动机: '{core_motivation}'"
         )
         try:
+            # // 如果已经有专注会话了，就直接拒绝新的激活指令
+            if self.is_any_session_active():
+                active_session_id = next((sid for sid, s in self.sessions.items() if s.is_active), "未知")
+                logger.warning(f"拒绝激活 '{conversation_id}'，因为会话 '{active_session_id}' 已处于专注模式。")
+                return
+
             session = await self.get_or_create_session(
                 conversation_id=conversation_id, platform=platform, conversation_type=conversation_type
             )
-
             if session:
-                session.activate(
-                    core_last_think=core_last_think, core_last_mood=core_last_mood, core_motivation=core_motivation
-                )
-                logger.info(f"[SessionManager] 会话 '{conversation_id}' 已成功激活，并传递了主意识的想法和心情。")
+                # // 只传递动机
+                session.activate(core_motivation=core_motivation)
+                logger.info(f"[SessionManager] 会话 '{conversation_id}' 已成功激活。")
         except Exception as e:
             logger.error(f"[SessionManager] 激活会话 '{conversation_id}' 时发生错误: {e}", exc_info=True)
 

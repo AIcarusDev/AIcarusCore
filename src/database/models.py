@@ -1,4 +1,4 @@
-# src/database/models.py (小色猫·终极修正·去冗余版)
+# src/database/models.py
 import json
 import time
 import uuid
@@ -14,8 +14,139 @@ from src.common.custom_logging.logging_config import get_logger
 logger = get_logger(__name__)
 
 
-# --- 新增模型：Person & Account ---
+# --- 核心改造点：定义新的集合和图 ---
+class CoreDBCollections:
+    """一个中央管家，负责记下所有核心集合的名字和它们的类型。"""
 
+    # 点集合 (Vertex Collections)
+    PERSONS = "persons"
+    ACCOUNTS = "accounts"
+    CONVERSATIONS = "conversations"
+    EVENTS = "events"
+    ACTION_LOGS = "action_logs"
+    CONVERSATION_SUMMARIES = "conversation_summaries"
+    THOUGHTS_LEGACY = "thoughts_collection"  # 旧的思考先留着，免得出错
+    THOUGHT_CHAIN = "thought_chain"          # 这就是我们全新的“思想点”集合！
+    SYSTEM_STATE = "system_state"            # 用来存放指针的小盒子
+    INTRUSIVE_POOL_COLLECTION = "intrusive_thoughts_pool" # 侵入性思维池
+
+    # 边集合 (Edge Collections)
+    HAS_ACCOUNT = "has_account"
+    PARTICIPATES_IN = "participates_in"
+    PRECEDES_THOUGHT = "precedes_thought"     # 新的“线”，用来串点！
+    LEADS_TO_ACTION = "leads_to_action"       # 这个也最好有
+
+    # 图的名字
+    MAIN_GRAPH_NAME = "person_relation_graph"
+    THOUGHT_GRAPH_NAME = "consciousness_graph" # 给思想和行动也建个图
+
+    INDEX_DEFINITIONS: dict[str, list[tuple[list[str], bool, bool]]] = {
+        EVENTS: [
+            (["event_type", "timestamp"], False, False),
+            (["platform", "bot_id", "timestamp"], False, False),
+            (["conversation_id_extracted", "timestamp"], False, True),
+            (["user_id_extracted", "timestamp"], False, True),
+            (["timestamp"], False, False),
+        ],
+        CONVERSATIONS: [
+            (["platform", "type"], False, False),
+            (["updated_at"], False, False),
+            (["parent_id"], False, True),
+            (["attention_profile.is_suspended_by_ai"], False, True),
+            (["attention_profile.base_importance_score"], False, False),
+        ],
+        PERSONS: [
+            (["person_id"], True, False),
+        ],
+        ACCOUNTS: [
+            (["account_uid"], True, False),
+            (["platform", "platform_id"], True, False),
+        ],
+        THOUGHTS_LEGACY: [ # 旧的也保留
+            (["timestamp"], False, False),
+            (["action.action_id"], True, True),
+        ],
+        ACTION_LOGS: [
+            (["action_id"], True, False),
+            (["timestamp"], False, False),
+        ],
+        CONVERSATION_SUMMARIES: [
+            (["conversation_id", "timestamp"], False, False),
+            (["timestamp"], False, False),
+        ],
+        # --- 新集合的索引 ---
+        THOUGHT_CHAIN: [
+            (["timestamp"], False, False),
+            (["source_type"], False, False),
+            (["source_id"], False, True),
+            (["action_id"], True, True),
+        ],
+        SYSTEM_STATE: [], # 这个集合只有一条记录，不需要索引
+    }
+
+    @classmethod
+    def get_all_collection_names(cls) -> set[str]:
+        return {
+            cls.PERSONS,
+            cls.ACCOUNTS,
+            cls.CONVERSATIONS,
+            cls.EVENTS,
+            cls.ACTION_LOGS,
+            cls.CONVERSATION_SUMMARIES,
+            cls.THOUGHTS_LEGACY,
+            # --- 把新玩具加进来 ---
+            cls.THOUGHT_CHAIN,
+            cls.SYSTEM_STATE,
+            cls.INTRUSIVE_POOL_COLLECTION, # 别忘了这个新集合
+            # --- 边集合 ---
+            cls.HAS_ACCOUNT,
+            cls.PARTICIPATES_IN,
+            cls.PRECEDES_THOUGHT,
+            cls.LEADS_TO_ACTION
+        }
+
+    @classmethod
+    def get_all_core_collection_configs(cls) -> dict[str, list[tuple[list[str], bool, bool]]]:
+        return cls.INDEX_DEFINITIONS
+
+    @classmethod
+    def get_edge_collection_names(cls) -> set[str]:
+        return {cls.HAS_ACCOUNT, cls.PARTICIPATES_IN, cls.PRECEDES_THOUGHT, cls.LEADS_TO_ACTION}
+
+    @classmethod
+    def get_vertex_collection_names(cls) -> set[str]:
+        """返回所有在图中作为“点”的集合的名称。"""
+        return {
+            cls.PERSONS,
+            cls.ACCOUNTS,
+            cls.CONVERSATIONS,
+            cls.THOUGHT_CHAIN,
+            cls.ACTION_LOGS
+        }
+
+
+# --- 新增模型：ThoughtChainDocument (思想点) ---
+@dataclass
+class ThoughtChainDocument:
+    """代表 thought_chain 集合中的一个“思想点”节点。"""
+    _key: str
+    timestamp: str
+    mood: str
+    think: str
+    goal: str | None
+    source_type: str  # 'core' 或 'focus_chat'
+    source_id: str | None = None # 如果是 focus_chat，这里是 conversation_id
+
+    # 包含执行的动作信息，如果有的话
+    action_id: str | None = None
+    action_payload: dict | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """将 dataclass 实例转换为字典。"""
+        return asdict(self)
+
+
+# --- 已有模型保持不变，这里为了完整性全部贴出 ---
 
 @dataclass
 class PersonProfile:
@@ -91,10 +222,6 @@ class MembershipProperties:
     def to_dict(self) -> dict[str, Any]:
         return {k: v for k, v in asdict(self).items() if v is not None}
 
-
-# --- 旧模型保持不变，只修改需要兼容的地方 ---
-
-
 @dataclass
 class AttentionProfile:
     """
@@ -155,8 +282,6 @@ class EnrichedConversationInfo:
     """
 
     conversation_id: str
-    # --- ❤❤❤ 看这里！platform字段依然存在！因为数据库需要它来做索引和区分！❤❤❤ ---
-    # 我们是从 Event 的 event_type 里解析出它，然后存到这里来的！
     platform: str
     bot_id: str
     type: str | None = None
@@ -246,7 +371,6 @@ class DBEventDocument:
     event_id: str
     event_type: str
     timestamp: int
-    # --- ❤❤❤ platform字段依然存在！因为数据库需要它！❤❤❤ ---
     platform: str
     bot_id: str
     content: list[dict[str, Any]]
