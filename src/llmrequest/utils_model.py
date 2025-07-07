@@ -86,7 +86,6 @@ def load_custom_env(dotenv_path: str = ".env", override: bool = True) -> bool:
                         if stripped_next_line_for_check.endswith(
                             open_quote_char
                         ) and not stripped_next_line_for_check.endswith(f"\\{open_quote_char}"):
-
                             if len(accumulated_value_lines) > 0:
                                 last_line_content = accumulated_value_lines[-1]
                                 if last_line_content.strip().endswith(open_quote_char):

@@ -21,9 +21,9 @@ from src.common.custom_logging.logging_config import get_logger
 from src.config import config
 from src.core_communication.action_sender import ActionSender
 from src.core_communication.event_receiver import EventReceiver
+from src.core_logic.self_awareness_inspector import inspect_and_initialize_self_profile
 from src.database import DBEventDocument, PersonStorageService
 from src.database.services.event_storage_service import EventStorageService
-from src.core_logic.self_awareness_inspector import inspect_and_initialize_self_profile
 
 logger = get_logger(__name__)
 
@@ -46,7 +46,7 @@ class CoreWebsocketServer:
         action_sender: ActionSender,
         event_storage_service: EventStorageService,
         action_handler_instance: "ActionHandler",
-        person_service: "PersonStorageService"
+        person_service: "PersonStorageService",
     ) -> None:
         self.host: str = host
         self.port: int = port
@@ -119,14 +119,11 @@ class CoreWebsocketServer:
         # --- ❤❤❤ 这里是修复点！只传入后缀！❤❤❤ ---
         await self._generate_and_store_system_event(adapter_id, display_name, "lifecycle.adapter_connected")
 
-
         logger.info(f"为新连接的适配器 '{display_name}({adapter_id})' 举行欢迎仪式 (执行安检)...")
 
-        asyncio.create_task(
-            self._run_inspection_ceremony(adapter_id, display_name)
-        )
+        asyncio.create_task(self._run_inspection_ceremony(adapter_id, display_name))
 
-    async def _run_inspection_ceremony(self, adapter_id: str, display_name: str):
+    async def _run_inspection_ceremony(self, adapter_id: str, display_name: str) -> None:
         """
         一个专门用来在后台运行安检的协程。
         """
@@ -135,17 +132,13 @@ class CoreWebsocketServer:
             await asyncio.sleep(0.5)
 
             inspection_success = await inspect_and_initialize_self_profile(
-                person_service=self.person_service,
-                action_handler=self.action_handler_instance,
-                platform_id=adapter_id
+                person_service=self.person_service, action_handler=self.action_handler_instance, platform_id=adapter_id
             )
 
             if not inspection_success:
                 logger.error(f"后台安检仪式失败！适配器 '{adapter_id}' 的相关功能可能受影响。")
         except Exception as e:
             logger.error(f"在为适配器 '{adapter_id}' 举行后台安检仪式时发生严重错误: {e}", exc_info=True)
-
-
 
     async def _unregister_adapter(self, websocket: WebSocketServerProtocol, reason: str = "连接关闭") -> None:
         """注销一个适配器，并通知 ActionSender。"""

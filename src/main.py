@@ -334,7 +334,7 @@ class CoreSystemInitializer:
                 action_sender=action_sender,
                 event_storage_service=self.event_storage_service,
                 action_handler_instance=self.action_handler_instance,
-                person_service=self.person_storage_service
+                person_service=self.person_storage_service,
             )
             logger.info(f"CoreWebsocketServer (重构版) 准备在 ws://{config.server.host}:{config.server.port} 上监听。")
 

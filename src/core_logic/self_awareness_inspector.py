@@ -1,6 +1,6 @@
 # 文件路径: src/core_logic/self_awareness_inspector.py
 import asyncio
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from aicarus_protocols import UserInfo as ProtocolUserInfo
 
@@ -13,11 +13,10 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+
 # --- 我们把它变成一个独立的函数，而不是一个类，更清爽！ ---
 async def inspect_and_initialize_self_profile(
-    person_service: "PersonStorageService",
-    action_handler: "ActionHandler",
-    platform_id: str
+    person_service: "PersonStorageService", action_handler: "ActionHandler", platform_id: str
 ) -> bool:
     """
     检查并初始化机器人自身在特定平台上的档案。
@@ -46,9 +45,9 @@ async def inspect_and_initialize_self_profile(
     # --- 使用唯一的、正确的动作名！ ---
     success, profile_data = await action_handler.execute_simple_action(
         platform_id=platform_id,
-        action_name="get_bot_profile", # <-- 使用这个唯一的名字
-        params={}, # 这个动作不需要参数
-        description="安检：获取机器人自身完整档案"
+        action_name="get_bot_profile",  # <-- 使用这个唯一的名字
+        params={},  # 这个动作不需要参数
+        description="安检：获取机器人自身完整档案",
     )
     # --- 修改结束 ---
 
@@ -68,9 +67,7 @@ async def inspect_and_initialize_self_profile(
     # 3. 创建 Person 和 Account 节点
     bot_user_info = ProtocolUserInfo(user_id=str(bot_qq_id), user_nickname=bot_nickname)
     person_id, account_uid = await person_service._create_new_person_with_account(
-        user_info=bot_user_info,
-        platform=platform_id,
-        is_self=True
+        user_info=bot_user_info, platform=platform_id, is_self=True
     )
 
     if not person_id or not account_uid:
@@ -80,7 +77,7 @@ async def inspect_and_initialize_self_profile(
     # --- 现在直接从 profile_data 里拿群信息 ---
     group_list_data = profile_data.get("groups", {})
     if not isinstance(group_list_data, dict) or not group_list_data:
-        logger.warning(f"自身档案中未包含任何群聊信息。")
+        logger.warning("自身档案中未包含任何群聊信息。")
         logger.info(f"--- 平台 '{platform_id}' 的自我检查完成（部分成功） ---")
         return True
 
@@ -95,7 +92,7 @@ async def inspect_and_initialize_self_profile(
                 platform=platform_id,
                 conversation_name=group_profile.get("group_name"),
                 card_name=group_profile.get("card"),
-                role=group_profile.get("role")
+                role=group_profile.get("role"),
             )
             update_tasks.append(task)
 

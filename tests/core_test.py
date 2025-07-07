@@ -16,8 +16,8 @@ BOT_ID = "12345"
 
 async def send_and_log(websocket: websockets.WebSocketClientProtocol, event_name: str, event_data: dict) -> None:
     """
-工具函数，用于发送事件并记录日志。
-"""
+    工具函数，用于发送事件并记录日志。
+    """
     print(f"\n{'=' * 20} 准备发送: {event_name} {'=' * 20}")
     event_json = json.dumps(event_data, indent=2, ensure_ascii=False)
     print(f"发送内容:\n{event_json}")
