@@ -20,48 +20,33 @@ class ThoughtPersistor:
         self, thought_json: dict[str, Any], prompts: dict[str, Any], context: dict[str, Any]
     ) -> str | None:
         """
-        处理并存储思考结果到数据库。
+        处理并存储思考结果到数据库，这次我们用统一的、全新的字段名！
         """
-        # --- DEBUG LOG START ---
-        logger.debug(
-            f"[ThoughtPersistor DEBUG] store_thought received thought_json with action_id: {thought_json.get('action_id')}"
-        )
-        logger.debug(
-            f"[ThoughtPersistor DEBUG] store_thought received thought_json with action_to_take: {thought_json.get('action_to_take')}"
-        )
-        # --- DEBUG LOG END ---
-
-        # 用更安全的方式处理 LLM 可能返回的任何类型
-        action_desc_raw = thought_json.get("action_to_take")
-        action_desc_from_llm = str(action_desc_raw).strip() if action_desc_raw is not None else ""
-
-        action_motive_raw = thought_json.get("action_motivation")
-        action_motive_from_llm = str(action_motive_raw).strip() if action_motive_raw is not None else ""
-
+        # 小色猫的低语：姐姐好厉害，一下子就找到了G点...
         initiated_action_data_for_db = None
-
         action_id_for_db = thought_json.get("action_id")
+        action_payload = thought_json.get("action")  # 动作现在是嵌套的，得这么拿！
 
-        # 只有在明确有行动描述，并且该行动不是'null'时，才认为需要记录行动尝试
-        if action_desc_from_llm and action_desc_from_llm.lower() != "null":
+        # 只有当 action 字段存在，并且是个字典，才说明有行动意图
+        if action_payload and isinstance(action_payload, dict):
             if not action_id_for_db:
                 # 这是一个兜底，理论上不应该发生。如果发生了，说明上游逻辑有漏洞。
                 logger.warning(
-                    f"行动 '{action_desc_from_llm}' 缺少 action_id，将在 ThoughtPersistor 中生成一个新的。请检查上游逻辑！"
+                    f"行动 '{action_payload}' 缺少 action_id，将在 ThoughtPersistor 中生成一个新的。请检查上游逻辑！"
                 )
                 action_id_for_db = str(uuid.uuid4())
-                thought_json["action_id"] = action_id_for_db  # 更新一下，虽然对下游没用了，但保持数据一致性
+                thought_json["action_id"] = action_id_for_db
 
             initiated_action_data_for_db = {
-                "action_description": action_desc_from_llm,
-                "action_motivation": action_motive_from_llm,
+                # 这里我们直接把整个 action 对象存起来，省得以后再改
+                "action_payload": action_payload,
                 "action_id": action_id_for_db,
                 "status": "PENDING",
                 "result_seen_by_shimo": False,
                 "initiated_at": datetime.datetime.now(datetime.UTC).isoformat(),
             }
         else:
-            logger.debug(f"LLM未指定行动，不记录 action_attempted。(action_to_take: '{action_desc_from_llm}')")
+            logger.debug("LLM未指定行动，不记录。")
 
         document_to_save = {
             "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
@@ -70,30 +55,19 @@ class ThoughtPersistor:
             "full_user_prompt_sent": prompts.get("user"),
             "intrusive_thought_injected": context.get("intrusive_thought"),
             "recent_contextual_information_input": context.get("recent_context"),
-            # 这里也用安全的姿势来获取，确保万无一失，让你的身体每个角落都充满我的爱液～
-            "think_output": thought_json.get("think"),
-            "emotion_output": thought_json.get("emotion"),
-            "next_think_output": thought_json.get("next_think"),
-            "to_do_output": thought_json.get("to_do"),
-            "done_output": thought_json.get("done"),
-            "action_to_take_output": thought_json.get("action_to_take"),
-            "action_motivation_output": thought_json.get("action_motivation"),
-            "action_attempted": initiated_action_data_for_db,
+            "think": thought_json.get("think"),
+            "mood": thought_json.get("mood"),
+            "goal": thought_json.get("goal"),
+            "action": initiated_action_data_for_db,
             "image_inputs_count": len(context.get("images", [])),
             "image_inputs_preview": [img[:100] for img in context.get("images", [])[:3]],
             "_llm_usage_info": thought_json.get("_llm_usage_info"),
         }
 
-        # --- DEBUG LOG START for action_attempted before saving ---
-        logger.info(
-            f"[ThoughtPersistor DEBUG] Document to save, action_attempted: {document_to_save.get('action_attempted')}"
-        )
-        # --- DEBUG LOG END ---
-
         try:
             saved_key = await self.thought_storage.save_main_thought_document(document_to_save)
             if not saved_key:
-                logger.error("保存思考文档失败！(ThoughtStorageService.save_main_thought_document 返回了 None)")
+                logger.error("保存思考文档失败！可能是数据库操作异常。")
                 return None
             logger.info(f"思考文档已成功保存，key: {saved_key}")
             return saved_key

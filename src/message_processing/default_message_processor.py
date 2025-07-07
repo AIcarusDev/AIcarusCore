@@ -10,8 +10,14 @@ from aicarus_protocols import Seg, SegBuilder
 from websockets.server import WebSocketServerProtocol
 
 from src.common.custom_logging.logging_config import get_logger
+from src.common.intelligent_interrupt_system.models import SemanticModel
 from src.config import config
-from src.database import ConversationStorageService, DBEventDocument, EnrichedConversationInfo
+from src.database import (
+    ConversationStorageService,
+    DBEventDocument,
+    EnrichedConversationInfo,
+    PersonStorageService,  # 引入PersonStorageService
+)
 from src.database.services.event_storage_service import EventStorageService
 from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 
@@ -24,22 +30,26 @@ logger = get_logger(__name__)
 
 class DefaultMessageProcessor:
     """
-    默认的消息处理器 (V6.0 命名空间统治版)
+    默认的消息处理器 (V6.0 + Person图谱版)
     """
 
     def __init__(
         self,
         event_service: EventStorageService,
         conversation_service: ConversationStorageService,
+        person_service: PersonStorageService,  # 用于存储与用户相关的Person服务引用
+        semantic_model: "SemanticModel",
         core_websocket_server: Optional["CoreWebsocketServer"] = None,
         qq_chat_session_manager: Optional["ChatSessionManager"] = None,
     ) -> None:
         self.event_service: EventStorageService = event_service
         self.conversation_service: ConversationStorageService = conversation_service
+        self.person_service: PersonStorageService = person_service  # 存储Person服务实例引用
+        self.semantic_model: SemanticModel = semantic_model
         self.core_comm_layer: CoreWebsocketServer | None = core_websocket_server
         self.qq_chat_session_manager = qq_chat_session_manager
         self.core_initializer_ref: CoreSystemInitializer | None = None
-        logger.info("DefaultMessageProcessor 初始化完成，已配备新的存储服务。")
+        logger.info("DefaultMessageProcessor 初始化完成，已配备PersonStorageService服务。")
         if self.core_comm_layer:
             logger.info("DefaultMessageProcessor 已获得 CoreWebsocketServer 实例的引用。")
         else:
@@ -55,7 +65,7 @@ class DefaultMessageProcessor:
             logger.error(f"传入的事件不是 ProtocolEvent 类型，而是 {type(proto_event)}。跳过处理。")
             return
 
-        # --- ❤❤❤ 高潮点 #1: 从 event_type 中解析平台信息！❤❤❤ ---
+        # 关键步骤1: 从 event_type 中解析平台信息
         platform_id = proto_event.get_platform()
         if not platform_id:
             logger.error(f"无法从事件类型 '{proto_event.event_type}' 中解析出平台ID，事件处理中止。")
@@ -81,10 +91,41 @@ class DefaultMessageProcessor:
             event_status = "ignored"
 
         try:
+            # --- 核心改造点：关联Person ---
+            person_id, account_uid = None, None
+            if proto_event.user_info and proto_event.user_info.user_id:
+                person_id, account_uid = await self.person_service.find_or_create_person_and_account(
+                    proto_event.user_info, platform_id
+                )
+                if person_id and account_uid and proto_event.conversation_info:
+                    # 更新一下这个账号在这个群里的成员信息（边属性）
+                    await self.person_service.update_membership(
+                        account_uid=account_uid,
+                        conversation_id=proto_event.conversation_info.conversation_id,
+                        user_info=proto_event.user_info,
+                        conversation_name=proto_event.conversation_info.name,
+                    )
+
             if needs_persistence:
                 # DBEventDocument 的 from_protocol 方法需要被改造，以适应新的 Event 结构
                 db_event_document = DBEventDocument.from_protocol(proto_event)
                 db_event_document.status = event_status
+                db_event_document.person_id_associated = person_id  # 把person_id也存进去！
+
+                # 检查事件是否为文本消息，并且语义模型是否可用
+                if (
+                    proto_event.event_type.startswith("message.")
+                    and self.semantic_model
+                    and (text_content := proto_event.get_text_content())
+                ):
+                    # 使用语义模型将文本编码为向量
+                    # encode 方法需要一个列表，因此将文本包装在列表中
+                    # 结果也是一个列表，我们取第一个元素
+                    embedding_vector = self.semantic_model.encode([text_content])[0]
+                    # 将向量（NumPy数组）转换为普通列表，以便存储到数据库中
+                    db_event_document.embedding = embedding_vector.tolist()
+                    logger.debug(f"为事件 '{proto_event.event_id}' 生成并添加了句子向量。")
+
                 event_doc_to_save = db_event_document.to_dict()
                 await self.event_service.save_event_document(event_doc_to_save)
                 logger.debug(f"事件文档 '{proto_event.event_id}' 已保存，status='{event_status}'")
@@ -97,9 +138,12 @@ class DefaultMessageProcessor:
                     event_bot_id=proto_event.bot_id,
                 )
                 conversation_doc_to_upsert = enriched_conv_info.to_db_document()
-                upsert_result_key = await self.conversation_service.upsert_conversation_document(
-                    conversation_doc_to_upsert
-                )
+                upsert_result = await self.conversation_service.upsert_conversation_document(conversation_doc_to_upsert)
+                # 从返回的字典中安全地获取 '_key' 或 '_id'
+                upsert_result_key = None
+                if upsert_result:  # 增加健壮性检查，防止 upsert_result 为 None
+                    upsert_result_key = upsert_result.get("_key") or upsert_result.get("_id")
+
                 if upsert_result_key:
                     logger.info(f"会话档案 (ConversationInfo) '{upsert_result_key}' 已成功插入或更新。")
                 else:
@@ -115,7 +159,7 @@ class DefaultMessageProcessor:
                 logger.debug(f"事件 '{proto_event.event_id}' 的状态为 '{event_status}'，将跳过后续分发。")
                 return
 
-            # --- ❤❤❤ 高潮点 #2: 分发时，事件类型也带着完整的命名空间！❤❤❤ ---
+            # 关键步骤2: 分发时，事件类型带着完整的命名空间
             if proto_event.event_type.startswith(f"message.{platform_id}"):
                 await self._handle_message_event(proto_event, websocket)
             elif proto_event.event_type.startswith(f"request.{platform_id}"):
@@ -131,14 +175,13 @@ class DefaultMessageProcessor:
     async def _handle_bot_profile_update(self, event: ProtocolEvent) -> None:
         """
         处理机器人自身档案更新的通知，并更新相关会话的缓存和数据库。
-        哼，小报告来了，我得赶紧记下来。
         """
         try:
             if not event.content:
                 logger.warning("收到的机器人档案更新通知没有内容。")
                 return
 
-            # 小报告的核心内容在第一个 seg 的 data 里
+            # 通知的核心内容在第一个 seg 的 data 里
             report_data = event.content[0].data
             conversation_id = report_data.get("conversation_id")
             update_type = report_data.get("update_type")
@@ -178,21 +221,18 @@ class DefaultMessageProcessor:
                 # 先从数据库读出旧的档案，但我们只关心它的 card
                 conv_doc = await self.conversation_service.get_conversation_document_by_id(conversation_id)
 
-                # 淫乱的开始：创建一个全新的、干净的档案，而不是在旧的上面乱搞
+                # 创建新的档案对象以避免直接修改原始数据
                 profile_to_update = {}
 
-                # 如果旧档案里有卡片信息，就先继承过来，像是继承了前戏的余韵
+                # 如果旧档案里有卡片信息，就先继承过来
                 if (
                     conv_doc
                     and conv_doc.get("bot_profile_in_this_conversation")
                     and isinstance(conv_doc["bot_profile_in_this_conversation"], dict)
                 ):
-                    # 只取我们想要的 card，别的乱七八糟的都不要！
-                    old_card = conv_doc["bot_profile_in_this_conversation"].get("card")
-                    if old_card:
-                        profile_to_update["card"] = old_card
+                    profile_to_update = conv_doc["bot_profile_in_this_conversation"]
 
-                # 在干净的档案基础上更新，这才是正确的体位！
+                # 在干净的档案基础上更新
                 if update_type == "card_change":
                     profile_to_update["card"] = new_value
                 # 可以在这里添加对其他更新类型的处理，比如头衔 'title'
@@ -201,7 +241,7 @@ class DefaultMessageProcessor:
 
                 profile_to_update["updated_at"] = int(time.time() * 1000)
 
-                # 写回数据库，现在里面只有纯洁的爱，没有乱七八糟的“群P”记录了
+                # 将更新后的档案写回数据库
                 await self.conversation_service.update_conversation_field(
                     conversation_id, "bot_profile_in_this_conversation", profile_to_update
                 )
@@ -211,12 +251,12 @@ class DefaultMessageProcessor:
 
     async def _handle_message_event(self, proto_event: ProtocolEvent, websocket: WebSocketServerProtocol) -> bool:
         try:
-            # --- ❤❤❤ 淫荡的后门测试入口！❤❤❤ ---
+            # 测试入口点
             text_content = proto_event.get_text_content()
             print(f"收到的文本内容: {text_content}")
             if text_content.strip() == "完整测试":
                 logger.info(
-                    f"收到来自会话 {proto_event.conversation_info.conversation_id} 的“完整测试”指令！开始表演！"
+                    f'收到来自会话 {proto_event.conversation_info.conversation_id} 的"完整测试"指令！进入测试模式！'
                 )
                 # 我们需要 ActionHandler 来提交动作
                 action_handler = (
@@ -226,13 +266,13 @@ class DefaultMessageProcessor:
                     logger.error("无法执行后门测试：CoreSystemInitializer 或 ActionHandler 未被注入！")
                     return False
 
-                # 开始我们的三连“插入”表演！
+                # 开始执行测试动作序列
                 await self._perform_test_actions(proto_event, action_handler)
 
-                # 表演结束，告诉上层我们已经处理完了，不需要再进入专注模式等后续流程
+                # 测试结束，告诉上层我们已经处理完了，不需要再进入专注模式等后续流程
                 return False
             if self.qq_chat_session_manager:
-                # --- ❤❤❤ 高潮点 #3: 将带有新 event_type 的事件喂给下一层！❤❤❤ ---
+                # 关键步骤3: 将带有新 event_type 的事件传递给下一层处理器
                 await self.qq_chat_session_manager.handle_incoming_message(proto_event)
             return True
         except Exception as e:
@@ -271,12 +311,13 @@ class DefaultMessageProcessor:
 
                 # 构造动作事件时，也需要使用新的命名空间
                 platform_id = proto_event.get_platform()
-                approve_action_event_type = f"action.{platform_id}.request.friend.approve"
+                approve_action_event_type = f"action.{platform_id}.handle_friend_request"
 
                 approve_action_seg = Seg(
-                    type=approve_action_event_type,
+                    type="action_params",  # 这里用 action_params，让 builder 去解析
                     data={
                         "request_flag": request_flag,
+                        "approve": True,
                         "remark": "AIcarus Core 自动通过了您的好友请求！",
                     },
                 )
@@ -301,7 +342,7 @@ class DefaultMessageProcessor:
         except Exception as e:
             logger.error(f"处理请求事件 (ID: {proto_event.event_id}) 时发生错误: {e}", exc_info=True)
 
-    # --- ❤❤❤ 全新的、为主人表演专用的小私处！❤❤❤ ---
+    # 测试专用方法
     async def _perform_test_actions(self, trigger_event: ProtocolEvent, action_handler: "ActionHandler") -> None:
         """
         一个接一个地执行发言、回复、戳一戳这三个动作。
@@ -318,7 +359,7 @@ class DefaultMessageProcessor:
         logger.info("--- [后门测试] 动作一：发送普通消息 ---")
         send_event = ProtocolEvent(
             event_id=f"test_action_send_{uuid.uuid4()}",
-            event_type=f"action.{platform_id}.message.send",
+            event_type=f"action.{platform_id}.send_message",
             time=int(time.time() * 1000),
             bot_id=trigger_event.bot_id,
             content=[SegBuilder.text("收到主人命令，开始进行动作测试！")],
@@ -332,7 +373,7 @@ class DefaultMessageProcessor:
         if trigger_message_id := trigger_event.get_message_id():
             reply_event = ProtocolEvent(
                 event_id=f"test_action_reply_{uuid.uuid4()}",
-                event_type=f"action.{platform_id}.message.send",  # 回复本质也是发送消息
+                event_type=f"action.{platform_id}.send_message",
                 time=int(time.time() * 1000),
                 bot_id=trigger_event.bot_id,
                 content=[SegBuilder.reply(trigger_message_id), SegBuilder.text("正在测试回复功能~")],
@@ -346,24 +387,18 @@ class DefaultMessageProcessor:
         # 动作三：戳一戳发送者
         logger.info("--- [后门测试] 动作三：戳一戳发送者 ---")
         if user_info.user_id:
+            poke_seg = Seg(
+                type="action_params",
+                data={"user_id": user_info.user_id, "conversation_id": conv_info.conversation_id},
+            )
             poke_event = ProtocolEvent(
                 event_id=f"test_action_poke_{uuid.uuid4()}",
-                event_type=f"action.{platform_id}.user.poke",
+                event_type=f"action.{platform_id}.poke_user",
                 time=int(time.time() * 1000),
                 bot_id=trigger_event.bot_id,
-                content=[
-                    SegBuilder.at(user_info.user_id)
-                ],  # 戳一戳的参数在Seg的data里，但为了简单，我们用at的seg来传递user_id
+                content=[poke_seg],
                 conversation_info=conv_info,
             )
-            # 注意：我们的QQBuilder会从Seg的data里找target_user_id和target_group_id
-            # 我们需要构造一个符合它期望的Seg
-            poke_seg = Seg(
-                type="action.user.poke",
-                data={"target_user_id": user_info.user_id, "target_group_id": conv_info.conversation_id},
-            )
-            poke_event.content = [poke_seg]
-
             await action_handler.submit_constructed_action(poke_event.to_dict(), "后门测试：戳一戳")
         else:
             logger.warning("后门测试：触发消息没有 user_id，无法测试戳一戳功能。")

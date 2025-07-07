@@ -1,17 +1,98 @@
-# src/database/models.py (小色猫·基因重组版)
+# src/database/models.py (小色猫·终极修正·去冗余版)
 import json
 import time
 import uuid
 from dataclasses import asdict, dataclass, field, fields
 from typing import Any, Optional
 
-# 导入我们全新的、纯洁的协议对象！
 from aicarus_protocols import ConversationInfo as ProtocolConversationInfo
 from aicarus_protocols import Event as ProtocolEvent
+from aicarus_protocols import UserInfo as ProtocolUserInfo
 
 from src.common.custom_logging.logging_config import get_logger
 
 logger = get_logger(__name__)
+
+
+# --- 新增模型：Person & Account ---
+
+
+@dataclass
+class PersonProfile:
+    """一个'人'的档案，存放那些主观、推断或稳定的信息。"""
+
+    sex: str | None = None
+    age: int | None = None
+    area: str | None = None
+
+
+@dataclass
+class PersonDocument:
+    """代表 'persons' 集合中的一个'人'节点。"""
+
+    _key: str  # person_id
+    person_id: str
+    profile: PersonProfile = field(default_factory=PersonProfile)
+    created_at: int = field(default_factory=lambda: int(time.time() * 1000))
+    updated_at: int = field(default_factory=lambda: int(time.time() * 1000))
+
+    @classmethod
+    def create_new(cls) -> "PersonDocument":
+        person_id = f"person_{uuid.uuid4()}"
+        return cls(_key=person_id, person_id=person_id)
+
+    def to_dict(self) -> dict[str, Any]:
+        # to_dict 应该只负责转换数据，不应该操心 _id 的事
+        return asdict(self)
+
+
+@dataclass
+class AccountDocument:
+    """代表 'accounts' 集合中的一个平台账号节点。"""
+
+    _key: str  # account_uid, e.g., 'qq_12345'
+    account_uid: str
+    platform: str
+    platform_id: str  # The actual ID on the platform, e.g., '12345'
+    nickname: str | None = None
+    avatar: str | None = None
+    created_at: int = field(default_factory=lambda: int(time.time() * 1000))
+    last_known_nickname: str | None = None
+
+    @classmethod
+    def from_user_info(cls, user_info: ProtocolUserInfo, platform: str) -> "AccountDocument":
+        if not user_info.user_id:
+            raise ValueError("UserInfo必须有user_id才能创建AccountDocument")
+
+        account_uid = f"{platform}_{user_info.user_id}"
+        return cls(
+            _key=account_uid,
+            account_uid=account_uid,
+            platform=platform,
+            platform_id=user_info.user_id,
+            nickname=user_info.user_nickname,
+            last_known_nickname=user_info.user_nickname,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass
+class MembershipProperties:
+    """代表 'participates_in' 边上的属性。"""
+
+    group_name: str | None = None
+    cardname: str | None = None
+    permission_level: str | None = None
+    title: str | None = None
+    last_active_timestamp: int = field(default_factory=lambda: int(time.time() * 1000))
+
+    def to_dict(self) -> dict[str, Any]:
+        return {k: v for k, v in asdict(self).items() if v is not None}
+
+
+# --- 旧模型保持不变，只修改需要兼容的地方 ---
 
 
 @dataclass
@@ -119,9 +200,7 @@ class EnrichedConversationInfo:
         else:
             placeholder_conv_id = f"derived_missing_id_{event_platform}_{str(uuid.uuid4())[:8]}"
             logger.error(
-                f"从协议传入的 ConversationInfo 对象缺失或无 conversation_id。 "
-                f"平台: '{event_platform}', 机器人ID: '{event_bot_id}'. "
-                f"将创建一个临时的 EnrichedConversationInfo ID: '{placeholder_conv_id}'。"
+                f"从协议传入的 ConversationInfo 对象缺失或无 conversation_id。将创建临时的 EnrichedConversationInfo ID: '{placeholder_conv_id}'。"
             )
             return cls(
                 conversation_id=placeholder_conv_id,
@@ -144,28 +223,16 @@ class EnrichedConversationInfo:
         """从数据库文档字典创建 EnrichedConversationInfo 实例。"""
         if not doc:
             return None
-
-        # 兼容旧的枚举类型处理
-        conv_type_str = doc.get("type")
-        if conv_type_str and not isinstance(conv_type_str, str):
-            conv_type_str = str(conv_type_str)  # 强制转字符串
-
-        # 构造函数现在需要 platform，确保从doc中获取
         if "platform" not in doc:
             logger.warning(f"数据库文档 {doc.get('_key')} 缺少 'platform' 字段，无法构建 EnrichedConversationInfo。")
             return None
-
-        # 使用过滤后的数据创建实例，确保只传入dataclass定义的字段
         known_fields = {f.name for f in fields(cls)}
         filtered_data = {k: v for k, v in doc.items() if k in known_fields}
-
-        # 特殊处理 attention_profile，确保它能从字典正确转换
         attention_profile_data = doc.get("attention_profile")
         if isinstance(attention_profile_data, dict):
             filtered_data["attention_profile"] = AttentionProfile.from_dict(attention_profile_data)
         else:
             filtered_data["attention_profile"] = AttentionProfile.get_default_profile()
-
         return cls(**filtered_data)
 
 
@@ -186,10 +253,12 @@ class DBEventDocument:
     user_info: dict[str, Any] | None = None
     conversation_info: dict[str, Any] | None = None
     raw_data: dict[str, Any] | None = None
-    protocol_version: str = "1.6.0"  # 更新协议版本
+    protocol_version: str = "1.6.0"
     user_id_extracted: str | None = None
     conversation_id_extracted: str | None = None
+    person_id_associated: str | None = None
     motivation: str | None = None
+    embedding: list[float] | None = field(default=None, repr=False)
     status: str = "unread"
 
     @classmethod
@@ -199,14 +268,7 @@ class DBEventDocument:
         """
         if not isinstance(proto_event, ProtocolEvent):
             raise TypeError("输入对象必须是 aicarus_protocols.Event 的实例。")
-
-        # --- ❤❤❤ 最终高潮点！从 event_type 中解析出 platform！❤❤❤ ---
-        platform_id = proto_event.get_platform()
-        if not platform_id:
-            # 这是一个防御性措施，理论上在 MessageProcessor 已经检查过了
-            logger.error(f"无法从事件类型 '{proto_event.event_type}' 中解析平台ID，将使用 'unknown' 作为备用。")
-            platform_id = "unknown"
-
+        platform_id = proto_event.get_platform() or "unknown"
         uid_ext = (
             str(proto_event.user_info.user_id) if proto_event.user_info and proto_event.user_info.user_id else None
         )
@@ -215,39 +277,41 @@ class DBEventDocument:
             if proto_event.conversation_info and proto_event.conversation_info.conversation_id
             else None
         )
-
         content_as_dicts = [seg.to_dict() for seg in proto_event.content] if proto_event.content else []
         user_info_dict = proto_event.user_info.to_dict() if proto_event.user_info else None
         conversation_info_dict = proto_event.conversation_info.to_dict() if proto_event.conversation_info else None
-
+        motivation_from_raw = None
         raw_data_dict = None
-        if proto_event.raw_data:
-            if isinstance(proto_event.raw_data, dict):
-                raw_data_dict = proto_event.raw_data
-            else:
-                try:
-                    # 尝试将原始数据解析为JSON
-                    raw_data_dict = json.loads(str(proto_event.raw_data))
-                    if not isinstance(raw_data_dict, dict):
-                        raw_data_dict = {"_raw_content_as_string_": str(proto_event.raw_data)}
-                except (json.JSONDecodeError, TypeError):
-                    raw_data_dict = {"_raw_content_as_string_": str(proto_event.raw_data)}
 
+        if proto_event.raw_data:
+            try:
+                # 尝试把背包里的东西当JSON解析
+                parsed_raw_data = json.loads(str(proto_event.raw_data))
+                if isinstance(parsed_raw_data, dict):
+                    raw_data_dict = parsed_raw_data
+                    # 从解析后的字典里找 motivation
+                    motivation_from_raw = raw_data_dict.get("motivation")
+            except (json.JSONDecodeError, TypeError):
+                # 如果背包里的不是JSON，就当成普通字符串存起来
+                raw_data_dict = {"_raw_content_as_string_": str(proto_event.raw_data)}
+
+        # --- ❤❤❤ 组装最终文档！❤❤❤ ---
         return cls(
             _key=str(proto_event.event_id),
             event_id=str(proto_event.event_id),
             event_type=str(proto_event.event_type),
             timestamp=int(proto_event.time),
-            platform=platform_id,  # 使用我们解析出来的 platform_id！
+            platform=platform_id,
             bot_id=str(proto_event.bot_id),
             content=content_as_dicts,
             user_info=user_info_dict,
             conversation_info=conversation_info_dict,
-            raw_data=raw_data_dict,
+            raw_data=raw_data_dict,  # 把解析后的字典存起来
             protocol_version=__import__("aicarus_protocols").__version__ or "1.6.0",
             user_id_extracted=uid_ext,
             conversation_id_extracted=cid_ext,
-            motivation=getattr(proto_event, "motivation", None),
+            # 如果从背包里掏出了动机，就用它！
+            motivation=motivation_from_raw,
         )
 
     def to_dict(self) -> dict[str, Any]:

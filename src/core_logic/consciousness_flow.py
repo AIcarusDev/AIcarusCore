@@ -69,7 +69,7 @@ CORE_RESPONSE_SCHEMA = {
             },
         },
     },
-    "required": ["mood", "think"],
+    "required": ["mood", "think", "goal"],
 }
 
 
@@ -131,7 +131,7 @@ class CoreLogic:
         handover_summary: str | None = None,
         last_focus_think: str | None = None,
         last_focus_mood: str | None = None,
-        activate_new_focus_id: str | None = None,  # 新玩具！用来告诉我下一个要临幸谁！
+        activate_new_focus_id: str | None = None,
     ) -> None:
         """
         这个方法现在是“灵魂运输车”！
@@ -149,7 +149,7 @@ class CoreLogic:
                 self.state_manager.set_next_handover_info(handover_summary, last_focus_think, last_focus_mood)
                 logger.info("已调用 AIStateManager.set_next_handover_info 存储交接信息。")
             else:
-                logger.error("AIStateManager 对象没有 set_next_handover_info 方法或该方法不可调用，交接信息可能丢失！")
+                logger.error("AIStateManager 对象没有 set_next_handover_info 方法，交接信息可能丢失！")
 
         # 2. 检查是不是要立刻激活下一个专注会话
         if activate_new_focus_id and self.chat_session_manager:
@@ -167,8 +167,7 @@ class CoreLogic:
     async def _activate_new_focus_session_from_core(self, new_focus_id: str) -> None:
         """这是一个新的异步辅助方法，专门用来从主意识内部安全地激活新会话。"""
         try:
-            # 我们需要从 UnreadInfoService 获取新会话的 platform 和 type
-            # 这是一个简化处理，实际可能需要更鲁棒的方式获取
+            # 哼，现在我们用新学会的姿势去打听情报！
             unread_convs = await self.prompt_builder.unread_info_service.get_structured_unread_conversations()
             target_conv_details = next(
                 (conv for conv in unread_convs if conv.get("conversation_id") == new_focus_id), None
@@ -187,9 +186,7 @@ class CoreLogic:
                 logger.error(f"主意识无法激活会话 '{new_focus_id}'，因为未读信息中缺少platform或type。")
                 return
 
-            # 从 state_manager 取回“灵魂包裹”，准备注入
-            # 注意：这里我们假设 state_manager 里的交接信息就是我们刚刚存的
-            last_think = self.get_latest_thought()  # 重新获取最新的想法，它可能已经被交接信息更新
+            last_think = self.get_latest_thought()
             last_mood = self.get_latest_mood()
 
             await self.chat_session_manager.activate_session_by_id(
@@ -206,6 +203,7 @@ class CoreLogic:
     async def _dispatch_action(self, thought_json: dict[str, Any], saved_thought_key: str) -> bool:
         """
         根据新的JSON结构分发动作。
+        哼，我来当老大，专注指令我亲自处理！
         返回一个布尔值，指示是否执行了 focus 动作。
         """
         action_json = thought_json.get("action")
@@ -216,15 +214,67 @@ class CoreLogic:
         action_id = str(uuid.uuid4())  # 为这整批动作创建一个ID
         thought_json["action_id"] = action_id  # 回写到思考结果中
 
-        await self.action_handler_instance.process_action_flow(
-            action_id=action_id,
-            doc_key_for_updates=saved_thought_key,
-            action_json=action_json,
-        )
+        # --- 小懒猫的权力寻租处 ---
+        # 1. 先看看有没有 napcat_qq.focus 这个“上贡”
+        focus_params = action_json.get("napcat_qq", {}).get("focus")
 
-        # 检查是否执行了 focus 动作
-        was_focus_action = "focus" in action_json.get("napcat_qq", {})
-        return was_focus_action
+        if focus_params and isinstance(focus_params, dict):
+            logger.info("主意识截获 'focus' 指令，准备亲自处理会话激活。")
+            target_conv_id = focus_params.get("conversation_id")
+            motivation = focus_params.get("motivation", "没有明确动机")
+
+            if not target_conv_id:
+                logger.error("'focus' 动作缺少 conversation_id，无法激活。")
+                return False
+
+            # 2. 从自己身上榨取最新的想法和心情
+            last_think = self.get_latest_thought()
+            last_mood = self.get_latest_mood()
+
+            # 3. 亲自打电话给会话管理器，命令它干活！
+            #    注意：这里我们假设 get_structured_unread_conversations 能提供 platform 和 type
+            #    这是个简化处理，如果不行你再来找我，哼！
+            try:
+                # 这里也要用新的姿势！
+                unread_convs = await self.prompt_builder.unread_info_service.get_structured_unread_conversations()
+                target_conv_details = next(
+                    (c for c in unread_convs if c.get("conversation_id") == target_conv_id), None
+                )
+
+                if not target_conv_details:
+                    logger.error(f"无法激活会话 '{target_conv_id}'，因为它不在未读列表中。")
+                else:
+                    await self.chat_session_manager.activate_session_by_id(
+                        conversation_id=target_conv_id,
+                        core_last_think=last_think,
+                        core_last_mood=last_mood,
+                        core_motivation=motivation,
+                        platform=target_conv_details["platform"],
+                        conversation_type=target_conv_details["type"],
+                    )
+                    # 删掉已经处理过的 focus 动作，免得下面重复处理
+                    del action_json["napcat_qq"]["focus"]
+                    # 如果 napcat_qq 下没别的动作了，也把它删了
+                    if not action_json["napcat_qq"]:
+                        del action_json["napcat_qq"]
+
+                    # 既然是 focus，那就返回 True
+                    return True
+
+            except Exception as e:
+                logger.error(f"主意识在处理 'focus' 指令时发生错误: {e}", exc_info=True)
+
+        # --- 权力寻租结束 ---
+        # 把剩下的垃圾（如果有的话）丢给ActionHandler去处理。
+        if action_json:
+            await self.action_handler_instance.process_action_flow(
+                action_id=action_id,
+                doc_key_for_updates=saved_thought_key,
+                action_json=action_json,
+            )
+
+        # 如果不是 focus 动作，就返回 False
+        return False
 
     async def _core_thinking_loop(self) -> None:
         thinking_interval_sec = config.core_logic_settings.thinking_interval_seconds

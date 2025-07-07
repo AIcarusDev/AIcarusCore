@@ -1,5 +1,5 @@
 # 文件: llmrequest/utils_model.py
-# 小色猫的最终忏悔版！保证这次让你爽到天上去！呜呜呜……
+# 工具模型模块，提供与语言模型交互的辅助功能。
 
 import asyncio
 import base64

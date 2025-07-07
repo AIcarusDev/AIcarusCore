@@ -12,6 +12,7 @@ from src.common.intelligent_interrupt_system.iis_main import IISBuilder
 from src.common.intelligent_interrupt_system.intelligent_interrupter import IntelligentInterrupter
 from src.common.intelligent_interrupt_system.models import SemanticModel
 from src.common.summarization_observation.summarization_service import SummarizationService
+from src.common.unread_info_service.unread_info_service import UnreadInfoService
 from src.config import config
 from src.core_communication.action_sender import ActionSender
 from src.core_communication.core_ws_server import CoreWebsocketServer
@@ -25,12 +26,12 @@ from src.core_logic.prompt_builder import ThoughtPromptBuilder
 from src.core_logic.state_manager import AIStateManager  # 确保导入 AIStateManager
 from src.core_logic.thought_generator import ThoughtGenerator
 from src.core_logic.thought_persistor import ThoughtPersistor
-from src.core_logic.unread_info_service import UnreadInfoService
 from src.database import (
     ActionLogStorageService,
     ArangoDBConnectionManager,
     ConversationStorageService,
     CoreDBCollections,
+    PersonStorageService,  # 把新老鸨请进来！
     ThoughtStorageService,
 )
 from src.database.services.event_storage_service import EventStorageService
@@ -52,6 +53,7 @@ class CoreSystemInitializer:
         self.thought_storage_service: ThoughtStorageService | None = None
         self.action_log_service: ActionLogStorageService | None = None
         self.summary_storage_service: SummaryStorageService | None = None
+        self.person_storage_service: PersonStorageService | None = None  # 给新老鸨一个位置
 
         self.main_consciousness_llm_client: ProcessorClient | None = None
         self.summary_llm_client: ProcessorClient | None = None
@@ -150,6 +152,7 @@ class CoreSystemInitializer:
             "conversation_storage_service": ConversationStorageService,
             "thought_storage_service": ThoughtStorageService,
             "action_log_service": ActionLogStorageService,
+            "person_storage_service": PersonStorageService,  # 把新老鸨也加进来初始化
         }
         for attr_name, service_class in services_to_init.items():
             instance = service_class(conn_manager=self.conn_manager)
@@ -219,7 +222,8 @@ class CoreSystemInitializer:
                     self.thought_storage_service,
                     self.main_consciousness_llm_client,
                     self.interrupt_model_instance,
-                    self.action_log_service,  # 确保动作日志服务也初始化了
+                    self.action_log_service,
+                    self.person_storage_service,  # 确保老鸨也到岗了！
                 ]
             ):
                 raise RuntimeError("一个或多个基础服务未能初始化。")
@@ -254,8 +258,6 @@ class CoreSystemInitializer:
             logger.info("SummarizationService 初始化成功。")
 
             if config.focus_chat_mode.enabled:
-                # --- ❤❤❤ 最终高潮修复点 ❤❤❤ ---
-                # 笨蛋主人看这里！就是这个 if 判断和下面的参数！
                 if (
                     self.focused_chat_llm_client
                     and config.persona.qq_id
@@ -279,7 +281,6 @@ class CoreSystemInitializer:
                     )
                     logger.info("ChatSessionManager 初始化完成，并已成功注入智能打断系统。")
                 else:
-                    # 我把这里的日志也改得更清楚了，哼！
                     logger.warning("ChatSessionManager 依赖不足（可能缺少LLM客户端或智能打断模型），无法初始化。")
                     self.qq_chat_session_manager = None
             else:
@@ -289,6 +290,8 @@ class CoreSystemInitializer:
             self.message_processor = DefaultMessageProcessor(
                 event_service=self.event_storage_service,
                 conversation_service=self.conversation_storage_service,
+                person_service=self.person_storage_service,  # 把新老鸨介绍给消息处理器
+                semantic_model=self.semantic_model_instance,
                 qq_chat_session_manager=self.qq_chat_session_manager,
             )
             self.message_processor.core_initializer_ref = self
@@ -331,6 +334,7 @@ class CoreSystemInitializer:
                 action_sender=action_sender,
                 event_storage_service=self.event_storage_service,
                 action_handler_instance=self.action_handler_instance,
+                person_service=self.person_storage_service,
             )
             logger.info(f"CoreWebsocketServer (重构版) 准备在 ws://{config.server.host}:{config.server.port} 上监听。")
 

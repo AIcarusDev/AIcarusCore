@@ -2,9 +2,9 @@
 from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
+from src.common.unread_info_service.unread_info_service import UnreadInfoService  # 导入未读消息服务
 from src.config import config
 from src.core_logic.state_manager import AIStateManager  # 导入状态管理器
-from src.core_logic.unread_info_service import UnreadInfoService  # 导入 UnreadInfoService
 from src.prompt_templates import prompt_templates  # 导入新模板
 
 logger = get_logger(__name__)
@@ -64,5 +64,14 @@ class ThoughtPromptBuilder:
 
         # 4. 组装 User Prompt
         user_prompt = prompt_templates.CORE_USER_PROMPT.format(**state_blocks)
+
+        logger.debug(
+            f"[主意识]  - 准备发送给LLM的完整Prompt:\n"
+            f"==================== SYSTEM PROMPT (主意识) ====================\n"
+            f"{system_prompt}\n"
+            f"==================== USER PROMPT (主意识) ======================\n"
+            f"{user_prompt}\n"
+            f"=================================================================="
+        )
 
         return system_prompt, user_prompt, state_blocks

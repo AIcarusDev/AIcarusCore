@@ -211,36 +211,6 @@ class ActionHandler:
             action_name, params = next(iter(platform_actions.items()))
             motivation = params.get("motivation", "没有明确动机")
 
-            # 2.1 处理特殊的 'focus' 动作
-            if action_name == "focus":
-                conv_id_to_focus = params.get("conversation_id")
-                if not conv_id_to_focus or not self.chat_session_manager:
-                    msg = "LLM想focus但没提供ID，或者会话管理器不存在。"
-                    logger.warning(msg)
-                    return False, msg, None
-
-                # 获取未读会话信息以确认 platform 和 type
-                unread_convs = await self.chat_session_manager.core_logic.prompt_builder.unread_info_service.get_structured_unread_conversations()
-                target_conv_details = next(
-                    (c for c in unread_convs if c.get("conversation_id") == conv_id_to_focus), None
-                )
-
-                if not target_conv_details:
-                    msg = f"无法激活会话 '{conv_id_to_focus}'，因为它不在未读列表中。"
-                    logger.error(msg)
-                    return False, msg, None
-
-                # 激活专注会话
-                await self.chat_session_manager.activate_session_by_id(
-                    conversation_id=conv_id_to_focus,
-                    core_last_think=f"我决定专注于这个会话，因为：{motivation}",
-                    core_last_mood=None,  # 心情可以不传递
-                    platform=target_conv_details["platform"],
-                    conversation_type=target_conv_details["type"],
-                )
-                # 注意：这里不应该立即触发主意识思考，而是等待专注模式结束
-                return True, f"已激活对 {conv_id_to_focus} 的专注模式。", None
-
             # 2.2 处理其他平台动作 (如 get_list)
             builder = platform_builder_registry.get_builder(platform_id)
             if not builder:

@@ -1,11 +1,12 @@
 # src/focus_chat_mode/action_executor.py
 import asyncio
+import json
 import random
 import time
 import uuid
 from typing import TYPE_CHECKING
 
-from aicarus_protocols import ConversationInfo, SegBuilder, UserInfo
+from aicarus_protocols import ConversationInfo, Seg, SegBuilder, UserInfo
 from aicarus_protocols import Event as ProtocolEvent
 
 from src.common.custom_logging.logging_config import get_logger
@@ -147,27 +148,7 @@ class ActionExecutor:
                     i, sentence_text, quote_msg_id, at_target_values_raw, uid_map
                 )
 
-                _action_event_dict = {
-                    "event_id": f"sub_chat_reply_{uuid.uuid4()}",
-                    "event_type": "action.message.send",
-                    "time": time.time() * 1000,  # 加上时间戳
-                    "platform": self.session.platform,
-                    "bot_id": correct_bot_id,
-                    "user_info": UserInfo(
-                        user_id=correct_bot_id, user_nickname=bot_profile.get("nickname")
-                    ).to_dict(),  # 把自己的信息也加上
-                    "conversation_info": {
-                        "conversation_id": self.session.conversation_id,
-                        "type": self.session.conversation_type,
-                    },
-                    "content": content_segs_payload,
-                    "motivation": current_motivation
-                    if i == 0 and current_motivation and current_motivation.strip()
-                    else None,
-                }
-
-                # 把原始的动作字典发出去
-                success, msg = await self.action_handler.execute_simple_action(
+                success, result_payload = await self.action_handler.execute_simple_action(
                     platform_id=self.session.platform,
                     action_name="send_message",
                     params={
@@ -178,12 +159,50 @@ class ActionExecutor:
                     description="发送专注模式回复",
                 )
 
-                if success and "执行失败" not in msg:
-                    logger.info(f"Action to send reply segment {i + 1}/{len(valid_sentences)} submitted successfully.")
-                    self.session.message_count_since_last_summary += 1
+                if success and isinstance(result_payload, dict) and result_payload.get("sent_message_id"):
+                    logger.info(f"发送回复成功，回执: {result_payload}")
                     sent_count += 1  # 发送成功，计数器+1
+                    self.session.message_count_since_last_summary += 1
+
+                    sent_message_id = str(result_payload["sent_message_id"])
+
+                    # --- ❤❤❤ 看这里！这就是塞纸条的地方！❤❤❤ ---
+                    extra_data_for_backpack = {}
+                    motivation_for_log = (
+                        current_motivation if i == 0 and current_motivation and current_motivation.strip() else None
+                    )
+                    if motivation_for_log:
+                        extra_data_for_backpack["motivation"] = motivation_for_log
+
+                    # 把小背包（字典）变成一个字符串，这样才能塞进 raw_data
+                    raw_data_string = json.dumps(extra_data_for_backpack) if extra_data_for_backpack else None
+
+                    final_content_dicts = [
+                        SegBuilder.message_metadata(message_id=sent_message_id).to_dict(),
+                        *content_segs_payload,
+                    ]
+                    final_content_segs = [Seg.from_dict(d) for d in final_content_dicts]
+
+                    my_message_event = ProtocolEvent(
+                        event_id=f"self_msg_{sent_message_id}",
+                        event_type=f"message.{self.session.platform}.{self.session.conversation_type}",
+                        time=int(time.time() * 1000),
+                        bot_id=correct_bot_id,
+                        content=final_content_segs,
+                        user_info=UserInfo(user_id=correct_bot_id, user_nickname=bot_profile.get("nickname")),
+                        conversation_info=ConversationInfo(
+                            conversation_id=self.session.conversation_id, type=self.session.conversation_type
+                        ),
+                        raw_data=raw_data_string,  # <-- 看！把带小纸条的背包塞进去了！
+                    )
+
+                    db_doc_to_save = DBEventDocument.from_protocol(my_message_event)
+                    db_doc_to_save.status = "read"
+
+                    await self.event_storage.save_event_document(db_doc_to_save.to_dict())
+
                 else:
-                    logger.error(f"Failed to submit/execute action to send reply segment {i + 1}: {msg}")
+                    logger.error(f"发送回复失败或未收到有效回执: {result_payload}")
                     break
 
                 # // 如果还有下一条，就睡一会儿，假装在打字，真麻烦
@@ -210,7 +229,7 @@ class ActionExecutor:
         payload = []
         if index == 0:
             if quote_id:
-                payload.append(SegBuilder.reply(message_id=quote_id).to_dict())
+                payload.append(Seg(type="quote", data={"message_id": str(quote_id)}).to_dict())
             if at_raw:
                 raw_targets = []
                 if isinstance(at_raw, str):

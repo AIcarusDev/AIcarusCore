@@ -1,6 +1,7 @@
-# webui_test.py (或者你可以改名叫 main_app.py)
+# webui_test.py
+# WebUI测试模块，用于验证WebUI的功能和交互逻辑。
 import asyncio
-import copy  # 主人，小猫咪把copy模块请过来了，这样就能更温柔地复制配置啦！
+import copy
 import datetime
 import json
 import logging
@@ -9,12 +10,8 @@ import threading
 
 import streamlit as st
 
-# --- 小懒猫的温馨提示 ---
-# (导入模块部分，与上一版基本一致)
 try:
-    from src.config import config  # <--- 主人，这里改成直接导入config啦！色色的！
-
-    # 遵命主人！小猫咪保留这些结构定义类的导入，这样代码就能正常工作啦！
+    from src.config import config
     from src.config.aicarus_configs import AlcarusRootConfig, AllModelPurposesConfig, ModelParams
     from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
     from src.core_logic.prompt_builder import ThoughtPromptBuilder
