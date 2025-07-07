@@ -23,6 +23,7 @@ class ThoughtStorageService:
     def __init__(self, conn_manager: ArangoDBConnectionManager) -> None:
         self.conn_manager = conn_manager
         self.thoughts_coll_name = CoreDBCollections.THOUGHT_CHAIN
+        self.thoughts_coll_full_name = f"{self.thoughts_coll_name}" # 完整的集合名称，用于构造 _id
         self.state_coll_name = CoreDBCollections.SYSTEM_STATE
         self.edge_coll_name = CoreDBCollections.PRECEDES_THOUGHT
         self.action_edge_coll_name = CoreDBCollections.LEADS_TO_ACTION
@@ -221,13 +222,13 @@ class ThoughtStorageService:
 
             # 步骤 4: 创建指向前一个点的边
             if last_thought_key:
-                last_thought_doc = await thoughts_coll.get(last_thought_key)
-                if last_thought_doc:
-                    last_thought_id = last_thought_doc.get("_id")
-                    edge_doc = {"_from": last_thought_id, "_to": new_thought_id, "timestamp": datetime.datetime.now(datetime.UTC).isoformat()}
-                    await edge_coll.insert(edge_doc)
-                else:
-                    logger.warning(f"事务内警告：指针指向的思想点 '{last_thought_key}' 不存在，无法创建precedes_thought边。")
+                # 直接从 key 构造 _id，避免多余的数据库读取
+                last_thought_id = f"{self.thoughts_coll_full_name}/{last_thought_key}"
+                edge_doc = {"_from": last_thought_id, "_to": new_thought_id, "timestamp": datetime.datetime.now(datetime.UTC).isoformat()}
+                await edge_coll.insert(edge_doc)
+                # 理论上，如果 last_thought_key 存在，那么对应的文档也应该存在。
+                # 如果不存在，那说明数据不一致，这里就不再额外检查了，直接尝试插入边。
+                # 如果插入边失败，事务会回滚。
 
             if action_id := new_thought.get("action_id"):
                 action_log_id = f"{CoreDBCollections.ACTION_LOGS}/{action_id}"

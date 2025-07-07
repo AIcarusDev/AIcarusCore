@@ -161,8 +161,8 @@ class CoreLogic:
                 if not action_payload.get("napcat_qq"):
                     del action_payload["napcat_qq"]
 
-                    # 既然是 focus，那就返回 True
-                    return True
+                # 既然是 focus，那就返回 True
+                return True
 
             except Exception as e:
                 logger.error(f"主意识在处理 'focus' 指令时发生错误: {e}", exc_info=True)
