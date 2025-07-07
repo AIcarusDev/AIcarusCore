@@ -14,6 +14,7 @@ from src.common.intelligent_interrupt_system.models import SemanticModel
 from src.common.summarization_observation.summarization_service import SummarizationService
 from src.common.unread_info_service.unread_info_service import UnreadInfoService
 from src.config import config
+from src.config.aicarus_configs import ModelParams
 from src.core_communication.action_sender import ActionSender
 from src.core_communication.core_ws_server import CoreWebsocketServer
 from src.core_communication.event_receiver import EventReceiver
@@ -38,7 +39,6 @@ from src.database.services.event_storage_service import EventStorageService
 from src.database.services.summary_storage_service import SummaryStorageService
 from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 from src.llmrequest.llm_processor import Client as ProcessorClient
-from src.llmrequest.utils_model import GenerationParams
 from src.message_processing.default_message_processor import DefaultMessageProcessor
 from src.platform_builders.registry import platform_builder_registry
 
@@ -146,7 +146,7 @@ class CoreSystemInitializer:
             if not resolved_abandoned_keys and env_val_abandoned.strip():
                 resolved_abandoned_keys = [env_val_abandoned.strip()]
 
-        def _create_client(cfg: GenerationParams, purpose: str) -> ProcessorClient | None:
+        def _create_client(cfg: ModelParams, purpose: str) -> ProcessorClient | None:
             if not cfg or not cfg.provider or not cfg.model_name:
                 logger.error(f"模型配置错误: 用途 '{purpose}' 未指定 provider 或 model_name。")
                 return None
