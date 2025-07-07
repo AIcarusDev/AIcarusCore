@@ -350,7 +350,7 @@ class LLMClient:
             f"图像压缩: {'启用' if self.enable_image_compression else '禁用'}, "
             f"目标大小: {self.image_compression_target_bytes / (1024 * 1024):.2f} MB"
         )
-        self._session: aiohttp.ClientSession | None = None # 新增：用于存储aiohttp会话
+        self._session: aiohttp.ClientSession | None = None  # 新增：用于存储aiohttp会话
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """获取或创建aiohttp会话。"""
@@ -553,10 +553,8 @@ class LLMClient:
         if not image_sources:
             return []
         processed_data: list[dict[str, str]] = []
-        session = await self._get_session() # 使用内部会话
-        tasks = [
-            self._process_single_image(src, session, mime_type_override, self.proxy_url) for src in image_sources
-        ]
+        session = await self._get_session()  # 使用内部会话
+        tasks = [self._process_single_image(src, session, mime_type_override, self.proxy_url) for src in image_sources]
         results = await asyncio.gather(*tasks)
         processed_data.extend(result for result in results if result)
         return processed_data

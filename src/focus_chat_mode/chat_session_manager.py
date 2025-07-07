@@ -43,7 +43,7 @@ class ChatSessionManager:
         summarization_service: "SummarizationService",
         summary_storage_service: "SummaryStorageService",
         intelligent_interrupter: "IntelligentInterrupter",
-        thought_storage_service: "ThoughtStorageService", # 哼，新来的！
+        thought_storage_service: "ThoughtStorageService",  # 哼，新来的！
         core_logic: Optional["CoreLogicFlow"] = None,
     ) -> None:
         self.config = config
@@ -55,7 +55,7 @@ class ChatSessionManager:
         self.conversation_service = conversation_service
         self.summarization_service = summarization_service
         self.summary_storage_service = summary_storage_service
-        self.thought_storage_service = thought_storage_service # 哼，新来的！
+        self.thought_storage_service = thought_storage_service  # 哼，新来的！
 
         self.intelligent_interrupter = intelligent_interrupter
 
@@ -112,7 +112,7 @@ class ChatSessionManager:
                     summarization_service=self.summarization_service,
                     summary_storage_service=self.summary_storage_service,
                     intelligent_interrupter=self.intelligent_interrupter,
-                    thought_storage_service=self.thought_storage_service, # 哼，新来的！
+                    thought_storage_service=self.thought_storage_service,  # 哼，新来的！
                 )
 
             return self.sessions[conversation_id]
@@ -239,7 +239,7 @@ class ChatSessionManager:
     async def activate_session_by_id(
         self,
         conversation_id: str,
-        core_motivation: str, # // 看！现在只需要动机了！
+        core_motivation: str,  # // 看！现在只需要动机了！
         platform: str,
         conversation_type: str,
     ) -> None:

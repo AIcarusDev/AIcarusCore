@@ -3,9 +3,14 @@ import datetime
 import uuid
 from typing import Any
 
-from arangoasync.exceptions import DocumentInsertError, DocumentUpdateError, TransactionCommitError, TransactionAbortError
+from arangoasync.exceptions import (
+    DocumentUpdateError,
+    TransactionAbortError,
+)
+
 from src.common.custom_logging.logging_config import get_logger
 from src.database import ArangoDBConnectionManager
+
 # 导入我们新的思想点模型
 from src.database.models import CoreDBCollections, ThoughtChainDocument
 
@@ -13,17 +18,17 @@ logger = get_logger(__name__)
 
 LATEST_THOUGHT_POINTER_KEY = "latest_thought_pointer"
 
+
 class ThoughtStorageService:
     """
     服务类，负责管理“思想点链”的存储操作。
     它现在是AI意识流连续性的核心保障。
     """
 
-
     def __init__(self, conn_manager: ArangoDBConnectionManager) -> None:
         self.conn_manager = conn_manager
         self.thoughts_coll_name = CoreDBCollections.THOUGHT_CHAIN
-        self.thoughts_coll_full_name = f"{self.thoughts_coll_name}" # 完整的集合名称，用于构造 _id
+        self.thoughts_coll_full_name = f"{self.thoughts_coll_name}"  # 完整的集合名称，用于构造 _id
         self.state_coll_name = CoreDBCollections.SYSTEM_STATE
         self.edge_coll_name = CoreDBCollections.PRECEDES_THOUGHT
         self.action_edge_coll_name = CoreDBCollections.LEADS_TO_ACTION
@@ -35,12 +40,11 @@ class ThoughtStorageService:
         """确保与思考相关的集合和图都已创建。"""
         # 确保思想链和状态指针集合存在
         await self.conn_manager.ensure_collection_with_indexes(
-            self.thoughts_coll_name,
-            CoreDBCollections.INDEX_DEFINITIONS.get(self.thoughts_coll_name, [])
+            self.thoughts_coll_name, CoreDBCollections.INDEX_DEFINITIONS.get(self.thoughts_coll_name, [])
         )
         await self.conn_manager.ensure_collection_with_indexes(
             self.state_coll_name,
-            [] # 状态集合不需要额外索引
+            [],  # 状态集合不需要额外索引
         )
         logger.info(f"'{self.thoughts_coll_name}' 和 '{self.state_coll_name}' 集合已初始化。")
 
@@ -111,7 +115,6 @@ class ThoughtStorageService:
         # results = await asyncio.to_thread(ddgs.text, keywords=query, max_results=max_results)
         # ```
         # 这样，事件循环就不会被阻塞，你的AI才能一边上网冲浪，一边思考人生，而不是卡死在下载小电影的路上。
-
 
         # ！！保留这个注释！！
         # 陷阱一完美复现：
@@ -193,7 +196,7 @@ class ThoughtStorageService:
             self.action_edge_coll_name,
         ]
 
-        trx = None # 先把事务变量请出来
+        trx = None  # 先把事务变量请出来
         try:
             # 步骤 1: 开启一个流式事务
             # 我们告诉数据库，接下来的一系列操作都属于同一个事务
@@ -224,7 +227,11 @@ class ThoughtStorageService:
             if last_thought_key:
                 # 直接从 key 构造 _id，避免多余的数据库读取
                 last_thought_id = f"{self.thoughts_coll_full_name}/{last_thought_key}"
-                edge_doc = {"_from": last_thought_id, "_to": new_thought_id, "timestamp": datetime.datetime.now(datetime.UTC).isoformat()}
+                edge_doc = {
+                    "_from": last_thought_id,
+                    "_to": new_thought_id,
+                    "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
+                }
                 await edge_coll.insert(edge_doc)
                 # 理论上，如果 last_thought_key 存在，那么对应的文档也应该存在。
                 # 如果不存在，那说明数据不一致，这里就不再额外检查了，直接尝试插入边。
@@ -232,7 +239,11 @@ class ThoughtStorageService:
 
             if action_id := new_thought.get("action_id"):
                 action_log_id = f"{CoreDBCollections.ACTION_LOGS}/{action_id}"
-                action_edge_doc = {"_from": new_thought_id, "_to": action_log_id, "timestamp": datetime.datetime.now(datetime.UTC).isoformat()}
+                action_edge_doc = {
+                    "_from": new_thought_id,
+                    "_to": action_log_id,
+                    "timestamp": datetime.datetime.now(datetime.UTC).isoformat(),
+                }
                 await action_edge_coll.insert(action_edge_doc)
 
             # 步骤 6: 更新指针
@@ -240,7 +251,7 @@ class ThoughtStorageService:
             try:
                 await state_coll.update({"_key": LATEST_THOUGHT_POINTER_KEY, "latest_thought_key": new_thought_key})
             except DocumentUpdateError as e:
-                if e.error_code == 1202: # Document not found
+                if e.error_code == 1202:  # Document not found
                     await state_coll.insert({"_key": LATEST_THOUGHT_POINTER_KEY, "latest_thought_key": new_thought_key})
                 else:
                     raise e
@@ -279,7 +290,7 @@ class ThoughtStorageService:
         bind_vars = {
             "@state_coll": self.state_coll_name,
             "pointer_key": LATEST_THOUGHT_POINTER_KEY,
-            "@thoughts_coll": self.thoughts_coll_name
+            "@thoughts_coll": self.thoughts_coll_name,
         }
         try:
             results = await self.conn_manager.execute_query(query, bind_vars)
@@ -292,7 +303,6 @@ class ThoughtStorageService:
         except Exception as e:
             logger.error(f"获取最新思想点时发生错误: {e}", exc_info=True)
             return None
-
 
     async def get_latest_main_thought_document(self, limit: int = 1) -> list[dict[str, Any]]:
         """获取最新的一个或多个主意识思考文档。"""

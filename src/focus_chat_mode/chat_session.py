@@ -10,7 +10,7 @@ from src.common.custom_logging.logging_config import get_logger
 from src.config import config
 from src.database import ConversationStorageService
 from src.database.services.event_storage_service import EventStorageService
-from src.database.services.thought_storage_service import ThoughtStorageService # 哼，新来的！
+from src.database.services.thought_storage_service import ThoughtStorageService  # 哼，新来的！
 from src.llmrequest.llm_processor import Client as LLMProcessorClient
 
 from .action_executor import ActionExecutor
@@ -53,7 +53,7 @@ class ChatSession:
         summarization_service: "SummarizationService",
         summary_storage_service: "SummaryStorageService",
         intelligent_interrupter: "IntelligentInterrupter",
-        thought_storage_service: ThoughtStorageService, # 哼，新来的！
+        thought_storage_service: ThoughtStorageService,  # 哼，新来的！
     ) -> None:
         self.conversation_id: str = conversation_id
         self.llm_client: LLMProcessorClient = llm_client
@@ -69,7 +69,7 @@ class ChatSession:
         self.summarization_service = summarization_service
         self.summary_storage_service = summary_storage_service
         self.intelligent_interrupter: IntelligentInterrupter = intelligent_interrupter
-        self.thought_storage_service: ThoughtStorageService = thought_storage_service # 哼，新来的！
+        self.thought_storage_service: ThoughtStorageService = thought_storage_service  # 哼，新来的！
 
         # --- 模块化组件 --
         self.action_executor = ActionExecutor(self)
@@ -242,14 +242,14 @@ class ChatSession:
 
     def activate(
         self,
-        core_motivation: str | None = None # // 只接收动机
+        core_motivation: str | None = None,  # // 只接收动机
     ) -> None:
         """激活会话并启动其主动循环。"""
         if self.is_active:
             self.is_first_turn_for_session = True
             self.initial_core_motivation = core_motivation
             logger.info(f"[ChatSession][{self.conversation_id}] 会话已激活，但收到新的激活指令，重置为第一轮思考。")
-            self.cycler.wakeup() # 唤醒循环，让它立刻开始
+            self.cycler.wakeup()  # 唤醒循环，让它立刻开始
             return
 
         self.is_active = True

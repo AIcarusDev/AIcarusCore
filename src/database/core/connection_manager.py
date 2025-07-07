@@ -19,7 +19,7 @@ from arangoasync.graph import Graph
 
 # 哼，从你项目里导入你自己的东西
 from src.common.custom_logging.logging_config import get_logger
-from src.database.models import CoreDBCollections # <-- 看！只保留这一句导入！
+from src.database.models import CoreDBCollections  # <-- 看！只保留这一句导入！
 
 logger = get_logger(__name__)
 
@@ -174,10 +174,12 @@ class ArangoDBConnectionManager:
                     "collection": CoreDBCollections.LEADS_TO_ACTION,
                     "from": [CoreDBCollections.THOUGHT_CHAIN],
                     "to": [CoreDBCollections.ACTION_LOGS],
-                }
+                },
             ]
             try:
-                self.thought_graph = await self.db.create_graph(thought_graph_name, edge_definitions=thought_edge_definitions)
+                self.thought_graph = await self.db.create_graph(
+                    thought_graph_name, edge_definitions=thought_edge_definitions
+                )
             except GraphCreateError as e:
                 logger.error(f"创建思想图 '{thought_graph_name}' 失败: {e}", exc_info=True)
                 raise
@@ -242,8 +244,11 @@ class ArangoDBConnectionManager:
         self, query: str, bind_vars: Mapping[str, Any] | None = None, stream: bool = False, **kwargs: object
     ) -> list[Any] | AsyncIterator[Any]:
         if not self.db:
+
             async def empty_iterator() -> AsyncIterator[Any]:
-                if False: yield
+                if False:
+                    yield
+
             return empty_iterator() if stream else []
         try:
             cursor = await self.db.aql.execute(query, bind_vars=bind_vars, **kwargs)
@@ -252,15 +257,21 @@ class ArangoDBConnectionManager:
             logger.error(f"AQL查询执行失败: {e.error_message}", exc_info=True)
             logger.debug(f"失败的AQL查询: {query}")
             logger.debug(f"失败的绑定参数: {bind_vars}")
+
             async def empty_iterator() -> AsyncIterator[Any]:
-                if False: yield
+                if False:
+                    yield
+
             return empty_iterator() if stream else []
         except Exception as e:
             logger.error(f"AQL查询执行期间发生意外错误: {e}", exc_info=True)
             logger.debug(f"失败的AQL查询: {query}")
             logger.debug(f"失败的绑定参数: {bind_vars}")
+
             async def empty_iterator() -> AsyncIterator[Any]:
-                if False: yield
+                if False:
+                    yield
+
             return empty_iterator() if stream else []
 
     async def close_client(self) -> None:

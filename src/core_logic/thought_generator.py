@@ -58,11 +58,10 @@ class ThoughtGenerator:
 
             # 在这里，我们给生成的思考结果也加上唯一的ID，方便追踪
             if "action" in parsed_json and isinstance(parsed_json["action"], dict):
-                 # 如果有动作，就用 action_id 作为整个思考的ID
-                 parsed_json["thought_id"] = parsed_json.get("action", {}).get("action_id", str(uuid.uuid4()))
+                # 如果有动作，就用 action_id 作为整个思考的ID
+                parsed_json["thought_id"] = parsed_json.get("action", {}).get("action_id", str(uuid.uuid4()))
             else:
-                 parsed_json["thought_id"] = str(uuid.uuid4())
-
+                parsed_json["thought_id"] = str(uuid.uuid4())
 
             logger.info(f"LLM API 的回应已成功解析为JSON。Thought ID: {parsed_json['thought_id']}")
             return parsed_json

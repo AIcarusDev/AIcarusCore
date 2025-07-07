@@ -26,19 +26,19 @@ class CoreDBCollections:
     ACTION_LOGS = "action_logs"
     CONVERSATION_SUMMARIES = "conversation_summaries"
     THOUGHTS_LEGACY = "thoughts_collection"  # 旧的思考先留着，免得出错
-    THOUGHT_CHAIN = "thought_chain"          # 这就是我们全新的“思想点”集合！
-    SYSTEM_STATE = "system_state"            # 用来存放指针的小盒子
-    INTRUSIVE_POOL_COLLECTION = "intrusive_thoughts_pool" # 侵入性思维池
+    THOUGHT_CHAIN = "thought_chain"  # 这就是我们全新的“思想点”集合！
+    SYSTEM_STATE = "system_state"  # 用来存放指针的小盒子
+    INTRUSIVE_POOL_COLLECTION = "intrusive_thoughts_pool"  # 侵入性思维池
 
     # 边集合 (Edge Collections)
     HAS_ACCOUNT = "has_account"
     PARTICIPATES_IN = "participates_in"
-    PRECEDES_THOUGHT = "precedes_thought"     # 新的“线”，用来串点！
-    LEADS_TO_ACTION = "leads_to_action"       # 这个也最好有
+    PRECEDES_THOUGHT = "precedes_thought"  # 新的“线”，用来串点！
+    LEADS_TO_ACTION = "leads_to_action"  # 这个也最好有
 
     # 图的名字
     MAIN_GRAPH_NAME = "person_relation_graph"
-    THOUGHT_GRAPH_NAME = "consciousness_graph" # 给思想和行动也建个图
+    THOUGHT_GRAPH_NAME = "consciousness_graph"  # 给思想和行动也建个图
 
     INDEX_DEFINITIONS: dict[str, list[tuple[list[str], bool, bool]]] = {
         EVENTS: [
@@ -62,7 +62,7 @@ class CoreDBCollections:
             (["account_uid"], True, False),
             (["platform", "platform_id"], True, False),
         ],
-        THOUGHTS_LEGACY: [ # 旧的也保留
+        THOUGHTS_LEGACY: [  # 旧的也保留
             (["timestamp"], False, False),
             (["action.action_id"], True, True),
         ],
@@ -81,7 +81,7 @@ class CoreDBCollections:
             (["source_id"], False, True),
             (["action_id"], True, True),
         ],
-        SYSTEM_STATE: [], # 这个集合只有一条记录，不需要索引
+        SYSTEM_STATE: [],  # 这个集合只有一条记录，不需要索引
     }
 
     @classmethod
@@ -97,12 +97,12 @@ class CoreDBCollections:
             # --- 把新玩具加进来 ---
             cls.THOUGHT_CHAIN,
             cls.SYSTEM_STATE,
-            cls.INTRUSIVE_POOL_COLLECTION, # 别忘了这个新集合
+            cls.INTRUSIVE_POOL_COLLECTION,  # 别忘了这个新集合
             # --- 边集合 ---
             cls.HAS_ACCOUNT,
             cls.PARTICIPATES_IN,
             cls.PRECEDES_THOUGHT,
-            cls.LEADS_TO_ACTION
+            cls.LEADS_TO_ACTION,
         }
 
     @classmethod
@@ -116,26 +116,21 @@ class CoreDBCollections:
     @classmethod
     def get_vertex_collection_names(cls) -> set[str]:
         """返回所有在图中作为“点”的集合的名称。"""
-        return {
-            cls.PERSONS,
-            cls.ACCOUNTS,
-            cls.CONVERSATIONS,
-            cls.THOUGHT_CHAIN,
-            cls.ACTION_LOGS
-        }
+        return {cls.PERSONS, cls.ACCOUNTS, cls.CONVERSATIONS, cls.THOUGHT_CHAIN, cls.ACTION_LOGS}
 
 
 # --- 新增模型：ThoughtChainDocument (思想点) ---
 @dataclass
 class ThoughtChainDocument:
     """代表 thought_chain 集合中的一个“思想点”节点。"""
+
     _key: str
     timestamp: str
     mood: str
     think: str
     goal: str | None
     source_type: str  # 'core' 或 'focus_chat'
-    source_id: str | None = None # 如果是 focus_chat，这里是 conversation_id
+    source_id: str | None = None  # 如果是 focus_chat，这里是 conversation_id
 
     # 包含执行的动作信息，如果有的话
     action_id: str | None = None
@@ -147,6 +142,7 @@ class ThoughtChainDocument:
 
 
 # --- 已有模型保持不变，这里为了完整性全部贴出 ---
+
 
 @dataclass
 class PersonProfile:
@@ -221,6 +217,7 @@ class MembershipProperties:
 
     def to_dict(self) -> dict[str, Any]:
         return {k: v for k, v in asdict(self).items() if v is not None}
+
 
 @dataclass
 class AttentionProfile:

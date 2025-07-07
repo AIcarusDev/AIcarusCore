@@ -50,10 +50,10 @@ class AIStateManager:
             state_blocks["think_block"] = f"你刚才的内心想法是：{latest_thought.get('think', '我好像忘了刚才在想啥')}"
 
             goal_db = latest_thought.get("goal")
-            if goal_db and goal_db.strip().lower() != 'null':
-                 state_blocks["goal_block"] = f"你当前的目标是：【{goal_db}】"
+            if goal_db and goal_db.strip().lower() != "null":
+                state_blocks["goal_block"] = f"你当前的目标是：【{goal_db}】"
             else:
-                 state_blocks["goal_block"] = self.INITIAL_STATE["goal_block"]
+                state_blocks["goal_block"] = self.INITIAL_STATE["goal_block"]
 
             # // 动作相关的逻辑也简单多了
             # // 我们不再需要复杂的 action_request 和 action_response 块了，
@@ -66,7 +66,7 @@ class AIStateManager:
                     if actions:
                         action_name, _ = next(iter(actions.items()), (None, None))
                         if platform and action_name:
-                             action_desc = f"在平台 '{platform}' 执行 '{action_name}'"
+                            action_desc = f"在平台 '{platform}' 执行 '{action_name}'"
 
                 state_blocks["action_request_block"] = f'你刚才的想法导致你试图执行动作"{action_desc}"。'
                 state_blocks["action_response_block"] = "该行动的后续状态和结果，请参考下面的行动日志。"

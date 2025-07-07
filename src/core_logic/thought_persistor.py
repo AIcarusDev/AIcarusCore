@@ -18,10 +18,7 @@ class ThoughtPersistor:
         logger.info("ThoughtPersistor 已初始化。")
 
     async def store_thought(
-        self,
-        thought_json: dict[str, Any],
-        source_type: str,
-        source_id: str | None = None
+        self, thought_json: dict[str, Any], source_type: str, source_id: str | None = None
     ) -> str | None:
         """
         处理并存储思考结果到数据库，这次我们用统一的、全新的思想链！
@@ -31,7 +28,7 @@ class ThoughtPersistor:
 
         # 1. 把思考结果打包成一颗新的“思想点”
         new_thought_pearl = ThoughtChainDocument(
-            _key=str(uuid.uuid4()), # 给点一个唯一的key
+            _key=str(uuid.uuid4()),  # 给点一个唯一的key
             timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
             mood=thought_json.get("mood", "平静"),
             think=thought_json.get("think", "我刚才好像走神了。"),
@@ -39,7 +36,7 @@ class ThoughtPersistor:
             source_type=source_type,
             source_id=source_id,
             action_id=action_id,
-            action_payload=action_payload
+            action_payload=action_payload,
         )
 
         # 2. 把点交给存储服务去串起来

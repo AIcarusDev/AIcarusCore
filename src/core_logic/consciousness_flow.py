@@ -4,7 +4,7 @@ import contextlib
 import datetime
 import threading
 import uuid
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logging_config import get_logger
@@ -17,8 +17,8 @@ from src.core_logic.prompt_builder import ThoughtPromptBuilder
 from src.core_logic.state_manager import AIStateManager
 from src.core_logic.thought_generator import ThoughtGenerator
 from src.core_logic.thought_persistor import ThoughtPersistor
-from src.database.models import ThoughtChainDocument
 from src.database import ThoughtStorageService
+from src.database.models import ThoughtChainDocument
 
 if TYPE_CHECKING:
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
@@ -98,7 +98,7 @@ class CoreLogic:
         self.context_builder = context_builder
         self.thought_generator = thought_generator
         self.thought_persistor = thought_persistor
-        self.thought_storage_service = thought_storage_service # 把存储服务也存起来
+        self.thought_storage_service = thought_storage_service  # 把存储服务也存起来
         self.prompt_builder = prompt_builder
         self.stop_event = stop_event
         self.immediate_thought_trigger = immediate_thought_trigger
@@ -172,7 +172,7 @@ class CoreLogic:
         if action_payload:
             await self.action_handler_instance.process_action_flow(
                 action_id=action_id,
-                doc_key_for_updates=saved_thought_key, # 这个参数现在可以考虑去掉了，因为动作日志是独立的
+                doc_key_for_updates=saved_thought_key,  # 这个参数现在可以考虑去掉了，因为动作日志是独立的
                 action_json=action_payload,
             )
 
@@ -217,10 +217,10 @@ class CoreLogic:
                     mood=generated_thought_json.get("mood", "平静"),
                     think=generated_thought_json.get("think", "无"),
                     goal=generated_thought_json.get("goal"),
-                    source_type='core',
+                    source_type="core",
                     source_id=None,
                     action_id=action_id,
-                    action_payload=action_payload
+                    action_payload=action_payload,
                 )
 
                 # 4. 把点串到链上去！
@@ -282,9 +282,9 @@ class CoreLogic:
             mood="平静",
             think="根据LLM指令激活新专注会话",
             goal="激活指定会话",
-            source_type='core',
+            source_type="core",
             source_id=None,
             action_id=str(uuid.uuid4()),
-            action_payload=mock_action_payload
+            action_payload=mock_action_payload,
         )
         await self._dispatch_action(mock_thought_pearl)

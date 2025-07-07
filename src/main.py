@@ -151,7 +151,7 @@ class CoreSystemInitializer:
         services_to_init = {
             "event_storage_service": EventStorageService,
             "conversation_storage_service": ConversationStorageService,
-            "thought_storage_service": ThoughtStorageService, # 这个现在是新的了！
+            "thought_storage_service": ThoughtStorageService,  # 这个现在是新的了！
             "action_log_service": ActionLogStorageService,
             "person_storage_service": PersonStorageService,
         }
@@ -208,7 +208,6 @@ class CoreSystemInitializer:
         try:
             platform_builder_registry.discover_and_register_builders(platform_builders)
 
-
             await self._initialize_llm_clients()
             await self._initialize_database_and_services()
             await self._initialize_interrupt_model()
@@ -260,15 +259,17 @@ class CoreSystemInitializer:
 
             # 6. 专注聊天管理器 ChatSessionManager (现在它也需要 thought_storage_service)
             if config.focus_chat_mode.enabled:
-                if all([
-                    self.focused_chat_llm_client,
-                    config.persona.qq_id,
-                    self.summarization_service,
-                    self.event_storage_service,
-                    self.conversation_storage_service,
-                    self.action_handler_instance,
-                    self.interrupt_model_instance
-                ]):
+                if all(
+                    [
+                        self.focused_chat_llm_client,
+                        config.persona.qq_id,
+                        self.summarization_service,
+                        self.event_storage_service,
+                        self.conversation_storage_service,
+                        self.action_handler_instance,
+                        self.interrupt_model_instance,
+                    ]
+                ):
                     self.qq_chat_session_manager = ChatSessionManager(
                         config=config.focus_chat_mode,
                         llm_client=self.focused_chat_llm_client,
@@ -279,8 +280,8 @@ class CoreSystemInitializer:
                         summarization_service=self.summarization_service,
                         summary_storage_service=self.summary_storage_service,
                         intelligent_interrupter=self.interrupt_model_instance,
-                        thought_storage_service=self.thought_storage_service, # 把思想链服务也给它！
-                        core_logic=None, # CoreLogic 后面再注入
+                        thought_storage_service=self.thought_storage_service,  # 把思想链服务也给它！
+                        core_logic=None,  # CoreLogic 后面再注入
                     )
                     logger.info("ChatSessionManager 初始化完成，并已成功注入智能打断系统。")
                 else:
@@ -306,7 +307,7 @@ class CoreSystemInitializer:
 
             # 把所有依赖都注入给 ActionHandler
             self.action_handler_instance.set_dependencies(
-                thought_service=self.thought_storage_service, # 注入新服务
+                thought_service=self.thought_storage_service,  # 注入新服务
                 event_service=self.event_storage_service,
                 action_log_service=self.action_log_service,
                 conversation_service=self.conversation_storage_service,
@@ -382,7 +383,7 @@ class CoreSystemInitializer:
                     self.thought_generator_instance,
                     self.thought_persistor_instance,
                     self.thought_prompt_builder_instance,
-                    self.thought_storage_service, # 确保这个也准备好了
+                    self.thought_storage_service,  # 确保这个也准备好了
                 ]
             ):
                 raise RuntimeError("CoreLogicFlow 的一个或多个核心服务依赖未能初始化。")
@@ -395,7 +396,7 @@ class CoreSystemInitializer:
                 context_builder=self.context_builder_instance,
                 thought_generator=self.thought_generator_instance,
                 thought_persistor=self.thought_persistor_instance,
-                thought_storage_service=self.thought_storage_service, # 把思想链服务也给它！
+                thought_storage_service=self.thought_storage_service,  # 把思想链服务也给它！
                 prompt_builder=self.thought_prompt_builder_instance,
                 stop_event=self.stop_event,
                 immediate_thought_trigger=self.immediate_thought_trigger,

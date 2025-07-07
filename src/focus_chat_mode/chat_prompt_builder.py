@@ -1,6 +1,6 @@
 # src/focus_chat_mode/chat_prompt_builder.py (小懒猫·独立思考完整版)
-import os
 import contextlib
+import os
 from typing import TYPE_CHECKING, Any
 
 from src.action.action_handler import ActionHandler
@@ -11,7 +11,6 @@ from src.common.time_utils import get_formatted_time_for_llm
 # 导入你的顶层config对象
 from src.config import config
 from src.database.services.event_storage_service import EventStorageService
-
 from src.prompt_templates import prompt_templates
 
 from .components import PromptComponents
@@ -90,7 +89,7 @@ class ChatPromptBuilder:
         session: "ChatSession",
         last_processed_timestamp: float,
         is_first_turn: bool,
-        motivation_from_core: str | None = None, # 只需要知道为什么来这里就够了
+        motivation_from_core: str | None = None,  # 只需要知道为什么来这里就够了
         was_last_turn_interrupted: bool = False,
         interrupting_event_text: str | None = None,
     ) -> PromptComponents:
@@ -119,7 +118,11 @@ class ChatPromptBuilder:
         dynamic_guidance_str = self.session.guidance_generator.generate_guidance()
 
         unread_summary_str = "所有其他会话均无未读消息。"
-        if self.session.core_logic and hasattr(self.session.core_logic, 'prompt_builder') and self.session.core_logic.prompt_builder:
+        if (
+            self.session.core_logic
+            and hasattr(self.session.core_logic, "prompt_builder")
+            and self.session.core_logic.prompt_builder
+        ):
             try:
                 unread_summary_str = (
                     await self.session.core_logic.prompt_builder.unread_info_service.generate_unread_summary_text(
@@ -149,7 +152,7 @@ class ChatPromptBuilder:
             conversation_name=self.session.conversation_name,
             last_processed_timestamp=last_processed_timestamp,
             is_first_turn=is_first_turn,
-            raw_events_from_caller=None, # 在专注模式下，总是从数据库拉取
+            raw_events_from_caller=None,  # 在专注模式下，总是从数据库拉取
         )
 
         # --- 步骤3：使用新玩具返回的结果，准备剩下的Prompt零件 ---
@@ -172,7 +175,7 @@ class ChatPromptBuilder:
         previous_thoughts_block_str = self._build_previous_thoughts_block(
             is_first_turn=is_first_turn,
             was_interrupted=was_last_turn_interrupted,
-            latest_thought_doc=latest_thought_doc, # 传最新的思想点进去
+            latest_thought_doc=latest_thought_doc,  # 传最新的思想点进去
             session=session,
             interrupt_text=interrupting_event_text,
             motivation_from_core=motivation_from_core,
@@ -235,12 +238,11 @@ class ChatPromptBuilder:
         self,
         is_first_turn: bool,
         was_interrupted: bool,
-        latest_thought_doc: dict[str, Any] | None, # 接收最新的思想点
+        latest_thought_doc: dict[str, Any] | None,  # 接收最新的思想点
         session: "ChatSession",
         interrupt_text: str | None,
         motivation_from_core: str | None,
     ) -> str:
-
         # 优先处理中断情况
         if was_interrupted:
             if session.messages_sent_this_turn == 0:
@@ -254,9 +256,11 @@ class ChatPromptBuilder:
                     think = latest_thought_doc.get("think", "我被打断前正在想...")
                     mood = latest_thought_doc.get("mood", "平静")
                     motivation = "（动机信息遗失）"
-                    if latest_thought_doc.get('action_payload'):
+                    if latest_thought_doc.get("action_payload"):
                         with contextlib.suppress(IndexError, AttributeError):
-                            motivation = next(iter(next(iter(latest_thought_doc['action_payload'].values())).values())).get('motivation', '（动机信息遗失）')
+                            motivation = next(
+                                iter(next(iter(latest_thought_doc["action_payload"].values())).values())
+                            ).get("motivation", "（动机信息遗失）")
 
                     parts = [
                         f'刚刚你的心情是："{mood}"。',
@@ -273,13 +277,13 @@ class ChatPromptBuilder:
             mood_part = "平静"
             think_part = "我好像忘了"
             if latest_thought_doc:
-                mood_part = latest_thought_doc.get('mood', '平静')
-                think_part = latest_thought_doc.get('think', '我好像忘了')
+                mood_part = latest_thought_doc.get("mood", "平静")
+                think_part = latest_thought_doc.get("think", "我好像忘了")
 
             motivation_part = motivation_from_core or "我决定过来看看。"
 
             # // 这就是你想要的那个开场白！
-            return f'你刚才的心情是“{mood_part}”。\n你刚才的想法是：“{think_part}”。\n你现在刚刚把注意力放到这个会话中，因为：“{motivation_part}”。'
+            return f"你刚才的心情是“{mood_part}”。\n你刚才的想法是：“{think_part}”。\n你现在刚刚把注意力放到这个会话中，因为：“{motivation_part}”。"
 
         # // 后续的正常循环也从最新的思想点里拿信息
         if latest_thought_doc:
@@ -295,18 +299,20 @@ class ChatPromptBuilder:
                     action_name, params = next(iter(actions.items()))
                     motivation = params.get("motivation", "")
 
-                    if action_name == 'send_message':
-                        content = params.get('content', [])
-                        text_parts = [seg.get('data', {}).get('text', '') for seg in content if seg.get('type') == 'text']
+                    if action_name == "send_message":
+                        content = params.get("content", [])
+                        text_parts = [
+                            seg.get("data", {}).get("text", "") for seg in content if seg.get("type") == "text"
+                        ]
                         full_text = "".join(text_parts)
-                        action_desc = f"发言（内容：{full_text[:30]}{'...' if len(full_text)>30 else ''}）"
+                        action_desc = f"发言（内容：{full_text[:30]}{'...' if len(full_text) > 30 else ''}）"
                     else:
                         action_desc = f"执行了动作：{platform}.{action_name}"
 
                 except (IndexError, AttributeError):
                     action_desc = "执行了一个未知动作"
 
-            parts = [f'刚刚你的心情是：“{mood}”\n刚刚你的内心想法是：“{think}”']
+            parts = [f"刚刚你的心情是：“{mood}”\n刚刚你的内心想法是：“{think}”"]
             parts.append(f"出于这个想法，你刚才做了：{action_desc}")
             if motivation:
                 parts.append(f"因为：{motivation}")

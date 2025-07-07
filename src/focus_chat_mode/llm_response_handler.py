@@ -56,8 +56,8 @@ class LLMResponseHandler:
         # b. 呼叫主意识，告诉它我要“灵魂转移”了
         #    注意！这里不再需要传递任何参数了！主意识会自己去思想链里找状态。
         if hasattr(self.core_logic, "trigger_immediate_thought_cycle"):
-             # // 直接激活 CoreLogic 的新 focus 流程
-             # // CoreLogic 会自己处理后续逻辑
+            # // 直接激活 CoreLogic 的新 focus 流程
+            # // CoreLogic 会自己处理后续逻辑
             # 直接激活 CoreLogic 的新 focus 流程
             # CoreLogic 会自己处理后续逻辑
             logger.info(f"[{self.session.conversation_id}] 请求主意识直接激活新会话: {target_conv_id}")
