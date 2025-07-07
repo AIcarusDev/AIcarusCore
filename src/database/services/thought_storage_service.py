@@ -229,9 +229,7 @@ class ThoughtStorageService:
                 else:
                     logger.warning(f"事务内警告：指针指向的思想点 '{last_thought_key}' 不存在，无法创建precedes_thought边。")
 
-            # 步骤 5: 如果有动作，创建指向动作日志的边
-            action_id = new_thought.get("action_id")
-            if action_id:
+            if action_id := new_thought.get("action_id"):
                 action_log_id = f"{CoreDBCollections.ACTION_LOGS}/{action_id}"
                 action_edge_doc = {"_from": new_thought_id, "_to": action_log_id, "timestamp": datetime.datetime.now(datetime.UTC).isoformat()}
                 await action_edge_coll.insert(action_edge_doc)
