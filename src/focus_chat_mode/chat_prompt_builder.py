@@ -1,5 +1,6 @@
 # src/focus_chat_mode/chat_prompt_builder.py (小懒猫·独立思考完整版)
 import os
+import contextlib
 from typing import TYPE_CHECKING, Any
 
 from src.action.action_handler import ActionHandler
@@ -254,10 +255,8 @@ class ChatPromptBuilder:
                     mood = latest_thought_doc.get("mood", "平静")
                     motivation = "（动机信息遗失）"
                     if latest_thought_doc.get('action_payload'):
-                        try:
+                        with contextlib.suppress(IndexError, AttributeError):
                             motivation = next(iter(next(iter(latest_thought_doc['action_payload'].values())).values())).get('motivation', '（动机信息遗失）')
-                        except (IndexError, AttributeError):
-                            pass
 
                     parts = [
                         f'刚刚你的心情是："{mood}"。',
