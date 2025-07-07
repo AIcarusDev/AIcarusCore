@@ -218,12 +218,12 @@ async def format_chat_history_for_llm(
                 event_data_log.user_info.user_id, f"UnknownUser({event_data_log.user_info.user_id[:4]})"
             )
 
-        is_robot_msg = log_user_id_str == "U0" and (
+        is_self_msg = log_user_id_str == "U0" and (
             event_data_log.event_type.startswith("message.") or event_data_log.event_type == "action.message.send"
         )
 
         # 处理普通消息
-        if event_data_log.event_type.startswith("message.") or is_robot_msg:
+        if event_data_log.event_type.startswith("message.") or is_self_msg:
             if current_platform_msg_id := event_data_log.get_message_id():
                 if current_platform_msg_id in added_platform_message_ids_for_log:
                     continue

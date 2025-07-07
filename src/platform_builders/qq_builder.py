@@ -605,6 +605,6 @@ class QQBuilder(BasePlatformBuilder):
                 },
                 "motivation": {"type": "string", "description": "获取这个列表的动机。"},
             },
-            "required": ["list_type", "motivation"],
+            "required": ["list_type"],
         }
         return base_definitions
