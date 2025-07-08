@@ -366,7 +366,12 @@ class CoreWebsocketServer:
             f"正在启动 AIcarus 核心 WebSocket 服务器，监听地址: ws://{self.host}:{self.port}"
         )
         try:
-            self.server = await websockets.serve(self._connection_handler, self.host, self.port)
+            self.server = await websockets.serve(
+                self._connection_handler,
+                self.host,
+                self.port,
+                max_size=50 * 1024 * 1024,
+            )
             self._heartbeat_check_task = asyncio.create_task(self._check_heartbeat_timeouts())
             logger.info("AIcarus 核心 WebSocket 服务器已成功启动，心跳检查已部署。")
             await self._stop_event.wait()
