@@ -11,10 +11,15 @@ T = TypeVar("T", bound="ConfigBase")
 
 @dataclass
 class ConfigBase:
-    """配置类的基类"""
+    """配置类的基类.
+
+    Attributes:
+        _config_name (str): 配置类的名称，通常用于日志或错误消息.
+    """
 
     @classmethod
     def from_dict(cls: type[T], data: dict[str, Any]) -> T:
+        """从字典或 tomlkit 的 Table/InlineTable 创建配置类实例."""
         if not isinstance(
             data, dict | tomlkit.items.Table | tomlkit.items.InlineTable
         ):  # 接受 tomlkit 的 Table 类型
@@ -34,7 +39,8 @@ class ConfigBase:
                     continue  # 使用 dataclass 的默认值
                 else:
                     raise ValueError(
-                        f"Missing required field in config data for '{cls.__name__}': '{field_name}'"
+                        f"Missing required field in config data for "
+                        f"'{cls.__name__}': '{field_name}'"
                     )
 
             value = data[field_name]
@@ -85,7 +91,8 @@ class ConfigBase:
                 # 如果字段类型不接受 None，但值是 None，这通常是个问题，除非dataclass有默认值处理了
                 # 但 from_dict 通常期望所有非默认值都被提供
                 raise ValueError(
-                    f"Field '{class_name_for_error}.{field_name_for_error}' is not Optional but received None value."
+                    f"Field '{class_name_for_error}.{field_name_for_error}' "
+                    f"is not Optional but received None value."
                 )
 
         if (
@@ -93,14 +100,17 @@ class ConfigBase:
         ):  # 检查是否是ConfigBase的子类
             if not isinstance(value, dict | tomlkit.items.Table | tomlkit.items.InlineTable):
                 raise TypeError(
-                    f"Expected a dictionary-like object for nested ConfigBase '{field_name_for_error}' in '{class_name_for_error}', got {type(value).__name__}"
+                    f"Expected a dictionary-like object for nested ConfigBase "
+                    f"'{field_name_for_error}' in '{class_name_for_error}', "
+                    f"got {type(value).__name__}"
                 )
             return field_type.from_dict(value)
 
         if origin_type in {list, set, tuple}:
             if not isinstance(value, list):  # TOML 数组总是被解析为 Python list
                 raise TypeError(
-                    f"Expected a list for field '{field_name_for_error}' in '{class_name_for_error}', got {type(value).__name__}"
+                    f"Expected a list for field '{field_name_for_error}' in "
+                    f"'{class_name_for_error}', got {type(value).__name__}"
                 )
 
             element_type = type_args[0] if type_args else Any
@@ -122,7 +132,8 @@ class ConfigBase:
                 # 对于固定长度元组 (Tuple[X, Y, Z])
                 elif len(value) != len(type_args):
                     raise ValueError(
-                        f"Expected {len(type_args)} items for tuple field '{field_name_for_error}' in '{class_name_for_error}', got {len(value)}"
+                        f"Expected {len(type_args)} items for tuple field '{field_name_for_error}' "
+                        f"in '{class_name_for_error}', got {len(value)}"
                     )
                 # 重新转换，确保每个元素对应正确的类型参数（如果不同）
                 return tuple(
@@ -135,7 +146,8 @@ class ConfigBase:
         if origin_type is dict:
             if not isinstance(value, dict | tomlkit.items.Table | tomlkit.items.InlineTable):
                 raise TypeError(
-                    f"Expected a dictionary-like object for dict field '{field_name_for_error}' in '{class_name_for_error}', got {type(value).__name__}"
+                    f"Expected a dictionary-like object for dict field '{field_name_for_error}' in "
+                    f"'{class_name_for_error}', got {type(value).__name__}"
                 )
 
             key_type = type_args[0] if len(type_args) > 0 else Any
@@ -168,7 +180,8 @@ class ConfigBase:
                     except (TypeError, ValueError):
                         continue
             raise TypeError(
-                f"Value '{value}' could not be converted to any of the union types: {possible_types}"
+                f"Value '{value}' could not be converted to any of the "
+                f"union types: {possible_types}"
             )
 
         if field_type is Any or isinstance(value, field_type):
@@ -182,15 +195,19 @@ class ConfigBase:
                 if value.lower() == "false":
                     return False
                 raise ValueError(
-                    f"Cannot convert string '{value}' to bool for field '{field_name_for_error}'. Use 'true' or 'false'."
+                    f"Cannot convert string '{value}' to bool for field '{field_name_for_error}'. "
+                    f"Use 'true' or 'false'."
                 )
             return field_type(value)
         except (ValueError, TypeError) as e:
             type_name = getattr(field_type, "__name__", str(field_type))
             raise TypeError(
-                f"Cannot convert {type(value).__name__} '{str(value)[:50]}' to {type_name} for field '{field_name_for_error}' in '{class_name_for_error}'. Error: {e}"
+                f"Cannot convert {type(value).__name__} '{str(value)[:50]}' to {type_name} for "
+                f"field '{field_name_for_error}' in '{class_name_for_error}'. Error: {e}"
             ) from e
 
     def __str__(self) -> str:
-        """返回配置类的字符串表示"""
-        return f"{self.__class__.__name__}({', '.join(f'{f.name}={getattr(self, f.name)!r}' for f in fields(self))})"
+        """返回配置类的字符串表示."""
+        return f"{self.__class__.__name__}({
+            ', '.join(f'{f.name}={getattr(self, f.name)!r}' for f in fields(self))
+        })"

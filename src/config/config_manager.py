@@ -19,7 +19,7 @@ _config_checked_this_session = False
 
 
 def _prompt_user_and_exit(message: str) -> None:
-    """提示用户并退出程序"""
+    """提示用户并退出程序."""
     logger.info("-" * 70)
     logger.info("重要提示:")
     logger.info(message)
@@ -27,7 +27,7 @@ def _prompt_user_and_exit(message: str) -> None:
 
 
 def _perform_config_update_check(io_handler: ConfigIOHandler) -> bool:
-    """检查并更新配置文件"""
+    """检查并更新配置文件."""
     global _config_checked_this_session
     if _config_checked_this_session:
         return False
@@ -37,7 +37,7 @@ def _perform_config_update_check(io_handler: ConfigIOHandler) -> bool:
 
 
 def load_settings() -> dict:
-    """慵懒地加载配置文件，只在需要时才真正动手"""
+    """加载配置文件并返回配置字典."""
     global _loaded_settings_dict
     if _loaded_settings_dict is not None:
         return _loaded_settings_dict
@@ -57,7 +57,8 @@ def load_settings() -> dict:
         )  # INFO -> DEBUG
     else:
         logger.debug(  # INFO -> DEBUG
-            f"ConfigManager未在项目根目录找到 .env 文件: {dotenv_path_project_root}。将依赖已加载的环境变量或配置文件。"
+            f"ConfigManager未在项目根目录找到 .env 文件: {dotenv_path_project_root}。"
+            f"将依赖已加载的环境变量或配置文件。"
         )
 
     io_handler = ConfigIOHandler()
@@ -78,7 +79,7 @@ def load_settings() -> dict:
 
 
 def get_settings() -> dict:
-    """获取已加载的配置字典，懒得重复加载"""
+    """获取已加载的配置字典."""
     global _loaded_settings_dict
     if _loaded_settings_dict is None:
         return load_settings()
@@ -86,7 +87,7 @@ def get_settings() -> dict:
 
 
 def get_typed_settings() -> AlcarusRootConfig:
-    """获取类型化的配置对象，让IDE知道我们在做什么"""
+    """获取已加载的类型化配置对象."""
     global _loaded_typed_settings
     if _loaded_typed_settings is not None:
         return _loaded_typed_settings
