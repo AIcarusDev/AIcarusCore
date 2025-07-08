@@ -11,8 +11,14 @@ logger = get_logger(__name__)
 
 
 class UnreadInfoService:
-    """一个被小懒猫重构过的、专门处理未读信息的服务。
-    哼，现在它能生成你想要的、花里胡哨的摘要格式了。
+    """未读消息信息服务，用于处理和生成未读消息摘要.
+
+    该服务提供了获取未读消息摘要和结构化未读会话列表的功能，支持排除特定会话ID.
+
+    Attributes:
+        event_storage (EventStorageService): 事件存储服务，用于访问消息事件数据.
+        conversation_storage (ConversationStorageService): 会话存储服务，用于访问会话数据.
+        bot_id (str): 机器人的唯一标识符，默认为配置中的QQ ID，如果未设置则为 "unknown_bot_id".
     """
 
     def __init__(
@@ -27,8 +33,14 @@ class UnreadInfoService:
     async def _get_unread_conversations_with_events(
         self, exclude_conversation_id: str | None = None
     ) -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
-        """内部核心方法，获取所有有新消息的会话及其对应的新消息事件列表。
-        哼，我在这里加了个“门禁”，可以把某个讨厌鬼关在门外。
+        """获取所有活跃会话中有新消息的会话列表，排除指定的会话ID.
+
+        Args:
+            exclude_conversation_id (str | None): 要排除的会话ID，默认为 None.
+
+        Returns:
+            list[tuple[dict[str, Any], list[dict[str, Any]]]]: 有新消息的会话及其
+                对应的新消息事件列表.
         """
         logger.debug(f"开始检查所有活跃会话的新消息... (将排除: {exclude_conversation_id})")
         try:
@@ -65,8 +77,14 @@ class UnreadInfoService:
         return unread_conversations_with_events
 
     def _get_sender_display_name(self, event: dict, conversation_type: str) -> str:
-        """根据事件和会话类型，智能地获取最佳的显示名称。
-        这就是我新加的“智慧核心”！
+        """获取发送者的显示名称，优先使用群名片或昵称.
+
+        Args:
+            event (dict): 消息事件的字典，包含发送者信息.
+            conversation_type (str): 会话类型，可能是 "group" 或 "private".
+
+        Returns:
+            str: 发送者的显示名称，如果无法获取则返回 "未知用户".
         """
         user_info = event.get("user_info", {})
         if not isinstance(user_info, dict):
@@ -93,8 +111,14 @@ class UnreadInfoService:
         return "未知用户"
 
     def _create_message_preview(self, event: dict, display_name: str) -> str:
-        """我新建的“小作坊”，专门生产那条恶心的“最新消息”预览。
-        哼，你那15条破规则，都在这里处理了。
+        """生成消息预览内容，包含发送者名称和消息摘要.
+
+        Args:
+            event (dict): 消息事件的字典，包含消息内容和类型等信息.
+            display_name (str): 发送者的显示名称.
+
+        Returns:
+            str: 格式化的消息预览字符串，包含发送者名称和消息内容摘要.
         """
         content = event.get("content", [])
         event_type = event.get("event_type", "")
@@ -271,8 +295,13 @@ class UnreadInfoService:
     async def get_structured_unread_conversations(
         self, exclude_conversation_id: str | None = None
     ) -> list[dict[str, Any]]:
-        """获取所有有新消息的会话的结构化信息列表。
-        这下 CoreLogic 就知道该怎么玩了。
+        """获取结构化的未读会话列表，排除指定的会话ID.
+
+        Args:
+            exclude_conversation_id (str | None): 要排除的会话ID，默认为 None.
+
+        Returns:
+            list[dict[str, Any]]: 结构化的未读会话列表.
         """
         logger.debug(f"正在获取结构化的未读会话列表... (将排除: {exclude_conversation_id})")
         unread_convs_with_events = await self._get_unread_conversations_with_events(

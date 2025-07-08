@@ -9,8 +9,7 @@ logger = get_logger(__name__)
 
 
 def parse_llm_json_response(raw_response_text: str | None) -> dict[str, Any] | None:
-    """一个超级健壮的LLM JSON响应解析器。
-    哼，现在它学会了“暴力破解”，就算LLM不听话，也能把JSON挖出来。
+    """解析来自LLM的JSON响应文本.
 
     Args:
         raw_response_text: 来自LLM的原始文本响应。
@@ -56,7 +55,8 @@ def parse_llm_json_response(raw_response_text: str | None) -> dict[str, Any] | N
             return parsed_dict
         else:
             logger.warning(
-                f"成功解析了JSON，但结果不是字典类型，而是 {type(parsed_dict)}。这可能不是我们想要的。"
+                f"成功解析了JSON，但结果不是字典类型，而是 {type(parsed_dict)}。"
+                f"这可能不是我们想要的。"
             )
             return None
 

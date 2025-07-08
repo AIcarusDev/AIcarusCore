@@ -16,13 +16,19 @@ logger = get_logger(__name__)
 
 # --- 自定义YAML处理类 ---
 class ForceDoubleQuoteStr(str):
-    """强制双引号输出的字符串包装类"""
+    """强制双引号输出的字符串包装类.
+
+    该类用于确保在YAML转储时，字符串总是使用双引号样式表示.
+    """
 
     pass
 
 
 class MyDumper(yaml.SafeDumper):
-    """自定义YAML转储器"""
+    """自定义YAML转储器.
+
+    该类用于处理 ForceDoubleQuoteStr 类型的字符串，使其在YAML中总是使用双引号表示.
+    """
 
     pass
 
@@ -30,7 +36,15 @@ class MyDumper(yaml.SafeDumper):
 def force_double_quote_str_representer(
     dumper: MyDumper, data: ForceDoubleQuoteStr
 ) -> yaml.ScalarNode:
-    """强制双引号字符串表示器"""
+    """强制双引号字符串表示器.
+
+    Args:
+        dumper: 自定义YAML转储器.
+        data: 强制双引号字符串.
+
+    Returns:
+        yaml.ScalarNode: 包装后的YAML标量节点，使用双引号样式表示字符串.
+    """
     return dumper.represent_scalar("tag:yaml.org,2002:str", str(data), style='"')
 
 
@@ -40,7 +54,14 @@ JsonValue = dict[str, "JsonValue"] | list["JsonValue"] | str | int | float | boo
 
 
 def wrap_string_values_for_yaml(data: JsonValue) -> JsonValue:
-    """递归包装字符串值为双引号格式"""
+    """递归包装字符串值为双引号格式.
+
+    Args:
+        data: 输入数据，可以是字典、列表或基本类型.
+
+    Returns:
+        JsonValue: 处理后的数据，所有字符串都被包装为双引号格式.
+    """
     if isinstance(data, dict):
         return {k: wrap_string_values_for_yaml(v) for k, v in data.items()}
     elif isinstance(data, list):
@@ -60,7 +81,12 @@ def is_valid_message(msg: str) -> bool:
 
 # --- 消息内容处理器 ---
 class MessageContentProcessor:
-    """统一的消息内容处理器"""
+    """统一的消息内容处理器.
+
+    Attributes:
+        image_placeholder_key: 用于图片占位符的键名.
+        image_placeholder_value: 用于图片占位符的值.
+    """
 
     @staticmethod
     def extract_text_content(
@@ -68,8 +94,17 @@ class MessageContentProcessor:
         image_placeholder_key: str = "llm_image_placeholder",
         image_placeholder_value: str = "[IMAGE_HERE]",
     ) -> tuple[list[dict], list[str]]:
-        """处理内容列表，在图片segment的data中加入占位符标记，并主要通过base64提取图片源列表。
-        返回处理后的内容列表 (用于YAML) 和图片源列表 (用于LLM)。
+        """处理内容列表，在图片segment的data中加入占位符标记，并主要通过base64提取图片源列表.
+
+        返回处理后的内容列表 (用于YAML) 和图片源列表 (用于LLM).
+
+        Args:
+            content: 包含消息段的列表，每个段是一个字典，可能包含文本、图片等信息.
+            image_placeholder_key: 用于图片占位符的键名.
+            image_placeholder_value: 用于图片占位符的键值.
+
+        Returns:
+            tuple: 包含两个元素的元组: 处理后的内容列表和图片源列表.
         """
         if not content or not isinstance(content, list):
             return [], []
@@ -111,7 +146,8 @@ class MessageContentProcessor:
                             mimetype = guessed_mimetype
                         else:
                             logger.debug(
-                                f"无法从文件名 '{filename_for_mimetype}' 推断mimetype，将使用默认值: {mimetype}"
+                                f"无法从文件名 '{filename_for_mimetype}' 推断mimetype，"
+                                f"将使用默认值: {mimetype}"
                             )
                     else:
                         logger.debug(
@@ -125,11 +161,15 @@ class MessageContentProcessor:
 
                     image_sources_for_llm.append(image_source_to_add)
                     logger.debug(
-                        f"成功从base64为图片 '{filename_for_mimetype or '未知图片'}' 构建data URI: {image_source_to_add[:70]}..."
+                        f"成功从base64为图片 '{filename_for_mimetype or '未知图片'}' "
+                        f"构建data URI: {image_source_to_add[:70]}..."
                     )
                 else:
                     img_url = seg_data.get("url")
-                    log_msg = f"图片 '{img_file_id or filename_from_data or '未知图片'}' 缺少有效的base64数据。"
+                    log_msg = (
+                        f"图片 '{img_file_id or filename_from_data or '未知图片'}' "
+                        f"缺少有效的base64数据。"
+                    )
                     if img_url:
                         log_msg += f" 它有一个URL: {img_url}，但我们现在优先使用base64。"
                     logger.warning(log_msg)
@@ -140,10 +180,27 @@ class MessageContentProcessor:
 
     @staticmethod
     def create_text_segment(text: str) -> dict:
+        """创建文本消息段.
+
+        Args:
+            text: 要包含的文本内容.
+
+        Returns:
+            dict: 包含文本信息的消息段字典.
+        """
         return {"type": "text", "data": {"text": text}}
 
     @staticmethod
     def create_at_segment(user_id: str, display_name: str = "") -> dict:
+        """创建 @ 用户消息段.
+
+        Args:
+            user_id: 用户的唯一标识符.
+            display_name: 用户的显示名称（可选）.
+
+        Returns:
+            dict: 包含 @ 用户信息的消息段字典.
+        """
         return {
             "type": "at",
             "data": {
@@ -154,6 +211,16 @@ class MessageContentProcessor:
 
     @staticmethod
     def create_image_segment(file_id: str, url: str = "", base64_data: str = "") -> dict:
+        """创建图片消息段.
+
+        Args:
+            file_id: 图片文件的唯一标识符.
+            url: 图片的URL地址（可选）.
+            base64_data: 图片的Base64编码数据（可选）.
+
+        Returns:
+            dict: 包含图片信息的消息段字典.
+        """
         data = {"file_id": file_id}
         if url:
             data["url"] = url
@@ -164,8 +231,18 @@ class MessageContentProcessor:
 
 # --- 平台状态摘要格式化 ---
 def parse_system_event_details(event_dict: dict[str, Any]) -> dict[str, Any] | None:
-    """从系统事件字典中严格解析出 adapter_id, display_name, status, reason。
-    仅当事件文本格式完全符合预期时才返回解析结果，否则返回 None。
+    """从系统事件字典中严格解析出 adapter_id, display_name, status, reason.
+
+    仅当事件文本格式完全符合预期时才返回解析结果，否则返回 None.
+
+    Args:
+        event_dict: 包含事件信息的字典，必须包含 'event_type' 和 'content' 字段.
+        event_dict: dict[str, Any]
+            - 'event_type': str, 事件类型标识.
+            - 'content': list, 包含事件内容的列表，通常第一个元素是文本段落.
+
+    Returns:
+        dict[str, Any] | None: 包含解析后的详细信息的字典，或 None.
     """
     details: dict[str, Any] = {}
     event_type = event_dict.get("event_type")
@@ -227,6 +304,18 @@ def format_platform_status_summary(
     recent_system_events: list[dict[str, Any]],
     status_timespan_minutes: int = 10,
 ) -> str:
+    """格式化平台连接状态摘要，基于最近的系统事件和当前连接的适配器信息.
+
+    Args:
+        current_connected_adapters_info: 当前在线适配器的信息字典，键为适配器ID，
+            值为包含显示名称和最后心跳时间的字典.
+        recent_system_events: 最近的系统事件列表，每个事件是一个字典，包含时间戳和内容等信息.
+        status_timespan_minutes: 用于确定最近状态变更的时间窗口（分钟），
+            默认为10分钟.
+
+    Returns:
+        str: 格式化后的连接状态摘要字符串.
+    """
     summary_lines = [
         f"平台连接状态摘要 (基于最近{status_timespan_minutes}分钟及当前状态):"
     ]  # 修改标题以包含时间窗口
@@ -323,7 +412,10 @@ def format_platform_status_summary(
         summary_lines.extend(recent_changes_lines)
 
     if len(summary_lines) == 1:
-        return f"平台连接状态摘要 (基于最近{status_timespan_minutes}分钟及当前状态): (无活动或无近期状态变更)"
+        return (
+            f"平台连接状态摘要 (基于最近{status_timespan_minutes}分钟及当前状态): "
+            f"(无活动或无近期状态变更)"
+        )
 
     return "\n".join(summary_lines)
 
@@ -337,6 +429,21 @@ def format_messages_for_llm_context(
     desired_history_span_minutes: int = 10,
     max_messages_per_group: int = 20,
 ) -> tuple[str, list[str]]:
+    """格式化聊天记录以供 LLM 使用.
+
+    支持两种风格：简单文本和 YAML 格式.
+
+    Args:
+        raw_messages_from_db: 从数据库获取的原始消息列表.
+        style: 输出格式，支持 "simple" 或 "yaml".
+        image_placeholder_key: 用于图片占位符的键名.
+        image_placeholder_value: 用于图片占位符的值.
+        desired_history_span_minutes: 希望获取的聊天记录时间跨度（分钟）.
+        max_messages_per_group: 每个会话组中保留的最大消息数.
+
+    Returns:
+        tuple: 包含格式化后的聊天记录字符串和提取的图片源列表.
+    """
     all_extracted_image_sources: list[str] = []
 
     if not raw_messages_from_db:
@@ -382,7 +489,8 @@ def format_messages_for_llm_context(
                     formatted_lines.append(f"{time_str} {role}：{text_content}")
             except Exception as e:
                 logger.warning(
-                    f"格式化(simple)单条聊天记录时出错: {e}, 消息ID: {msg.get('event_id', '未知ID')}"
+                    f"格式化(simple)单条聊天记录时出错: {e}, "
+                    f"消息ID: {msg.get('event_id', '未知ID')}"
                 )
                 continue
         if not formatted_lines:
@@ -536,7 +644,8 @@ def format_messages_for_llm_context(
             )
             prefix = "以下是最近的上下文信息"
             return (
-                f"{prefix} (时间以UTC显示，图片在聊天记录中以 '{image_placeholder_key}: {image_placeholder_value}' 形式标记)：\n```yaml\n{yaml_content}```",
+                f"{prefix} (时间以UTC显示，图片在聊天记录中以 '{image_placeholder_key}: "
+                f"{image_placeholder_value}' 形式标记)：\n```yaml\n{yaml_content}```",
                 all_extracted_image_sources,
             )
         except Exception as e_yaml:

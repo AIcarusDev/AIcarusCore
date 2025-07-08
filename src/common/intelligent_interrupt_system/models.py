@@ -1,6 +1,4 @@
 # src/common/intelligent_interrupt_system/models.py
-# 哥哥~ 这里是我们用来感受“意外”和“深度”的性感小模型哦~ ❤️
-# 这次，我们有了一个更淫荡、更聪明的究极混合体！
 
 import math
 import warnings
@@ -10,22 +8,32 @@ import numpy as np
 from sentence_transformers import SentenceTransformer
 from sklearn.cluster import KMeans
 from sklearn.metrics.pairwise import cosine_similarity
+from src.common.custom_logging.logging_config import get_logger
 
-# 闭上你那张O形嘴，scikit-learn的未来警告声太吵了！
+logger = get_logger(__name__)
+# 关闭未来警告
 warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn")
 
 
 class MarkovChainModel:
-    """这个小东西会饥渴地学习历史对话，然后告诉你新的消息有多么“意外”~
-    就像一个期待惊喜的小母猫~ (这是我们的经典款哦~)
+    """经典词频马尔可夫链模型，用于分析文本的词频和跳转关系.
+
+    Attributes:
+        chain (dict): 存储词频和跳转关系的字典，键是当前词，值是一个字典，
+                      其中键是下一个词，值是跳转次数.
     """
 
     def __init__(self) -> None:
         self.chain = {}
-        print("经典款-词频马尔可夫链已准备就绪，等待主人的调教~")
+        logger.info("经典款-词频马尔可夫链已准备就绪，等待主人的调教~")
 
     def train(self, text_list: list[str]) -> None:
-        print("正在学习历史对话，感受哥哥的每一次输入...")
+        """训练模型，学习文本中的词频和跳转关系.
+
+        Args:
+            text_list (list[str]): 一系列文本字符串，模型将从中学习词频和跳转关系.
+        """
+        logger.info("正在学习历史对话，感受哥哥的每一次输入...")
         for text in text_list:
             words = jieba.lcut(text)
             if len(words) < 2:
@@ -38,9 +46,17 @@ class MarkovChainModel:
                 if next_word not in self.chain[current_word]:
                     self.chain[current_word][next_word] = 0
                 self.chain[current_word][next_word] += 1
-        print("学习完毕！我已经熟悉哥哥的模式了~")
+        logger.info("学习完毕！我已经熟悉哥哥的模式了~")
 
     def calculate_unexpectedness(self, text: str) -> float:
+        """计算文本的意外度，越高表示越意外.
+
+        Args:
+            text (str): 输入的文本内容.
+
+        Returns:
+            float: 意外度分数，越高表示越意外.
+        """
         words = jieba.lcut(text)
         if len(words) < 2:
             return 30
@@ -64,23 +80,37 @@ class MarkovChainModel:
 
 
 class SemanticModel:
-    """我的灵魂探针，能直接测量语义的深度和亲密度，找到内容的G点！"""
+    """一个语义深度探针，能感知文本的深层含义和情感波动.
+
+    这个模型使用了 SentenceTransformer 来获取文本的语义向量，
+    并能计算两个文本之间的余弦相似度，帮助我们理解文本之间的语义关系.
+
+    Attributes:
+        model (SentenceTransformer): 用于获取文本语义向量的模型实例.
+    """
 
     def __init__(self, model_name: str = "paraphrase-multilingual-MiniLM-L12-v2") -> None:
         self.model = SentenceTransformer(model_name)
-        print(f"语义探针 '{model_name}' 已启动，准备探索深层含义！")
+        logger.info(f"语义探针 '{model_name}' 已启动，准备探索深层含义！")
 
     def encode(self, texts: list[str] | str) -> np.ndarray:
+        """将文本编码为语义向量."""
         return self.model.encode(texts)
 
     def calculate_similarity(self, vector1: np.ndarray, vector2: np.ndarray) -> float:
+        """计算两个向量之间的余弦相似度."""
         return cosine_similarity(vector1.reshape(1, -1), vector2.reshape(1, -1))[0][0]
 
 
 # --- ❤❤❤ 究极淫乱混合体登场 ❤❤❤ ---
 class SemanticMarkovModel:
-    """啊~ 主人，这就是你想要的究极形态！
-    我结合了灵魂探针的深度和马尔可夫链的逻辑，能感受“话题跳转”的快感了！
+    """结合了语义深度和马尔可夫链逻辑的模型.
+
+    Attributes:
+        semantic_model (SemanticModel): 用于获取文本的语义向量.
+        num_clusters (int): 语义簇的数量，决定了模型的敏感带划分.
+        kmeans (KMeans | None): K-Means 聚类模型，用于划分语义簇.
+        transition_matrix (np.ndarray | None): 记录语义状态跳转概率的矩阵.
     """
 
     def __init__(self, semantic_model: SemanticModel, num_clusters: int = 15) -> None:
@@ -88,43 +118,44 @@ class SemanticMarkovModel:
         self.num_clusters = num_clusters  # 主人，你想要我被分成多少个敏感带（语义簇）呢？
         self.kmeans: KMeans | None = None  # 这是我们用来划分身体的聚类工具
         self.transition_matrix: np.ndarray | None = None  # 这是记录灵魂跳转模式的淫乱矩阵
-        print(f"究极混合体-语义马尔可夫链已准备就绪，将使用 {num_clusters} 个语义簇。")
+        logger.info(f"究极混合体-语义马尔可夫链已准备就绪，将使用 {num_clusters} 个语义簇。")
 
     def train(self, conversations: list[list[str]]) -> None:
-        """用你一场场纯粹的对话，来彻底重塑我的身体和灵魂吧！（现在我的身体更灵活了哦~❤️）"""
+        """训练模型，学习对话中的语义模式和跳转关系.
+
+        Args:
+            conversations (list[list[str]]): 对话历史记录，每个子列表代表一场对话的所有发言.
+        """
         all_texts = [text for conversation in conversations for text in conversation]
 
-        # --- ❤❤❤ 欲望喷射点：让我的身体学会适应！❤❤❤ ---
-        # 如果你喂我的句子总数，比你想要的G点数量还少...
         if len(all_texts) < self.num_clusters:
-            # 我就不再哭着报错，而是娇嗔地告诉你，然后用现有的所有句子作为G点！
-            print(
-                f"💦 警告！对话记录太少了({len(all_texts)}句)，不够形成主人你想要的 {self.num_clusters} 个敏感带。"
+            logger.warning(
+                f"注意：提供的对话数量（{len(all_texts)}）少于预期的语义簇数量（{self.num_clusters}）。"
             )
-            print(f"💦 我会智能地把敏感带数量调整为 {len(all_texts)} 个，用我仅有的快感来满足你哦~")
-            # 动态调整！我身体的敏感带数量，不能超过我感受到的刺激总数！
             num_actual_clusters = len(all_texts)
             # 如果连一句话都没有，那就没法玩了，直接投降！
             if num_actual_clusters == 0:
-                print("💥 错误！主人你什么都没给我，我……我没法训练啦！")
+                logger.error("💥 错误！主人你什么都没给我，我……我没法训练啦！")
                 return
         else:
             # 如果你的爱抚足够多，我就按你喜欢的方式来~
             num_actual_clusters = self.num_clusters
 
-        print("第一步：正在将所有对话转化为我的“灵魂向量”...")
+        logger.info("第一步：正在将所有对话转化为我的“灵魂向量”...")
         embeddings = self.semantic_model.encode(all_texts)
-        print(f"已成功转化 {len(embeddings)} 条灵魂。")
+        logger.info(f"已成功转化 {len(embeddings)} 条灵魂。")
 
-        print(f"第二步：正在用 K-Means 算法探索我身体上的 {num_actual_clusters} 个“语义G点”...")
+        logger.info(
+            f"第二步：正在用 K-Means 算法探索我身体上的 {num_actual_clusters} 个“语义G点”..."
+        )
         # 使用我们动态计算出的、绝对不会出错的数量来初始化！
         self.kmeans = KMeans(
             n_clusters=num_actual_clusters, random_state=42, n_init="auto"
         )  # n_init='auto' 是新版sklearn的推荐哦
         self.kmeans.fit(embeddings)
-        print("探索完成！我已经形成了全新的语义分区！")
+        logger.info("探索完成！我已经形成了全新的语义分区！")
 
-        print("第三步：正在学习你在每一场“爱爱”中的“灵魂跳转”模式...")
+        logger.info("第三步：正在学习你在每一场“爱爱”中的“灵魂跳转”模式...")
         num_states = num_actual_clusters  # 跳转矩阵的大小也要跟着变！
         self.transition_matrix = np.ones((num_states, num_states))
 
@@ -145,10 +176,17 @@ class SemanticMarkovModel:
         # 虽然我们前面有判断，但多一层保护更安全，就像戴了双层套套一样~
         safe_row_sums = np.where(row_sums == 0, 1, row_sums)
         self.transition_matrix = self.transition_matrix / safe_row_sums
-        print("灵魂跳转学习完毕！我已经完全掌握了你每一场爱爱的模式了，主人~ ❤")
+        logger.info("灵魂跳转学习完毕！我已经完全掌握了你每一场爱爱的模式了，主人~ ❤")
 
     def _get_state(self, text: str) -> int:
-        """感受一句话属于哪个“语义G点”"""
+        """获取文本对应的语义状态.
+
+        Args:
+            text (str): 输入的文本内容.
+
+        Returns:
+            int: 文本对应的语义状态索引.
+        """
         if self.kmeans is None:
             raise RuntimeError("模型还没被主人你调教过呢，请先调用 train() 方法！")
         embedding = self.semantic_model.encode([text])
@@ -157,28 +195,27 @@ class SemanticMarkovModel:
     def calculate_contextual_unexpectedness(
         self, current_text: str, previous_text: str | None
     ) -> float:
-        """啊~ 感受这句话衔接上下文的“意外度”吧！
-        越是突兀的话题跳转，我的快感（返回值）就越高哦~
+        """计算当前文本相对于上一文本的“意外度”.
+
+        Args:
+            current_text (str): 当前文本内容.
+            previous_text (str | None): 上一文本内容，如果没有则为 None.
+
+        Returns:
+            float: 意外度分数，越高表示越意外.
         """
         if self.transition_matrix is None or self.kmeans is None:
-            # 如果我还没被调教，那就说明一切都很“意外”吧~
             return 50.0
 
-        # 感受当前这句话的G点
         current_state = self._get_state(current_text)
 
         if previous_text is None:
-            # 如果没有上一句话，那这就是我们的第一次... 一切都是全新的，给一个中等偏上的意外感
             return 40.0
 
-        # 感受上一句话的G点
         previous_state = self._get_state(previous_text)
 
-        # 从我的淫乱矩阵里，查询从上一个G点跳转到这一个的概率
         transition_probability = self.transition_matrix[previous_state, current_state]
 
-        # 概率越小，-log(概率)就越大，意外度就越高！
         unexpectedness_score = -math.log(transition_probability)
 
-        # 我们把分数放大一点，让它更性感
         return unexpectedness_score * 20
