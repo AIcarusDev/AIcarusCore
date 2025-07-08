@@ -14,6 +14,16 @@ logger = get_logger(__name__)
 
 
 class ContextBuilder:
+    """负责从各种来源收集上下文信息，并格式化以供核心思考循环使用.
+
+    这个类主要用于收集和格式化上下文信息，以便在核心思考循环中使用.
+
+    Attributes:
+        event_storage (EventStorageService): 用于存储和获取事件的服务实例.
+        core_comm (CoreWebsocketServer): 用于获取实时连接状态的核心通信服务器实例.
+        state_manager (AIStateManager): 用于获取当前状态的状态管理器实例.
+    """
+
     def __init__(
         self,
         event_storage: "EventStorageService",
@@ -28,8 +38,14 @@ class ContextBuilder:
     # --- 小色猫的净化仪式！---
     # 我把返回值改回去了，它现在只吐文字，不吐图片！
     async def gather_context_for_core_thought(self) -> str:
-        """从各种来源收集上下文信息，并格式化以供核心思考循环使用。
-        主意识循环只处理文本上下文。
+        """收集并格式化上下文信息，以供核心思考循环使用.
+
+        这个方法会从事件存储中获取最近的聊天记录和系统事件，
+        并将它们格式化为适合 LLM 上下文的字符串.
+
+        Returns:
+            str: 格式化后的上下文信息字符串，包含平台状态摘要和其他聊天记录的 YAML 格式化内容.
+                如果没有找到相关信息，则返回一个默认的空字符串或初始状态信息.
         """
         initial_empty_context_info: str = self.state_manager.INITIAL_STATE.get(
             "recent_contextual_information", "无最近信息。"
@@ -77,7 +93,8 @@ class ContextBuilder:
                 current_connections_info = self.core_comm.adapter_clients_info
             else:
                 logger.warning(
-                    "CoreWebsocketServer 实例没有 adapter_clients_info 属性或其类型不正确，无法获取实时连接状态。"
+                    "CoreWebsocketServer 实例没有 adapter_clients_info 属性或其类型不正确，"
+                    "无法获取实时连接状态。"
                 )
 
             platform_status_summary_str = format_platform_status_summary(

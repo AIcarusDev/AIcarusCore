@@ -9,11 +9,21 @@ logger = get_logger(__name__)
 
 
 class SummaryStorageService:
-    """服务类，负责处理会话总结的数据库存储操作."""
+    """服务类，负责处理会话总结的数据库存储操作.
+
+    这个服务类提供了将会话总结保存到数据库的功能，确保数据的完整性和一致性。
+
+    Attributes:
+        db_manager (ArangoDBConnectionManager): 数据库连接管理器实例，用于获取数据库集合。
+        summaries_collection (ArangoDBCollection): 会话总结集合的引用，
+            动态获取以确保操作的原子性和异步正确性。
+    """
 
     def __init__(self, db_manager: ArangoDBConnectionManager) -> None:
-        """初始化服务。
-        :param db_manager: ArangoDBManager 的实例。
+        """初始化服务.
+
+        Args:
+            db_manager (ArangoDBConnectionManager): 数据库连接管理器实例，用于获取数据库集合。
         """
         self.db_manager = db_manager
         self.summaries_collection = None  # 在异步方法中动态获取
@@ -26,14 +36,17 @@ class SummaryStorageService:
         bot_id: str,
         event_ids_covered: list[str],
     ) -> bool:
-        """将一个会话的最终总结保存到数据库。
+        """将一个会话的最终总结保存到数据库.
 
-        :param conversation_id: 会话的ID。
-        :param summary_text: 总结的文本内容。
-        :param platform: 会话所属平台。
-        :param bot_id: 处理此会话的机器人ID。
-        :param event_ids_covered: 此总结所覆盖的事件ID列表。
-        :return: 如果保存成功，返回 True，否则返回 False。
+        Args:
+            conversation_id: 会话的ID。
+            summary_text: 总结的文本内容。
+            platform: 会话所属平台。
+            bot_id: 处理此会话的机器人ID。
+            event_ids_covered: 此总结所覆盖的事件ID列表。
+
+        Returns:
+            如果保存成功，返回 True，否则返回 False。
         """
         # 在异步方法中动态获取集合，确保操作的原子性和异步正确性
         collection_name = CoreDBCollections.CONVERSATION_SUMMARIES

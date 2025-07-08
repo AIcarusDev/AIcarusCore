@@ -11,8 +11,16 @@ logger = get_logger(__name__)
 
 
 class ThoughtPromptBuilder:
-    """哼，专门负责构建思考时用的Prompt，别来烦我。
-    我只负责拼接，材料都让 state_manager 和 unread_info_service 给我准备好。
+    """负责构建主意识的系统和用户提示.
+
+    这个类会从状态管理器获取当前状态，并从未读消息服务获取未读消息摘要，
+    然后将这些信息填充到系统和用户提示模板中。它还会缓存机器人的档案信息，
+    以避免每次都去查询.
+
+    Attributes:
+        unread_info_service (UnreadInfoService): 用于获取未读消息摘要的服务实例.
+        state_manager (AIStateManager): 用于获取当前状态的状态管理器实例.
+        bot_profile_cache (dict[str, str | None]): 缓存机器人的档案信息，包含ID和昵称.
     """
 
     def __init__(

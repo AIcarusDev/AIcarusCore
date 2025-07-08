@@ -76,6 +76,28 @@ CORE_RESPONSE_SCHEMA = {
 
 
 class CoreLogic:
+    """核心逻辑处理类，负责主思考循环和动作分发.
+
+    这个类负责管理整个意识流动的生命周期，包括思考循环的启动、停止以及在不同思考状态之间的切换.
+    它还处理来自 LLM 的指令，并根据指令执行相应的动作，如激活专注会话等.
+
+    Attributes:
+        core_comm_layer (CoreWebsocketServer): 核心通信层，用于处理与其他组件的通信.
+        action_handler_instance (ActionHandler): 动作处理器实例，用于处理各种动作指令.
+        state_manager (AIStateManager): 状态管理器实例，用于获取当前 AI 的状态信息.
+        chat_session_manager (ChatSessionManager): 聊天会话管理器，用于管理聊天会话的激活和切换.
+        context_builder (ContextBuilder): 上下文构建器实例，用于收集和格式化上下文信息.
+        thought_generator (ThoughtGenerator): 思考生成器实例，用于生成新的思考内容.
+        thought_persistor (ThoughtPersistor): 思考持久化器实例，用于将思考结果存储到数据库中.
+        thought_storage_service (ThoughtStorageService): 思想存储服务实例，用于存储和检索思想点.
+        prompt_builder (ThoughtPromptBuilder): 提示构建器实例，用于生成适合 LLM 的提示内容.
+        stop_event (threading.Event): 用于控制思考循环的停止事件.
+        immediate_thought_trigger (asyncio.Event): 用于触发立即思考循环的事件.
+        intrusive_generator_instance (IntrusiveThoughtsGenerator | None): 可选的侵入性思考生成器实例
+            ，用于处理特殊的思考任务.
+        thinking_loop_task (asyncio.Task | None): 当前的思考循环任务，如果正在运行则为非 None.
+    """
+
     def __init__(
         self,
         core_comm_layer: CoreWebsocketServer,
@@ -113,9 +135,16 @@ class CoreLogic:
         self.immediate_thought_trigger.set()
 
     async def _dispatch_action(self, thought_pearl: ThoughtChainDocument) -> bool:
-        """根据思想点里的 action_payload 分发动作。
-        哼，我来当老大，专注指令我亲自处理！
-        返回一个布尔值，指示是否执行了 focus 动作。
+        """处理思想点中的行动指令，特别是 'focus' 指令.
+
+        这个方法会检查思想点的 action_payload，
+        如果包含 'focus' 指令，则尝试激活指定的会话.
+
+        Args:
+            thought_pearl (ThoughtChainDocument): 包含行动指令的思想点对象.
+
+        Returns:
+            bool: 如果成功激活了会话，则返回 True；否则返回 False.
         """
         action_payload = thought_pearl.action_payload
         if not action_payload or not isinstance(action_payload, dict):
@@ -137,7 +166,7 @@ class CoreLogic:
                 return False
 
             try:
-                unread_convs = await self.prompt_builder.unread_info_service.get_structured_unread_conversations()
+                unread_convs = await self.prompt_builder.unread_info_service.get_structured_unread_conversations()  # noqa: E501
                 target_conv_details = next(
                     (c for c in unread_convs if c.get("conversation_id") == target_conv_id), None
                 )
@@ -169,7 +198,7 @@ class CoreLogic:
         if action_payload:
             await self.action_handler_instance.process_action_flow(
                 action_id=action_id,
-                doc_key_for_updates=saved_thought_key,  # 这个参数现在可以考虑去掉了，因为动作日志是独立的
+                doc_key_for_updates=saved_thought_key,
                 action_json=action_payload,
             )
 
@@ -198,7 +227,8 @@ class CoreLogic:
 
             # 2. 生成思考
             logger.info(
-                f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {config.persona.bot_name} 开始思考..."
+                f"[{datetime.datetime.now().strftime('%H:%M:%S')}] "
+                f"{config.persona.bot_name} 开始思考..."
             )
             generated_thought_json = await self.thought_generator.generate_thought(
                 system_prompt=system_prompt,
@@ -250,11 +280,19 @@ class CoreLogic:
         logger.info(f"--- {config.persona.bot_name} 的意识流动已停止 ---")
 
     async def start_thinking_loop(self) -> asyncio.Task:
+        """启动主思考循环，开始持续思考和处理动作.
+
+        这个方法会创建一个新的异步任务来运行思考循环，并返回该任务对象.
+
+        Returns:
+            asyncio.Task: 启动的思考循环任务对象.
+        """
         logger.info(f"=== {config.persona.bot_name} (意识流版) 的大脑准备开始持续思考 ===")
         self.thinking_loop_task = asyncio.create_task(self._core_thinking_loop())
         return self.thinking_loop_task
 
     async def stop(self) -> None:
+        """停止主思考循环和意识流动."""
         logger.info(f"--- {config.persona.bot_name} 的意识流动正在停止 ---")
         self.stop_event.set()
         if self.thinking_loop_task and not self.thinking_loop_task.done():
@@ -265,8 +303,12 @@ class CoreLogic:
                 logger.info("主思考循环任务已被取消。")
 
     async def _activate_new_focus_session_from_core(self, target_conv_id: str) -> None:
-        """从 CoreLogic 内部直接激活一个新的专注会话。
-        这个方法是给 LLMResponseHandler 调用的，用于 LLM 决策直接转移专注。
+        """从 CoreLogic 内部直接激活一个新的专注会话.
+
+        这个方法是给 LLMResponseHandler 调用的，用于 LLM 决策直接转移专注.
+
+        Args:
+            target_conv_id (str): 目标会话的 ID，表示要激活的专注会话的唯一标识符.
         """
         logger.info(f"CoreLogic 接收到直接激活新专注会话的请求: {target_conv_id}")
         # 构建一个模拟的 action_payload，让 _dispatch_action 去处理

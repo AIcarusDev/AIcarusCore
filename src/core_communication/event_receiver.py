@@ -17,7 +17,13 @@ AdapterEventCallback = Callable[[ProtocolEvent, WebSocketServerProtocol, bool], 
 
 
 class EventReceiver:
-    """负责处理从适配器接收到的原始消息，解析它们，并分发到相应的处理器."""
+    """负责处理从适配器接收到的原始消息，解析它们，并分发到相应的处理器.
+
+    Attributes:
+        event_handler_callback (AdapterEventCallback): 用于处理解析后的事件的回调函数.
+        action_handler (ActionHandler): 用于处理动作响应的 ActionHandler 实例.
+        adapter_clients_info (dict[str, dict[str, Any]]): 适配器客户端信息，由外部传入和管理.
+    """
 
     def __init__(
         self,
@@ -46,7 +52,7 @@ class EventReceiver:
         adapter_id: str,
         display_name: str,
     ) -> None:
-        """处理单条来自适配器的消息。
+        """处理单条来自适配器的消息.
 
         Args:
             message_str: 接收到的原始消息字符串。
@@ -55,7 +61,8 @@ class EventReceiver:
             display_name: 适配器的显示名称。
         """
         logger.debug(
-            f"EventReceiver 正在处理来自 '{display_name}({adapter_id})' 的消息: {message_str[:200]}..."
+            f"EventReceiver 正在处理来自 '{display_name}({adapter_id})' "
+            f"的消息: {message_str[:200]}..."
         )
 
         try:
@@ -95,7 +102,8 @@ class EventReceiver:
 
         except json.JSONDecodeError:
             logger.error(
-                f"从适配器 '{display_name}({adapter_id})' 解码 JSON 失败. 原始消息: {message_str[:200]}"
+                f"从适配器 '{display_name}({adapter_id})' 解码 JSON 失败. "
+                f"原始消息: {message_str[:200]}"
             )
         except Exception as e:
             logger.error(

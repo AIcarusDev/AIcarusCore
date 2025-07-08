@@ -12,6 +12,16 @@ logger = get_logger(__name__)
 
 
 class ThoughtGenerator:
+    """负责生成思考结果的核心类.
+
+    这个类会调用 LLM API，传入系统提示和用户提示，
+    并解析返回的 JSON 响应。它还可以处理多模态输入（如图像），
+    并支持自定义的响应模式定义.
+
+    Attributes:
+        llm_client (ProcessorClient): 用于与 LLM API 交互的客户端实例.
+    """
+
     def __init__(self, llm_client: "ProcessorClient") -> None:
         self.llm_client = llm_client
         logger.info("ThoughtGenerator 已初始化。")
@@ -23,8 +33,19 @@ class ThoughtGenerator:
         image_inputs: list[str],
         response_schema: dict[str, Any] | None = None,  # <--- 看这里！我给它加上了！
     ) -> dict[str, Any] | None:
-        """调用LLM生成思考结果，并解析响应。
-        确保 response_schema 被正确传递。
+        """生成思考结果的核心方法.
+
+        这个方法会调用 LLM API，传入系统提示和用户提示，
+        并解析返回的 JSON 响应.
+
+        Args:
+            system_prompt (str): 系统提示，用于指导 LLM 的行为和思考方式.
+            user_prompt (str): 用户提示，包含用户的输入或问题.
+            image_inputs (list[str]): 可选的图像输入列表，用于多模态处理.
+            response_schema (dict[str, Any] | None): 可选的响应模式定义，用于指导 LLM 的输出格式.
+
+        Returns:
+            dict[str, Any] | None: 解析后的思考结果 JSON 对象，如果调用失败或解析错误则返回 None.
         """
         try:
             response_data = await self.llm_client.make_llm_request(

@@ -14,16 +14,21 @@ logger = get_logger(__name__)
 
 
 class ActionLogStorageService:
-    """服务类，用于处理 ActionLog 集合的读写操作。
-    它记录了 Core 发出的动作尝试及其最终的响应状态。
-    这次是专门为你那个 arangoasync 库定制的，再错我就……我就咬你！
+    """服务类，负责处理动作日志的存储和管理.
+
+    这个服务类提供了将动作日志保存到数据库的功能，确保数据的完整性和一致性.
+
+    Attributes:
+        conn_manager (ArangoDBConnectionManager): 数据库连接管理器实例，
+            用于获取和管理数据库集合.
+        collection_name (str): 动作日志集合的名称，默认为 CoreDBCollections.ACTION_LOGS.
     """
 
     def __init__(self, conn_manager: ArangoDBConnectionManager) -> None:
-        """初始化 ActionLogStorageService。
+        """初始化 ActionLogStorageService.
 
         Args:
-            conn_manager: ArangoDBConnectionManager 的实例。
+            conn_manager (ArangoDBConnectionManager): 数据库连接管理器实例，
         """
         self.conn_manager = conn_manager
         self.collection_name = CoreDBCollections.ACTION_LOGS
@@ -45,8 +50,23 @@ class ActionLogStorageService:
         original_event_id: str | None = None,
         target_user_id: str | None = None,
     ) -> bool:
-        """保存一个初始的动作尝试记录到 ActionLog 集合。
-        我保留了这个优化，因为 try/except 的插入方式对哪个库都适用，哼！
+        """保存一个动作尝试到 ActionLog 集合中.
+
+        Args:
+            action_id (str): 动作的唯一标识符.
+            action_type (str): 动作的类型，例如 "send_message", "execute_command" 等.
+            timestamp (int): 动作尝试的时间戳，单位为毫秒.
+            platform (str): 动作所属的平台，例如 "telegram", "discord" 等.
+            bot_id (str): 处理此动作的机器人的唯一标识符.
+            conversation_id (str): 关联的会话 ID.
+            content (list[dict[str, Any]]): 动作的内容，通常是一个字典列表，
+                包含消息或命令的详细信息.
+            original_event_id (str | None): 如果此动作是响应某个事件的，
+                包含原始事件的 ID，否则为 None.
+            target_user_id (str | None): 如果此动作是针对特定用户的，包含目标用户的 ID，否则为 None.
+
+        Returns:
+            bool: 如果保存成功返回 True，否则返回 False.
         """
         collection = await self._get_collection()
         action_log_doc = {
@@ -89,11 +109,18 @@ class ActionLogStorageService:
         error_info: str | None = None,
         result_details: dict[str, Any] | None = None,
     ) -> bool:
-        """用最终的响应状态更新 ActionLog 中的记录。
-        这次用回了你那种“笨拙”但有效的方式，专门伺候 arangoasync 这个老古董。
+        """更新 ActionLog 中的动作状态和响应信息.
+
+        Args:
+            action_id (str): 动作的唯一标识符.
+            status (str): 动作的当前状态，例如 "executing", "completed", "failed".
+            response_timestamp (int): 响应的时间戳，单位为毫秒.
+            response_time_ms (int | None): 响应时间，单位为毫秒，如果没有则为 None.
+            error_info (str | None): 如果有错误发生，包含错误信息，否则为 None.
+            result_details (dict[str, Any] | None): 如果有结果详情，包含相关信息，否则为 None.
 
         Returns:
-            如果更新成功则返回 True，否则返回 False。
+            如果更新成功则返回 True，否则返回 False.
         """
         collection = await self._get_collection()
         doc_fields_to_update = {
@@ -124,7 +151,8 @@ class ActionLogStorageService:
                 return True
             else:
                 logger.warning(
-                    f"尝试更新 ActionLog 中动作 '{action_id}' 未生效，可能记录不存在。Update result: {result}"
+                    f"尝试更新 ActionLog 中动作 '{action_id}' 未生效，可能记录不存在。"
+                    f"Update result: {result}"
                 )
                 return False
         except DocumentUpdateError as e:
@@ -148,8 +176,13 @@ class ActionLogStorageService:
             return None
 
     async def get_recent_action_logs(self, limit: int = 10) -> list[dict[str, Any]]:
-        """获取最近的动作日志，用于构建上下文。
-        只返回时间和动作类型，保持简洁。
+        """获取最近的动作日志记录.
+
+        Args:
+            limit (int): 要获取的记录数量，默认为 10。
+        Returns:
+            list[dict[str, Any]]: 包含最近动作日志记录的列表，每个记录是一个字典，
+                包含时间戳、动作类型、状态和错误信息等字段。
         """
         if limit <= 0:
             return []
@@ -159,7 +192,7 @@ class ActionLogStorageService:
                     SORT doc.timestamp DESC
                     LIMIT @limit
                     RETURN { timestamp: doc.timestamp, action_type: doc.action_type, status: doc.status, error_info: doc.error_info }
-            """
+            """  # noqa: E501
             bind_vars = {"@collection": self.collection_name, "limit": limit}
             results = await self.conn_manager.execute_query(query, bind_vars)
             return results if results is not None else []

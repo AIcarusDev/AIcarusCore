@@ -402,12 +402,14 @@ class LLMClient:
             if self.provider == "GEMINI" and os.getenv("GEMINI_BASE_URL"):
                 self.base_url = os.getenv("GEMINI_BASE_URL")
                 logger.debug(
-                    f"使用了旧的 GEMINI_BASE_URL 环境变量。推荐使用 {self.env_provider_prefix}_BASE_URL。"
+                    f"使用了旧的 GEMINI_BASE_URL 环境变量。"
+                    f"推荐使用 {self.env_provider_prefix}_BASE_URL。"
                 )
             elif self.provider == "OPENAI" and os.getenv("OPENAI_BASE_URL"):
                 self.base_url = os.getenv("OPENAI_BASE_URL")
                 logger.debug(
-                    f"使用了旧的 OPENAI_BASE_URL 环境变量。推荐使用 {self.env_provider_prefix}_BASE_URL。"
+                    f"使用了旧的 OPENAI_BASE_URL 环境变量。"
+                    f"推荐使用 {self.env_provider_prefix}_BASE_URL。"
                 )
             else:
                 raise ValueError(

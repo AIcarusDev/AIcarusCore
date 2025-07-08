@@ -36,7 +36,54 @@ logger = get_logger(__name__)
 
 
 class ChatSession:
-    """管理单个专注聊天会话的状态和逻辑."""
+    """管理单个专注聊天会话的状态和逻辑.
+
+    这个类负责处理会话的生命周期、消息存储、行为指导生成等功能。
+
+    Attributes:
+        conversation_id (str): 会话的唯一标识符.
+        llm_client (LLMProcessorClient): LLM处理器客户端，用于与LLM交互.
+        event_storage (EventStorageService): 事件存储服务，用于存储和检索事件数据.
+        action_handler (ActionHandler): 动作处理器，用于执行各种动作和获取数据.
+        bot_id (str): 机器人的唯一标识符.
+        platform (str): 平台标识符.
+        conversation_type (str): 会话类型.
+        core_logic (CoreLogicFlow): 核心逻辑处理器.
+        chat_session_manager (ChatSessionManager): 聊天会话管理器.
+        conversation_service (ConversationStorageService): 会话存储服务.
+        summarization_service (SummarizationService): 摘要服务.
+        summary_storage_service (SummaryStorageService): 摘要存储服务.
+        intelligent_interrupter (IntelligentInterrupter): 智能中断系统，
+            用于处理会话中的智能中断逻辑.
+        thought_storage_service (ThoughtStorageService): 思考存储服务，用于存储和检索思考数据.
+        action_executor (ActionExecutor): 动作执行器，用于处理和执行动作.
+        llm_response_handler (LLMResponseHandler): LLM响应处理器，用于处理LLM的响应.
+        summarization_manager (SummarizationManager): 摘要管理器，用于生成和存储会话摘要.
+        guidance_generator (BehavioralGuidanceGenerator): 行为指导生成器，用于生成行为指导和建议.
+        is_active (bool): 会话是否处于活动状态.
+        last_active_time (float): 上次活动的时间戳.
+        last_processed_timestamp (float): 上次处理的时间戳.
+        last_llm_decision (dict[str, Any] | None): 上次LLM决策的结果.
+        sent_actions_context (OrderedDict[str, dict[str, Any]]): 已发送动作的上下文信息，
+            按发送顺序存储.
+        processing_lock (asyncio.Lock): 异步锁，用于确保会话处理的线程安全.
+        messages_planned_this_turn (int): 本轮计划发送的消息数量.
+        messages_sent_this_turn (int): 本轮实际发送的消息数量.
+        background_tasks (set[asyncio.Task]): 背景任务集合，用于管理会话中的异步任务.
+        is_first_turn_for_session (bool): 是否为会话的第一轮思考.
+        initial_core_think (str | None): 初始核心思考内容.
+        initial_core_mood (str | None): 初始核心情绪状态.
+        initial_core_motivation (str | None): 初始核心动机.
+        current_handover_summary (str | None): 当前交接摘要内容.
+        events_since_last_summary (list[dict[str, Any]]): 自上次摘要以来的事件列表.
+        message_count_since_last_summary (int): 自上次摘要以来的消息计数.
+        no_action_count (int): 连续未执行动作的计数.
+        consecutive_bot_messages_count (int): 连续机器人消息的计数.
+        bot_profile_cache (dict[str, Any]): 机器人档案缓存，用于快速访问机器人信息.
+        last_profile_update_time (float): 上次更新机器人档案的时间戳.
+        conversation_details_cache (dict[str, Any]): 会话详情缓存，用于快速访问会话信息.
+        last_details_update_time (float): 上次更新会话详情的时间戳.
+    """
 
     def __init__(
         self,
@@ -88,6 +135,7 @@ class ChatSession:
         self.processing_lock = asyncio.Lock()
         self.messages_planned_this_turn: int = 0  # 计划发几条
         self.messages_sent_this_turn: int = 0  # 实际发了机条
+        self.background_tasks: set[asyncio.Task] = set()
 
         # --- 上下文和记忆属性 ---
         self.is_first_turn_for_session: bool = True
@@ -120,11 +168,14 @@ class ChatSession:
 
         logger.info(f"[ChatSession][{self.conversation_id}] 实例已创建，依赖已注入。")
 
-    # // 这就是我们新的“情报获取术”，喵~ 【小色猫·直捣黄龙·最终版】
     async def get_conversation_details(self) -> dict[str, Any]:
-        """智能获取会话的详细信息，比如成员数。
-        有缓存就用缓存，没有或者过期了就去问，懒得每次都问。
-        哼，这次我直接告诉 ActionHandler 我要用哪个姿势，一步到胃！
+        """智能获取会话的详细信息，比如成员数.
+
+        这个方法会先检查内存缓存，如果缓存有效就直接返回。
+        如果缓存无效或不存在，就尝试从适配器获取最新的会话详情。
+
+        Returns:
+            dict: 会话详情字典，如果缓存和适配器都没有，则返回一个空字典。
         """
         # 1. 先看看脑子里有没有，并且还没发霉 (这部分逻辑不变，缓存是好文明！)
         if self.conversation_details_cache and (
@@ -157,12 +208,14 @@ class ChatSession:
                 details = result_payload
             elif isinstance(result_payload, str):
                 logger.warning(
-                    f"[{self.conversation_id}] execute_simple_action 成功，但返回的是字符串消息: '{result_payload}'，而不是详情字典。"
+                    f"[{self.conversation_id}] execute_simple_action 成功，"
+                    f"但返回的是字符串消息: '{result_payload}'，而不是详情字典。"
                 )
         else:
             # 如果不成功，result_payload 就是错误信息字符串
             logger.error(
-                f"[{self.conversation_id}] 通过 execute_simple_action 获取群聊详情失败: {result_payload}"
+                f"[{self.conversation_id}] 通过 execute_simple_action 获取群聊详情失败: "
+                f"{result_payload}"
             )
 
         if details:
@@ -179,8 +232,9 @@ class ChatSession:
         return self.conversation_details_cache or {}
 
     async def update_counters_on_new_events(self) -> None:
-        """根据新消息重置计数器。
-        如果检测到有别人说话，就重置我（机器人）的连续发言计数。
+        """根据新消息重置计数器.
+
+        如果检测到有别人说话，就重置霜的连续发言计数。
         """
         new_events = await self.event_storage.get_message_events_after_timestamp(
             self.conversation_id, self.last_processed_timestamp
@@ -198,13 +252,15 @@ class ChatSession:
                 if self.consecutive_bot_messages_count > 0:
                     logger.debug(
                         f"[{self.conversation_id}] 检测到来自 '{sender_id}' 的新消息，"
-                        f"重置 consecutive_bot_messages_count (之前是 {self.consecutive_bot_messages_count})。"
+                        f"重置 consecutive_bot_messages_count "
+                        f"(之前是 {self.consecutive_bot_messages_count})。"
                     )
                     self.consecutive_bot_messages_count = 0
 
                 if self.no_action_count > 0:
                     logger.debug(
-                        f"[{self.conversation_id}] 检测到新消息，重置 no_action_count (之前是 {self.no_action_count})。"
+                        f"[{self.conversation_id}] 检测到新消息，"
+                        f"重置 no_action_count (之前是 {self.no_action_count})。"
                     )
                     self.no_action_count = 0
 
@@ -212,8 +268,13 @@ class ChatSession:
                 break
 
     async def get_bot_profile(self) -> dict[str, Any]:
-        """智能获取机器人档案，优先使用缓存，再查数据库。
-        哼，这才叫高效的懒！【小色猫最终治愈版】
+        """智能获取机器人档案，优先使用缓存，再查数据库.
+
+        这个方法会先检查内存缓存，如果缓存有效就直接返回。
+        如果缓存无效或不存在，就尝试从数据库加载机器人档案。
+
+        Returns:
+            dict: 机器人档案字典，如果缓存和数据库都没有，则返回一个空字典。
         """
         # 1. 检查短期记忆（内存缓存）是否有效
         if self.bot_profile_cache and (
@@ -250,16 +311,18 @@ class ChatSession:
 
     def activate(
         self,
-        core_motivation: str | None = None,  # // 只接收动机
+        core_motivation: str | None = None,  # 核心逻辑传入的初始动机
     ) -> None:
         """激活会话并启动其主动循环."""
         if self.is_active:
             self.is_first_turn_for_session = True
             self.initial_core_motivation = core_motivation
             logger.info(
-                f"[ChatSession][{self.conversation_id}] 会话已激活，但收到新的激活指令，重置为第一轮思考。"
+                f"[ChatSession][{self.conversation_id}] 会话已激活，但收到新的激活指令，"
+                f"重置为第一轮思考。"
             )
-            self.cycler.wakeup()  # 唤醒循环，让它立刻开始
+            if self.cycler:
+                self.cycler.wakeup()  # 唤醒可能正在休眠的循环
             return
 
         self.is_active = True
@@ -277,29 +340,46 @@ class ChatSession:
         self.last_profile_update_time = 0.0
 
         logger.info(
-            f"[ChatSession][{self.conversation_id}] 已激活。首次处理: {self.is_first_turn_for_session}, "
+            f"[ChatSession][{self.conversation_id}] 已激活。"
+            f"首次处理: {self.is_first_turn_for_session}, "
             f"激活动机: '{core_motivation}'."
         )
-        asyncio.create_task(self.cycler.start())
+
+        # 创建后台任务来启动会话的主循环
+        if self.cycler:
+            task = asyncio.create_task(self.cycler.start())
+            # 将任务添加到追踪集合中，防止其异常被静默
+            self.background_tasks.add(task)
+            # 任务完成后，自动从集合中移除，避免内存泄漏
+            task.add_done_callback(self.background_tasks.discard)
 
     def deactivate(self) -> None:
-        """发起停用流程。
-        这只是一个信号，真正的关闭逻辑在 shutdown 里。
+        """发起停用流程.
+
+        这是一个非阻塞的信号方法，真正的关闭逻辑在异步的 shutdown 方法中。
         """
         if not self.is_active:
             return
         logger.info(f"[ChatSession][{self.conversation_id}] 正在发起停用请求...")
-        # 设置 is_active 为 False，让循环自然结束
+
+        # 设置 is_active 为 False，让循环在当前轮次结束后自然退出
         self.is_active = False
-        # 触发 cycler 的关闭
+
+        # 创建一个后台任务来执行异步的关闭逻辑
+        shutdown_task = None
         if self.cycler:
-            asyncio.create_task(self.cycler.shutdown())
+            shutdown_task = asyncio.create_task(self.cycler.shutdown())
         else:
-            # 如果没有 cycler，就直接调用 shutdown
-            asyncio.create_task(self.shutdown())
+            # 如果没有 cycler，则直接调用会话自身的 shutdown
+            shutdown_task = asyncio.create_task(self.shutdown())
+
+        if shutdown_task:
+            self.background_tasks.add(shutdown_task)
+            shutdown_task.add_done_callback(self.background_tasks.discard)
 
     async def shutdown(self) -> None:
-        """执行并等待会话的优雅关闭。
+        """执行并等待会话的优雅关闭.
+
         由 deactivate 触发，或者在 cycler 结束后调用。
         """
         if not self.is_active and not self.cycler._loop_active:

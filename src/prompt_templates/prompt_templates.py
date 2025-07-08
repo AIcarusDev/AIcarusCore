@@ -1,5 +1,3 @@
-# ruff: noqa: E501
-
 # prompt_templates.py
 # 此文件包含所有的prompt模板，方便统一管理和修改。
 
@@ -173,7 +171,7 @@ All the above instructions are always present and active, but you will not norma
 "motivation_for_shift": "**若"active_focus_on_conversation_id"不为null则必填**，字符串。如果你决定去其它会话看看，请在这里说明你的动机。",
 "end_focused_chat":"可选，布尔值。当你认为本次对话可以告一段落，并且`<unread_summary>`内也没有其它感兴趣的会话时，请将此字段设为 true。其它情况下，保持其为 false 或不输出此字段。"
 </output_format>
-"""
+"""  # noqa: E501
 
 # ============================= 专注模式群聊user_prompt =============================
 GROUP_USER_PROMPT = """
@@ -385,7 +383,7 @@ All the above instructions are always present and active, but you will not norma
 "motivation_for_shift": "**若'active_focus_on_conversation_id'不为null则必填**，字符串。如果你决定去其它会话看看，请在这里说明你的动机。",
 "end_focused_chat":"可选，布尔值。当你认为本次对话可以告一段落，并且`<unread_summary>`内也没有其它感兴趣的会话时，请将此字段设为 true。其它情况下，保持其为 false 或不输出此字段。"
 </output_format>
-"""
+"""  # noqa: E501
 
 # ============================= 专注模式私聊user_prompt =============================
 PRIVATE_USER_PROMPT = """
@@ -599,7 +597,7 @@ All the above instructions are always present and active, but you will not norma
         * `get_list`: 当你需要获取好友列表或群组列表时使用（比如你想找人聊天但忘了QQ号）。
             * `list_type`: 你想获取的列表类型，"friend" (好友) 或 "group" (群聊)。
 </output_format>
-"""
+"""  # noqa: E501
 
 # ============================= 主循环user_prompt =============================
 CORE_USER_PROMPT = """

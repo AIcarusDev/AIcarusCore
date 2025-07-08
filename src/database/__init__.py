@@ -24,23 +24,21 @@ from .services.person_storage_service import PersonStorageService
 from .services.thought_storage_service import ThoughtStorageService
 
 __all__ = [
-    "ArangoDBConnectionManager",
-    "CoreDBCollections",
-    "StandardCollection",
-    # 服务
-    "ActionLogStorageService",
-    "ConversationStorageService",
-    "EventStorageService",
-    "PersonStorageService",
-    "ThoughtStorageService",
-    # 模型
-    "PersonDocument",
     "AccountDocument",
-    "MembershipProperties",
-    "PersonProfile",
-    "AttentionProfile",
-    "EnrichedConversationInfo",
-    "DBEventDocument",
+    "ActionLogStorageService",
     "ActionRecordDocument",
+    "ArangoDBConnectionManager",
+    "AttentionProfile",
+    "ConversationStorageService",
     "ConversationSummaryDocument",
+    "CoreDBCollections",
+    "DBEventDocument",
+    "EnrichedConversationInfo",
+    "EventStorageService",
+    "MembershipProperties",
+    "PersonDocument",
+    "PersonProfile",
+    "PersonStorageService",
+    "StandardCollection",
+    "ThoughtStorageService",
 ]

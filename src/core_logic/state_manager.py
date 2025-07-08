@@ -1,6 +1,6 @@
-# src/core_logic/state_manager.py (小懒猫·清爽版)
+# src/core_logic/state_manager.py
 import datetime
-from typing import Any
+from typing import Any, ClassVar
 
 from src.common.custom_logging.logging_config import get_logger
 from src.database import ActionLogStorageService, ThoughtStorageService
@@ -9,12 +9,21 @@ logger = get_logger(__name__)
 
 
 class AIStateManager:
-    """管理AI的内心世界，现在清爽多了，哼。
-    我只负责从思想链里拿最新的状态。
+    """AIStateManager (思想链版) 负责管理 AI 的状态信息，包括心情、内心想法、目标和最近的行动日志等.
+
+    Attributes:
+        thought_service (ThoughtStorageService): 用于存储和获取思想点的服务实例.
+        action_log_service (ActionLogStorageService): 用于存储和获取动作日志的服务实例.
+
+    这个类的主要职责是从思想链中获取最新的状态信息，并将其格式化为适合生成 Prompt 的状态块。
+    它还提供了一个初始状态，确保在思想链为空或断裂时，仍然能够提供有用的默认信息。
+    这个初始状态包括心情、内心想法、目标以及最近的行动日志等信息。
+    通过这种方式，AIStateManager 确保 AI 在任何时候都能够获取到最新的状态信息，
+    并且在思想链断裂时也能提供有用的默认信息，确保生成的 Prompt 始终具有上下文相关性。
     """
 
     # 这个初始状态仍然有用，在思想链还没有任何内容的时候，可以作为保底
-    INITIAL_STATE: dict[str, Any] = {
+    INITIAL_STATE: ClassVar[dict[str, Any]] = {
         "mood_block": "你刚才的心情是：平静。",
         "think_block": "你刚才的内心想法是：这是你的第一次思考，请开始吧。",
         "goal_block": "你当前没有什么特定的目标或任务。",
@@ -31,8 +40,6 @@ class AIStateManager:
         self.thought_service = thought_service
         self.action_log_service = action_log_service
         logger.info("AIStateManager (思想链版) 初始化完毕。")
-
-    # // 看！那个烦人的 set_next_handover_info 不见了！我们再也不需要它了！
 
     async def get_current_state_for_prompt(self) -> dict[str, str]:
         """从思想链获取最新的状态，构建Prompt需要的所有状态块."""
