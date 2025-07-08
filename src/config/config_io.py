@@ -1,13 +1,11 @@
-"""配置文件输入输出小助手 (づ｡◕‿‿◕｡)づ
-这个模块掌管着所有与配置文件相关的磁盘操作，
-比如悄悄地读取它们，温柔地保存它们，或者在需要的时候给它们一个备份的家。
-"""
+# File: AIcarusCore/src/config/config_io.py
+# 这个模块负责处理配置文件的输入输出操作
 
 import shutil
-from datetime import datetime  # 生成时间戳，给备份文件一个独特的印记
-from pathlib import Path  # 面向对象的路径操作，让路径处理更优雅
+from datetime import datetime
+from pathlib import Path
 
-import tomlkit  # 用来和 TOML 文件玩耍，还能保留注释和格式哦
+import tomlkit
 from src.common.custom_logging.logging_config import get_logger
 
 from .config_paths import (
@@ -22,12 +20,19 @@ logger = get_logger(__name__)
 
 
 class ConfigIOHandler:
-    """封装与配置文件相关的基本文件操作和 TOML 处理。
-    它就像一个勤劳的小蜜蜂，负责配置文件的搬运和管理！
+    """ConfigIOHandler 类负责处理配置文件的输入输出操作.
+
+    它提供了一些方法来加载、保存和备份配置文件.
+
+    Attributes:
+        template_path (Path): 模板配置文件的路径.
+        runtime_path (Path): 运行时配置文件的路径.
+        backup_dir (Path): 备份目录的路径.
+        runtime_filename (str): 运行时配置文件的文件名，用于生成备份文件名.
     """
 
     def __init__(self) -> None:
-        """初始化小助手，告诉它模板在哪，运行时配置在哪，备份放哪."""
+        """初始化配置文件 I/O 处理器."""
         self.template_path: Path = TEMPLATE_DIR / CONFIG_TEMPLATE_FILENAME
         self.runtime_path: Path = RUNTIME_CONFIG_DIR / ACTUAL_CONFIG_FILENAME
         self.backup_dir: Path = OLD_CONFIG_BACKUP_DIR
@@ -36,27 +41,32 @@ class ConfigIOHandler:
         self._ensure_directories_exist()  # 先确保文件夹都乖乖待在原地
 
     def _ensure_directories_exist(self) -> None:
-        """悄悄检查并确保运行时配置目录和备份目录都好好地存在着."""
+        """确保所有必要的目录都存在，如果不存在就创建它们."""
         logger.debug(f"检查目录: {self.runtime_path.parent}")
         self.runtime_path.parent.mkdir(parents=True, exist_ok=True)  # 运行时配置文件的家
         logger.debug(f"检查目录: {self.backup_dir}")
         self.backup_dir.mkdir(parents=True, exist_ok=True)  # 备份文件的家
 
     def template_exists(self) -> bool:
-        """模板配置文件在不在呀？我瞅瞅 (¬‿¬)"""
+        """检查模板配置文件是否存在."""
         exists = self.template_path.exists()
         logger.debug(f"模板文件 '{self.template_path}' 是否存在: {exists}")
         return exists
 
     def runtime_config_exists(self) -> bool:
-        """运行时配置文件在不在呀？再瞅瞅 (¬‿¬)"""
+        """检查运行时配置文件是否存在."""
         exists = self.runtime_path.exists()
         logger.debug(f"运行时文件 '{self.runtime_path}' 是否存在: {exists}")
         return exists
 
     def load_toml_file(self, file_path: Path) -> tomlkit.TOMLDocument | None:
-        """尝试从指定路径加载 TOML 文件。
-        如果文件不存在，或者它心情不好（损坏了），就温柔地返回 None。
+        """尝试从指定路径加载 TOML 文件.
+
+        Args:
+            file_path (Path): 要加载的 TOML 文件路径.
+
+        Returns:
+            tomlkit.TOMLDocument | None: 如果加载成功返回 TOML 数据，否则返回 None.
         """
         if not file_path.exists():
             logger.warning(f"想加载的 TOML 文件 '{file_path}' 好像不见了...")
@@ -75,8 +85,14 @@ class ConfigIOHandler:
             return None
 
     def save_toml_file(self, file_path: Path, data: tomlkit.TOMLDocument) -> bool:
-        """将 TOML 数据保存到指定路径。
-        成功了就告诉我一声 (๑•̀ㅂ•́)و✧
+        """将 TOML 数据保存到指定路径.
+
+        Args:
+            file_path (Path): 要保存的文件路径.
+            data (tomlkit.TOMLDocument): 要保存的 TOML 数据.
+
+        Returns:
+            bool: 如果保存成功返回 True，否则返回 False.
         """
         try:
             with open(file_path, "w", encoding="utf-8") as f:
@@ -88,8 +104,10 @@ class ConfigIOHandler:
             return False
 
     def copy_template_to_runtime(self) -> bool:
-        """从模板复制配置文件到运行时位置。
-        就像复印一样，但更智能！
+        """从模板复制配置文件到运行时位置.
+
+        Returns:
+            bool: 如果复制成功返回 True，否则返回 False.
         """
         if not self.template_exists():
             logger.error(f"模板文件 '{self.template_path}' 不见了，复制任务取消！")
@@ -105,8 +123,13 @@ class ConfigIOHandler:
             return False
 
     def backup_runtime_config(self, prefix: str = "") -> Path | None:
-        """备份当前的运行时配置文件到备份目录。
-        给它加上时间戳和可选的前缀，让它在备份文件夹里独一无二。
+        """备份当前的运行时配置文件到备份目录.
+
+        Args:
+            prefix (str): 备份文件名前缀，默认为空字符串.
+
+        Returns:
+            Path | None: 返回备份文件的路径，如果备份失败则返回 None.
         """
         if not self.runtime_config_exists():
             logger.debug(

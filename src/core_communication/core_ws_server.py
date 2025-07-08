@@ -28,8 +28,27 @@ logger = get_logger(__name__)
 
 
 class CoreWebsocketServer:
-    """纯粹的WebSocket服务器，负责管理服务器生命周期和底层连接。
-    它将事件处理和动作发送的职责委托给 EventReceiver 和 ActionSender。
+    """AIcarus 核心 WebSocket 服务器类.
+
+    这个服务器负责处理来自不同适配器的连接，接收事件，发送动作指令，
+    并维护适配器的心跳状态。它还会在适配器连接和断开时生成系统事件，
+    并在适配器连接时执行安检仪式.
+
+    Attributes:
+        host (str): 服务器监听的主机地址.
+        port (int): 服务器监听的端口号.
+        server (websockets.WebSocketServer | None): WebSocket服务器实例.
+        event_storage_service (EventStorageService): 事件存储服务实例，用于存储事件.
+        event_receiver (EventReceiver): 事件接收器实例，用于处理接收到的事件.
+        action_sender (ActionSender): 动作发送器实例，用于发送动作指令.
+        action_handler_instance (ActionHandler): 动作处理器实例，用于处理动作逻辑.
+        person_service (PersonStorageService): 人物存储服务实例，用于管理人物信息.
+        adapter_clients_info (dict[str, dict[str, Any]]): 存储适配器连接信息的字典.
+        _websocket_to_adapter_id (dict[WebSocketServerProtocol, str]): 映射WebSocket连接到
+            适配器ID的字典.
+        _stop_event (asyncio.Event): 用于控制服务器停止的事件.
+        _heartbeat_check_task (asyncio.Task | None): 心跳检查任务实例.
+        active_inspection_tasks (set[asyncio.Task]): 存储所有正在进行的安检任务的集合.
     """
 
     HEARTBEAT_CLIENT_INTERVAL_SECONDS = 30
@@ -118,16 +137,22 @@ class CoreWebsocketServer:
         # 通知 ActionSender
         self.action_sender.register_adapter(adapter_id, display_name, websocket)
         logger.info(
-            f"适配器 '{display_name}({adapter_id})' 已连接: {websocket.remote_address}. 当前连接数: {len(self.adapter_clients_info)}"
+            f"适配器 '{display_name}({adapter_id})' 已连接: {websocket.remote_address}. "
+            f"当前连接数: {len(self.adapter_clients_info)}"
         )
-        # --- ❤❤❤ 这里是修复点！只传入后缀！❤❤❤ ---
         await self._generate_and_store_system_event(
             adapter_id, display_name, "lifecycle.adapter_connected"
         )
 
         logger.info(f"为新连接的适配器 '{display_name}({adapter_id})' 举行欢迎仪式 (执行安检)...")
 
-        asyncio.create_task(self._run_inspection_ceremony(adapter_id, display_name))
+        # 在后台运行安检仪式
+        # 这样可以避免阻塞主线程，确保服务器能继续处理其他连接
+        inspection_task = asyncio.create_task(
+            self._run_inspection_ceremony(adapter_id, display_name)
+        )
+        self.active_inspection_tasks.add(inspection_task)
+        inspection_task.add_done_callback(self.active_inspection_tasks.discard)
 
     async def _run_inspection_ceremony(self, adapter_id: str, display_name: str) -> None:
         """一个专门用来在后台运行安检的协程."""

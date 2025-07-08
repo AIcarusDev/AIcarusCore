@@ -11,8 +11,14 @@ logger = get_logger(__name__)
 
 
 class ActionSender:
-    """负责向适配器发送动作。
-    它维护一个适配器ID到WebSocket连接的映射，并提供发送动作的接口。
+    """ActionSender 类负责管理与适配器的连接，并向它们发送动作事件.
+
+    Attributes:
+        connected_adapters (dict[str, WebSocketServerProtocol]): 存储所有已连接的适配器
+            及其 WebSocket 连接.
+        adapter_clients_info (dict[str, dict[str, Any]]): 存储适配器的额外信息，如显示名称等.
+        _websocket_to_adapter_id (dict[WebSocketServerProtocol, str]): 用于快速查找 WebSocket
+            连接对应的适配器 ID.
     """
 
     def __init__(self) -> None:
@@ -80,7 +86,8 @@ class ActionSender:
         )
         if not adapter_id or self.connected_adapters.get(adapter_id) is not websocket:
             logger.warning(
-                f"尝试向一个未注册、ID不匹配或已断开的适配器 '{display_name}' 发送动作: {websocket.remote_address}"
+                f"尝试向一个未注册、ID不匹配或已断开的适配器 '{display_name}' "
+                f"发送动作: {websocket.remote_address}"
             )
             return False
         try:
