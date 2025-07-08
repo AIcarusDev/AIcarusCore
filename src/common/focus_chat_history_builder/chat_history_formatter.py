@@ -174,8 +174,7 @@ async def format_chat_history_for_llm(
                 }
 
     # 准备好会话信息和用户列表的文字块
-    conversation_info_block_str = f"""
-        - conversation_name: "{conversation_name_str}"
+    conversation_info_block_str = f"""- conversation_name: "{conversation_name_str}"
         - conversation_type: "{conversation_type}"
     """
 

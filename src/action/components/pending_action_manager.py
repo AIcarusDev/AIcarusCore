@@ -15,7 +15,8 @@ ACTION_RESPONSE_TIMEOUT_SECONDS = 30
 
 
 class PendingActionManager:
-    """管理所有待处理的平台动作。
+    """管理所有待处理的平台动作.
+
     负责跟踪已发送但尚未收到响应的动作，并处理其成功响应、失败响应或超时。
     """
 
@@ -42,7 +43,7 @@ class PendingActionManager:
         original_action_description: str,
         action_to_send: dict[str, Any],
     ) -> tuple[bool, Any]:
-        """添加一个新的待处理动作，并等待其完成（或超时）。
+        """添加一个新的待处理动作，并等待其完成（或超时）.
 
         Returns:
             一个元组 (action_successful, result_payload)。
@@ -131,7 +132,8 @@ class PendingActionManager:
             )
 
     async def _process_bot_profile_report(self, report_data: dict[str, Any]) -> None:
-        """处理从 Adapter 发来的“全身检查报告”。
+        """处理从 Adapter 发来的“全身检查报告”.
+
         新版：使用 upsert 逻辑，确保即使会话档案不存在也能正确创建和更新。
         """
         if not isinstance(report_data, dict):
@@ -257,7 +259,8 @@ class PendingActionManager:
         default_id = "unknow_message_id"
         if not isinstance(event_data, dict):
             logger.error(
-                f"事件数据不是一个字典，无法从中安全地提取 sent_message_id。事件数据类型: {type(event_data)}"
+                f"事件数据不是一个字典，无法从中安全地提取 sent_message_id。"
+                f"事件数据类型: {type(event_data)}"
             )
             return default_id
         content_list = event_data.get("content")

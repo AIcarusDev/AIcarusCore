@@ -9,7 +9,8 @@ logger = get_logger(__name__)
 
 
 class ActionRegistry:
-    """负责管理和注册所有可用的动作。
+    """负责管理和注册所有可用的动作.
+
     它从不同的 ActionProvider 加载动作，并提供一个统一的查询接口。
     """
 
@@ -18,7 +19,7 @@ class ActionRegistry:
         logger.info(f"{self.__class__.__name__} instance created.")
 
     def register_provider(self, provider: ActionProvider) -> None:
-        """从一个动作提供者注册其提供的所有动作。
+        """从一个动作提供者注册其提供的所有动作.
 
         Args:
             provider: 实现了 ActionProvider 接口的实例。
@@ -40,7 +41,7 @@ class ActionRegistry:
             logger.info(f"成功注册动作: {full_action_name} (来自: {provider.name})")
 
     def get_action(self, action_name: str) -> Callable[..., Coroutine[Any, Any, Any]] | None:
-        """根据动作名称查找并返回对应的可调用动作函数。
+        """根据动作名称查找并返回对应的可调用动作函数.
 
         Args:
             action_name: 要查找的动作的完整名称。
@@ -51,7 +52,7 @@ class ActionRegistry:
         return self._action_registry.get(action_name)
 
     def get_all_actions(self) -> dict[str, Callable[..., Coroutine[Any, Any, Any]]]:
-        """返回当前注册的所有动作的字典。
+        """返回当前注册的所有动作的字典.
 
         Returns:
             一个从动作名称到动作函数的映射字典。

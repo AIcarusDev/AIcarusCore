@@ -29,8 +29,25 @@ ACTION_RESPONSE_TIMEOUT_SECONDS = 30
 
 
 class ActionHandler:
-    """行动女王 (V6.0 修复版)！
-    我现在既能动态玩弄所有平台，也能佩戴我的内部小玩具了，哼！
+    """处理所有与动作相关的逻辑，包括动作决策、发送和响应处理.
+
+    这个类负责协调不同的动作提供者，管理动作发送和响应，
+    并提供一个统一的接口供其他模块使用.
+
+    Attributes:
+        action_llm_client: 用于行动决策的 LLM 客户端.
+        summary_llm_client: 用于信息摘要的 LLM 客户端.
+        web_search_agent_client: 用于网页搜索的 LLM 客户端.
+        action_sender: 动作发送器，用于将动作发送到适配器.
+        thought_storage_service: 思维存储服务，用于存储和检索思维文档.
+        event_storage_service: 事件存储服务，用于存储和检索事件数据.
+        action_log_service: 动作日志存储服务，用于记录动作日志.
+        conversation_service: 对话存储服务，用于管理对话数据.
+        thought_trigger: 主思维触发器，用于在处理完动作后唤醒主思维.
+        pending_action_manager: 管理待处理动作的管理器，处理动作响应和状态跟踪.
+        chat_session_manager: 聊天会话管理器，用于管理聊天会话状态
+        action_registry: 动作注册表，用于注册和查询可用的动作提供者.
+        _background_tasks: 存储所有后台任务的集合，用于管理和清理.
     """
 
     def __init__(self) -> None:
@@ -45,9 +62,8 @@ class ActionHandler:
         self.thought_trigger: asyncio.Event | None = None
         self.pending_action_manager: PendingActionManager | None = None
         self.chat_session_manager: ChatSessionManager | None = None
-
-        # --- ❤❤❤ 看！我把我的小玩具挂钩(ActionRegistry)装回来了！❤❤❤ ---
         self.action_registry = ActionRegistry()
+        self._background_tasks: set[asyncio.Task] = set()
 
         logger.info(f"{self.__class__.__name__} instance created.")
 
@@ -60,6 +76,17 @@ class ActionHandler:
         action_sender: ActionSender,
         chat_session_manager: "ChatSessionManager",
     ) -> None:
+        """设置 ActionHandler 的依赖服务.
+
+        Args:
+            thought_service: 思维存储服务实例.
+            event_service: 事件存储服务实例.
+            action_log_service: 动作日志存储服务实例.
+            conversation_service: 对话存储服务实例.
+            action_sender: 动作发送器实例.
+            chat_session_manager: 聊天会话管理器实例.
+
+        """
         self.thought_storage_service = thought_service
         self.event_storage_service = event_service
         self.action_log_service = action_log_service
@@ -74,12 +101,12 @@ class ActionHandler:
         )
         logger.info("ActionHandler 的依赖已成功设置，PendingActionManager 已创建。")
 
-    # --- ❤❤❤ register_provider 方法也回来了！现在 main.py 不会再对我尖叫了！❤❤❤ ---
     def register_provider(self, provider: ActionProvider) -> None:
         """将动作提供者注册到 ActionRegistry."""
         self.action_registry.register_provider(provider)
 
     def set_thought_trigger(self, trigger_event: asyncio.Event | None) -> None:
+        """设置主思维触发器，用于在处理完动作后唤醒主思维."""
         if trigger_event is not None and not isinstance(trigger_event, asyncio.Event):
             logger.error(f"set_thought_trigger 收到一个无效的事件类型: {type(trigger_event)}。")
             self.thought_trigger = None
@@ -89,6 +116,7 @@ class ActionHandler:
             logger.info("ActionHandler 的主思维触发器已成功设置。")
 
     async def initialize_llm_clients(self) -> None:
+        """按需初始化 LLM 客户端."""
         if self.action_llm_client and self.summary_llm_client:
             return
         logger.info("正在为行动处理模块按需初始化LLM客户端...")
@@ -109,12 +137,14 @@ class ActionHandler:
             raise
 
     async def handle_action_response(self, response_event_data: dict[str, Any]) -> None:
+        """处理来自 PendingActionManager 的动作响应."""
         if self.pending_action_manager:
             await self.pending_action_manager.handle_response(response_event_data)
         else:
             logger.error("PendingActionManager 未初始化，无法处理动作响应。")
 
     async def system_get_bot_profile(self, adapter_id: str) -> None:
+        """系统触发获取机器人档案的动作，适用于平台适配器."""
         logger.info(f"系统触发为适配器 '{adapter_id}' 获取机器人档案。")
         builder = platform_builder_registry.get_builder(adapter_id)
         if not builder:
@@ -127,13 +157,18 @@ class ActionHandler:
             logger.error(f"平台 '{adapter_id}' 的翻译官不会翻译 get_bot_profile 动作！")
             return
 
-        asyncio.create_task(
+        task = asyncio.create_task(
             self._execute_platform_action(
                 action_to_send=action_event.to_dict(),
                 thought_doc_key=None,
                 original_action_description="系统：上线安检",
             )
         )
+
+        self._background_tasks.add(task)
+
+        task.add_done_callback(self._background_tasks.discard)
+
         logger.info(f"已通过 ActionHandler 为适配器 '{adapter_id}' 派发档案同步任务。")
 
     async def _execute_platform_action(
@@ -244,7 +279,9 @@ class ActionHandler:
                     logger.warning(msg)
                     return False, msg, None
 
-                search_prompt = f"请根据以下意图，使用谷歌搜索并总结最相关的信息：\n意图：{query}\n动机：{motivation}"
+                search_prompt = f"""请根据以下意图，使用谷歌搜索并总结最相关的信息：
+意图：{query}
+动机：{motivation}"""
                 logger.info(f"正在调用搜索代理LLM，查询: '{query}'")
                 response = await self.web_search_agent_client.make_llm_request(
                     prompt=search_prompt,
@@ -267,6 +304,15 @@ class ActionHandler:
     async def send_action_and_wait_for_response(
         self, action_event_dict: dict[str, Any], timeout: int = ACTION_RESPONSE_TIMEOUT_SECONDS
     ) -> tuple[bool, dict[str, Any] | None]:
+        """发送一个动作事件，并等待响应，超时后返回失败.
+
+        Args:
+            action_event_dict: 包含动作事件的字典，必须包含 'event_type'
+            timeout: 等待响应的超时时间，默认为 30 秒.
+
+        Returns:
+            tuple[bool, dict[str, Any] | None]: 发送结果和响应数据。
+        """
         if not self.pending_action_manager:
             return False, {"error": "PendingActionManager is not initialized."}
 

@@ -21,7 +21,8 @@ class ActionDecision:
 
 
 class ActionDecisionMaker:
-    """负责调用LLM进行工具选择决策。
+    """负责调用LLM进行工具选择决策.
+
     它构建prompt，调用LLM，并解析返回的JSON决策。
     """
 
@@ -73,7 +74,7 @@ class ActionDecisionMaker:
 }}
 
 输出json：
-"""
+"""  # noqa: E501
         return prompt_template
 
     async def make_decision(
@@ -84,6 +85,17 @@ class ActionDecisionMaker:
         relevant_adapter_messages_context: str,
         tools_schema: list[dict[str, Any]],  # 接收“功能说明书”
     ) -> ActionDecision:
+        """调用LLM进行行动决策.
+
+        Args:
+            action_description: 用户明确想要执行的动作描述。
+            action_motivation: 用户执行该动作的动机或原因。
+            current_thought_context: 当前思考上下文，可能包括用户的想法、情绪等。
+            relevant_adapter_messages_context: 最近可能相关的外部消息或请求上下文。
+            tools_schema: 可用工具的功能说明书列表。
+        Returns:
+            ActionDecision: 包含决策结果的对象，包括选择的工具、参数和原始LLM输出。
+        """
         logger.info(f"开始为动作 '{action_description[:50]}...' 进行LLM决策。")
 
         prompt = self._build_decision_prompt(

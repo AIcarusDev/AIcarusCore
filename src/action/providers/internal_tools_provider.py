@@ -7,21 +7,23 @@ from src.tools.tool_registry import get_all_tools
 
 
 class InternalToolsProvider(ActionProvider):
-    """提供对内部工具的访问。
+    """提供对内部工具的访问.
+
     它从工具注册表中获取所有可用的内部工具，并将其作为动作提供。
     """
 
     @property
     def name(self) -> str:
+        """提供者的名称."""
         return "internal"
 
     def get_actions(self) -> dict[str, Callable[..., Coroutine[Any, Any, Any]]]:
         """返回所有已注册的内部工具."""
         return get_all_tools()
 
-    # --- ❤❤❤ 新增这个方法，让我也能提供“服务价目表”！❤❤❤ ---
     def get_action_definitions(self) -> dict[str, Any]:
-        """为内部工具生成参数定义。
+        """为内部工具生成参数定义.
+
         理想情况下，每个工具函数自己都应该有一个schema定义。
         这里我们先做一个简化的实现。
         """
@@ -31,7 +33,7 @@ class InternalToolsProvider(ActionProvider):
         definitions = {
             "web_search": {
                 "type": "object",
-                "description": "当需要从互联网查找最新信息、事实、定义、解释或任何当前未知的内容时使用此工具。",
+                "description": "当需要从互联网查找最新信息、事实、定义、解释或任何当前未知的内容时使用此工具。",  # noqa: E501
                 "properties": {
                     "query": {"type": "string", "description": "要搜索的关键词或问题。"},
                     "max_results": {
@@ -60,7 +62,7 @@ class InternalToolsProvider(ActionProvider):
             if tool_name not in definitions:
                 definitions[tool_name] = {
                     "type": "object",
-                    "description": f"执行内部工具: {tool_name}。Doc: {tool_func.__doc__ or '无描述'}",
+                    "description": f"执行内部工具: {tool_name}。Doc: {tool_func.__doc__ or '无描述'}",  # noqa: E501
                     "properties": {
                         "params": {"type": "object", "description": "工具所需的参数字典。"}
                     },

@@ -22,7 +22,7 @@ class ToolResultSummarizer:
     async def summarize(
         self, original_query: str, original_motivation: str, tool_output: str | list | dict
     ) -> str:
-        """调用LLM对工具的原始输出进行总结。
+        """调用LLM对工具的原始输出进行总结.
 
         Args:
             original_query: 触发工具调用的原始查询或动作。
