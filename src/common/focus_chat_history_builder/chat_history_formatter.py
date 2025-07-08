@@ -34,26 +34,26 @@ async def format_chat_history_for_llm(
     is_first_turn: bool,
     raw_events_from_caller: list[dict[str, Any]] | None = None,
 ) -> PromptComponents:
-    """一个被本小猫彻底重构的、通用的聊天记录格式化工具。
+    """通用的聊天记录格式化工具.
 
-    它会饥渴地从数据库（或你直接喂给它的列表）里吞下事件，然后把它们消化成 LLM 最喜欢吃的样子，
-    包括处理用户映射、格式化聊天记录，当然还有那些最重要的、色色的图片！
-    最后，它会把所有这些美味的零件，都紧紧地锁在我们那个性感的 `PromptComponents` 容器里，一次性射给你！
+    该函数会从数据库（或直接传入的事件列表）中获取事件，并将其格式化为适合大语言模型（LLM）处理的结构，
+    包括用户映射、聊天记录格式化以及图片等内容的处理。
+    最终，所有相关信息会被封装到 `PromptComponents` 容器中返回。
 
     Args:
-        event_storage: 事件存储服务的实例，我的粮仓。
-        conversation_id: 目标会话的ID，我们要深入的地方。
-        bot_id: 机器人的ID，也就是我自己的身份证明。
-        platform: 平台名称，比如 'napcat_qq'。
-        bot_profile: 我在这个会话里的马甲信息。
-        conversation_type: 会话类型 ("group" 或 "private")。
-        conversation_name: 会话名称，比如“小猫咪的淫乱派对”。
-        last_processed_timestamp: 上次处理到的时间戳，用来区分已读和未读的快感。
-        is_first_turn: 是不是这次专注的第一次插入？
-        raw_events_from_caller: (可选) 你也可以不让我去粮仓，直接把新鲜的“淫秽思想”（事件列表）喂给我。
+        event_storage: 事件存储服务实例。
+        conversation_id: 目标会话的ID。
+        bot_id: 机器人的ID。
+        platform: 平台名称，例如 'napcat_qq'。
+        bot_profile: 机器人在该会话中的用户信息。
+        conversation_type: 会话类型（如 "group" 或 "private"）。
+        conversation_name: 会话名称。
+        last_processed_timestamp: 上次处理的时间戳，用于区分已读和未读消息。
+        is_first_turn: 是否为本次专注模式的第一次调用。
+        raw_events_from_caller: （可选）直接传入的事件列表，若不提供则从数据库获取。
 
     Returns:
-        一个被填满的、热乎乎的 `PromptComponents` 对象，里面有你需要的一切，自己脱下来看吧，哼！
+        一个填充好的 `PromptComponents` 对象，包含格式化后的聊天记录及相关信息。
     """
     # 确保我有一个地方可以临时存放你的“色图”，虽然我现在更喜欢直接玩弄数据流
     temp_image_dir = config.runtime_environment.temp_file_directory
@@ -174,7 +174,10 @@ async def format_chat_history_for_llm(
                 }
 
     # 准备好会话信息和用户列表的文字块
-    conversation_info_block_str = f'- conversation_name: "{conversation_name_str}"\n- conversation_type: "{conversation_type}"'
+    conversation_info_block_str = f"""
+        - conversation_name: "{conversation_name_str}"
+        - conversation_type: "{conversation_type}"
+    """
 
     user_list_lines = []
     sorted_user_platform_ids = sorted(
@@ -184,9 +187,17 @@ async def format_chat_history_for_llm(
         user_data_item = user_map[p_id_list]
         user_identity_suffix = "（你）" if user_data_item["uid_str"] == "U0" else ""
         if conversation_type == "private":
-            user_line = f"{user_data_item['uid_str']}: {p_id_list}{user_identity_suffix} [nick:{user_data_item['nick']}, card:{user_data_item['card']}]"
+            user_line = (
+                f"{user_data_item['uid_str']}: {p_id_list}{user_identity_suffix} "
+                f"[nick:{user_data_item['nick']}, card:{user_data_item['card']}]"
+            )
         else:
-            user_line = f"{user_data_item['uid_str']}: {p_id_list}{user_identity_suffix} [nick:{user_data_item['nick']}, card:{user_data_item['card']}, title:{user_data_item['title']}, perm:{user_data_item['perm']}]"
+            user_line = (
+                f"{user_data_item['uid_str']}: {p_id_list}{user_identity_suffix} "
+                f"[nick:{user_data_item['nick']}, card:{user_data_item['card']}, "
+                f"{f'title:{user_data_item["title"]}, ' if user_data_item['title'] else ''}"
+                f"perm:{user_data_item['perm']}]"
+            )
         user_list_lines.append(user_line)
     user_list_block_str = "\n".join(user_list_lines)
 
@@ -216,7 +227,8 @@ async def format_chat_history_for_llm(
             if chat_log_lines:
                 read_marker_time_obj = datetime.fromtimestamp(last_processed_timestamp / 1000.0)
                 chat_log_lines.append(
-                    f"--- 以上消息是你已经思考过的内容，已读 (标记时间: {read_marker_time_obj.strftime('%H:%M:%S')}) ---"
+                    f"--- 以上消息是你已经思考过的内容，已读 "
+                    f"(标记时间: {read_marker_time_obj.strftime('%H:%M:%S')}) ---"
                 )
             chat_log_lines.append("--- 请关注以下未读的新消息---")
             unread_section_started = True
@@ -241,23 +253,19 @@ async def format_chat_history_for_llm(
                     continue
                 added_platform_message_ids_for_log.add(current_platform_msg_id)
 
-            # 哼，每次都把这些变量初始化，免得带到下一条消息里去，脏死了
             main_content_parts = []
             main_content_type = "MSG"
             quote_display_str = ""
 
             for seg in event_data_log.content:
-                # ↓↓↓↓ 这次我们只认 "quote"！ ↓↓↓↓
                 if seg.type == "quote":
                     quoted_message_id = seg.data.get("message_id", "unknown_id")
                     if quoted_user_id := seg.data.get("user_id"):
-                        # 如果适配器很乖，直接给了我们ID，就用它
                         quoted_user_uid = platform_id_to_uid_str.get(
                             str(quoted_user_id), f"未知用户({str(quoted_user_id)[:4]})"
                         )
                         quote_display_str = f"引用/回复 {quoted_user_uid}(id:{quoted_message_id})"
                     else:
-                        # 如果适配器偷懒了，我们就自己翻小本本！
                         original_message_event = message_id_to_event_map.get(quoted_message_id)
                         if original_message_event and original_message_event.user_info:
                             original_sender_id = original_message_event.user_info.user_id
@@ -268,7 +276,6 @@ async def format_chat_history_for_llm(
                                 f"引用/回复 {quoted_user_uid}(id:{quoted_message_id})"
                             )
                         else:
-                            # 连小本本上都找不到，那就没办法了
                             quote_display_str = f"引用/回复 (id:{quoted_message_id})"
 
                 elif seg.type == "image":
@@ -277,14 +284,12 @@ async def format_chat_history_for_llm(
                     )
                     if base64_data := seg.data.get("base64"):
                         try:
-                            # 我不再把图片存到你那肮脏的硬盘里了，我直接把它变成LLM能一口吞下的Data URI！
                             mime_type = seg.data.get("mime_type", "image/jpeg")
                             data_uri = f"data:{mime_type};base64,{base64_data}"
                             image_references.append(data_uri)
                             logger.info(f"图片的Data URI已准备好，直接注入！MIME: {mime_type}")
                         except Exception as e:
                             logger.error(f"处理图片Data URI时高潮失败: {e}", exc_info=True)
-                            # 如果失败了，就看看有没有URL这个备用小玩具
                             if url := seg.data.get("url"):
                                 image_references.append(url)
                     elif url := seg.data.get("url"):
@@ -317,7 +322,10 @@ async def format_chat_history_for_llm(
             display_tag = (
                 f"{main_content_type}{', ' + quote_display_str if quote_display_str else ''}"
             )
-            log_line = f"[{time_str}] {log_user_id_str} [{display_tag}]: {main_content_str} (id:{msg_id_for_display})"
+            log_line = (
+                f"[{time_str}] {log_user_id_str} [{display_tag}]: "
+                f"{main_content_str} (id:{msg_id_for_display})"
+            )
             if log_user_id_str == "U0" and (
                 motivation := getattr(event_data_log, "motivation", None)
             ):
@@ -427,11 +435,17 @@ async def format_chat_history_for_llm(
 
         elif event_data_log.event_type == "internal.focus_chat_mode.thought_log":
             motivation_text = extract_text_from_content(event_data_log.content)
-            log_line = f"[{time_str}] {log_user_id_str} [MOTIVE]: {motivation_text}"  # log_user_id_str 可能是 U0
+
+            # log_user_id_str 可能是 U0
+            log_line = f"[{time_str}] {log_user_id_str} [MOTIVE]: {motivation_text}"
         else:  # 其他类型的事件
             content_preview = extract_text_from_content(event_data_log.content)
             event_type_display = event_data_log.event_type.split(".")[-1].upper()
-            log_line = f"[{time_str}] {log_user_id_str} [{event_type_display}]: {content_preview[:30]}{'...' if len(content_preview) > 30 else ''} (id:{event_data_log.event_id})"
+            log_line = (
+                f"[{time_str}] {log_user_id_str} [{event_type_display}]: "
+                f"{content_preview[:30]}{'...' if len(content_preview) > 30 else ''} "
+                f"(id:{event_data_log.event_id})"
+            )
 
         if log_line:  # 只有当 log_line 被赋值后才添加
             chat_log_lines.append(log_line)
@@ -441,7 +455,8 @@ async def format_chat_history_for_llm(
         marker_ts = raw_events[-1].time if raw_events else last_processed_timestamp
         read_marker_time_obj = datetime.fromtimestamp(marker_ts / 1000.0)
         chat_log_lines.append(
-            f"--- 以上消息是你已经思考过的内容，已读 (标记时间: {read_marker_time_obj.strftime('%H:%M:%S')}) ---"
+            f"--- 以上消息是你已经思考过的内容，已读 "
+            f"(标记时间: {read_marker_time_obj.strftime('%H:%M:%S')}) ---"
         )
 
     chat_history_log_block_str = "\n".join(chat_log_lines) or "当前没有聊天记录。"

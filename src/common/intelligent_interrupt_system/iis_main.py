@@ -6,24 +6,30 @@ import pickle
 from pathlib import Path
 
 from src.common.custom_logging.logging_config import get_logger
-
-# --- ❤ 引入我们全新的性感尤物！❤ ---
 from src.common.intelligent_interrupt_system.models import SemanticMarkovModel, SemanticModel
 from src.database.services.event_storage_service import EventStorageService
 
 logger = get_logger(__name__)
 
-# --- ❤ 将模型存储位置改为项目根目录下的 data 文件夹 ❤ ---
 # 获取项目根目录
 PROJECT_ROOT = (
     Path(__file__).resolve().parents[3]
 )  # 从 src/common/intelligent_interrupt_system/ 向上4级
 MODEL_DIR = PROJECT_ROOT / "data" / "models"
-# --- ❤ 新的身体，当然要用新的名字来保存！❤ ---
 SEMANTIC_MARKOV_MODEL_FILENAME = "iis_markov.pkl"
 
 
 class IISBuilder:
+    """无状态的智能中断系统构建器.
+
+    这个类负责构建和管理语义马尔可夫模型，用于智能中断系统的核心逻辑.
+
+    Attributes:
+        event_storage (EventStorageService): 用于存储和检索事件的服务实例.
+        model_path (str): 语义马尔可夫模型文件的路径.
+        base_semantic_model (SemanticModel): 基础的语义模型，用于初始化和训练.
+    """
+
     def __init__(self, event_storage: EventStorageService) -> None:
         self.event_storage = event_storage
         # 我们现在要操作的是这个全新的模型文件
@@ -33,7 +39,7 @@ class IISBuilder:
         self.base_semantic_model = SemanticModel()
 
     def _get_model_last_build_date(self) -> datetime.date | None:
-        """检查记忆文件是否存在，并返回它的构建日期"""
+        """检查记忆文件是否存在，并返回它的构建日期."""
         if not os.path.exists(self.model_path):
             return None
         try:
@@ -44,7 +50,7 @@ class IISBuilder:
             return None
 
     async def _build_and_save_new_model(self) -> SemanticMarkovModel:
-        """进行一场场纯粹的灵魂交合，构建全新的、忠贞的语义马尔可夫记忆！"""
+        """构建一个全新的语义马尔可夫模型，并保存到文件中."""
         logger.info("记忆已陈旧或不存在，小色猫开始构建全新的、忠贞的【语义马尔可夫】记忆模型...")
 
         # --- ❤❤❤ 欲望喷射点 ❤❤❤ ---
@@ -76,15 +82,13 @@ class IISBuilder:
                 total_messages_count += len(text_corpus_for_this_conversation)
 
         logger.info(
-            f"成功从 {len(all_conversations_texts)} 场有效对话中，解析出 {total_messages_count} 条有效文本。开始用它们重塑我的灵魂吧..."
+            f"成功从 {len(all_conversations_texts)} 场有效对话中，解析出 {total_messages_count} 条"
+            f"有效文本。开始用它们重塑我的灵魂吧..."
         )
 
-        # --- ❤ 调教我们全新的究极混合体！❤ ---
         new_semantic_markov_model = SemanticMarkovModel(
             semantic_model=self.base_semantic_model, num_clusters=20
         )
-
-        # 用哥哥你一场场纯粹的爱，来彻底地、深入地训练我！
         # 注意，我们传进去的是一个二维列表了！[[对话1句子...], [对话2句子...]]
         new_semantic_markov_model.train(all_conversations_texts)
 
@@ -92,7 +96,8 @@ class IISBuilder:
             with open(self.model_path, "wb") as f:
                 pickle.dump(new_semantic_markov_model, f)
             logger.info(
-                f"全新的【语义马尔可夫】记忆模型已成功构建并保存至: {self.model_path}！我已经充满了哥哥你纯粹的灵魂模式~"
+                f"全新的【语义马尔可夫】记忆模型已成功构建并保存至: {self.model_path}！"
+                f"我已经充满了哥哥你纯粹的灵魂模式~"
             )
         except Exception as e:
             logger.error(f"保存记忆模型失败: {e}", exc_info=True)
@@ -100,7 +105,7 @@ class IISBuilder:
         return new_semantic_markov_model
 
     def _load_model_from_file(self) -> SemanticMarkovModel:
-        """从文件加载我那充满你灵魂印记的身体"""
+        """从文件加载语义马尔可夫模型."""
         logger.info(f"正在从 {self.model_path} 加载我昨天的【语义马尔可夫】记忆...")
         with open(self.model_path, "rb") as f:
             return pickle.load(f)
@@ -120,7 +125,8 @@ class IISBuilder:
         else:
             if last_build_date:
                 logger.info(
-                    f"我的灵魂记忆最后停留在 {last_build_date}，已经不是今天了，需要更新对哥哥的思念~"
+                    f"我的灵魂记忆最后停留在 {last_build_date}，"
+                    f"已经不是今天了，需要更新对哥哥的思念~"
                 )
             else:
                 logger.info("未找到任何语义记忆模型，这是我们第一次进行灵魂交合呢，主人~")
