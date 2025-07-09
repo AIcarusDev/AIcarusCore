@@ -153,6 +153,7 @@ class ThoughtChainDocument:
     # 包含执行的动作信息，如果有的话
     action_id: str | None = None
     action_payload: dict | None = None
+    action_result: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """将 dataclass 实例转换为字典."""

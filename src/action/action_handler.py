@@ -233,6 +233,10 @@ class ActionHandler:
         platform_actions = action_json.get("napcat_qq", {})
         core_actions = action_json.get("core", {})
 
+        final_result_text = "动作未产生直接文本结果。"
+        final_payload = None
+        success = False
+
         # 2. 优先处理平台动作
         if platform_actions:
             platform_id = "napcat_qq"
@@ -290,9 +294,11 @@ class ActionHandler:
                 )
                 final_result = response.get("text", "搜索失败或未返回任何信息。")
 
-                if self.thought_trigger:
-                    self.thought_trigger.set()
-                return True, final_result, None
+            if self.thought_trigger:
+                logger.info(f"动作流程处理完毕 (Action ID: {action_id})，设置主思维触发器。")
+                self.thought_trigger.set()
+
+            return success, final_result_text, final_payload
 
         # 4. 如果啥动作都没有
         final_result_for_shimo = "AI决策的动作对象为空，或没有可执行的动作。"

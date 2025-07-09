@@ -61,7 +61,7 @@ CORE_RESPONSE_SCHEMA = {
                         "get_list": {
                             "type": "object",
                             "properties": {
-                                "list_type": {"type": "string"},
+                                "list_type": {"type": "string", "enum": ["friend", "group"]},
                                 "motivation": {"type": "string"},
                             },
                             "required": ["list_type", "motivation"],
@@ -196,11 +196,17 @@ class CoreLogic:
 
         # 把剩下的垃圾（如果有的话）丢给ActionHandler去处理。
         if action_payload:
-            await self.action_handler_instance.process_action_flow(
+            success, result_text, _ = await self.action_handler_instance.process_action_flow(
                 action_id=action_id,
                 doc_key_for_updates=saved_thought_key,
                 action_json=action_payload,
             )
+
+            if result_text:
+                await self.thought_storage_service.save_action_result_to_thought(
+                    thought_key=saved_thought_key,
+                    result_text=result_text
+                )
 
         # 如果不是 focus 动作，就返回 False
         return False

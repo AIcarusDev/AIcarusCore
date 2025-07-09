@@ -198,14 +198,16 @@ class ActionExecutor:
                     i, sentence_text, quote_msg_id, at_target_values_raw, uid_map
                 )
 
+                message_params = {
+                    "conversation_id": self.session.conversation_id,
+                    "conversation_type": self.session.conversation_type,
+                    "content": content_segs_payload,
+                }
+
                 success, result_payload = await self.action_handler.execute_simple_action(
                     platform_id=self.session.platform,
                     action_name="send_message",
-                    params={
-                        "conversation_id": self.session.conversation_id,
-                        "conversation_type": self.session.conversation_type,
-                        "content": content_segs_payload,
-                    },
+                    params=message_params,
                     description="发送专注模式回复",
                 )
 

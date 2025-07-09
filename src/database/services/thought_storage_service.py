@@ -221,6 +221,23 @@ class ThoughtStorageService:
         results = await self.conn_manager.execute_query(query, bind_vars)
         return results if results is not None else []
 
+    async def save_action_result_to_thought(self, thought_key: str, result_text: str) -> bool:
+        """把行动的回执单贴到对应的思想点上."""
+        if not thought_key or not result_text:
+            return False
+
+        try:
+            collection = await self.conn_manager.get_collection(self.thoughts_coll_name)
+            # 使用 update 方法来更新指定文档的 action_result 字段
+            await collection.update(
+                {"_key": thought_key, "action_result": result_text}
+            )
+            logger.info(f"已将行动结果保存到思想点 '{thought_key}'。")
+            return True
+        except Exception as e:
+            logger.error(f"为思想点 '{thought_key}' 保存行动结果时失败: {e}", exc_info=True)
+            return False
+
     async def save_intrusive_thoughts_batch(
         self, thought_document_list: list[dict[str, Any]]
     ) -> bool:
