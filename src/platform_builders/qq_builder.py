@@ -20,7 +20,8 @@ class QQBuilder(BasePlatformBuilder):
         platform_id (str): 平台ID，唯一标识一个平台。
         这个ID必须和Adapter的core_platform_id完全一致，以确保适配器能够正确识别。
     """
-    def __init__(self):
+
+    def __init__(self) -> None:
         super().__init__()
         # 把所有可以用通用模板处理的动作都放在这里。
         # 这样可以避免每次都要写一大堆 if-else 来判断动作类型。
@@ -66,19 +67,21 @@ class QQBuilder(BasePlatformBuilder):
         return "napcat_qq"
 
     def build_action_event(self, action_name: str, params: dict[str, Any]) -> Event | None:
-        """
-        这个方法负责将平台特有的动作转换成标准的Event格式，它会根据动作名称和参数来决定如何构建Event对象.
+        """这个方法负责将平台特有的动作转换成标准的Event格式，它会根据动作名称和参数来决定如何构建Event对象.
+
         Args:
-            action_name (str): 动作名称，标识要执行的具体动作。
-            params (dict[str, Any]): 动作参数，包含执行这个动作所需的所有信息。
+            action_name (str): 动作名称，标识要执行的具体动作.
+            params (dict[str, Any]): 动作参数，包含执行这个动作所需的所有信息.
+
         Returns:
-            Event | None: 返回一个Event对象，表示这个动作的执行结果。
-            如果这个动作不在白名单或特殊处理列表中，则返回 None。
+            Event | None: 返回一个Event对象，表示这个动作的执行结果.
+            如果这个动作不在白名单或特殊处理列表中，则返回 None.
+
         这个方法的核心逻辑是：
-        1. 先处理那些需要特殊处理的动作，比如发消息和合并转发。
-        2. 然后，检查这个动作是不是在白名单里。
-            如果在，就用通用模板来处理，并返回一个Event对象。
-        3. 如果哪个都不沾，那就真的不认识了，返回 None。
+        1. 先处理那些需要特殊处理的动作，比如发消息和合并转发.
+        2. 然后，检查这个动作是不是在白名单里.
+            如果在，就用通用模板来处理，并返回一个Event对象.
+        3. 如果哪个都不沾，那就真的不认识了，返回 None.
         """
         # 1. 先处理那些需要特殊处理的动作
         if action_name == "send_message":
@@ -112,15 +115,18 @@ class QQBuilder(BasePlatformBuilder):
 
     # --- 下面是每个动作的具体“翻译”实现 ---
 
-    def _build_generic_event(self, action_name: str, params: dict[str, Any], conv_info: ConversationInfo | None = None) -> Event:
-        """
-        一个通用的翻译模板，这个方法会根据动作名称和参数来构建一个标准的Event对象.
+    def _build_generic_event(
+        self, action_name: str, params: dict[str, Any], conv_info: ConversationInfo | None = None
+    ) -> Event:
+        """一个通用的翻译模板，这个方法会根据动作名称和参数来构建一个标准的Event对象.
+
         Args:
-            action_name (str): 动作名称，标识要执行的具体动作。
-            params (dict[str, Any]): 动作参数，包含执行这个动作所需的所有信息。
-            conv_info (ConversationInfo | None): 可选的会话信息，如果有的话。
+            action_name (str): 动作名称，标识要执行的具体动作.
+            params (dict[str, Any]): 动作参数，包含执行这个动作所需的所有信息.
+            conv_info (ConversationInfo | None): 可选的会话信息，如果有的话.
+
         Returns:
-            Event: 返回一个Event对象，表示这个动作的执行结果。
+            Event: 返回一个Event对象，表示这个动作的执行结果.
         """
         final_event_type = f"action.{self.platform_id}.{action_name}"
         action_seg = Seg(type="action_params", data=params)
@@ -134,12 +140,13 @@ class QQBuilder(BasePlatformBuilder):
         )
 
     def _build_send_message(self, params: dict[str, Any]) -> Event | None:
-        """
-        这个发消息的比较特殊，内容是消息段列表，而不是 action_params.
+        """这个发消息的比较特殊，内容是消息段列表，而不是 action_params.
+
         Args:
-            params (dict[str, Any]): 包含发送消息所需的所有参数。
+            params (dict[str, Any]): 包含发送消息所需的所有参数.
+
         Returns:
-            Event | None: 返回一个Event对象，表示发送消息的动作。
+            Event | None: 返回一个Event对象，表示发送消息的动作.
         """
         conversation_id = params.get("conversation_id")
         content_segs_data = params.get("content", [])
@@ -149,7 +156,9 @@ class QQBuilder(BasePlatformBuilder):
             return None
 
         # 它的 content 就是消息本身，而不是 action_params
-        message_segs = [Seg(type=seg.get("type"), data=seg.get("data", {})) for seg in content_segs_data]
+        message_segs = [
+            Seg(type=seg.get("type"), data=seg.get("data", {})) for seg in content_segs_data
+        ]
         conv_type = params.get("conversation_type", "group")
 
         return Event(
@@ -158,11 +167,20 @@ class QQBuilder(BasePlatformBuilder):
             time=int(time.time() * 1000),
             bot_id=config.persona.qq_id or "unknown_bot",
             content=message_segs,
-            conversation_info=ConversationInfo(conversation_id=str(conversation_id), type=conv_type),
+            conversation_info=ConversationInfo(
+                conversation_id=str(conversation_id), type=conv_type
+            ),
         )
 
     def _build_send_forward_message(self, params: dict[str, Any]) -> Event | None:
-        """这个合并转发也特殊，内容是 node 列表。"""
+        """这个合并转发消息的处理也比较特殊，它需要一个节点列表和会话信息.
+
+        Args:
+            params (dict[str, Any]): 包含转发消息所需的所有参数.
+
+        Returns:
+            Event | None: 返回一个Event对象，表示转发消息的动作.
+        """
         nodes = params.get("nodes", [])
         conv_info_dict = params.get("conversation_info", {})
         if not nodes or not conv_info_dict:
@@ -178,7 +196,6 @@ class QQBuilder(BasePlatformBuilder):
             content=node_segs,
             conversation_info=ConversationInfo.from_dict(conv_info_dict),
         )
-
 
     def get_action_definitions(self) -> dict[str, Any]:
         """获取当前平台的所有动作定义.
@@ -234,7 +251,10 @@ class QQBuilder(BasePlatformBuilder):
                 "description": "在指定的QQ群里戳一个成员，或者私聊戳好友。",
                 "properties": {
                     "target_user_id": {"type": "string", "description": "要戳的用户的QQ号。"},
-                    "target_group_id": {"type": "string", "description": "（可选）如果在群里戳，这里是群号。"},
+                    "target_group_id": {
+                        "type": "string",
+                        "description": "（可选）如果在群里戳，这里是群号。",
+                    },
                 },
                 "required": ["target_user_id"],
             },
@@ -244,7 +264,10 @@ class QQBuilder(BasePlatformBuilder):
                 "properties": {
                     "group_id": {"type": "string", "description": "目标群号。"},
                     "user_id": {"type": "string", "description": "要踢出的成员QQ号。"},
-                    "reject_add_request": {"type": "boolean", "description": "是否拒绝该用户后续加群请求。"},
+                    "reject_add_request": {
+                        "type": "boolean",
+                        "description": "是否拒绝该用户后续加群请求。",
+                    },
                 },
                 "required": ["group_id", "user_id"],
             },
@@ -323,7 +346,11 @@ class QQBuilder(BasePlatformBuilder):
                     },
                     "approve": {"type": "boolean", "description": "是否同意请求。"},
                     "reason": {"type": "string", "description": "（可选）拒绝理由。"},
-                    "original_request_sub_type": {"type": "string", "enum": ["join_application", "invite_received"], "description": "原始请求的子类型。"},
+                    "original_request_sub_type": {
+                        "type": "string",
+                        "enum": ["join_application", "invite_received"],
+                        "description": "原始请求的子类型。",
+                    },
                 },
                 "required": ["request_flag", "approve", "original_request_sub_type"],
             },
@@ -383,8 +410,9 @@ class QQBuilder(BasePlatformBuilder):
                 "properties": {
                     "list_type": {
                         "type": "string",
-                        "enum": ["group", "friend"], 
-                        "description": "要获取的列表类型。"}
+                        "enum": ["group", "friend"],
+                        "description": "要获取的列表类型。",
+                    }
                 },
                 "required": ["list_type"],
             },
@@ -421,7 +449,10 @@ class QQBuilder(BasePlatformBuilder):
                 "description": "获取群文件列表。",
                 "properties": {
                     "group_id": {"type": "string", "description": "目标群号。"},
-                    "folder_id": {"type": "string", "description": "（可选）文件夹ID，不填则为根目录。"},
+                    "folder_id": {
+                        "type": "string",
+                        "description": "（可选）文件夹ID，不填则为根目录。",
+                    },
                 },
                 "required": ["group_id"],
             },
@@ -441,7 +472,11 @@ class QQBuilder(BasePlatformBuilder):
                 "description": "删除群文件或文件夹。",
                 "properties": {
                     "group_id": {"type": "string", "description": "目标群号。"},
-                    "item_type": {"type": "string", "enum": ["file", "folder"], "description": "要删除的项目类型。"},
+                    "item_type": {
+                        "type": "string",
+                        "enum": ["file", "folder"],
+                        "description": "要删除的项目类型。",
+                    },
                     "file_id": {"type": "string", "description": "（如果删除文件）文件ID。"},
                     "busid": {"type": "integer", "description": "（如果删除文件）busid。"},
                     "folder_id": {"type": "string", "description": "（如果删除文件夹）文件夹ID。"},
@@ -472,7 +507,10 @@ class QQBuilder(BasePlatformBuilder):
                 "description": "获取群荣誉信息。",
                 "properties": {
                     "group_id": {"type": "string", "description": "目标群号。"},
-                    "type": {"type": "string", "description": "荣誉类型（如 'talkative', 'performer' 等）。"},
+                    "type": {
+                        "type": "string",
+                        "description": "荣誉类型（如 'talkative', 'performer' 等）。",
+                    },
                 },
                 "required": ["group_id", "type"],
             },
@@ -489,9 +527,7 @@ class QQBuilder(BasePlatformBuilder):
             "get_group_notice": {
                 "type": "object",
                 "description": "获取群公告列表。",
-                "properties": {
-                    "group_id": {"type": "string", "description": "目标群号。"}
-                },
+                "properties": {"group_id": {"type": "string", "description": "目标群号。"}},
                 "required": ["group_id"],
             },
             "set_message_emoji_like": {
@@ -506,16 +542,12 @@ class QQBuilder(BasePlatformBuilder):
             "get_recent_contacts": {
                 "type": "object",
                 "description": "获取最近联系人列表。",
-                "properties": {
-                    "count": {"type": "integer", "description": "获取的数量。"}
-                },
+                "properties": {"count": {"type": "integer", "description": "获取的数量。"}},
             },
             "get_ai_characters": {
                 "type": "object",
                 "description": "获取可用的AI语音角色列表。",
-                "properties": {
-                    "group_id": {"type": "string", "description": "目标群号。"}
-                },
+                "properties": {"group_id": {"type": "string", "description": "目标群号。"}},
                 "required": ["group_id"],
             },
             "send_ai_voice": {

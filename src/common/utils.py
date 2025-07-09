@@ -7,9 +7,8 @@ from collections import defaultdict
 from typing import Any
 
 import yaml
+from aicarus_protocols import SegBuilder
 from src.common.custom_logging.logging_config import get_logger
-
-# 确保 config 被正确导入，如果 format_messages_for_llm_context 中用到了
 
 logger = get_logger(__name__)
 
@@ -79,9 +78,9 @@ def is_valid_message(msg: str) -> bool:
     return not re.fullmatch(r"text_\d+", msg.strip())
 
 
-# --- 消息内容处理器 ---
-class MessageContentProcessor:
-    """统一的消息内容处理器.
+# --- 消息内容解析器 ---
+class MessageParser:
+    """统一的消息内容解析器.
 
     Attributes:
         image_placeholder_key: 用于图片占位符的键名.
@@ -177,56 +176,6 @@ class MessageContentProcessor:
             processed_segments_for_yaml.append(current_segment_for_yaml)
 
         return processed_segments_for_yaml, image_sources_for_llm
-
-    @staticmethod
-    def create_text_segment(text: str) -> dict:
-        """创建文本消息段.
-
-        Args:
-            text: 要包含的文本内容.
-
-        Returns:
-            dict: 包含文本信息的消息段字典.
-        """
-        return {"type": "text", "data": {"text": text}}
-
-    @staticmethod
-    def create_at_segment(user_id: str, display_name: str = "") -> dict:
-        """创建 @ 用户消息段.
-
-        Args:
-            user_id: 用户的唯一标识符.
-            display_name: 用户的显示名称（可选）.
-
-        Returns:
-            dict: 包含 @ 用户信息的消息段字典.
-        """
-        return {
-            "type": "at",
-            "data": {
-                "user_id": user_id,
-                "display_name": display_name or f"@{user_id}",
-            },
-        }
-
-    @staticmethod
-    def create_image_segment(file_id: str, url: str = "", base64_data: str = "") -> dict:
-        """创建图片消息段.
-
-        Args:
-            file_id: 图片文件的唯一标识符.
-            url: 图片的URL地址（可选）.
-            base64_data: 图片的Base64编码数据（可选）.
-
-        Returns:
-            dict: 包含图片信息的消息段字典.
-        """
-        data = {"file_id": file_id}
-        if url:
-            data["url"] = url
-        if base64_data:
-            data["base64"] = base64_data
-        return {"type": "image", "data": data}
 
 
 # --- 平台状态摘要格式化 ---
@@ -572,12 +521,10 @@ def format_messages_for_llm_context(
 
             content_list_to_process = msg_dict.get("content", [])
             if not isinstance(content_list_to_process, list):
-                content_list_to_process = [
-                    MessageContentProcessor.create_text_segment(str(content_list_to_process))
-                ]
+                content_list_to_process = [SegBuilder.text(str(content_list_to_process))]
 
             final_message_segments_for_yaml, message_images_for_llm_this_message = (
-                MessageContentProcessor.extract_text_content(
+                MessageParser.extract_text_content(
                     content_list_to_process, image_placeholder_key, image_placeholder_value
                 )
             )

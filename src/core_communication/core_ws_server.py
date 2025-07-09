@@ -152,6 +152,7 @@ class CoreWebsocketServer:
             self._run_inspection_ceremony(adapter_id, display_name)
         )
         self.active_inspection_tasks.add(inspection_task)
+
         # 为了确保任务完成后能清理掉
         def _done_callback(t: asyncio.Task) -> None:
             """任务完成后的回调函数，用于清理和记录异常."""
