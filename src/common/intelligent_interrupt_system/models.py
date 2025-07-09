@@ -205,16 +205,20 @@ class SemanticMarkovModel:
             float: 意外度分数，越高表示越意外.
         """
         if self.transition_matrix is None or self.kmeans is None:
-            return 50.0
+            return 0.0
 
         current_state = self._get_state(current_text)
 
         if previous_text is None:
-            return 40.0
+            return 10.0
 
         previous_state = self._get_state(previous_text)
 
         transition_probability = self.transition_matrix[previous_state, current_state]
+
+        # 避免log(0)
+        if transition_probability == 0:
+            return 100.0  # 如果是完全没见过的跳转，给一个超高分
 
         unexpectedness_score = -math.log(transition_probability)
 

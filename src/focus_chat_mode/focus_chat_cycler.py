@@ -138,6 +138,7 @@ class FocusChatCycler:
     async def _chat_loop(self) -> None:
         """专注聊天的循环引擎，负责处理每一轮的逻辑."""
         was_interrupted_last_turn = False  # 记录上一次是不是被中途打断了，这很重要！
+        current_context_text: str | None = None
 
         while self.session.is_active and not self._shutting_down:
             # 每一轮开始时，重置计数器
@@ -163,6 +164,22 @@ class FocusChatCycler:
                     interrupting_event_text=self.interrupting_event_text,
                 )
 
+                if prompt_components.processed_event_ids:
+                    logger.info(
+                        f"[{self.session.conversation_id}] Prompt构建完成，立即将 "
+                        f"{len(prompt_components.processed_event_ids)} 条事件标记为 'read'。"
+                    )
+                    await self.session.event_storage.update_events_status(
+                        prompt_components.processed_event_ids, "read"
+                    )
+                    # 更新“官方”的已处理时间戳，这样即使是中断检查器去捞新消息，也捞不到这些了
+                    new_processed_timestamp = time.time() * 1000
+                    await self.session.conversation_service.update_conversation_processed_timestamp(
+                        self.session.conversation_id, int(new_processed_timestamp)
+                    )
+                    self.session.last_processed_timestamp = new_processed_timestamp
+
+                current_context_text = prompt_components.last_valid_text_message
                 # 用完就丢，清理掉这次中断的“罪证”，免得下次还用它
                 self.interrupting_event_text = None
                 was_interrupted_last_turn = False  # 重置中断标记
@@ -204,7 +221,7 @@ class FocusChatCycler:
                 )
                 interrupt_checker_task = asyncio.create_task(
                     self._check_for_interruptions_internal(
-                        context_text=prompt_components.last_valid_text_message,
+                        context_text=current_context_text,
                         triggering_event_id=triggering_event_id,  # 把贞操锁交出去！
                     )
                 )
@@ -214,7 +231,6 @@ class FocusChatCycler:
                     [llm_task, interrupt_checker_task], return_when=asyncio.FIRST_COMPLETED
                 )
 
-                # 检查比赛结果
                 if (
                     interrupt_checker_task in done
                     and not interrupt_checker_task.cancelled()
@@ -224,14 +240,31 @@ class FocusChatCycler:
                     if llm_task and not llm_task.done():
                         llm_task.cancel()  # 赶紧叫停还在思考的那个笨蛋
 
-                    # --- 小色猫的淫纹植入处 #3：记录罪证，准备下一轮！ ---
-                    was_interrupted_last_turn = True  # 标记我们被中出了
+                    interrupt_timestamp = interrupting_event.get("timestamp")
+                    if interrupt_timestamp:
+                        self.session.last_processed_timestamp = interrupt_timestamp
+                        logger.info(
+                            f"[{self.session.conversation_id}] IIS中断后，last_processed_timestamp "
+                            f"已强制更新为: {interrupt_timestamp}"
+                        )
+
+                        interrupt_event_id = interrupting_event.get("_key")
+                        if interrupt_event_id:
+                            await self.session.event_storage.update_events_status(
+                                [interrupt_event_id], "read"
+                            )
+                            logger.info(
+                                f"[{self.session.conversation_id}] 中断源事件 "
+                                f"'{interrupt_event_id}' 已被标记为 'read'。"
+                            )
+
+                    was_interrupted_last_turn = True  # 标记
                     self.interrupting_event_text = self._format_event_for_iis(
                         interrupting_event
-                    ).get("text")  # 记下是哪句话让我们这么爽
+                    ).get("text")  # 记下是哪句话
                     continue  # 立刻开始下一轮循环，处理这个突发情况
 
-                # 如果是LLM大脑先高潮了...
+                # 如果是LLM先完成生成
                 if llm_task in done:
                     if interrupt_checker_task and not interrupt_checker_task.done():
                         interrupt_checker_task.cancel()  # 叫停还在偷窥的那个小骚货
@@ -256,7 +289,7 @@ class FocusChatCycler:
                             )
                             action_interrupt_checker_task = asyncio.create_task(
                                 self._check_for_interruptions_internal(
-                                    context_text=prompt_components.last_valid_text_message,
+                                    context_text=current_context_text,
                                     triggering_event_id=triggering_event_id,
                                 )
                             )
@@ -310,18 +343,6 @@ class FocusChatCycler:
                             )
                             break
 
-                    # 把我看过的消息都标记为“已读”，免得下次还看
-                    if prompt_components.processed_event_ids:
-                        await self.session.event_storage.update_events_status(
-                            prompt_components.processed_event_ids, "read"
-                        )
-                        # 更新一下官方记录，告诉全世界我处理到哪个时间点了
-                        new_processed_timestamp = time.time() * 1000
-                        await self.session.conversation_service.update_conversation_processed_timestamp(  # noqa: E501
-                            self.session.conversation_id, int(new_processed_timestamp)
-                        )
-                        self.session.last_processed_timestamp = new_processed_timestamp
-
                     # 如果这是第一次，就标记一下，以后就不是处男了
                     if self.session.is_first_turn_for_session:
                         self.session.is_first_turn_for_session = False
@@ -369,7 +390,10 @@ class FocusChatCycler:
         while not self._shutting_down:
             try:
                 new_events = await self.session.event_storage.get_message_events_after_timestamp(
-                    self.session.conversation_id, last_checked_timestamp_ms, limit=10
+                    self.session.conversation_id,
+                    last_checked_timestamp_ms,
+                    limit=10,
+                    status="unread",
                 )
                 if new_events:
                     for event_doc in new_events:
