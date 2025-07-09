@@ -13,6 +13,14 @@ logger = get_logger(__name__)
 
 
 class ThoughtPersistor:
+    """负责将思考结果打包成思想点并存储到数据库中.
+
+    这个类主要用于处理思考结果的存储逻辑，包括生成唯一的行动 ID 和打包成思想点.
+
+    Attributes:
+        thought_storage (ThoughtStorageService): 用于存储思想点的服务实例.
+    """
+
     def __init__(self, thought_storage: "ThoughtStorageService") -> None:
         self.thought_storage = thought_storage
         logger.info("ThoughtPersistor 已初始化。")
@@ -20,7 +28,18 @@ class ThoughtPersistor:
     async def store_thought(
         self, thought_json: dict[str, Any], source_type: str, source_id: str | None = None
     ) -> str | None:
-        """处理并存储思考结果到数据库，这次我们用统一的、全新的思想链！"""
+        """将思考结果打包成思想点并存储到数据库中.
+
+        这个过程包括提取有效载荷并生成唯一的行动 ID.
+
+        Args:
+            thought_json (dict[str, Any]): 包含思考结果的 JSON 对象.
+            source_type (str): 思考来源的类型，例如 "user", "system" 等.
+            source_id (str | None): 可选的来源 ID，用于标识思考的来源.
+
+        Returns:
+            str | None: 成功时返回新思想点的唯一键，否则返回 None.
+        """
         action_payload = thought_json.get("action")
         action_id = (
             str(uuid.uuid4()) if action_payload and isinstance(action_payload, dict) else None

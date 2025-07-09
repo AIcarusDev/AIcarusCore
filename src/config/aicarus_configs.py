@@ -6,8 +6,9 @@ from .config_base import ConfigBase
 
 @dataclass
 class PersonaSettings(ConfigBase):
-    """定义 AI 机器人的人格设置。
-    包括名称、描述和个人资料信息。
+    """定义 AI 机器人的人格设置.
+
+    包括名称、描述和个人资料信息.
     """
 
     bot_name: str = "霜"
@@ -25,8 +26,9 @@ class PersonaSettings(ConfigBase):
 
 @dataclass
 class LLMClientSettings(ConfigBase):
-    """定义 LLM 客户端的设置。
-    包括 API 密钥、基础 URL、图像处理设置等。
+    """定义 LLM 客户端的设置.
+
+    包括 API 密钥、基础 URL、图像处理设置等.
     """
 
     image_placeholder_tag: str = "[IMAGE_HERE]"
@@ -47,8 +49,9 @@ class LLMClientSettings(ConfigBase):
 
 @dataclass
 class ModelParams(ConfigBase):
-    """定义单个模型的参数。
-    'provider' 字段至关重要，它决定了如何获取API密钥和基础URL。
+    """定义单个模型的参数.
+
+    'provider' 字段至关重要，它决定了如何获取API密钥和基础URL.
     """
 
     provider: str  # 例如 "gemini", "openai", "ollama"
@@ -72,9 +75,10 @@ class ModelParams(ConfigBase):
 
 @dataclass
 class AllModelPurposesConfig(ConfigBase):
-    """统一存放所有不同用途的模型配置。
-    每个字段代表一个AI任务，其值是该任务所使用的模型参数 (ModelParams)。
-    这个类现在将直接作为 AlcarusRootConfig 的一个字段。
+    """统一存放所有不同用途的模型配置.
+
+    每个字段代表一个AI任务，其值是该任务所使用的模型参数 (ModelParams).
+    这个类现在将直接作为 AlcarusRootConfig 的一个字段.
     """
 
     main_consciousness: ModelParams | None = None
@@ -102,8 +106,9 @@ class AllModelPurposesConfig(ConfigBase):
 
 @dataclass
 class DatabaseSettings(ConfigBase):
-    """数据库连接设置
-    此处无需修改，无需配置文件中创建对应配置项。该配置将直接被环境变量覆盖。
+    """数据库连接设置.
+
+    此处无需修改，无需配置文件中创建对应配置项。该配置将直接被环境变量覆盖.
     """
 
     host: str = "http://localhost:8529"
@@ -161,8 +166,9 @@ class LoggingSettings(ConfigBase):
 
 @dataclass
 class InnerConfig(ConfigBase):
-    """Aicarus 内部配置，包含版本号和协议版本。
-    这些信息用于确保 Aicarus 的各个组件之间的兼容性。
+    """Aicarus 内部配置，包含版本号和协议版本.
+
+    这些信息用于确保 Aicarus 的各个组件之间的兼容性.
     """
 
     version: str = "0.1.0"
@@ -174,7 +180,7 @@ class InnerConfig(ConfigBase):
 
 @dataclass
 class FocusChatModeSettings(ConfigBase):
-    """专注聊天模式的设置"""
+    """专注聊天模式的设置."""
 
     enabled: bool = True
     """是否启用子意识模块"""
@@ -207,8 +213,9 @@ class FocusChatModeSettings(ConfigBase):
 
 @dataclass
 class TestFunctionConfig(ConfigBase):
-    """测试功能配置类，用于测试和调试目的。
-    这个类将包含一些测试相关的设置，未来可能会被移除。
+    """测试功能配置类，用于测试和调试目的.
+
+    这个类将包含一些测试相关的设置，未来可能会被移除.
     """
 
     enable_test_group: bool = False
@@ -235,8 +242,9 @@ class SpeakerWeightEntry(ConfigBase):
 
 @dataclass
 class InterruptModelConfig(ConfigBase):
-    """中断模型配置类，用于定义中断模型的相关设置。
-    这个类将包含中断模型的名称和其他相关参数。
+    """中断模型配置类，用于定义中断模型的相关设置.
+
+    这个类将包含中断模型的名称和其他相关参数.
     """
 
     objective_keywords: list[str] = field(default_factory=list)
@@ -251,8 +259,9 @@ class InterruptModelConfig(ConfigBase):
 
 @dataclass
 class RuntimeEnvironmentSettings(ConfigBase):
-    """运行时环境设置，包括临时文件目录等。
-    这些设置用于配置 Aicarus 在运行时的环境参数。
+    """运行时环境设置，包括临时文件目录等.
+
+    这些设置用于配置 Aicarus 在运行时的环境参数.
     """
 
     temp_file_directory: str = "/tmp/aicarus_temp_images"
@@ -261,8 +270,9 @@ class RuntimeEnvironmentSettings(ConfigBase):
 
 @dataclass
 class AlcarusRootConfig(ConfigBase):
-    """Aicarus 的根配置类，包含所有核心设置和模型配置。
-    这个类将作为 Aicarus 的主要配置入口点，包含所有必要的设置。
+    """Aicarus 的根配置类，包含所有核心设置和模型配置.
+
+    这个类将作为 Aicarus 的主要配置入口点，包含所有必要的设置.
     """
 
     inner: InnerConfig

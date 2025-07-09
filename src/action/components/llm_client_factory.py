@@ -10,7 +10,8 @@ logger = get_logger(__name__)
 
 
 class LLMClientFactory:
-    """一个工厂类，负责根据配置文件创建和初始化LLM客户端。
+    """一个工厂类，负责根据配置文件创建和初始化LLM客户端.
+
     这有助于将LLM客户端的创建逻辑与使用逻辑分离。
     """
 
@@ -18,7 +19,7 @@ class LLMClientFactory:
         logger.info(f"{self.__class__.__name__} instance created.")
 
     def create_client(self, purpose_key: str) -> ProcessorClient:
-        """根据指定的用途从配置中创建一个 ProcessorClient 实例。
+        """根据指定的用途从配置中创建一个 ProcessorClient 实例.
 
         Args:
             purpose_key: 在配置中定义的模型用途键 (例如, "action_decision")。
@@ -37,7 +38,10 @@ class LLMClientFactory:
 
             model_params_cfg = getattr(config.llm_models, purpose_key, None)
             if not model_params_cfg or not hasattr(model_params_cfg, "provider"):
-                msg = f"配置错误：在 AlcarusRootConfig.llm_models 下未找到模型用途键 '{purpose_key}' 对应的有效模型配置。"
+                msg = (
+                    f"配置错误：在 AlcarusRootConfig.llm_models 下未找到模型用途键 "
+                    f"'{purpose_key}' 对应的有效模型配置。"
+                )
                 logger.error(msg)
                 raise RuntimeError(msg)
 
@@ -59,7 +63,8 @@ class LLMClientFactory:
 
             if final_proxy_host and final_proxy_port:
                 logger.info(
-                    f"LLM客户端工厂将为 '{purpose_key}' 使用环境变量中的代理: {final_proxy_host}:{final_proxy_port}"
+                    f"LLM客户端工厂将为 '{purpose_key}' 使用环境变量中的代理: {final_proxy_host}"
+                    f":{final_proxy_port}"
                 )
 
             model_for_client = {
@@ -85,7 +90,9 @@ class LLMClientFactory:
             client_instance = ProcessorClient(**final_args)
 
             logger.info(
-                f"成功创建 ProcessorClient 实例用于 '{purpose_key}' (模型: {client_instance.llm_client.model_name}, 提供商: {client_instance.llm_client.provider})."
+                f"成功创建 ProcessorClient 实例用于 '{purpose_key}' "
+                f"(模型: {client_instance.llm_client.model_name}, "
+                f"提供商: {client_instance.llm_client.provider})."
             )
             return client_instance
 

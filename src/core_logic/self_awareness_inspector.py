@@ -17,16 +17,17 @@ logger = get_logger(__name__)
 async def inspect_and_initialize_self_profile(
     person_service: "PersonStorageService", action_handler: "ActionHandler", platform_id: str
 ) -> bool:
-    """检查并初始化机器人自身在特定平台上的档案。
-    这是一个独立的异步函数，在适配器连接后被调用。
+    """检查并初始化机器人自身在特定平台上的档案.
+
+    这是一个独立的异步函数，在适配器连接后被调用.
 
     Args:
-        person_service: 已经准备好的 PersonStorageService 实例。
-        action_handler: 已经准备好的 ActionHandler 实例。
-        platform_id: 刚刚连接上的适配器的平台ID。
+        person_service: 已经准备好的 PersonStorageService 实例.
+        action_handler: 已经准备好的 ActionHandler 实例.
+        platform_id: 刚刚连接上的适配器的平台ID.
 
     Returns:
-        True 如果档案已存在或成功创建，False 如果失败。
+        True 如果档案已存在或成功创建，False 如果失败.
     """
     logger.info(f"--- 收到平台 '{platform_id}' 连接信号，开始自我客观信息检查 ---")
 
@@ -35,7 +36,8 @@ async def inspect_and_initialize_self_profile(
     if await persons_collection.has(SELF_PERSON_ID):
         # TODO: 未来可以在这里加入“定期复查”的逻辑
         logger.info(
-            f"核心档案 '{SELF_PERSON_ID}' 已存在。未来可在此处添加对平台 '{platform_id}' 信息的更新检查。"
+            f"核心档案 '{SELF_PERSON_ID}' 已存在。"
+            f"未来可在此处添加对平台 '{platform_id}' 信息的更新检查。"
         )
         return True
 

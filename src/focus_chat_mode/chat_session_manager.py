@@ -28,8 +28,28 @@ logger = get_logger(__name__)
 
 
 class ChatSessionManager:
-    """管理所有 ChatSession 实例，处理消息分发和会话生命周期。
-    （小色猫重构版）
+    """管理所有 ChatSession 实例，处理消息分发和会话生命周期.
+
+    这个类负责创建、获取和管理聊天会话的生命周期，包括消息的分发和处理。
+
+    Attributes:
+        config (FocusChatModeSettings): 专注聊天模式的配置设置。
+        llm_client (LLMProcessorClient): LLM 处理器客户端，用于与 LLM 交互。
+        event_storage (EventStorageService): 事件存储服务，用于存储和检索事件。
+        action_handler (ActionHandler): 动作处理器，用于处理会话中的动作。
+        bot_id (str): 机器人的唯一标识符，用于识别和处理消息。
+        conversation_service (ConversationStorageService): 会话存储服务，用于管理会话数据.
+        summarization_service (SummarizationService): 摘要服务，用于生成会话摘要.
+        summary_storage_service (SummaryStorageService): 摘要存储服务，用于存储和检索摘要数据.
+        intelligent_interrupter (IntelligentInterrupter): 智能中断系统，用于处理
+            会话中的智能中断逻辑.
+        thought_storage_service (ThoughtStorageService): 思考存储服务，用于存储和检索思考数据.
+        core_logic (Optional[CoreLogicFlow]): 核心逻辑流实例，用于处理会话的核心逻辑和决策.
+        sessions (dict[str, ChatSession]): 存储所有活动聊天会话的字典，键为会话ID，
+            值为 ChatSession 实例.
+        lock (asyncio.Lock): 异步锁，用于确保对会话字典的线程安全访问.
+        focus_session_inactive_event (Optional[asyncio.Event]): 用于唤醒主意识的
+            事件对象，当所有专注会话结束时触发.
     """
 
     def __init__(
@@ -77,7 +97,8 @@ class ChatSessionManager:
             logger.info("已从 CoreLogic 获取 focus_session_inactive_event。")
         else:
             logger.error(
-                "CoreLogic 实例中没有找到 focus_session_inactive_event！这会导致主意识无法被正确唤醒！"
+                "CoreLogic 实例中没有找到 focus_session_inactive_event！"
+                "这会导致主意识无法被正确唤醒！"
             )
             self.focus_session_inactive_event = None
 
@@ -93,6 +114,17 @@ class ChatSessionManager:
         platform: str | None = None,
         conversation_type: str | None = None,
     ) -> ChatSession:
+        """获取或创建一个聊天会话实例.
+
+        如果会话已存在，则返回现有实例；如果不存在，则创建一个新的会话实例。
+
+        Args:
+            conversation_id (str): 会话的唯一标识符。
+            platform (str | None): 消息来源的平台（如 QQ、Telegram 等）。
+            conversation_type (str | None): 会话类型（如 group、private 等）。
+        Returns:
+            ChatSession: 对应的聊天会话实例。
+        """
         async with self.lock:
             if conversation_id not in self.sessions:
                 logger.info(f"[SessionManager] 为 '{conversation_id}' 创建新的会话实例。")
@@ -125,9 +157,12 @@ class ChatSessionManager:
             return self.sessions[conversation_id]
 
     async def deactivate_session(self, conversation_id: str) -> None:
-        """根据会话ID停用并移除一个会话。
-        这通常由会话自身决定结束时调用。
-        哼，不想玩了就直说嘛，我帮你收拾烂摊子。
+        """根据会话ID停用并移除一个会话.
+
+        这个方法会检查会话是否存在，如果存在则停用它并从管理器中移除。
+
+        Args:
+            conversation_id (str): 要停用的会话的唯一标识符。
         """
         async with self.lock:
             if conversation_id in self.sessions:
@@ -160,9 +195,16 @@ class ChatSessionManager:
                 )
 
     async def _is_bot_mentioned(self, event: Event, session: "ChatSession") -> bool:
-        """检查消息中是否 @ 了机器人。
-        哼，看看是不是有人在背后议论我。
-        现在我学会照镜子了！
+        """检查消息中是否 @ 了机器人.
+
+        这个方法会遍历消息内容，寻找 @ 机器人的标记。
+        如果找到了，就返回 True，表示机器人被提及了。
+
+        Args:
+            event (Event): 消息事件对象，包含消息内容和会话信息。
+            session (ChatSession): 当前会话实例，用于获取机器人的当前状态。
+        Returns:
+            bool: 如果消息中提及了机器人，返回 True；否则返回 False。
         """
         if not event.event_type.startswith("message.") or not (
             event.conversation_info and event.conversation_info.type == "group"
@@ -255,8 +297,15 @@ class ChatSessionManager:
         platform: str,
         conversation_type: str,
     ) -> None:
-        """根据会话ID激活一个专注会话。
-        哼，这是大老板直接下达的命令，得赶紧办！
+        """根据会话ID激活一个专注会话.
+
+        这通常由外部事件触发，比如用户@机器人或私聊消息。
+
+        Args:
+            conversation_id (str): 会话的唯一标识符。
+            core_motivation (str): 激活会话的核心动机。
+            platform (str): 消息来源的平台（如 QQ、Telegram 等）。
+            conversation_type (str): 会话类型（如 group、private 等）。
         """
         logger.info(
             f"[SessionManager] 收到激活会话 '{conversation_id}' 的请求。"
@@ -295,9 +344,7 @@ class ChatSessionManager:
         return any(session.is_active for session in sessions_copy.values())
 
     async def shutdown(self) -> None:
-        """关闭所有活动的聊天会话。
-        这会触发每个会话保存其最终总结。
-        """
+        """关闭所有活动的聊天会话."""
         logger.info("[SessionManager] 正在开始关闭所有活动会话...")
         active_sessions: list[ChatSession]
         async with self.lock:

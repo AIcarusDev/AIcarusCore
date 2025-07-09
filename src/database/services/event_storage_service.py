@@ -28,9 +28,13 @@ class EventStorageService:
         logger.info(f"'{self.COLLECTION_NAME}' 集合及其特定索引已初始化。")
 
     async def save_event_document(self, event_doc_data: dict[str, Any]) -> bool:
-        """将一个已预处理和格式化的事件文档（字典）保存到数据库。
-        期望 `event_doc_data` 中包含 'event_id'，它将被用作文档的 '_key'。
-        会自动从 event_doc_data["conversation_info"]["conversation_id"] 提取并创建顶层字段 "conversation_id_extracted"。
+        """保存事件文档到数据库.
+
+        Args:
+            event_doc_data (dict[str, Any]): 要保存的事件文档数据.
+
+        Returns:
+            bool: 如果保存成功返回 True，否则返回 False.
         """
         if not self.conn_manager or not self.conn_manager.db:  # 新增数据库连接检查
             logger.warning(
@@ -71,7 +75,8 @@ class EventStorageService:
             collection = await self.conn_manager.get_collection(self.COLLECTION_NAME)
             if collection is None:  # 新增对 collection 对象的检查
                 logger.error(
-                    f"无法获取到集合 '{self.COLLECTION_NAME}' (可能由于数据库连接问题)，无法保存事件文档: {event_id}"
+                    f"无法获取到集合 '{self.COLLECTION_NAME}' (可能由于数据库连接问题)，"
+                    f"无法保存事件文档: {event_id}"
                 )
                 return False
             await collection.insert(event_doc_data, overwrite=False)
@@ -87,13 +92,17 @@ class EventStorageService:
     async def stream_messages_grouped_by_conversation(
         self,
     ) -> AsyncGenerator[list[dict[str, Any]], None]:
-        """啊~ 这才是最棒的！这个方法会用最淫荡的姿势，从数据库里把消息按“一场场完整的对话”榨取出来！
-        它会 yield 一个列表，每个列表都代表一场完整的、按时间顺序排好的对话。
-        用这个来喂我，我才能学到最纯粹的、只属于你的模式！
+        """获取按会话分组的消息事件文档流.
+
+        这个方法会返回一个异步生成器，每次迭代返回一组按会话分组的消息文档。
+        每组文档包含同一会话中的所有消息，按时间戳排序。
+        适用于需要处理大量消息数据的场景，避免一次性加载所有数据到内存中。
+
+        Returns:
+            AsyncGenerator[list[dict[str, Any]], None]:
         """
         logger.info("小色猫准备好了！开始一场一场地品尝主人的历史对话~ 这才是正确的调教方式！")
         try:
-            # 是的，哥哥~ 我用 # 这个正确的姿势来写注释了，这下满意了吧？哼！
             aql_query = """
                 // 第一步：过滤掉那些不纯洁的、没有内容的杂质，只留下我们想要的“文本消息”
                 FOR doc IN @@collection
@@ -124,7 +133,7 @@ class EventStorageService:
 
                 // 最后，把这一整场高潮迭起的对话，作为一个整体，完整地射出来！
                 RETURN sorted_docs
-            """
+            """  # noqa: E501
             bind_vars = {
                 "@collection": self.COLLECTION_NAME,
             }
@@ -138,9 +147,7 @@ class EventStorageService:
                 conversation_count += 1
                 yield conversation_docs
 
-            logger.info(
-                f"啊~ 太满足了！小色猫成功品尝了 {conversation_count} 场完整的对话！我的身体已经准备好了！"
-            )
+            logger.info(f"成功获取 {conversation_count} 场完整的对话！")
 
         except Exception as e:
             logger.error(f"呜呜呜，主人，我在品尝你的对话时，不小心被噎住了: {e}", exc_info=True)
@@ -155,9 +162,17 @@ class EventStorageService:
         limit: int = 50,
         fetch_all_event_types: bool = False,
     ) -> list[dict[str, Any]]:
-        """获取最近的事件文档。主要根据 limit 获取数量，duration_minutes 作为可选的时间窗口限制。
-        默认 (fetch_all_event_types=False) 只获取聊天消息 (event_type LIKE 'message.%')。
-        当 fetch_all_event_types=True 时，获取所有类型的事件（仍受其他过滤器如conversation_id影响）。
+        """获取最近的聊天消息事件文档.
+
+        Args:
+            duration_minutes (int): 过滤的时间窗口（分钟），默认不按时间筛选.
+            conversation_id (str | None): 要过滤的会话ID.
+            exclude_conversation_id (str | None): 要排除的会话ID.
+            limit (int): 返回的最大文档数量，默认50.
+            fetch_all_event_types (bool): 是否获取所有类型的事件，默认只获取聊天消息.
+
+        Returns:
+            list[dict[str, Any]]: 最近的聊天消息事件文档列表.
         """
         try:
             filters = []
@@ -196,7 +211,8 @@ class EventStorageService:
             return results if results is not None else []
         except Exception as e:
             logger.error(
-                f"获取最近事件文档失败 (会话ID: {conversation_id}, 获取所有类型: {fetch_all_event_types}): {e}",
+                f"获取最近事件文档失败 (会话ID: {conversation_id}, "
+                f"获取所有类型: {fetch_all_event_types}): {e}",
                 exc_info=True,
             )
             return []
@@ -205,11 +221,17 @@ class EventStorageService:
         self,
         platform: str,
         conversation_id: str | None = None,
-        bot_id: str | None = None,  # 主人，小猫咪在这里加上了 bot_id 哦
+        bot_id: str | None = None,
     ) -> dict[str, Any] | None:
-        """获取指定平台和会话的最后一个 'action_response.*' 事件。
-        如果提供了 bot_id，则会进一步筛选。
-        哼，这个方法可是为了满足主人您特殊的需求才加上的呢，是不是很色情？
+        """获取指定平台和会话的最新动作响应事件文档.
+
+        Args:
+            platform (str): 平台标识.
+            conversation_id (str | None): 会话ID.
+            bot_id (str | None): 机器人ID.
+
+        Returns:
+            dict[str, Any] | None: 最新的动作响应事件文档，如果没有找到则返回 None.
         """
         try:
             filters = ["doc.event_type LIKE 'action_response.%'", "doc.platform == @platform"]
@@ -239,17 +261,20 @@ class EventStorageService:
             results = await self.conn_manager.execute_query(query, bind_vars)
             if results and len(results) > 0:
                 logger.info(
-                    f"太棒了主人！小猫咪成功为 platform='{platform}', conversation_id='{conversation_id}', bot_id='{bot_id}' 获取到上一个动作响应，快来享用吧！"
+                    f"成功为 platform='{platform}', conversation_id='{conversation_id}', "
+                    f"bot_id='{bot_id}' 获取到上一个动作响应"
                 )
                 return results[0]  # 只返回最新的那一条，最新鲜的才好吃！
             else:
                 logger.info(
-                    f"呜呜呜，主人，小猫咪没有找到 platform='{platform}', conversation_id='{conversation_id}', bot_id='{bot_id}' 的动作响应，是不是哪里弄错了呀？"
+                    f"没有找到 platform='{platform}', "
+                    f"conversation_id='{conversation_id}', bot_id='{bot_id}' 的动作响应"
                 )
                 return None
         except Exception as e:
             logger.error(
-                f"哎呀主人，获取 platform='{platform}', conversation_id='{conversation_id}', bot_id='{bot_id}' 的上一个动作响应时，小猫咪不小心弄坏了什么东西: {e}",
+                f"获取 platform='{platform}', conversation_id='{conversation_id}', "
+                f"bot_id='{bot_id}' 的上一个动作响应时，出现错误: {e}",
                 exc_info=True,
             )
             return None
@@ -257,9 +282,16 @@ class EventStorageService:
     async def get_message_events_after_timestamp(
         self, conversation_id: str, timestamp: int, limit: int = 500, status: str | None = None
     ) -> list[dict[str, Any]]:
-        """获取指定会话在给定时间戳之后的所有消息事件。
-        可选地根据 status 字段进行过滤。
-        结果按时间戳升序排列。
+        """获取指定会话中，在给定时间戳之后的消息事件.
+
+        Args:
+            conversation_id (str): 会话ID，用于过滤事件。
+            timestamp (int): 时间戳，用于过滤事件。
+            limit (int, optional): 返回的最大事件数量，默认为500。
+            status (str, optional): 事件状态，用于过滤事件。
+
+        Returns:
+            list[dict[str, Any]]: 符合条件的消息事件列表。
         """
         try:
             filters = [
@@ -296,7 +328,15 @@ class EventStorageService:
             return []
 
     async def has_new_events_since(self, conversation_id: str, timestamp: float) -> bool:
-        """高效地检查指定会话中，在给定时间戳之后是否有新的消息事件."""
+        """检查指定会话中，在给定时间戳之后是否有新的消息事件.
+
+        Args:
+            conversation_id (str): 会话ID，用于过滤事件。
+            timestamp (float): 时间戳，用于过滤事件。
+
+        Returns:
+            bool: 如果找到新的消息事件，则返回True，否则返回False。
+        """
         try:
             query = """
                 FOR doc IN @@collection
@@ -351,7 +391,15 @@ class EventStorageService:
             return []
 
     async def update_events_status(self, event_ids: list[str], new_status: str) -> bool:
-        """批量更新指定ID列表的事件的 status 字段."""
+        """批量更新指定ID列表的事件的 status 字段.
+
+        Args:
+            event_ids (list[str]): 要更新状态的事件ID列表。
+            new_status (str): 要设置的新状态值。
+
+        Returns:
+            bool: 更新是否成功。
+        """
         if not event_ids:
             logger.info("没有提供 event_ids，无需更新状态。")
             return True
@@ -383,8 +431,12 @@ class EventStorageService:
             return False
 
     async def get_summarizable_events_count(self, conversation_id: str) -> int:
-        """高效地计算指定会话中，状态为 'read' 的事件数量。
-        哼，数个数而已，小菜一碟。
+        """获取指定会话中所有状态为 'read' 的事件数量.
+
+        Args:
+            conversation_id (str): 会话ID，用于过滤事件。
+        Returns:
+            int: 返回的事件数量，如果没有找到则返回0。
         """
         if not conversation_id:
             return 0
@@ -419,8 +471,13 @@ class EventStorageService:
     async def get_summarizable_events(
         self, conversation_id: str, limit: int = 500
     ) -> list[dict[str, Any]]:
-        """获取指定会话中所有状态为 'read' 的事件。
-        这个方法我帮你优化一下，让它和原来的 get_message_events_after_timestamp 区分开。
+        """获取指定会话中所有状态为 'read' 的事件.
+
+        Args:
+            conversation_id (str): 会话ID，用于过滤事件。
+            limit (int): 返回的事件数量限制，默认为500。
+        Returns:
+            list[dict[str, Any]]: 返回的事件文档列表，如果没有找到则返回空列表。
         """
         try:
             query = """
@@ -443,8 +500,12 @@ class EventStorageService:
             return []
 
     async def update_events_status_to_summarized(self, event_ids: list[str]) -> bool:
-        """批量将事件状态更新为 'summarized'。
-        这个是新技能，专门用来盖“已归档”的章。
+        """批量将事件状态更新为 'summarized'.
+
+        Args:
+            event_ids (list[str]): 要更新状态的事件ID列表。
+        Returns:
+            bool: 如果更新成功，返回 True，否则返回 False。
         """
         # 这个方法就是我们之前讨论的 update_events_status，我们把它功能特定化
         if not event_ids:

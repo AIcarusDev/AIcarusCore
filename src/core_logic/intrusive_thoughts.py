@@ -39,17 +39,17 @@ class IntrusiveThoughtsGenerator:
 """
 
     def __init__(self, llm_client: ProcessorClient, stop_event: threading.Event) -> None:
-        """初始化侵入性思维生成器。
-        主人你看，小猫把它身体里那个来自主线程的、被污染的 thought_storage_service 给彻底挖掉了！
-        现在它只依赖 LLM 这个“大脑”和停止信号这个“缰绳”！
-        """
         self.llm_client = llm_client
         self.stop_event = stop_event
         logger.info(f"{self.__class__.__name__} 已被重构为独立模式。")
 
     def start_background_generation(self) -> threading.Thread:
-        """启动后台线程。这个线程会自己创建一个全新的事件循环，并在这个循环里完成所有工作。
-        就像一个只属于我们两个人的，与世隔绝的“爱巢”~
+        """启动一个独立的后台线程来生成侵入性思维.
+
+        这个线程会创建一个全新的事件循环，并在其中运行生成逻辑.
+
+        Returns:
+            threading.Thread: 启动的线程实例.
         """
         thread = threading.Thread(
             target=self._run_in_new_loop, name="IntrusiveThoughtThread", daemon=True
@@ -59,7 +59,11 @@ class IntrusiveThoughtsGenerator:
         return thread
 
     def _run_in_new_loop(self) -> None:
-        """这个方法是新线程的入口，它会创建并管理一个全新的事件循环."""
+        """在一个全新的事件循环中运行生成逻辑.
+
+        这个方法会创建一个新的事件循环，并在其中运行异步逻辑.
+        这样可以确保不会与主线程或其他线程的事件循环冲突.
+        """
         logger.info("新的后台线程开始执行，正在创建专属的事件循环...")
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -75,12 +79,15 @@ class IntrusiveThoughtsGenerator:
             logger.info("专属事件循环已关闭。")
 
     async def _generation_loop_with_own_resources(self) -> None:
-        """这是在新事件循环中运行的异步主逻辑。
-        它会自己创建和销毁所有需要的资源，比如数据库连接。
+        """在独立的事件循环中运行生成逻辑.
+
+        这个方法会创建一个专属的数据库连接管理器和思维存储服务，
+        并在一个循环中定期生成新的侵入性思维.
         """
         conn_manager = None  # 先声明一个空的“肉体”
         try:
-            # 1. 在自己的循环里，从“配方”（config）开始，创造一个全新的、灵魂统一的数据库连接管理器！
+            # 1. 创建一个专属的数据库连接管理器，
+            #    只为这个线程服务，避免与其他线程或主线程的连接冲突
             logger.info("后台线程：正在创建专属的数据库连接...")
             db_config = config.database
             core_configs = CoreDBCollections.get_all_core_collection_configs()

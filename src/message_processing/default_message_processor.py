@@ -90,8 +90,8 @@ class DefaultMessageProcessor:
             return
 
         logger.debug(
-            f"开始处理事件: {proto_event.event_type}, ID: {proto_event.event_id}, ",
-            f"Platform: {platform_id}, BotID: {proto_event.bot_id}",
+            f"开始处理事件: {proto_event.event_type}, ID: {proto_event.event_id}, "
+            f"Platform: {platform_id}, BotID: {proto_event.bot_id}"
         )
 
         event_status = "unread"
@@ -108,8 +108,8 @@ class DefaultMessageProcessor:
             )
         ):
             logger.debug(
-                f"测试模式下，事件 '{proto_event.event_id}' 来自非测试会话 ",
-                f"'{conversation_id_for_check}'，状态将设置为 'ignored'。",
+                f"测试模式下，事件 '{proto_event.event_id}' 来自非测试会话 "
+                f"'{conversation_id_for_check}'，状态将设置为 'ignored'。"
             )
             event_status = "ignored"
 
@@ -178,13 +178,13 @@ class DefaultMessageProcessor:
                     )
                 else:
                     logger.error(
-                        "处理会话档案 (ConversationInfo) ",
-                        f"'{proto_event.conversation_info.conversation_id}' 时发生错误。",
+                        "处理会话档案 (ConversationInfo) "
+                        f"'{proto_event.conversation_info.conversation_id}' 时发生错误。"
                     )
             elif proto_event.event_type.startswith(f"message.{platform_id}"):
                 logger.warning(
-                    f"消息类事件 {proto_event.event_id} 缺少有效的 ConversationInfo，",
-                    "无法为其创建或更新会话档案。",
+                    f"消息类事件 {proto_event.event_id} 缺少有效的 ConversationInfo，"
+                    f"无法为其创建或更新会话档案。"
                 )
 
             if event_status != "unread":
@@ -226,8 +226,8 @@ class DefaultMessageProcessor:
                 return
 
             logger.info(
-                f"收到会话 '{conversation_id}' 的机器人档案更新通知: ",
-                f"'{update_type}' -> '{new_value}'",
+                f"收到会话 '{conversation_id}' 的机器人档案更新通知: "
+                f"'{update_type}' -> '{new_value}'"
             )
 
             # 检查这个会话当前是否在专注聊天模式下是活跃的

@@ -1,4 +1,4 @@
-# src/focus_chat_mode/chat_prompt_builder.py (小懒猫·独立思考完整版)
+# src/focus_chat_mode/chat_prompt_builder.py
 import contextlib
 import os
 from typing import TYPE_CHECKING, Any
@@ -22,6 +22,20 @@ logger = get_logger(__name__)
 
 
 class ChatPromptBuilder:
+    """专注聊天模式下的Prompt构建器.
+
+    负责构建适合专注聊天模式的Prompt组件。
+
+    Attributes:
+        session (ChatSession): 当前聊天会话实例。
+        event_storage (EventStorageService): 事件存储服务，用于获取聊天记录。
+        action_handler (ActionHandler): 动作处理器，用于执行动作。
+        bot_id (str): 机器人的唯一标识符。
+        platform (str): 聊天平台标识符。
+        conversation_id (str): 当前会话的唯一标识符。
+        conversation_type (str): 会话类型（如私聊或群聊）。
+    """
+
     def __init__(
         self,
         session: "ChatSession",
@@ -51,7 +65,8 @@ class ChatPromptBuilder:
                     self._temp_image_dir = str(PROJECT_ROOT / "temp_images_runtime_fallback")
                 except ImportError:
                     logger.error(
-                        "无法从 src.config.config_paths 导入 PROJECT_ROOT，备用临时目录将基于当前文件位置猜测。"
+                        "无法从 src.config.config_paths 导入 PROJECT_ROOT，"
+                        "备用临时目录将基于当前文件位置猜测。"
                     )
                     current_file_path = os.path.abspath(__file__)
                     # 假设此文件在 AIcarusCore/src/logic/chat/chat_prompt_builder.py
@@ -63,8 +78,8 @@ class ChatPromptBuilder:
                     )
         except AttributeError as e:
             logger.error(
-                f"无法从配置 (config.runtime_environment.temp_file_directory) 获取临时文件目录: {e}。"
-                "请检查配置文件结构和内容。将使用默认备用路径。"
+                f"无法从配置 (config.runtime_environment.temp_file_directory) "
+                f"获取临时文件目录: {e}。请检查配置文件结构和内容。将使用默认备用路径。"
             )
             try:
                 from src.config.config_paths import PROJECT_ROOT
@@ -72,7 +87,8 @@ class ChatPromptBuilder:
                 self._temp_image_dir = str(PROJECT_ROOT / "temp_images_runtime_fallback_attr_error")
             except ImportError:
                 logger.error(
-                    "无法从 src.config.config_paths 导入 PROJECT_ROOT，备用临时目录将基于当前文件位置猜测 (AttributeError)。"
+                    "无法从 src.config.config_paths 导入 PROJECT_ROOT，"
+                    "备用临时目录将基于当前文件位置猜测 (AttributeError)。"
                 )
                 current_file_path = os.path.abspath(__file__)
                 project_root_guess = os.path.dirname(
@@ -84,7 +100,8 @@ class ChatPromptBuilder:
 
         os.makedirs(self._temp_image_dir, exist_ok=True)
         logger.info(
-            f"[ChatPromptBuilder][{self.conversation_id}] 实例已创建 (bot_id: {self.bot_id}, type: {self.conversation_type}). "
+            f"[ChatPromptBuilder][{self.conversation_id}] 实例已创建 (bot_id: {self.bot_id}, "
+            f"type: {self.conversation_type}). "
             f"将使用临时图片目录: {self._temp_image_dir}"
         )
 
@@ -97,8 +114,20 @@ class ChatPromptBuilder:
         was_last_turn_interrupted: bool = False,
         interrupting_event_text: str | None = None,
     ) -> PromptComponents:
-        """构建专注聊天模式下给LLM的System Prompt和User Prompt。
-        哼，看好了，这才叫专业的组装方式！
+        """构建专注聊天模式下给LLM的System Prompt和User Prompt.
+
+        这个方法会根据当前会话的状态和配置，生成适合专注聊天模式的Prompt组件。
+
+        Args:
+            session (ChatSession): 当前聊天会话实例。
+            last_processed_timestamp (float): 上次处理的消息时间戳，用于获取新消息。
+            is_first_turn (bool): 是否是会话的第一轮。
+            motivation_from_core (str | None): 来这里的动机，通常是从核心逻辑传递过来的。
+                例如：“我决定过来看看。” 或 “我被打断了，需要重新思考。” 等。
+            was_last_turn_interrupted (bool): 上一轮是否被打断。
+            interrupting_event_text (str | None): 如果被打断，打断的消息内容。
+        Returns:
+            PromptComponents: 包含构建好的System Prompt和User Prompt的组件。
         """
         # --- 步骤1：准备模板和一些通用信息 ---
         logger.debug(f"[{self.session.conversation_id}] 开始构建Prompt...")
@@ -129,7 +158,7 @@ class ChatPromptBuilder:
             and self.session.core_logic.prompt_builder
         ):
             try:
-                unread_summary_str = await self.session.core_logic.prompt_builder.unread_info_service.generate_unread_summary_text(
+                unread_summary_str = await self.session.core_logic.prompt_builder.unread_info_service.generate_unread_summary_text(  # noqa: E501
                     exclude_conversation_id=self.session.conversation_id
                 )
             except Exception as e:
@@ -139,7 +168,8 @@ class ChatPromptBuilder:
                 unread_summary_str = "获取其他会话摘要时出错。"
         else:
             logger.warning(
-                f"[{self.session.conversation_id}] 无法获取 unread_info_service，未读消息摘要将为空。"
+                f"[{self.session.conversation_id}] 无法获取 unread_info_service，"
+                f"未读消息摘要将为空。"
             )
 
         # --- 步骤2：调用新玩具，获取所有格式化好的聊天记录相关信息 ---
@@ -258,8 +288,17 @@ class ChatPromptBuilder:
                 if latest_thought_doc:
                     think = latest_thought_doc.get("think", "我被打断前正在想...")
                     mood = latest_thought_doc.get("mood", "平静")
-                    return f'刚刚你的心情是："{mood}"。\n刚刚你的内心想法是："{think}"。\n但你还没来得及做出任何行动，就被新的消息“{interrupt_text or "某条新消息"}”吸引了注意。'
-                return f"你正准备开始思考，但就被新的消息“{interrupt_text or '某条新消息'}”打断了。你需要先处理这个新情况。"
+                    parts = [
+                        f'刚刚你的心情是："{mood}"。',
+                        f'刚刚你的内心想法是："{think}"。',
+                        f"但你还没来得及做出任何行动，就被新的消息"
+                        f"“{interrupt_text or '某条新消息'}”吸引了注意。",
+                    ]
+                    return "".join(parts)
+                return (
+                    f"你正准备开始思考，但就被新的消息“{interrupt_text or '某条新消息'}”"
+                    f"打断了。你需要先处理这个新情况。"
+                )
             else:
                 if latest_thought_doc:
                     think = latest_thought_doc.get("think", "我被打断前正在想...")
@@ -278,9 +317,12 @@ class ChatPromptBuilder:
                     parts = [
                         f'刚刚你的心情是："{mood}"。',
                         f'刚刚你的内心想法是："{think}"。',
-                        f"出于这个想法，你决定发言，并计划发送 {session.messages_planned_this_turn} 条消息。",
+                        f"出于这个想法，你决定发言，"
+                        f"并计划发送 {session.messages_planned_this_turn} 条消息。",
                         f"原因是：{motivation}。" if motivation else "",
-                        f"但是，在你发送了 {session.messages_sent_this_turn} 条消息后，新的消息“{interrupt_text or '某条新消息'}”让你感到意外，所以你停下了后续的发言。现在你需要基于这个新情况重新思考。",
+                        f"但是，在你发送了 {session.messages_sent_this_turn} 条消息后，"
+                        f"新的消息“{interrupt_text or '某条新消息'}”让你感到意外，"
+                        f"所以你停下了后续的发言。现在你需要基于这个新情况重新思考。",
                     ]
                     return "\n".join(p for p in parts if p)
                 return "你在发送消息时被打断了，但上一轮的思考记录丢失了。请重新评估情况。"
@@ -296,7 +338,10 @@ class ChatPromptBuilder:
             motivation_part = motivation_from_core or "我决定过来看看。"
 
             # // 这就是你想要的那个开场白！
-            return f"你刚才的心情是“{mood_part}”。\n你刚才的想法是：“{think_part}”。\n你现在刚刚把注意力放到这个会话中，因为：“{motivation_part}”。"
+            return (
+                f"你刚才的心情是“{mood_part}”。\n你刚才的想法是：“{think_part}”。\n"
+                f"你现在刚刚把注意力放到这个会话中，因为：“{motivation_part}”。"
+            )
 
         # // 后续的正常循环也从最新的思想点里拿信息
         if latest_thought_doc:

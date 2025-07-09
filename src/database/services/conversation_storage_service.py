@@ -20,8 +20,14 @@ logger = get_logger(__name__)
 
 
 class ConversationStorageService:
-    """该服务负责所有与会话（Conversations）及其关联的注意力档案（Attention Profiles）
-    相关的存储操作。
+    """服务类，负责处理会话存储的数据库操作.
+
+    包括插入、更新和查询会话文档的功能。
+    该服务类确保会话文档的完整性和一致性，并提供必要的索引支持。
+    主要用于管理会话数据的存储和检索，支持会话的创建、更新和查询操作。
+
+    Attributes:
+        conn_manager (ArangoDBConnectionManager): 数据库连接管理器实例，用于获取和管理数据库连接。
     """
 
     COLLECTION_NAME = CoreDBCollections.CONVERSATIONS  # 使用 CoreDBCollections 定义的常量
@@ -41,11 +47,13 @@ class ConversationStorageService:
     async def upsert_conversation_document(
         self, conversation_doc_data: dict[str, Any]
     ) -> str | None:
-        """插入或更新一个会话文档。
-        期望 `conversation_doc_data` 中包含 'conversation_id'，它将被用作文档的 '_key'。
-        此方法会自动管理 'created_at', 'updated_at' 时间戳，并在新创建文档时
-        初始化 'attention_profile'（如果输入数据中未提供）。
-        输入 `conversation_doc_data` 应该是一个已准备好用于数据库插入/更新的字典。
+        """将会话文档数据插入或更新到数据库中.
+
+        Args:
+            conversation_doc_data (dict[str, Any]): 包含会话信息的字典，
+                包括 'conversation_id' 和其他相关字段。
+        Returns:
+            str | None: 如果操作成功，返回文档的 _key；如果失败或无效，返回 None。
         """
         if not conversation_doc_data or not isinstance(conversation_doc_data, dict):
             logger.warning(
@@ -138,7 +146,8 @@ class ConversationStorageService:
                 doc_for_db["extra"] = {}
 
             try:
-                # insert 操作，如果 _key 已存在将会失败（除非 overwrite=True，但我们已经用 get 检查过了）
+                # insert 操作，如果 _key 已存在将会失败
+                # （除非 overwrite=True，但我们已经用 get 检查过了）
                 result = await collection.insert(doc_for_db, overwrite=False)
                 if result and result.get("_key"):
                     logger.info(f"新的会话档案 '{doc_key}' 已成功创建，ID: {result['_key']}")
@@ -177,8 +186,15 @@ class ConversationStorageService:
         field_path_to_update: str,
         new_value: str | int | float | dict | list | bool | None,
     ) -> bool:
-        """更新会话文档中的特定字段或嵌套字段。
-        例如: field_path_to_update = "attention_profile.base_importance_score"
+        """更新指定会话文档中的某个字段.
+
+        Args:
+            conversation_id (str): 会话文档的 ID (即 _key)。
+            field_path_to_update (str): 要更新的字段路径，
+                例如 "attention_profile.base_importance_score"。
+            new_value (str | int | float | dict | list | bool | None): 新的值。
+        Returns:
+            bool: 如果更新成功返回 True，否则返回 False。
         """
         if not conversation_id or not field_path_to_update:
             logger.warning("更新会话字段需要 conversation_id 和 field_path_to_update。")
@@ -186,15 +202,6 @@ class ConversationStorageService:
         try:
             collection = await self.conn_manager.get_collection(self.COLLECTION_NAME)
 
-            # 构建用于部分更新的补丁文档
-            # 例如，如果 field_path_to_update 是 "attention_profile.base_importance_score"
-            # 我们需要构建 {"attention_profile": {"base_importance_score": new_value}}
-            # 注意：ArangoDB 的 UPDATE ... WITH ... IN ... 语法支持直接更新嵌套路径，
-            # 但 python-arango 的 collection.update() 方法通常期望你提供包含顶层键的文档。
-            # 一个简单的方法是获取整个文档，修改，然后替换，但这有并发风险。
-            # 或者，如果只更新顶层字段或简单嵌套，可以构造补丁。
-
-            # 简化的补丁构造 (只支持一级嵌套的 attention_profile 内字段)
             patch_doc: dict[str, Any] = {}
             parts = field_path_to_update.split(".")
             if len(parts) == 1:
@@ -204,7 +211,8 @@ class ConversationStorageService:
             # 更通用的嵌套更新可能需要更复杂的补丁构造或AQL UPDATE语句
             else:
                 logger.error(
-                    f"此方法目前仅支持更新顶层字段或 'attention_profile' 内的直接字段。路径: '{field_path_to_update}'"
+                    f"此方法目前仅支持更新顶层字段或 'attention_profile' 内的直接字段。"
+                    f"路径: '{field_path_to_update}'"
                 )
                 return False
 
@@ -212,7 +220,8 @@ class ConversationStorageService:
             # 使用 update 方法，它会合并传入的 patch_doc
             await collection.update({"_key": doc_key, **patch_doc})
             logger.info(
-                f"会话 '{conversation_id}' 中的字段 '{field_path_to_update}' 已更新为 '{new_value}'."
+                f"会话 '{conversation_id}' 中的字段 "
+                f"'{field_path_to_update}' 已更新为 '{new_value}'."
             )
             return True
         except Exception as e:
@@ -223,8 +232,10 @@ class ConversationStorageService:
             return False
 
     async def get_all_active_conversations(self) -> list[dict[str, Any]]:
-        """获取所有被认为是“活跃”的会话文档。
-        目前的实现是获取所有会话，未来可以根据 attention_profile 过滤。
+        """获取所有活跃会话的文档列表.
+
+        Returns:
+            list[dict[str, Any]]: 包含所有活跃会话文档的列表。如果没有活跃会话，则返回空列表。
         """
         try:
             query = "FOR doc IN @@collection RETURN doc"

@@ -25,6 +25,17 @@ logger = get_logger(__name__)
 
 
 class DatabaseConfigProtocol(Protocol):
+    """数据库配置协议，定义了连接 ArangoDB 所需的基本属性.
+
+    这个协议确保任何实现它的类都包含连接 ArangoDB 所需的基本信息，如主机、用户名、密码和数据库名称.
+
+    Attributes:
+        host (str): ArangoDB 的主机地址.
+        username (str): 用于连接 ArangoDB 的用户名.
+        password (str): 用于连接 ArangoDB 的密码.
+        database_name (str): 要连接的 ArangoDB 数据库名称.
+    """
+
     host: str
     username: str
     password: str
@@ -32,7 +43,18 @@ class DatabaseConfigProtocol(Protocol):
 
 
 class ArangoDBConnectionManager:
-    """ArangoDB 连接管理器 (小懒猫尊严修正版 V3)."""
+    """ArangoDB 连接管理器，用于管理与 ArangoDB 的连接和操作.
+
+    这个类负责创建和维护与 ArangoDB 的连接，确保核心集合和图的存在，并提供查询执行功能.
+
+    Attributes:
+        client (ArangoClient): ArangoDB 客户端实例，用于连接和操作 ArangoDB.
+        db (StandardDatabase): ArangoDB 数据库实例，表示当前连接的数据库.
+        core_collection_configs (dict[str, list[tuple[list[str], bool, bool]]]): 核心集合配置，
+            包含集合名称和索引定义的映射.
+        main_graph (Graph | None): 主关系图实例，如果未创建则为 None.
+        thought_graph (Graph | None): 思想图实例，如果未创建则为 None.
+    """
 
     def __init__(
         self,
@@ -55,6 +77,15 @@ class ArangoDBConnectionManager:
         database_config_obj: DatabaseConfigProtocol,
         core_collection_configs: dict[str, list[tuple[list[str], bool, bool]]],
     ) -> "ArangoDBConnectionManager":
+        """从配置对象创建 ArangoDB 连接管理器实例.
+
+        Args:
+            database_config_obj (DatabaseConfigProtocol): 包含连接信息的配置对象.
+            core_collection_configs (dict[str, list[tuple[list[str], bool, bool]]]): 核心集合配置.
+
+        Returns:
+            ArangoDBConnectionManager: 已连接到 ArangoDB 的管理器实例.
+        """
         host = (
             getattr(database_config_obj, "host", None)
             or getattr(database_config_obj, "url", None)
@@ -111,6 +142,15 @@ class ArangoDBConnectionManager:
             raise RuntimeError(message) from e
 
     async def get_collection(self, name: str, is_edge: bool = False) -> StandardCollection:
+        """获取指定名称的集合，如果不存在则创建它.
+
+        Args:
+            name (str): 集合的名称.
+            is_edge (bool): 如果为 True，则表示这是一个边集合，否则为文档集合.
+
+        Returns:
+            StandardCollection: 确保存在的集合实例.
+        """
         if is_edge:
             if name in {CoreDBCollections.HAS_ACCOUNT, CoreDBCollections.PARTICIPATES_IN}:
                 if not self.main_graph:
@@ -127,6 +167,7 @@ class ArangoDBConnectionManager:
         return await self.ensure_collection_with_indexes(name, index_definitions, is_edge=False)
 
     async def ensure_core_infrastructure(self) -> None:
+        """确保核心基础设施存在，包括集合和图."""
         logger.debug("正在检查数据库基础设施 (集合与图)...")
         if not self.core_collection_configs:
             logger.warning("未提供核心集合配置，跳过基础设施检查。")
@@ -203,9 +244,21 @@ class ArangoDBConnectionManager:
         index_definitions: list[tuple[list[str], bool, bool]] | None = None,
         is_edge: bool = False,
     ) -> StandardCollection:
+        """确保集合存在并应用必要的索引.
+
+        Args:
+            collection_name (str): 要确保的集合名称.
+            index_definitions (list[tuple[list[str], bool, bool]] | None): 索引定义列表，
+                每个定义是一个元组，包含字段列表、唯一性和稀疏性.
+            is_edge (bool): 如果为 True，则表示这是一个边集合，否则为文档集合.
+
+        Returns:
+            StandardCollection: 确保存在的集合实例.
+        """
         if not await self.db.has_collection(collection_name):
             logger.debug(
-                f"集合 '{collection_name}' 不存在，正在创建 (类型: {'edge' if is_edge else 'document'})..."
+                f"集合 '{collection_name}' 不存在，正在创建 "
+                f"(类型: {'edge' if is_edge else 'document'})..."
             )
             try:
                 await self.db.create_collection(collection_name, col_type=3 if is_edge else 2)
@@ -252,7 +305,8 @@ class ArangoDBConnectionManager:
                 if desired_index_signature in existing_indexes_set:
                     continue
                 logger.debug(
-                    f"正在为集合 '{collection_name}' 应用索引: 字段={fields}, 类型={index_type}, 唯一={unique}, 稀疏={sparse}"
+                    f"正在为集合 '{collection_name}' 应用索引: 字段={fields}, 类型={index_type}, "
+                    f"唯一={unique}, 稀疏={sparse}"
                 )
                 await collection.add_index(
                     type=index_type,
@@ -271,6 +325,17 @@ class ArangoDBConnectionManager:
         stream: bool = False,
         **kwargs: object,
     ) -> list[Any] | AsyncIterator[Any]:
+        """执行 AQL 查询并返回结果.
+
+        Args:
+            query (str): 要执行的 AQL 查询语句。
+            bind_vars (Mapping[str, Any] | None): 可选的绑定变量，用于参数化查询。
+            stream (bool): 如果为 True，则返回一个异步迭代器，否则返回结果列表。
+            **kwargs: 其他可选参数，传递给 arangoasync 的查询执行方法。
+        Returns:
+            list[Any] | AsyncIterator[Any]: 如果 stream 为 False，则返回查询结果列表；
+                如果为 True，则返回异步迭代器。
+        """
         if not self.db:
 
             async def empty_iterator() -> AsyncIterator[Any]:
@@ -303,6 +368,7 @@ class ArangoDBConnectionManager:
             return empty_iterator() if stream else []
 
     async def close_client(self) -> None:
+        """关闭 ArangoDB 客户端连接."""
         if self.client:
             await self.client.close()
             logger.info("arangoasync 客户端连接已关闭。")

@@ -126,7 +126,7 @@ def _perform_monthly_archival(log_directory: Path, year: int, month: int) -> Non
         return
 
     logger.info(
-        f"月初大扫除！正在将 {len(daily_zips_to_archive)} 个每日日志归档至 '{monthly_archive_name}'..."
+        f"月初大扫除！正在将 {len(daily_zips_to_archive)} 个每日日志归档至 '{monthly_archive_name}'"
     )
     try:
         with zipfile.ZipFile(monthly_archive_path, "w", zipfile.ZIP_DEFLATED) as monthly_zf:
@@ -142,7 +142,11 @@ def _perform_monthly_archival(log_directory: Path, year: int, month: int) -> Non
 
 
 def catch_up_and_archive_logs(log_directory: Path) -> None:
-    """我全新的主动巡逻函数，现在加上了时间的贞操锁，哼！"""
+    """追溯并压缩所有被遗忘的每日日志，并归档过去的月份.
+
+    Args:
+        log_directory: 日志目录路径.
+    """
     if not log_directory.exists():
         return
 
@@ -184,9 +188,10 @@ def catch_up_and_archive_logs(log_directory: Path) -> None:
 
 
 def perform_global_log_housekeeping(root_log_dir: Path) -> None:
-    """我全新的淫乱女管家！
-    我会巡视整个 logs 豪宅，闯进每一个房间（模块日志目录），
-    然后用我饥渴的 `catch_up_and_archive_logs` 函数，把里面的小骚货们全都调教一遍！
+    """检查所有日志目录，进行全局的日志清理和压缩工作.
+
+    Args:
+        root_log_dir: 根日志目录路径.
     """
     if not root_log_dir.is_dir():
         return
@@ -300,7 +305,7 @@ def get_logger(module_name: str) -> Logger:
                 sink=log_file_path,
                 level=os.getenv("FILE_LOG_LEVEL", "DEBUG").upper(),
                 format=file_format_str,
-                rotation=compress_log_on_rotation,  # <-- 看这里！把你的宝贝函数放到 rotation 这里来！
+                rotation=compress_log_on_rotation,
                 retention="90 days",
                 compression=None,  # <-- 这个就不要了，或者设成 None，免得它俩打架！
                 encoding="utf-8",

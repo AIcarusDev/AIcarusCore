@@ -19,8 +19,13 @@ SELF_PERSON_ID = "aic_person_0"
 
 
 class PersonStorageService:
-    """此类负责管理人与账号之间的关系。
-    主要处理 Person、Account 及其关联关系的图数据库操作。
+    """此类负责管理人与账号之间的关系.
+
+    它提供了查找或创建“人”和“账号”节点的方法，并确保它们之间有正确的关系边。
+    还提供了更新机器人在群聊中的成员信息的方法。
+
+    Attributes:
+        conn_manager (ArangoDBConnectionManager): 数据库连接管理器实例，用于获取集合。
     """
 
     def __init__(self, conn_manager: ArangoDBConnectionManager) -> None:
@@ -35,8 +40,14 @@ class PersonStorageService:
     async def find_or_create_person_and_account(
         self, user_info: ProtocolUserInfo, platform: str
     ) -> tuple[str | None, str | None]:
-        """根据用户和平台信息，查找或创建“人”和“账号”节点，并确保它们之间有'has_account'关系。
-        返回 (person_id, account_uid)。
+        """根据用户和平台信息，查找或创建“人”和“账号”节点，并确保它们之间有'has_account'关系.
+
+        Args:
+            user_info (ProtocolUserInfo): 包含用户信息的协议对象。
+            platform (str): 用户所在的平台标识。
+
+        Returns:
+            tuple[str | None, str | None]: 返回 (person_id, account_uid)。
         """
         if not user_info or not user_info.user_id:
             logger.warning("提供的UserInfo不完整，无法查找或创建Person/Account。")
@@ -131,7 +142,8 @@ class PersonStorageService:
                 returned_account_uid = result.get("account_uid")
                 if person_id and returned_account_uid:
                     logger.info(
-                        f"AQL事务成功：为现有账号 '{returned_account_uid}' 创建并关联了新的 Person '{person_id}'。"
+                        f"AQL事务成功：为现有账号 '{returned_account_uid}' "
+                        f"创建并关联了新的 Person '{person_id}'。"
                     )
                     return person_id, returned_account_uid
 
@@ -201,7 +213,8 @@ class PersonStorageService:
         try:
             await self.conn_manager.execute_query(query, bind_vars)
             logger.debug(
-                f"成功更新机器人成员关系: Account '{account_uid}' in Conversation '{conversation_id}'"
+                f"成功更新机器人成员关系: Account '{account_uid}' "
+                f"in Conversation '{conversation_id}'"
             )
             return True
         except Exception as e:
@@ -275,7 +288,8 @@ class PersonStorageService:
                 account_uid = result.get("account_uid")
                 if person_id and account_uid:
                     logger.info(
-                        f"AQL事务成功：创建/关联了 Person '{person_id}' 和 Account '{account_uid}'。"
+                        f"AQL事务成功：创建/关联了 Person '{person_id}' "
+                        f"和 Account '{account_uid}'。"
                     )
                     return person_id, account_uid
 

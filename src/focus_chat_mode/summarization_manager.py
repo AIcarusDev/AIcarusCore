@@ -78,8 +78,8 @@ class SummarizationManager:
             log_prefix = f"[{self.session.conversation_id}]"
             summary_type = "最终" if final_save else "阶段性"
             logger.info(
-                f"{log_prefix} 已达到{summary_type}总结阈值({len(events_to_summarize)}/",
-                f"{'N/A' if final_save else self.summary_threshold})，开始整合摘要...",
+                f"{log_prefix} 已达到{summary_type}总结阈值({len(events_to_summarize)}/"
+                f"{'N/A' if final_save else self.summary_threshold})，开始整合摘要..."
             )
 
             # 3. 准备调用总结服务所需的东西

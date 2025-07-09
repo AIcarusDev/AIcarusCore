@@ -1,6 +1,7 @@
 # 这是一个文本分割器模块，主要用于将长文本分割成更小的句子或段落，以便于处理和分析。
 # 该模块提供了多种功能，包括保护书名号和省略号、
-# 目前这个方法已经不再使用了，项目中的文本分割逻辑已经迁移到 focus_chat_mode 模块中，由llm自己决定是否需要分割文本，以及如何分割。
+# 目前这个方法已经不再使用了，项目中的文本分割逻辑已经迁移到 focus_chat_mode 模块中，
+# 由llm自己决定是否需要分割文本，以及如何分割。
 # 但是为了未来可能的复用和兼容性，这里保留了这个模块的代码。
 import random
 import re
@@ -95,7 +96,8 @@ KNOWN_ABBREVIATIONS_ENDING_WITH_DOT = {
 
 
 def is_letter_not_han(char_str: str) -> bool:
-    """检查单个字符是否为“字母”且“非汉字”。
+    """检查单个字符是否为“字母”且“非汉字”.
+
     例如拉丁字母、西里尔字母、韩文等返回True。
     汉字、数字、标点、空格等返回False。
 
@@ -115,7 +117,7 @@ def is_letter_not_han(char_str: str) -> bool:
 
 
 def is_han_character(char_str: str) -> bool:
-    r"""检查单个字符是否为汉字 (使用 Unicode \p{Han} 属性)。
+    r"""检查单个字符是否为汉字 (使用 Unicode \p{Han} 属性).
 
     Args:
         char_str: 待检查的单个字符。
@@ -129,7 +131,7 @@ def is_han_character(char_str: str) -> bool:
 
 
 def is_digit(char_str: str) -> bool:
-    """检查单个字符是否为Unicode数字 (十进制数字)。
+    """检查单个字符是否为Unicode数字 (十进制数字).
 
     Args:
         char_str: 待检查的单个字符。
@@ -143,7 +145,8 @@ def is_digit(char_str: str) -> bool:
 
 
 def is_relevant_word_char(char_str: str) -> bool:
-    """检查字符是否为“相关词语字符”（即非汉字字母或数字）。
+    """检查字符是否为“相关词语字符”（即非汉字字母或数字）.
+
     此函数用于判断在非中文语境下，空格两侧的字符是否应被视为构成一个连续词语的部分，
     从而决定该空格是否作为分割点。
     例如拉丁字母、西里尔字母、数字等返回True。
@@ -163,7 +166,7 @@ def is_relevant_word_char(char_str: str) -> bool:
 
 
 def is_english_letter(char: str) -> bool:
-    """检查单个字符是否为英文字母（忽略大小写）。
+    """检查单个字符是否为英文字母（忽略大小写）.
 
     Args:
         char: 待检查的单个字符。
@@ -175,8 +178,9 @@ def is_english_letter(char: str) -> bool:
 
 
 def protect_book_titles(text: str) -> tuple[str, dict[str, str]]:
-    """保护文本中的书名号内容，将其替换为唯一的占位符。
-    返回保护后的文本和占位符到原始内容的映射。
+    """保护文本中的书名号内容，将其替换为唯一的占位符.
+
+    返回保护后的文本和占位符到原始内容的映射.
 
     Args:
         text: 原始输入文本。
@@ -199,7 +203,7 @@ def protect_book_titles(text: str) -> tuple[str, dict[str, str]]:
 
 
 def recover_book_titles(sentences: list[str], book_title_mapping: dict[str, str]) -> list[str]:
-    """将句子列表中的书名号占位符恢复为原始的书名号内容。
+    """将句子列表中的书名号占位符恢复为原始的书名号内容.
 
     Args:
         sentences: 包含可能书名号占位符的句子列表。
@@ -222,7 +226,8 @@ def recover_book_titles(sentences: list[str], book_title_mapping: dict[str, str]
 
 
 def protect_ellipsis(text: str) -> tuple[str, dict[str, str]]:
-    """保护文本中的省略号，将其替换为唯一的占位符。
+    """保护文本中的省略号，将其替换为唯一的占位符.
+
     匹配连续三个或更多点号，以及Unicode省略号字符。
     返回保护后的文本和占位符到原始内容的映射。
 
@@ -247,7 +252,7 @@ def protect_ellipsis(text: str) -> tuple[str, dict[str, str]]:
 
 
 def recover_ellipsis(sentences: list[str], ellipsis_mapping: dict[str, str]) -> list[str]:
-    """将句子列表中的省略号占位符恢复为原始的省略号字符串。
+    """将句子列表中的省略号占位符恢复为原始的省略号字符串.
 
     Args:
         sentences: 包含可能省略号占位符的句子列表。
@@ -270,7 +275,8 @@ def recover_ellipsis(sentences: list[str], ellipsis_mapping: dict[str, str]) -> 
 
 
 def split_into_sentences_w_remove_punctuation(original_text: str) -> list[str]:
-    """将输入文本分割成句子列表。
+    """将输入文本分割成句子列表.
+
     此过程包括：
     1. 保护书名号和省略号。
     2. 文本预处理（如处理换行符）。
@@ -540,7 +546,7 @@ def split_into_sentences_w_remove_punctuation(original_text: str) -> list[str]:
 
 
 def random_remove_punctuation(text: str) -> str:
-    """随机处理标点符号，模拟人类打字习惯
+    """随机处理标点符号，模拟人类打字习惯.
 
     Args:
         text: 要处理的文本
@@ -559,9 +565,12 @@ def random_remove_punctuation(text: str) -> str:
 
 
 def protect_kaomoji(sentence: str) -> tuple[str, dict[str, str]]:
-    """ "
-    识别并保护句子中的颜文字（含括号与无括号），将其替换为占位符，
-    并返回替换后的句子和占位符到颜文字的映射表。
+    """识别并保护句子中的颜文字（含括号与无括号），将其替换为占位符.
+
+    该函数会将句子中的颜文字替换为唯一的占位符，
+    例如 "__KAOMOJI_0__"、"__KAOMOJI_1__" 等，
+    并返回替换后的句子和占位符到颜文字的映射表.
+
     Args:
         sentence (str): 输入的原始句子
     Returns:
@@ -593,7 +602,8 @@ def protect_kaomoji(sentence: str) -> tuple[str, dict[str, str]]:
 
 
 def recover_kaomoji(sentences: list[str], placeholder_to_kaomoji: dict[str, str]) -> list[str]:
-    """根据映射表恢复句子中的颜文字。
+    """根据映射表恢复句子中的颜文字.
+
     Args:
         sentences (list): 含有占位符的句子列表
         placeholder_to_kaomoji (dict): 占位符到颜文字的映射表
@@ -609,7 +619,8 @@ def recover_kaomoji(sentences: list[str], placeholder_to_kaomoji: dict[str, str]
 
 
 def get_western_ratio(paragraph: str) -> float:
-    """计算段落中字母数字字符的西文比例
+    """计算段落中字母数字字符的西文比例.
+
     原理：检查段落中字母数字字符的西文比例
     通过is_english_letter函数判断每个字符是否为西文
     只检查字母数字字符，忽略标点符号和空格等非字母数字字符
@@ -635,7 +646,7 @@ def process_llm_response(
     max_length: int = config.focus_chat_mode.max_length,
     max_sentence_num: int = config.focus_chat_mode.max_sentence_num,
 ) -> list[str]:
-    """处理LLM的响应文本，包括可选的颜文字保护、文本清洗和句子分割。
+    """处理LLM的响应文本，包括可选的颜文字保护、文本清洗和句子分割.
 
     Args:
         text (str): 从LLM获取的原始文本。

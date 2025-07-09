@@ -3,7 +3,7 @@ import json
 import time
 import uuid
 from dataclasses import asdict, dataclass, field, fields
-from typing import Any, Optional
+from typing import Any, ClassVar, Optional
 
 from aicarus_protocols import ConversationInfo as ProtocolConversationInfo
 from aicarus_protocols import Event as ProtocolEvent
@@ -39,7 +39,7 @@ class CoreDBCollections:
     MAIN_GRAPH_NAME = "person_relation_graph"
     THOUGHT_GRAPH_NAME = "consciousness_graph"  # 给思想和行动也建个图
 
-    INDEX_DEFINITIONS: dict[str, list[tuple[list[str], bool, bool]]] = {
+    INDEX_DEFINITIONS: ClassVar[dict[str, list[tuple[list[str], bool, bool]]]] = {
         EVENTS: [
             (["event_type", "timestamp"], False, False),
             (["platform", "bot_id", "timestamp"], False, False),
@@ -85,6 +85,13 @@ class CoreDBCollections:
 
     @classmethod
     def get_all_collection_names(cls) -> set[str]:
+        """返回所有核心集合的名称.
+
+        这些集合是图数据库的基础，包含了所有重要的节点和边.
+
+        Returns:
+            set[str]: 包含所有核心集合名称的集合.
+        """
         return {
             cls.PERSONS,
             cls.ACCOUNTS,
@@ -106,10 +113,22 @@ class CoreDBCollections:
 
     @classmethod
     def get_all_core_collection_configs(cls) -> dict[str, list[tuple[list[str], bool, bool]]]:
+        """返回所有核心集合的配置，包括索引定义.
+
+        Returns:
+            dict[str, list[tuple[list[str], bool, bool]]]: 包含所有核心集合配置的字典.
+        """
         return cls.INDEX_DEFINITIONS
 
     @classmethod
     def get_edge_collection_names(cls) -> set[str]:
+        """返回所有在图中作为“边”的集合的名称.
+
+        这些集合用于连接不同的点，形成关系网络.
+
+        Returns:
+            set[str]: 包含所有边集合名称的集合.
+        """
         return {cls.HAS_ACCOUNT, cls.PARTICIPATES_IN, cls.PRECEDES_THOUGHT, cls.LEADS_TO_ACTION}
 
     @classmethod
@@ -154,7 +173,17 @@ class PersonProfile:
 
 @dataclass
 class PersonDocument:
-    """代表 'persons' 集合中的一个'人'节点."""
+    """代表 'persons' 集合中的一个人节点.
+
+    这个文档包含了个人的基本信息，如 person_id、profile 等.
+
+    Attributes:
+        _key (str): 个人的唯一标识符，通常是 person_id 的前缀加上 UUID.
+        person_id (str): 个人的唯一标识符，通常是一个 UUID。
+        profile (PersonProfile): 个人的档案信息.
+        created_at (int): 个人信息创建的时间戳，单位为毫秒 (UTC).
+        updated_at (int): 个人信息最后更新的时间戳，单位为毫秒 (UTC).
+    """
 
     _key: str  # person_id
     person_id: str
@@ -164,17 +193,40 @@ class PersonDocument:
 
     @classmethod
     def create_new(cls) -> "PersonDocument":
+        """创建一个新的 PersonDocument 实例.
+
+        Returns:
+            PersonDocument: 一个新的 PersonDocument 实例，具有唯一的 person_id.
+        """
         person_id = f"person_{uuid.uuid4()}"
         return cls(_key=person_id, person_id=person_id)
 
     def to_dict(self) -> dict[str, Any]:
-        # to_dict 应该只负责转换数据，不应该操心 _id 的事
+        """将 PersonDocument 实例转换为字典.
+
+        Returns:
+            dict[str, Any]: 包含所有属性的字典表示形式.
+        """
         return asdict(self)
 
 
 @dataclass
 class AccountDocument:
-    """代表 'accounts' 集合中的一个平台账号节点."""
+    """代表 'accounts' 集合中的一个账户节点.
+
+    这个文档包含了账户的基本信息，如平台、ID、昵称等.
+
+    Attributes:
+        _key (str): 账户的唯一标识符.
+        account_uid (str): 账户的 UID.
+        platform (str): 账户所在的平台.
+        platform_id (str): 账户在平台上的 ID.
+        nickname (str | None): 账户的昵称，如果有的话.
+        avatar (str | None): 账户的头像 URL，如果有的话.
+        created_at (int): 账户创建的时间戳，单位为毫秒 (UTC).
+        last_known_nickname (str | None): 最后一次已知的昵称，用于跟踪昵称变化.
+        from_user_info (ProtocolUserInfo): 从 ProtocolUserInfo 创建一个新的 AccountDocument 实例.
+    """
 
     _key: str  # account_uid, e.g., 'qq_12345'
     account_uid: str
@@ -187,6 +239,15 @@ class AccountDocument:
 
     @classmethod
     def from_user_info(cls, user_info: ProtocolUserInfo, platform: str) -> "AccountDocument":
+        """从 ProtocolUserInfo 创建一个新的 AccountDocument 实例.
+
+        Args:
+            user_info (ProtocolUserInfo): 用户信息对象.
+            platform (str): 平台名称.
+
+        Raises:
+            ValueError: 如果 user_info 中没有 user_id.
+        """
         if not user_info.user_id:
             raise ValueError("UserInfo必须有user_id才能创建AccountDocument")
 
@@ -201,12 +262,28 @@ class AccountDocument:
         )
 
     def to_dict(self) -> dict[str, Any]:
+        """将 AccountDocument 实例转换为字典.
+
+        Returns:
+            dict[str, Any]: 包含所有属性的字典表示形式.
+        """
         return asdict(self)
 
 
 @dataclass
 class MembershipProperties:
-    """代表 'participates_in' 边上的属性."""
+    """代表 'memberships' 集合中的一个成员属性文档.
+
+    这个文档包含了成员在特定会话中的属性，如群组名称、卡片名称、权限级别等.
+
+    Attributes:
+        group_name (str | None): 成员所在群组的名称，如果适用.
+        cardname (str | None): 成员在会话中的卡片名称，如果适用.
+        permission_level (str | None): 成员在会话中的权限级别，如果适用.
+        title (str | None): 成员在会话中的称谓，如果适用.
+        avatar (str | None): 成员在会话中的头像，如果适用.
+        last_active_timestamp (int): 成员最后活跃的时间戳，单位为毫秒 (UTC).
+    """
 
     group_name: str | None = None
     cardname: str | None = None
@@ -215,38 +292,47 @@ class MembershipProperties:
     last_active_timestamp: int = field(default_factory=lambda: int(time.time() * 1000))
 
     def to_dict(self) -> dict[str, Any]:
+        """将 MembershipProperties 实例转换为字典.
+
+        Returns:
+            dict[str, Any]: 包含所有属性的字典表示形式.
+        """
         return {k: v for k, v in asdict(self).items() if v is not None}
 
 
 @dataclass
 class AttentionProfile:
-    """AI对某个会话的注意力及偏好档案。
-    此对象将作为嵌套文档存储在 `EnrichedConversationInfo` 的数据库表示中
-    (即 'conversations' 集合的文档内的 'attention_profile' 字段)。
+    """代表 AI 对某个会话的注意力档案.
+
+    这个档案包含了会话的重要性评分、AI偏好、相关话题标签等信息，
+    用于动态调整 AI 对该会话的注意力和处理优先级.
+
+    Attributes:
+        base_importance_score (float): 会话的基础重要性评分 (范围0-1)，
+            可由配置预设或由AI主意识动态调整。
+        ai_preference_score (float): AI基于历史交互对此会话产生的偏好程度评分 (范围0-1)，
+            由AI学习和调整。
+        relevant_topic_tags (list[str]): AI为此会话标注的相关话题标签，用于基于内容的注意力加权。
+        last_ai_interaction_timestamp (int | None): AI上次与此会话进行有效互动的时间戳 (毫秒, UTC)。
+        last_significant_event_timestamp (int | None): 此会话中上次发生对AI而言“重要事件”
+            （如被@）的时间戳 (毫秒, UTC)。
+        cooldown_until_timestamp (int | None): 如果AI暂时将此会话置于“冷却”或“低优先级”状态，
+           此字段记录该状态解除的时间戳 (毫秒, UTC)。
+        is_suspended_by_ai (bool): 标记此会话是否被AI主动置于“暂停处理”或“忽略”的状态。
+        suspension_reason (str | None): 如果被暂停，记录暂停的原因。
+        ai_custom_notes (str | None): AI针对此会话记录的内部自定义备注或策略提示。
     """
 
-    base_importance_score: float = (
-        0.5  # 会话的基础重要性评分 (范围0-1)，可由配置预设或由AI主意识动态调整。
-    )
-    ai_preference_score: float = (
-        0.5  # AI基于历史交互对此会话产生的偏好程度评分 (范围0-1)，由AI学习和调整。
-    )
-    relevant_topic_tags: list[str] = field(
-        default_factory=list
-    )  # AI为此会话标注的相关话题标签，用于基于内容的注意力加权。
-    last_ai_interaction_timestamp: int | None = (
-        None  # AI上次与此会话进行有效互动的时间戳 (毫秒, UTC)。
-    )
-    last_significant_event_timestamp: int | None = (
-        None  # 此会话中上次发生对AI而言“重要事件”（如被@）的时间戳 (毫秒, UTC)。
-    )
-    cooldown_until_timestamp: int | None = (
-        None  # 如果AI暂时将此会话置于“冷却”或“低优先级”状态，此字段记录该状态解除的时间戳 (毫秒, UTC)。
-    )
-    is_suspended_by_ai: bool = False  # 标记此会话是否被AI主动置于“暂停处理”或“忽略”的状态。
-    suspension_reason: str | None = None  # 如果被暂停，记录暂停的原因。
-    ai_custom_notes: str | None = None  # AI针对此会话记录的内部自定义备注或策略提示。
-    # 可以考虑加入更多交互统计指标，例如：
+    base_importance_score: float = 0.5
+    ai_preference_score: float = 0.5
+    relevant_topic_tags: list[str] = field(default_factory=list)
+    last_ai_interaction_timestamp: int | None = None
+    last_significant_event_timestamp: int | None = None
+    cooldown_until_timestamp: int | None = None
+    is_suspended_by_ai: bool = False
+    suspension_reason: str | None = None
+    ai_custom_notes: str | None = None
+    # 下面这些字段可以根据需要添加，但目前先注释掉，等有需求再启用
     # interactions_last_24h: int = 0 # 最近24小时互动次数
     # ai_responses_last_24h: int = 0 # 最近24小时AI回复次数
 
@@ -263,8 +349,16 @@ class AttentionProfile:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> "AttentionProfile":
-        """从字典（通常是从数据库读取的数据）创建 AttentionProfile 实例。
-        如果输入数据为 None，则返回一个默认的 AttentionProfile。
+        """从字典创建 AttentionProfile 实例.
+
+        如果传入的字典为 None，则返回一个默认的 AttentionProfile 实例.
+
+        Args:
+            data (dict[str, Any] | None): 包含 AttentionProfile 数据的字典。
+                如果为 None，则使用默认配置.
+
+        Returns:
+            AttentionProfile: 创建的 AttentionProfile 实例.
         """
         if data is None:
             return cls.get_default_profile()  # 没有数据则使用默认配置
@@ -277,7 +371,26 @@ class AttentionProfile:
 
 @dataclass
 class EnrichedConversationInfo:
-    """运行时使用的会话信息对象 (V6.0 命名空间统治版)"""
+    """代表 'conversations' 集合中的一个会话信息文档.
+
+    这个文档包含了会话的基本信息、注意力档案、创建和更新时间等.
+
+    Attributes:
+        conversation_id (str): 会话的唯一标识符.
+        platform (str): 会话所属的平台标识符，例如 "qq", "wechat" 等.
+        bot_id (str): 处理此会话的机器人的唯一标识符.
+        type (str | None): 会话类型，例如 "group", "private" 等.
+        name (str | None): 会话的名称或标题.
+        parent_id (str | None): 如果是子会话，指向父会话的 ID.
+        avatar (str | None): 会话的头像 URL 或标识符.
+        created_at (int): 会话创建的时间戳，单位为毫秒 (UTC).
+        updated_at (int): 会话信息最后更新的时间戳，单位为毫秒 (UTC).
+        last_processed_timestamp (int | None): AI最后处理此会话的时间戳, 单位为毫秒 (UTC).
+        extra (dict[str, Any]): 额外的自定义字段，可以存储任意的会话相关信息.
+        attention_profile (AttentionProfile): AI对该会话的注意力档案，包含
+            注意力评分、偏好标签等信息.
+        bot_profile_in_this_conversation (dict[str, Any] | None): 机器人在此会话中的配置文件信息.
+    """
 
     conversation_id: str
     platform: str
@@ -299,15 +412,22 @@ class EnrichedConversationInfo:
     def from_protocol_and_event_context(
         cls,
         proto_conv_info: ProtocolConversationInfo | None,
-        # --- ❤❤❤ 看这里！event_platform现在是必需的，由调用者（MessageProcessor）从event_type解析后传入！❤❤❤ ---
         event_platform: str,
         event_bot_id: str,
     ) -> "EnrichedConversationInfo":
-        """从协议层 `ConversationInfo` 和事件上下文创建实例."""
+        """从协议层 `ConversationInfo` 和事件上下文创建实例.
+
+        Args:
+            proto_conv_info (ProtocolConversationInfo | None): 协议层传入的会话信息对象。
+            event_platform (str): 事件发生的平台标识符，例如 "qq", "wechat" 等。
+            event_bot_id (str): 处理此事件的机器人的唯一标识符。
+
+        Returns:
+            EnrichedConversationInfo: 创建的会话信息实例。
+        """
         current_time_ms = int(time.time() * 1000)
 
         if proto_conv_info and proto_conv_info.conversation_id:
-            # --- ❤❤❤ platform字段的值，直接来自我们传入的 event_platform！❤❤❤ ---
             return cls(
                 conversation_id=str(proto_conv_info.conversation_id),
                 platform=event_platform,
@@ -323,7 +443,8 @@ class EnrichedConversationInfo:
         else:
             placeholder_conv_id = f"derived_missing_id_{event_platform}_{str(uuid.uuid4())[:8]}"
             logger.error(
-                f"从协议传入的 ConversationInfo 对象缺失或无 conversation_id。将创建临时的 EnrichedConversationInfo ID: '{placeholder_conv_id}'。"
+                f"从协议传入的 ConversationInfo 对象缺失或无 conversation_id。"
+                f"将创建临时的 EnrichedConversationInfo ID: '{placeholder_conv_id}'。"
             )
             return cls(
                 conversation_id=placeholder_conv_id,
@@ -348,7 +469,8 @@ class EnrichedConversationInfo:
             return None
         if "platform" not in doc:
             logger.warning(
-                f"数据库文档 {doc.get('_key')} 缺少 'platform' 字段，无法构建 EnrichedConversationInfo。"
+                f"数据库文档 {doc.get('_key')} 缺少 'platform' 字段，"
+                f"无法构建 EnrichedConversationInfo。"
             )
             return None
         known_fields = {f.name for f in fields(cls)}
@@ -363,7 +485,30 @@ class EnrichedConversationInfo:
 
 @dataclass
 class DBEventDocument:
-    """代表存储在数据库中的 Event 文档结构 (V6.0 命名空间统治版)"""
+    """代表存储在数据库中的事件文档结构.
+
+    这个文档结构用于存储从 aicarus_protocols.Event v1.6.0 协议对象转换而来的事件数据。
+    包含事件的基本信息、内容、用户和会话信息等。
+
+    Attributes:
+        _key (str): 数据库文档的唯一键，通常是事件ID。
+        event_id (str): 事件的唯一标识符。
+        event_type (str): 事件的类型，例如 "message", "reaction" 等。
+        timestamp (int): 事件发生的时间戳，单位为毫秒 (UTC)。
+        platform (str): 事件发生的平台标识符，例如 "qq", "wechat" 等。
+        bot_id (str): 处理此事件的机器人的唯一标识符。
+        content (list[dict[str, Any]]): 事件内容的分段列表，每个段落是一个字典，包含类型和数据。
+        user_info (dict[str, Any] | None): 事件相关的用户信息，如果有的话。
+        conversation_info (dict[str, Any] | None): 事件相关的会话信息，如果有的话。
+        raw_data (dict[str, Any] | None): 原始数据包，可能包含额外的上下文信息。
+        protocol_version (str): 使用的协议版本，默认为 "1.6.0"。
+        user_id_extracted (str | None): 从事件中提取的用户ID，如果有的话。
+        conversation_id_extracted (str | None): 从事件中提取的会话ID，如果有的话。
+        person_id_associated (str | None): 关联的个人ID，如果有的话。
+        motivation (str | None): 从原始数据中提取的动机信息，如果有的话。
+        embedding (list[float] | None): 事件内容的嵌入向量表示，默认为 None。
+        status (str): 事件的状态，默认为 "unread"。
+    """
 
     _key: str
     event_id: str
@@ -441,6 +586,11 @@ class DBEventDocument:
         )
 
     def to_dict(self) -> dict[str, Any]:
+        """将此 DBEventDocument 实例转换为字典，用于数据库存储.
+
+        Returns:
+            dict[str, Any]: 包含事件信息的字典，适合存入数据库.
+        """
         return asdict(self)
 
     def get_text_content_from_segs(self) -> str:
@@ -485,7 +635,8 @@ class ConversationSummaryDocument:
             filtered_data["_key"] = filtered_data["summary_id"]
         elif "_key" not in filtered_data:
             logger.error(
-                f"无法从字典创建 ConversationSummaryDocument：缺少 'summary_id' 或 '_key'。数据: {data}"
+                f"无法从字典创建 ConversationSummaryDocument："
+                f"缺少 'summary_id' 或 '_key'。数据: {data}"
             )
             return None
 

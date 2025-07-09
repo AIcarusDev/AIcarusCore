@@ -38,7 +38,7 @@ ACTION_DECISION_PROMPT_TEMPLATE = """你是我的智能行动决策系统，你�
 }}
 
 输出json：
-"""
+"""  # noqa: E501
 
 # 信息总结LLM的Prompt模板
 INFORMATION_SUMMARY_PROMPT_TEMPLATE = """你是一个高效的信息处理和摘要助手。你的任务是为用户处理和总结来自外部工具的信息。
@@ -62,4 +62,4 @@ INFORMATION_SUMMARY_PROMPT_TEMPLATE = """你是一个高效的信息处理和摘
 7.  摘要的语言风格应自然、易于理解，就像是用户自己整理得到的一样。
 
 请输出你生成的摘要文本：
-"""
+"""  # noqa: E501

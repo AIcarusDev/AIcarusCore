@@ -20,8 +20,32 @@ logger = get_logger(__name__)
 
 
 class ActionExecutor:
-    """专门负责执行LLM决策的行动执行官。
-    哼，别想让我干别的！
+    """ActionExecutor 类负责根据 LLM 的决策执行回复或记录内部思考.
+
+    这个类的主要职责是处理 LLM 决策后的具体执行逻辑，包括发送消息、记录内部思考等。
+    它会根据解析后的数据（parsed_data）和用户 ID 映射（uid_map）来决定是否发送消息，
+    以及如何构建消息内容。它还会模拟打字延迟，以增加人性化的交互体验。
+    主要方法是 execute_action，它会根据 LLM 的决策执行相应的操作。
+
+    Attributes:
+        session (ChatSession): 当前会话实例，用于获取会话状态信息。
+        action_handler (ActionHandler): 用于执行具体的操作，如发送消息等。
+        event_storage (EventStorage): 用于存储事件的实例，记录消息发送等操作。
+        messages_planned_this_turn (int): 本轮计划发送的消息数量。
+        messages_sent_this_turn (int): 本轮实际发送的消息数量。
+        consecutive_bot_messages_count (int): 连续发送的机器人消息计数。
+        no_action_count (int): 连续不发言的计数，用于判断是否需要发出行为指导提示。
+        message_count_since_last_summary (int): 自上次摘要以来发送的消息数量。
+        bot_id (str): 机器人的唯一标识符。
+        conversation_id (str): 当前会话的唯一标识符。
+        conversation_type (str): 当前会话的类型（如私聊、群聊等）。
+        platform (str): 当前会话所在的平台标识符。
+        bot_profile (dict): 机器人的个人资料信息，包括用户 ID 和昵称等。
+        temp_image_dir (str): 临时图片存储目录，用于存放生成的图片或其他临时文件。
+        persona (dict): 机器人的个性化配置，包括名称、头像等。
+        focus_chat_mode (bool): 是否启用专注聊天模式，决定是否需要模拟打字延迟等行为。
+        focus_chat_mode_enabled (bool): 是否启用专注聊天模式，决定是否需要模拟打字延迟等行为。
+        focus_chat_mode_config (dict): 专注聊天模式的配置，包括打字延迟等参数。
     """
 
     def __init__(self, session: "ChatSession") -> None:
@@ -30,7 +54,17 @@ class ActionExecutor:
         self.event_storage = session.event_storage
 
     def _calculate_typing_delay(self, text: str) -> float:
-        """计算模拟打字需要的时间。哼，就是个简单的数学题."""
+        """计算模拟打字延迟.
+
+        这个方法会根据文本内容计算一个模拟打字的延迟时间，
+        以增加人性化的交互体验。它会考虑到文本中的标点符号和普通字符的不同，
+        并根据预设的延迟范围计算总的打字时间。
+
+        Args:
+            text (str): 要计算打字延迟的文本内容。
+        Returns:
+            float: 计算出的打字延迟时间，单位为秒。
+        """
         # 定义哪些标点需要停顿久一点，假装在思考
         punctuation_to_pause = "，。！？；、,."
         # 普通字/字母的打字延迟
@@ -58,8 +92,15 @@ class ActionExecutor:
         return final_delay
 
     async def execute_action(self, parsed_data: dict, uid_map: dict) -> tuple[bool, int, int]:
-        """根据LLM的决策执行回复或记录内部思考。
-        现在返回一个元组: (是否发生了互动, 实际发送数, 计划发送数)
+        """根据LLM的决策执行回复或记录内部思考.
+
+        Args:
+            parsed_data (dict): 包含解析后的数据，可能包括回复内容、@用户、引用消息等。
+            uid_map (dict): 用户ID映射，用于处理 @ 的用户ID。
+
+        Returns:
+            tuple[bool, int, int]: 返回一个元组，包含三个元素：
+                是否发生了互动，实际发送的消息数量，计划发送的消息数量。
         """
         # --- Sanitize optional fields ---
         fields_to_sanitize = ["at_someone", "quote_reply", "reply_text", "poke"]
@@ -90,8 +131,8 @@ class ActionExecutor:
             # 我决定说话了，话痨计数器就加上我实际要说的条数，沉默计数器清零
             logger.debug(
                 f"[{self.session.conversation_id}] 机器人决定发言 {len(valid_sentences)} 条，"
-                f"consecutive_bot_messages_count 增加到 {self.session.consecutive_bot_messages_count}，"
-                f"no_action_count 已重置。"
+                f"consecutive_bot_messages_count 增加到 "
+                f"{self.session.consecutive_bot_messages_count}，no_action_count 已重置。"
             )
             # 把已经算好的 valid_sentences 传给 _send_reply，省得它再算一遍
             sent_count = await self._send_reply(parsed_data, uid_map, valid_sentences)
@@ -102,7 +143,8 @@ class ActionExecutor:
             logger.debug(
                 f"[{self.session.conversation_id}] 机器人不发言，"
                 f"no_action_count 增加到 {self.session.no_action_count}，"
-                f"consecutive_bot_messages_count 保持在 {self.session.consecutive_bot_messages_count}。"
+                f"consecutive_bot_messages_count 保持在 "
+                f"{self.session.consecutive_bot_messages_count}。"
             )
             await self._log_internal_thought(parsed_data)
             return False, 0, 0
@@ -110,8 +152,17 @@ class ActionExecutor:
     async def _send_reply(
         self, parsed_data: dict, uid_map: dict, valid_sentences: list[str]
     ) -> int:
-        """发送回复消息。现在它会返回实际发送的消息数量。
-        并且在被取消时能优雅地处理。
+        """发送回复消息.
+
+        这里的 valid_sentences 是已经过滤过的有效消息列表，不需要再自己计算了。
+        只需要遍历这个列表，逐条发送消息。
+
+        Args:
+            parsed_data (dict): 包含回复相关的解析数据。
+            uid_map (dict): 用户ID映射，用于处理 @ 的用户ID。
+            valid_sentences (list[str]): 已经过滤过的有效消息列表。
+        Returns:
+            int: 实际发送的消息数量。
         """
         # 不再需要自己计算 valid_sentences 了，直接用传进来的
         if not valid_sentences:
@@ -135,7 +186,8 @@ class ActionExecutor:
                 # 1. 计算这条消息的“模拟打字”时间
                 typing_delay = self._calculate_typing_delay(sentence_text)
                 logger.debug(
-                    f"[{self.session.conversation_id}] 模拟打字: '{sentence_text[:20]}...'，预计耗时 {typing_delay:.2f} 秒..."
+                    f"[{self.session.conversation_id}] 模拟打字: '{sentence_text[:20]}...'，"
+                    f"预计耗时 {typing_delay:.2f} 秒..."
                 )
 
                 # 2. 假装在打字，睡一会儿
@@ -222,15 +274,16 @@ class ActionExecutor:
 
         except asyncio.CancelledError:
             logger.info(
-                f"[{self.session.conversation_id}] 消息发送任务被取消。已发送 {sent_count}/{len(valid_sentences)} 条。"
+                f"[{self.session.conversation_id}] 消息发送任务被取消。"
+                f"已发送 {sent_count}/{len(valid_sentences)} 条。"
             )
             # 在被取消时，也返回已经发送的数量
             return sent_count
         finally:
-            # ❤❤❤ 无论如何，都要留下遗言！❤❤❤
             self.session.messages_sent_this_turn = sent_count
             logger.debug(
-                f"[{self.session.conversation_id}] ActionExecutor 报告：本轮实际发送 {sent_count} 条消息。"
+                f"[{self.session.conversation_id}] ActionExecutor 报告："
+                f"本轮实际发送 {sent_count} 条消息。"
             )
 
     def _build_reply_segments(

@@ -7,8 +7,15 @@ if TYPE_CHECKING:
 
 
 class BehavioralGuidanceGenerator:
-    """哼，一个专门生产烦人提示的家伙。
-    它会偷看会话里的计数器，然后决定怎么念叨你。
+    """行为指导生成器，用于根据会话状态生成提示信息.
+
+    这个类会根据会话的当前状态（比如连续发送消息次数、连续不发言次数等）生成相应的行为指导提示。
+    主要用于帮助霜在聊天过程中做出更合适的行为决策，比如避免过度打扰对方或在群聊中保持适当的互动频率。
+
+    Attributes:
+        session (ChatSession): 当前会话实例，用于获取会话状态信息。
+        no_action_threshold (int): 连续不发言的次数阈值，超过这个次数会触发相应的提示。
+        bot_spam_threshold (int): 连续发送消息的次数阈值，超过这个次数会触发相应的提示。
     """
 
     def __init__(self, session: "ChatSession") -> None:

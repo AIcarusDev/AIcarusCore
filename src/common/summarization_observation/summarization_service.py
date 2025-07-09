@@ -12,14 +12,17 @@ logger = get_logger(__name__)
 
 
 class SummarizationService:
-    """服务类，负责对会话历史进行总结，生成第一人称的回忆录。
-    哼，现在我只负责动脑，脏活累活都让别人干了。
-    而且我还学会了在报告里夹带私货（跳槽动机）。
+    """服务类，负责对会话历史进行总结，生成第一人称的回忆录.
+
+    Attributes:
+        llm_client (LLMProcessorClient): 用于与LLM交互的客户端实例.
     """
 
     def __init__(self, llm_client: LLMProcessorClient) -> None:
-        """初始化服务，只需要一个LLM客户端就够了，真省心。
-        :param llm_client: LLMProcessorClient 的实例。
+        """初始化服务，只需要一个LLM客户端就够了，真省心.
+
+        Args:
+            llm_client (LLMProcessorClient): 用于与LLM交互的客户端实例.
         """
         self.llm_client = llm_client
         logger.info("SummarizationService (重构版) 已初始化。")
@@ -34,8 +37,21 @@ class SummarizationService:
         shift_motivation: str | None = None,
         target_conversation_id: str | None = None,
     ) -> tuple[str, str]:
-        """构建用于整合摘要的 System Prompt 和 User Prompt。
-        这是我的新大脑，更聪明了。
+        """构建用于总结的系统和用户提示.
+
+        Args:
+            previous_summary (str | None): 之前的聊天记录总结，如果没有则为None.
+            formatted_chat_history (str): 格式化后的聊天记录内容.
+            image_references (list[str]): 图片引用列表，包含图片的URL或路径.
+            conversation_info (dict[str, Any]): 会话信息，包括ID、名称等.
+            user_map (dict[str, Any]): 用户映射，包含用户ID、昵称、群名片等信息.
+            shift_motivation (str | None): 跳槽动机，如果有则为非None，
+                表示用户有意转移注意力到另一个会话.
+            target_conversation_id (str | None): 目标会话ID，如果有跳槽动机，
+                则表示用户想要转移到的会话ID.
+
+        Returns:
+            tuple[str, str]: 返回系统提示和用户提示的元组.
         """
         # --- System Prompt ---
         persona_config = config.persona
@@ -54,7 +70,10 @@ class SummarizationService:
                 # 这里我们简化，就用ID。
                 pass  # 暂时找不到好办法，就用ID吧
 
-            shift_motivation_block = f"\n此刻，你因为“{shift_motivation}”，决定将注意力转移到另一个会话 (ID: {target_conversation_id})。请在总结中自然地体现出这个转折点。"
+            shift_motivation_block = (
+                f"\n此刻，你因为“{shift_motivation}”，决定将注意力转移到另一个会话 "
+                f"(ID: {target_conversation_id})。请在总结中自然地体现出这个转折点。"
+            )
 
         system_prompt = f"""
 现在是{current_time_str}
@@ -82,7 +101,8 @@ class SummarizationService:
         user_list_lines = []
         for p_id, u_info in user_map.items():
             user_list_lines.append(
-                f"{u_info['uid_str']}: {p_id} [nick:{u_info['nick']}, card:{u_info['card']}, title:{u_info['title']}, perm:{u_info['perm']}]"
+                f"{u_info['uid_str']}: {p_id} [nick:{u_info['nick']}, card:{u_info['card']}, "
+                f"title:{u_info['title']}, perm:{u_info['perm']}]"
             )
         user_list_block = "\n".join(user_list_lines)
 
@@ -113,7 +133,10 @@ class SummarizationService:
         chat_history_block = formatted_chat_history
 
         # Part 4: 注意事项 (静态)
-        notes_block = "像U0,U1这样的编号只是为了让你更好的分辨谁是谁，以及获取更多信息，你在输出总结时不应该使用这类编号来指代某人"
+        notes_block = (
+            "像U0,U1这样的编号只是为了让你更好的分辨谁是谁，以及获取更多信息，"
+            "你在输出总结时不应该使用这类编号来指代某人"
+        )
 
         user_prompt = f"""
 <已有的记录总结>
@@ -147,7 +170,8 @@ class SummarizationService:
     ) -> str:
         """对提供的最近事件列表进行总结，并将其整合进之前的摘要中."""
         logger.debug(
-            f"开始整合摘要。之前摘要是否存在: {'是' if previous_summary else '否'}, 新事件数: {len(recent_events)}"
+            f"开始整合摘要。之前摘要是否存在: {'是' if previous_summary else '否'}, "
+            f"新事件数: {len(recent_events)}"
         )
 
         # 这里检查一下，如果没新事件，但有“跳槽动机”，说明是“临别赠言”，也得生成一个最终总结
@@ -223,7 +247,10 @@ class SummarizationService:
                 )
                 if previous_summary:
                     # 如果有旧摘要，就在后面附加上错误提示
-                    return f"{previous_summary}\n\n[系统提示：我试图更新我的回忆，但是失败了（错误: {error_msg}）]"
+                    return (
+                        f"{previous_summary}\n\n[系统提示：我试图更新我的回忆，"
+                        f"但是失败了（错误: {error_msg}）]"
+                    )
                 else:
                     # 如果没有旧摘要，就直接返回错误提示
                     return f"我试图开始我的回忆，但是失败了（错误: {error_msg}）。"
