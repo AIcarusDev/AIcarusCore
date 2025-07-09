@@ -350,8 +350,16 @@ class ChatSession:
             task = asyncio.create_task(self.cycler.start())
             # 将任务添加到追踪集合中，防止其异常被静默
             self.background_tasks.add(task)
-            # 任务完成后，自动从集合中移除，避免内存泄漏
-            task.add_done_callback(self.background_tasks.discard)
+            # 为任务添加完成回调，确保任务完成后能清理和记录异常
+            # 这样可以确保即使任务在后台运行，也能正确处理异常和清理工作
+            def _done_callback(t: asyncio.Task) -> None:
+                """任务完成后的回调函数，用于清理和记录异常."""
+                self.background_tasks.discard(t)
+                # 如果任务没有被取消且有异常，记录错误日志
+                if not t.cancelled() and t.exception():
+                    logger.error("Exception in chat session cycler task:", exc_info=t.exception())
+
+            task.add_done_callback(_done_callback)
 
     def deactivate(self) -> None:
         """发起停用流程.
@@ -374,8 +382,16 @@ class ChatSession:
             shutdown_task = asyncio.create_task(self.shutdown())
 
         if shutdown_task:
+            # 将任务添加到追踪集合中，防止其异常被静默
             self.background_tasks.add(shutdown_task)
-            shutdown_task.add_done_callback(self.background_tasks.discard)
+            # 为任务添加完成回调，确保任务完成后能清理和记录异常
+            def _done_callback(t: asyncio.Task) -> None:
+                """任务完成后的回调函数，用于清理和记录异常."""
+                self.background_tasks.discard(t)
+                if not t.cancelled() and t.exception():
+                    logger.error("Exception in chat session shutdown task:", exc_info=t.exception())
+            # 添加回调函数来处理任务完成后的清理工作
+            shutdown_task.add_done_callback(_done_callback)
 
     async def shutdown(self) -> None:
         """执行并等待会话的优雅关闭.

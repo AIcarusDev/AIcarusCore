@@ -152,7 +152,15 @@ class CoreWebsocketServer:
             self._run_inspection_ceremony(adapter_id, display_name)
         )
         self.active_inspection_tasks.add(inspection_task)
-        inspection_task.add_done_callback(self.active_inspection_tasks.discard)
+        # 为了确保任务完成后能清理掉
+        def _done_callback(t: asyncio.Task) -> None:
+            """任务完成后的回调函数，用于清理和记录异常."""
+            self.active_inspection_tasks.discard(t)
+            # 如果任务没有被取消且有异常，记录错误日志
+            if not t.cancelled() and t.exception():
+                logger.error("Exception in inspection_ceremony task:", exc_info=t.exception())
+
+        inspection_task.add_done_callback(_done_callback)
 
     async def _run_inspection_ceremony(self, adapter_id: str, display_name: str) -> None:
         """一个专门用来在后台运行安检的协程."""
