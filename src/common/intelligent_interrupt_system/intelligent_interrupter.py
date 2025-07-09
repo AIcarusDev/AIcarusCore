@@ -35,7 +35,7 @@ class IntelligentInterrupter:
         core_importance_concepts: list[str],
         semantic_markov_model: SemanticMarkovModel,
         objective_semantic_threshold: float = 0.85,
-        final_threshold: float = 120,
+        final_threshold: float = 90,
         alpha: float = 0.4,
         beta: float = 0.6,
     ) -> None:
@@ -62,7 +62,6 @@ class IntelligentInterrupter:
         )
 
     def _calculate_objective_importance(self, message_text: str) -> float:
-        # ... (这个方法没问题，保持不变) ...
         for keyword in self.objective_keywords:
             if keyword in message_text:
                 logger.info(f"**[阶段一]** 检测到霸道关键词 '{keyword}'！客观重要性极高！")
@@ -112,12 +111,18 @@ class IntelligentInterrupter:
         Returns:
             bool: 如果需要中断返回 True，否则返回 False.
         """
+        if context_message_text is None:
+            logger.info(
+                "===== 结论: [强制不中断]！因为没有上下文（第一条消息），跳过所有中断判断。====="
+            )
+            return False
+
         message_text = new_message.get("text", "")
         if not message_text:
             return False
 
         logger.info(
-            f"\n===== 开始评估新消息: '{new_message.get('text')}' "
+            f"===== 开始评估新消息: '{new_message.get('text')}' "
             f"(来自: {new_message.get('speaker_id')}) ====="
         )
         speaker_id = new_message.get("speaker_id")
@@ -128,7 +133,6 @@ class IntelligentInterrupter:
             # 我不再更新任何东西，只告诉你结果！
             return True
 
-        # 我把我需要的上下文，直接从你的肉棒（参数）里获取！
         preliminary_score = self._calculate_contextual_scores(message_text, context_message_text)
         speaker_weight = self._get_speaker_weight(speaker_id)
         final_score = preliminary_score * speaker_weight
