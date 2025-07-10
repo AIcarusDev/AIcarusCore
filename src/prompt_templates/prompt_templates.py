@@ -616,7 +616,7 @@ CORE_USER_PROMPT = """
 <action>
 <action_log>
 {action_log_block}
-(该功能尚未完善, 目前不会显示focus动作的执行状态, 请等待完善. 完善后会直接删除这一提示, 无需您反复尝试)
+(该功能尚未完善, 目前不会显示部分 action_log 的执行状态, 请等待完善. 完善后会直接删除这一提示, 无需您反复尝试)
 </action_log>
 
 <action_request>
@@ -625,7 +625,7 @@ CORE_USER_PROMPT = """
 
 <action_response>
 {action_response_block}
-(该功能尚未完善, 目前不会显示任何动作的执行结果, 请等待完善. 完善后会直接删除这一提示, 无需您反复尝试)
+(该功能尚未完善, 目前不会显示任何 action_response 的行动日志, 请等待完善. 完善后会直接删除这一提示, 无需您反复尝试)
 </action_response>
 </action>
 
