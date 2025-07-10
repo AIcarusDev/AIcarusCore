@@ -29,67 +29,44 @@ class CoreBuilder(BasePlatformBuilder):
 
     @property
     def platform_id(self) -> str:
-        # 它的平台ID是特殊的 "core"，代表这是系统核心
         return "core"
 
-    def build_action_event(self, action_name: str, params: dict[str, Any]) -> Event | None:
-        """
-        把核心动作翻译成标准Event。
-        注意：这里的 event_type 是 action.core.{action_name}
-        """
-        # 为了简单，所有核心动作都用一个通用模板
-        final_event_type = f"action.{self.platform_id}.{action_name}"
-        action_seg = Seg(type="action_params", data=params)
-
-        return Event(
-            event_id=str(uuid.uuid4()),
-            event_type=final_event_type,
-            time=int(time.time() * 1000),
-            bot_id=config.persona.bot_name or "Aicarus",
-            content=[action_seg],
-            conversation_info=None, # 核心动作通常不与特定会话绑定
-        )
-    # 这些动作只是示例方向，暂时没有启用
-    def get_action_definitions(self) -> dict[str, Any]:
-        """定义主意识唯一可用的“超能力”."""
-        return {
-            "web_search": {
+    def get_level_specific_definitions(self, level: str) -> tuple[dict, dict]:
+        # 在顶层，只有 'core' 这一个层级
+        if level == "core":
+            controls_schema = {
                 "type": "object",
-                "description": "当需要获取未知信息、验证想法或对某个话题感到好奇时使用。",
                 "properties": {
-                    "query": {"type": "string", "description": "要搜索的关键词或问题。"},
-                    "motivation": {"type": "string", "description": "你为什么要搜索这个。"},
+                    "focus": {
+                        "type": "object",
+                        "properties": {
+                            "path": {"type": "string"},
+                            "motivation": {"type": "string"},
+                        },
+                        "required": ["path", "motivation"],
+                    }
                 },
-                "required": ["query", "motivation"],
-            },
-            "focus_on_conversation": { # 名字改得更清晰
-                "type": "object",
-                "description": "当你想查看某个会话的详细内容并可能进行互动时使用。",
-                "properties": {
-                    "conversation_id": {"type": "string", "description": "从<unread_summary>中选择你想聚焦的会话ID。"},
-                    "motivation": {"type": "string", "description": "你为什么要关注这个会话。"},
-                },
-                "required": ["conversation_id", "motivation"],
-            },
-            "get_internal_list": { # 名字也改清晰
-                "type": "object",
-                "description": "获取你的好友列表或群聊列表（例如你想找人聊天但忘了QQ号）。",
-                "properties": {
-                    "list_type": {
-                        "type": "string",
-                        "enum": ["friend", "group"],
-                        "description": "要获取的列表类型。",
-                    },
-                    "motivation": {"type": "string", "description": "你为什么要获取这个列表。"},
-                },
-                "required": ["list_type", "motivation"],
-            },
-            "do_nothing": {
-                "type": "object",
-                "description": "当你决定不采取任何外部行动，只想在内心默默思考时，选择此项。",
-                "properties": {
-                    "motivation": {"type": "string", "description": "你决定保持沉默的内心想法或原因。"},
-                },
-                "required": ["motivation"],
+                "maxProperties": 1
             }
-        }
+            actions_schema = {
+                "type": "object",
+                "properties": {
+                    "web_search": {
+                        "type": "object",
+                        "properties": {
+                            "query": {"type": "string"},
+                            "motivation": {"type": "string"},
+                        },
+                        "required": ["query", "motivation"],
+                    }
+                }
+            }
+            return controls_schema, actions_schema
+        return {}, {} # 其他层级无可用动作
+
+    def get_level_specific_descriptions(self, level: str) -> tuple[str, str]:
+        if level == "core":
+            controls_desc = "- `focus`: 当你想查看某个平台的详细情况时（例如QQ），使用此指令将注意力聚焦于该平台。"
+            actions_desc = "- `web_search`: 当需要获取未知信息、验证想法或对某个话题感到好奇时使用。"
+            return controls_desc, actions_desc
+        return "无", "无"

@@ -6,6 +6,7 @@ from src.common.unread_info_service.unread_info_service import UnreadInfoService
 from src.config import config
 from src.core_logic.state_manager import AIStateManager  # 导入状态管理器
 from src.prompt_templates import prompt_templates  # 导入新模板
+from src.platform_builders.registry import platform_builder_registry
 
 logger = get_logger(__name__)
 
@@ -45,20 +46,70 @@ class ThoughtPromptBuilder:
             self.bot_profile_cache["nickname"] = config.persona.bot_name
         return self.bot_profile_cache
 
-    async def build_prompts(self, current_time_str: str) -> tuple[str, str, dict[str, Any]]:
-        """构建System和User的Prompt，返回一个包含所有填充块的字典."""
-        # 1. 准备 System Prompt 的材料
+    async def build_prompts(self, current_time_str: str, focus_path: str | None) -> tuple[str, str, dict[str, Any], dict[str, Any]]:
+        """
+        构建System和User的Prompt，并动态生成最终的Response Schema。
+        返回: (system_prompt, user_prompt, response_schema, state_blocks)
+        """
+        # 1. 确定当前层级和平台 (这部分逻辑不变)
+        if focus_path:
+            path_parts = focus_path.split('.')
+            current_platform_id = path_parts[0]
+            current_level = "cellular" if len(path_parts) > 2 else "platform"
+        else:
+            current_platform_id = "core"
+            current_level = "core"
+
+        logger.info(f"PromptBuilder: 当前焦点层级: {current_level}, 平台: {current_platform_id}")
+
+        # 2. 获取层级专属的【描述】
+        builder = platform_builder_registry.get_builder(current_platform_id)
+        available_controls_desc = "你当前没有可用的导航指令。"
+        available_actions_desc = "你当前没有可用的外部行动。"
+        if builder:
+            controls_desc, actions_desc = builder.get_level_specific_descriptions(current_level)
+            if controls_desc: available_controls_desc = controls_desc
+            if actions_desc: available_actions_desc = actions_desc
+
+        # 3. 填充System Prompt
         bot_profile = await self._get_bot_profile()
-        system_prompt = prompt_templates.CORE_SYSTEM_PROMPT.format(
+        system_prompt_template = prompt_templates.CORE_SYSTEM_PROMPT # 仍然可以先用一个通用的
+        system_prompt = system_prompt_template.format(
             current_time=current_time_str,
             bot_name=config.persona.bot_name,
             optional_description=config.persona.description,
             optional_profile=config.persona.profile,
             bot_id=bot_profile.get("id", "未知ID"),
             bot_nickname=bot_profile.get("nickname", "未知昵称"),
+            available_consciousness_controls_desc=available_controls_desc,
+            available_actions_desc=available_actions_desc
         )
 
-        # 2. 从 StateManager 获取状态块
+        # 4. 获取层级专属的【Schema】并组装最终的 Response Schema
+        final_response_schema = {
+            "type": "object",
+            "properties": {
+                "internal_state": {
+                    "type": "object",
+                    "properties": {
+                        "mood": {"type": "string"},
+                        "think": {"type": "string"},
+                        "goal": {"type": "string"},
+                    },
+                    "required": ["mood", "think", "goal"],
+                }
+            },
+            "required": ["internal_state"]
+        }
+
+        if builder:
+            controls_schema, actions_schema = builder.get_level_specific_definitions(current_level)
+            if controls_schema and controls_schema.get("properties"):
+                final_response_schema["properties"]["consciousness_control"] = controls_schema
+            if actions_schema and actions_schema.get("properties"):
+                final_response_schema["properties"]["action"] = actions_schema
+
+        # 5. 构建 User Prompt (这部分不变)
         state_blocks = await self.state_manager.get_current_state_for_prompt()
 
         # 3. 获取未读消息摘要
@@ -69,12 +120,13 @@ class ThoughtPromptBuilder:
         user_prompt = prompt_templates.CORE_USER_PROMPT.format(**state_blocks)
 
         logger.debug(
-            f"[主意识]  - 准备发送给LLM的完整Prompt:\n"
-            f"==================== SYSTEM PROMPT (主意识) ====================\n"
+            f"[顶层会话]  - 准备发送给LLM的完整Prompt:\n"
+            f"==================== SYSTEM PROMPT (顶层会话) ====================\n"
             f"{system_prompt}\n"
-            f"==================== USER PROMPT (主意识) ======================\n"
+            f"==================== USER PROMPT (顶层会话) ======================\n"
             f"{user_prompt}\n"
             f"=================================================================="
         )
+        logger.debug(f"动态生成的最终Response Schema: {final_response_schema}")
 
-        return system_prompt, user_prompt, state_blocks
+        return system_prompt, user_prompt, final_response_schema, state_blocks

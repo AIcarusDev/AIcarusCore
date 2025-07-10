@@ -53,43 +53,6 @@ class ActionExecutor:
         self.action_handler = session.action_handler
         self.event_storage = session.event_storage
 
-    def _calculate_typing_delay(self, text: str) -> float:
-        """计算模拟打字延迟.
-
-        这个方法会根据文本内容计算一个模拟打字的延迟时间，
-        以增加人性化的交互体验。它会考虑到文本中的标点符号和普通字符的不同，
-        并根据预设的延迟范围计算总的打字时间。
-
-        Args:
-            text (str): 要计算打字延迟的文本内容。
-        Returns:
-            float: 计算出的打字延迟时间，单位为秒。
-        """
-        # 定义哪些标点需要停顿久一点，假装在思考
-        punctuation_to_pause = "，。！？；、,."
-        # 普通字/字母的打字延迟
-        char_delay_min = 0.2
-        char_delay_max = 0.6
-        # 遇到标点符号的额外停顿
-        punc_delay_min = 0.1
-        punc_delay_max = 0.4
-        # 封顶延迟，免得一句话等半天
-        max_total_delay = 20.0
-
-        total_delay = 0.0
-        for char in text:
-            if char in punctuation_to_pause:
-                total_delay += random.uniform(punc_delay_min, punc_delay_max)
-            else:
-                total_delay += random.uniform(char_delay_min, char_delay_max)
-
-        # 模拟打错字回退增加时长情况，字数越多越容易打错字
-        if len(text) > 10 and random.random() < 0.3:
-            total_delay *= 1.1
-
-        # 别睡太久了，懒鬼！
-        final_delay = min(total_delay, max_total_delay)
-        return final_delay
 
     async def execute_action(self, parsed_data: dict, uid_map: dict) -> tuple[bool, int, int]:
         """根据LLM的决策执行回复或记录内部思考.
@@ -223,19 +186,15 @@ class ActionExecutor:
                     sent_message_id = str(result_payload["sent_message_id"])
 
                     # --- ❤❤❤ 看这里！这就是塞纸条的地方！❤❤❤ ---
-                    extra_data_for_backpack = {}
-                    motivation_for_log = (
-                        current_motivation
-                        if i == 0 and current_motivation and current_motivation.strip()
-                        else None
-                    )
-                    if motivation_for_log:
-                        extra_data_for_backpack["motivation"] = motivation_for_log
+                    is_first_message_of_batch = (self.session.messages_sent_this_turn == 1)
 
-                    # 把小背包（字典）变成一个字符串，这样才能塞进 raw_data
-                    raw_data_string = (
-                        json.dumps(extra_data_for_backpack) if extra_data_for_backpack else None
-                    )
+
+                    extra_data_for_backpack = {}
+                    if current_motivation and is_first_message_of_batch:
+                        extra_data_for_backpack["motivation"] = current_motivation
+
+                    raw_data_string = json.dumps(extra_data_for_backpack) if extra_data_for_backpack else None
+
 
                     final_content_dicts = [
                         SegBuilder.message_metadata(message_id=sent_message_id).to_dict(),
@@ -249,6 +208,7 @@ class ActionExecutor:
                         time=int(time.time() * 1000),
                         bot_id=correct_bot_id,
                         content=final_content_segs,
+                        raw_data=raw_data_string,
                         user_info=UserInfo(
                             user_id=correct_bot_id, user_nickname=bot_profile.get("nickname")
                         ),

@@ -197,7 +197,132 @@ class QQBuilder(BasePlatformBuilder):
             conversation_info=ConversationInfo.from_dict(conv_info_dict),
         )
 
-    def get_action_definitions(self) -> dict[str, Any]:
+
+    def get_level_specific_definitions(self, level: str) -> tuple[dict, dict]:
+        controls_properties = {}
+        actions_properties = {}
+
+        # --- 中层可用 (Platform Level) ---
+        if level == "platform":
+            controls_properties.update({
+                "focus": {
+                    "type": "object",
+                    "properties": {
+                        "conversation_id": {"type": "string"},
+                        "motivation": {"type": "string"}
+                    },"required": ["conversation_id", "motivation"]
+                },
+                "return": {
+                    "type": "object",
+                    "properties": {
+                        "motivation": {"type": "string"}
+                    },"required": ["motivation"]
+                }
+            })
+            actions_properties.update({
+                "get_list": {
+                    "type": "object",
+                    "properties": {
+                        "list_type": {"type": "string", "enum": ["friend", "group"]},
+                        "motivation": {"type": "string"}
+                    }, "required": ["list_type","motivation"]
+                }
+            })
+        # --- 底层可用 (Cellular Level) ---
+        elif level == "cellular":
+            controls_properties.update({
+                "shift": {
+                    "type": "object",
+                    "properties": {
+                        "conversation_id": {"type": "string"},
+                        "motivation": {"type": "string"}
+                    },"required": ["conversation_id", "motivation"]
+                },
+                "return": {
+                    "type": "object",
+                    "properties": {
+                        "motivation": {"type": "string"}
+                    },"required": ["motivation"]
+                }
+            })
+            # 底层的动作定义
+            # 为了方便测试，目前只定义了 send_message 和 poke_user 两个动作。
+            # 其他动作可以在需要时添加
+            actions_properties.update({
+                "send_message": {
+                    "type": "object",
+                    "properties": {
+                        "steps": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "command": {"type": "string", "enum": ["text", "at", "reply", "send_and_break"]},
+                                    "params": {"type": "object"}
+                                },
+                                "required": ["command"]
+                            }
+                        },
+                        "motivation": {"type": "string"}
+                    },
+                    "required": ["steps", "motivation"]
+                },
+                "poke_user": {
+                    "type": "object",
+                    "properties": {
+                        "target_user_id": {"type": "string"}
+                    },"required": ["target_user_id"]
+                }
+            })
+        # --- 所有层级通用 ---
+        # web_search 可以在任何层级使用
+        actions_properties.update({
+            "web_search": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "motivation": {"type": "string"}
+                },"required": ["query", "motivation"]
+            },
+            "do_nothing": {
+                "type": "object",
+                "description": "当你决定不采取任何外部行动，只想在内心默默思考时，选择此项。",
+                "properties": {
+                    "motivation": {"type": "string", "description": "你决定保持沉默的内心想法或原因。"}
+                },
+                    "required": ["motivation"]
+            }
+        })
+
+        final_controls_schema = {"type": "object", "properties": controls_properties, "maxProperties": 1} if controls_properties else {}
+        final_actions_schema = {"type": "object", "properties": actions_properties} if actions_properties else {}
+
+        return final_controls_schema, final_actions_schema
+
+    def get_level_specific_descriptions(self, level: str) -> tuple[str, str]:
+        controls_desc_parts = []
+        actions_desc_parts = []
+
+        if level == "platform":
+            controls_desc_parts.append("- `focus`: 深入到本平台下一个具体的会话。")
+            controls_desc_parts.append("- `return`: 返回到顶层(Core)，不再关注QQ平台。")
+            actions_desc_parts.append("- `get_list`: 获取本平台的好友或群聊列表。")
+
+        elif level == "cellular":
+            controls_desc_parts.append("- `shift`: 将注意力从当前会话转移到同平台的另一个会话。")
+            controls_desc_parts.append("- `return`: 返回到QQ平台概览层级。")
+            actions_desc_parts.append("- `send_message`: 在当前会话中发送消息。")
+            actions_desc_parts.append("- `poke_user`: 在当前会话中戳一戳某人。")
+            # ... 其他底层可用动作的描述 ...
+
+        actions_desc_parts.append("- `web_search`: 进行一次网络搜索。")
+
+        return "\n".join(controls_desc_parts) or "无", "\n".join(actions_desc_parts) or "无"
+
+    # 这下面动作定义不再直接使用了
+    # 现在所有动作定义都在 get_external_actions() 方法里
+    # 下面这些是我们理论上可以用到的，且支持的动作定义
+    def get_external_actions(self) -> dict[str, Any]:
         """获取当前平台的所有动作定义.
 
         返回一个字典，包含所有平台特有的动作定义。
@@ -211,7 +336,6 @@ class QQBuilder(BasePlatformBuilder):
                 "type": "object",
                 "description": "向指定的QQ群或好友发送一条或多条消息。",
                 "properties": {
-                    "conversation_id": {"type": "string", "description": "目标群号或QQ号。"},
                     "conversation_type": {
                         "type": "string",
                         "enum": ["group", "private"],

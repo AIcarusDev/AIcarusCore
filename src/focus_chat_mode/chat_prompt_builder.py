@@ -1,8 +1,10 @@
 # src/focus_chat_mode/chat_prompt_builder.py
 import contextlib
 import os
+import yaml
 from typing import TYPE_CHECKING, Any
 
+from src.platform_builders.registry import platform_builder_registry
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logging_config import get_logger
 from src.common.focus_chat_history_builder.chat_history_formatter import format_chat_history_for_llm
@@ -107,78 +109,57 @@ class ChatPromptBuilder:
 
     async def build_prompts(
         self,
-        session: "ChatSession",
+        focus_path: str,
         last_processed_timestamp: float,
         is_first_turn: bool,
-        motivation_from_core: str | None = None,  # 只需要知道为什么来这里就够了
+        motivation_from_core: str | None = None,
         was_last_turn_interrupted: bool = False,
         interrupting_event_text: str | None = None,
     ) -> PromptComponents:
-        """构建专注聊天模式下给LLM的System Prompt和User Prompt.
-
-        这个方法会根据当前会话的状态和配置，生成适合专注聊天模式的Prompt组件。
-
-        Args:
-            session (ChatSession): 当前聊天会话实例。
-            last_processed_timestamp (float): 上次处理的消息时间戳，用于获取新消息。
-            is_first_turn (bool): 是否是会话的第一轮。
-            motivation_from_core (str | None): 来这里的动机，通常是从核心逻辑传递过来的。
-                例如：“我决定过来看看。” 或 “我被打断了，需要重新思考。” 等。
-            was_last_turn_interrupted (bool): 上一轮是否被打断。
-            interrupting_event_text (str | None): 如果被打断，打断的消息内容。
-        Returns:
-            PromptComponents: 包含构建好的System Prompt和User Prompt的组件。
         """
-        # --- 步骤1：准备模板和一些通用信息 ---
-        logger.debug(f"[{self.session.conversation_id}] 开始构建Prompt...")
+        构建专注聊天模式下给LLM的System Prompt和User Prompt。
+        V4.1版本：实现了真正的动态Schema供给。
+        """
+        logger.debug(f"[{self.session.conversation_id}] ChatPromptBuilder 开始构建Prompt...")
 
-        # 决定用哪个模板
-        if self.session.conversation_type == "private":
-            system_prompt_template = prompt_templates.PRIVATE_SYSTEM_PROMPT
-            user_prompt_template = prompt_templates.PRIVATE_USER_PROMPT
-        else:
-            system_prompt_template = prompt_templates.GROUP_SYSTEM_PROMPT
-            user_prompt_template = prompt_templates.GROUP_USER_PROMPT
+        # 1. 确定当前层级和平台 (在专注模式下，level固定为'cellular')
+        path_parts = focus_path.split('.')
+        current_platform_id = path_parts[0]
+        current_level = "cellular"
 
-        current_time_str = get_formatted_time_for_llm()
-        persona_config = config.persona
-        bot_name_str = persona_config.bot_name or "AI"
-        bot_description_str = (
-            f"\n{persona_config.description}" if persona_config.description else ""
-        )
-        bot_profile_str = f"\n{persona_config.profile}" if persona_config.profile else ""
+        # 2. 获取层级专属的【描述】
+        builder = platform_builder_registry.get_builder(current_platform_id)
+        available_controls_desc = "你当前没有可用的导航指令。"
+        available_actions_desc = "你当前没有可用的外部行动。"
 
-        # 看这里！现在多省事，直接喊小弟过来干活！
-        dynamic_guidance_str = self.session.guidance_generator.generate_guidance()
+        if builder:
+            controls_desc, actions_desc = builder.get_level_specific_descriptions(current_level)
+            if controls_desc: available_controls_desc = controls_desc
+            if actions_desc: available_actions_desc = actions_desc
 
-        unread_summary_str = "所有其他会话均无未读消息。"
-        if (
-            self.session.core_logic
-            and hasattr(self.session.core_logic, "prompt_builder")
-            and self.session.core_logic.prompt_builder
-        ):
-            try:
-                unread_summary_str = await self.session.core_logic.prompt_builder.unread_info_service.generate_unread_summary_text(  # noqa: E501
-                    exclude_conversation_id=self.session.conversation_id
-                )
-            except Exception as e:
-                logger.error(
-                    f"[{self.session.conversation_id}] 获取未读消息摘要失败: {e}", exc_info=True
-                )
-                unread_summary_str = "获取其他会话摘要时出错。"
-        else:
-            logger.warning(
-                f"[{self.session.conversation_id}] 无法获取 unread_info_service，"
-                f"未读消息摘要将为空。"
-            )
+        # 3. 获取层级专属的【Schema】并组装最终的 Response Schema
+        final_response_schema = {
+            "type": "object",
+            "properties": {
+                "internal_state": {
+                    "type": "object",
+                    "properties": { "mood": {"type": "string"}, "think": {"type": "string"}, "goal": {"type": "string"} },
+                    "required": ["mood", "think", "goal"],
+                }
+            },
+            "required": ["internal_state"]
+        }
+        if builder:
+            controls_schema, actions_schema = builder.get_level_specific_definitions(current_level)
+            if controls_schema and controls_schema.get("properties"):
+                final_response_schema["properties"]["consciousness_control"] = controls_schema
+            if actions_schema and actions_schema.get("properties"):
+                final_response_schema["properties"]["action"] = actions_schema
+            if final_response_schema["properties"].get("action"):
+                final_response_schema["required"].append("action")
 
-        # --- 步骤2：调用新玩具，获取所有格式化好的聊天记录相关信息 ---
-        logger.debug(f"[{self.session.conversation_id}] 调用通用聊天记录格式化工具...")
-        bot_profile = await session.get_bot_profile()
-
-        # // 在这里调用我们新加的“情报获取术”
-        conversation_details = await session.get_conversation_details()
-
+        # 4. 获取聊天记录等上下文信息
+        bot_profile = await self.session.get_bot_profile()
         prompt_components = await format_chat_history_for_llm(
             event_storage=self.event_storage,
             conversation_id=self.session.conversation_id,
@@ -189,88 +170,81 @@ class ChatPromptBuilder:
             conversation_name=self.session.conversation_name,
             last_processed_timestamp=last_processed_timestamp,
             is_first_turn=is_first_turn,
-            raw_events_from_caller=None,  # 在专注模式下，总是从数据库拉取
         )
 
-        # --- 步骤3：使用新玩具返回的结果，准备剩下的Prompt零件 ---
-        # 处理用户昵称
-        user_nick = ""
-        # 如果是私聊模式，尝试从用户映射中获取对方昵称
-        if self.session.conversation_type == "private":
-            final_bot_id = str(bot_profile.get("user_id", self.bot_id))
-            # 遍历用户映射，找到对方的昵称
-            for p_id, user_data_val in prompt_components.user_map.items():
-                # 如果是对方用户（不是bot），并且不是当前bot的ID
-                if user_data_val.get("uid_str") == "U1" and p_id != final_bot_id:
-                    user_nick = user_data_val.get("nick", "对方")
-                    # 找到后就不再继续遍历了
+        # 5. 填充System Prompt
+        current_time_str = get_formatted_time_for_llm()
+        persona_config = config.persona
+
+        if self.session.conversation_type == "group":
+            system_prompt_template = prompt_templates.GROUP_SYSTEM_PROMPT
+            conversation_details = await self.session.get_conversation_details()
+            system_prompt = system_prompt_template.format(
+                current_time=current_time_str,
+                bot_name=persona_config.bot_name,
+                optional_description=persona_config.description,
+                optional_profile=persona_config.profile,
+                bot_id=bot_profile.get("user_id", self.bot_id),
+                bot_nickname=bot_profile.get("nickname", persona_config.bot_name),
+                conversation_name=prompt_components.conversation_name or "未知群聊",
+                bot_card=bot_profile.get("card", persona_config.bot_name),
+                member_count=conversation_details.get("member_count", "未知"),
+                # 新增的占位符
+                available_consciousness_controls_desc=available_controls_desc,
+                available_actions_desc=available_actions_desc
+            )
+        else: # private
+            system_prompt_template = prompt_templates.PRIVATE_SYSTEM_PROMPT
+            user_nick = "对方"
+            for pid, u_info in prompt_components.user_map.items():
+                if pid != bot_profile.get("user_id", self.bot_id):
+                    user_nick = u_info.get("nick", "对方")
                     break
+            system_prompt = system_prompt_template.format(
+                current_time=current_time_str,
+                bot_name=persona_config.bot_name,
+                optional_description=persona_config.description,
+                optional_profile=persona_config.profile,
+                bot_id=bot_profile.get("user_id", self.bot_id),
+                user_nick=user_nick,
+                # 新增的占位符
+                available_consciousness_controls_desc=available_controls_desc,
+                available_actions_desc=available_actions_desc
+            )
 
-        # // 这是最关键的改造！我们现在直接从数据库拿最新的思考状态！
-        latest_thought_doc = (
-            await self.session.thought_storage_service.get_latest_thought_document()
-        )
-
+        # 6. 填充User Prompt
+        latest_thought_doc = await self.session.thought_storage_service.get_latest_thought_document()
         previous_thoughts_block_str = self._build_previous_thoughts_block(
             is_first_turn=is_first_turn,
             was_interrupted=was_last_turn_interrupted,
-            latest_thought_doc=latest_thought_doc,  # 传最新的思想点进去
-            session=session,
+            latest_thought_doc=latest_thought_doc,
+            session=self.session,
             interrupt_text=interrupting_event_text,
             motivation_from_core=motivation_from_core,
         )
+        dynamic_guidance_str = self.session.guidance_generator.generate_guidance()
+        unread_summary_str = await self.session.core_logic.prompt_builder.unread_info_service.generate_unread_summary_text(
+            exclude_conversation_id=self.session.conversation_id
+        )
 
-        final_bot_id = str(bot_profile.get("user_id", self.bot_id))
-        final_bot_nickname = bot_profile.get("nickname", persona_config.bot_name or "bot")
-        final_bot_card = bot_profile.get("card", final_bot_nickname)
-
-        # // 从我们打探到的情报里，把人数拿出来！用 .get() 是个好习惯，免得没有的时候程序哭鼻子。
-        member_count = conversation_details.get("member_count", "未知")
-        max_member_count = conversation_details.get("max_member_count", "未知")
-
-        # 组装 System Prompt
-        # 如果是群聊，使用群聊的名称；否则使用默认的“未知群聊”
-        if self.session.conversation_type == "group":
-            system_prompt = system_prompt_template.format(
-                current_time=current_time_str,
-                bot_name=bot_name_str,
-                optional_description=bot_description_str,
-                optional_profile=bot_profile_str,
-                bot_id=final_bot_id,
-                bot_nickname=final_bot_nickname,
-                conversation_name=prompt_components.conversation_name or "未知群聊",
-                bot_card=final_bot_card,
-                member_count=member_count,
-            )
-        # 如果是私聊，使用对方的昵称；否则使用默认的“对方”
-        else:
-            system_prompt = system_prompt_template.format(
-                current_time=current_time_str,
-                bot_name=bot_name_str,
-                bot_id=final_bot_id,
-                optional_description=bot_description_str,
-                optional_profile=bot_profile_str,
-                user_nick=user_nick,
-            )
-
-        # 组装 User Prompt
+        user_prompt_template = prompt_templates.GROUP_USER_PROMPT if self.session.conversation_type == "group" else prompt_templates.PRIVATE_USER_PROMPT
         user_prompt = user_prompt_template.format(
-            unread_summary=unread_summary_str,
+            unread_summary=unread_summary_str or "所有其他会话均无未读消息。",
             conversation_info_block=prompt_components.conversation_info_block,
             user_list_block=prompt_components.user_list_block,
             chat_history_log_block=prompt_components.chat_history_log_block,
             previous_thoughts_block=previous_thoughts_block_str,
             dynamic_behavior_guidance=dynamic_guidance_str,
-            member_count=member_count,
-            max_member_count=max_member_count,
+            member_count=conversation_details.get("member_count", "未知") if self.session.conversation_type == "group" else "",
+            max_member_count=conversation_details.get("max_member_count", "未知") if self.session.conversation_type == "group" else ""
         )
 
+        # 7. 将所有结果打包到 PromptComponents 容器中返回
         prompt_components.system_prompt = system_prompt
         prompt_components.user_prompt = user_prompt
+        # 把动态生成的Schema也塞进去！
+        prompt_components.response_schema = final_response_schema
 
-        logger.debug(f"[{self.session.conversation_id}] Prompts构建完成。")
-        logger.debug(f"[{self.session.conversation_id}] System Prompt: {system_prompt}...")
-        logger.debug(f"[{self.session.conversation_id}] User Prompt: {user_prompt}...")
         return prompt_components
 
     def _build_previous_thoughts_block(

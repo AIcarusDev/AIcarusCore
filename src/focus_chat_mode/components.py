@@ -18,3 +18,4 @@ class PromptComponents:
     conversation_info_block: str = ""
     user_list_block: str = ""
     chat_history_log_block: str = ""
+    response_schema: dict[str, Any] = field(default_factory=dict)

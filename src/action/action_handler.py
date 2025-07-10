@@ -4,7 +4,8 @@ import time
 import uuid
 from typing import TYPE_CHECKING, Any
 
-# 导入我们的小玩具挂钩和它的提供者！
+from aicarus_protocols import ConversationInfo
+from src.action.components.message_builder import MessageBuilder
 from src.action.action_provider import ActionProvider
 from src.action.components.action_registry import ActionRegistry
 from src.action.components.llm_client_factory import LLMClientFactory
@@ -237,12 +238,73 @@ class ActionHandler:
         final_payload = None
         success = False
 
+        # 1.1 检查是否有 do_nothing 动作
+        if "do_nothing" in action_json.get("core", {}):
+            motivation = action_json["core"]["do_nothing"].get("motivation", "决定保持沉默")
+            logger.info(f"AI 决定不行动，动机: {motivation}")
+            # 在这里，我们可以把这个动机记录到思想点中
+            if self.thought_storage_service and doc_key_for_updates:
+                await self.thought_storage_service.save_action_result_to_thought(
+                    thought_key=doc_key_for_updates,
+                    result_text=f"决定不行动，原因：{motivation}"
+                )
+
+            # 既然是do_nothing，直接返回成功即可
+            if self.thought_trigger:
+                self.thought_trigger.set()
+            return True, "已记录不行动的决定。", None
+
         # 2. 优先处理平台动作
         if platform_actions:
             platform_id = "napcat_qq"
             # 假设一次只处理一个平台动作
             action_name, params = next(iter(platform_actions.items()))
             motivation = params.get("motivation", "没有明确动机")
+
+            # 如果是发送消息的动作，就交给新的翻译官 MessageBuilder
+            if action_name == "send_message":
+                logger.info(f"检测到 'send_message' 动作，交由 MessageBuilder 处理。")
+
+                # 从参数中提取会话信息和指令步骤
+                conversation_id = params.get("conversation_id")
+                steps = params.get("steps", [])
+
+                if not conversation_id or not steps:
+                    msg = "send_message 动作缺少 conversation_id 或 steps。"
+                    logger.error(msg)
+                    return False, msg, None
+
+
+                if not self.chat_session_manager:
+                    msg = "ActionHandler缺少ChatSessionManager，无法处理send_message。"
+                    logger.error(msg)
+                    return False, msg, None
+
+                # 从管理器中获取当前活动的会话
+                session = self.chat_session_manager.sessions.get(conversation_id)
+
+                if not session or not session.is_active:
+                    msg = f"无法为非激活的会话 {conversation_id} 发送消息。"
+                    logger.error(msg)
+                    return False, msg, None
+
+                send_message_motivation = params.get("motivation")
+
+                # 现在，我们用这个session实例来创建MessageBuilder
+                message_builder = MessageBuilder(
+                    session=session,
+                    motivation=send_message_motivation
+                )
+
+                # 等待翻译官完成工作
+                success = await message_builder.process_steps(steps)
+
+                result_text = "消息已发送。" if success else "消息发送失败。"
+
+                # 无论成功失败，我们都认为这个动作流已经处理完了
+                if self.thought_trigger:
+                    self.thought_trigger.set()
+                return success, result_text, {"sent": success}
 
             # 2.2 处理其他平台动作 (如 get_list)
             builder = platform_builder_registry.get_builder(platform_id)

@@ -17,7 +17,6 @@ from .action_executor import ActionExecutor
 from .behavioral_guidance_generator import BehavioralGuidanceGenerator
 from .chat_prompt_builder import ChatPromptBuilder
 from .focus_chat_cycler import FocusChatCycler
-from .llm_response_handler import LLMResponseHandler
 from .summarization_manager import SummarizationManager
 
 if TYPE_CHECKING:
@@ -122,7 +121,6 @@ class ChatSession:
 
         # --- 模块化组件 --
         self.action_executor = ActionExecutor(self)
-        self.llm_response_handler = LLMResponseHandler(self)
         self.summarization_manager = SummarizationManager(self)
         self.guidance_generator = BehavioralGuidanceGenerator(self)
 
@@ -131,6 +129,7 @@ class ChatSession:
         self.last_active_time: float = 0.0
         self.last_processed_timestamp: float = 0.0
         self.last_llm_decision: dict[str, Any] | None = None
+        self.interrupting_event_doc: dict | None = None # 用于存储中断事件的文档
         self.sent_actions_context: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self.processing_lock = asyncio.Lock()
         self.messages_planned_this_turn: int = 0  # 计划发几条

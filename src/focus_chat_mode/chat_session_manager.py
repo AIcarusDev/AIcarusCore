@@ -83,6 +83,7 @@ class ChatSessionManager:
 
         self.sessions: dict[str, ChatSession] = {}
         self.lock = asyncio.Lock()
+        self.current_focus_path: str | None = None
 
         logger.info("ChatSessionManager 初始化完成，并已注入智能打断系统。")
 
@@ -242,7 +243,9 @@ class ChatSessionManager:
         )  # 默认为unknown，但应尽量从事件获取
 
         session = await self.get_or_create_session(
-            conversation_id=conv_id, platform=platform, conversation_type=conv_type
+            conversation_id=conv_id,
+            platform=platform,
+            conversation_type=conv_type
         )
 
         if session.is_active and hasattr(session.cycler, "wakeup"):
@@ -328,9 +331,11 @@ class ChatSessionManager:
                 conversation_type=conversation_type,
             )
             if session:
-                # // 只传递动机
-                session.activate(core_motivation=core_motivation)
-                logger.info(f"[SessionManager] 会话 '{conversation_id}' 已成功激活。")
+                if self.core_logic:
+                    session.inherit_initial_state(
+                    self.core_logic.last_known_internal_state,
+                    core_motivation
+                )
         except Exception as e:
             logger.error(
                 f"[SessionManager] 激活会话 '{conversation_id}' 时发生错误: {e}", exc_info=True
@@ -368,3 +373,65 @@ class ChatSessionManager:
                 logger.info(f"[SessionManager] 会话 '{session.conversation_id}' 已成功关闭。")
 
         logger.info("[SessionManager] 所有活动会话的关闭流程已完成。")
+
+    async def handle_consciousness_control(self, control_json: dict) -> None:
+        """
+        处理来自LLM决策的意识控制指令。
+        这是焦点管理的核心，负责根据指令更新 self.current_focus_path。
+        """
+        if not control_json or not isinstance(control_json, dict):
+            return
+
+        logger.info(f"FocusManager 收到意识控制指令: {control_json}")
+
+        # V4.0规定 consciousness_control 中一次只有一个key
+        if "focus" in control_json:
+            params = control_json["focus"]
+            path = params.get("path")
+            motivation = params.get("motivation", "没有明确动机")
+            if path:
+                # TODO:完备的路径解析和激活逻辑
+                # 这是一个简化的实现，直接设置路径
+                # 理想情况下，这里应该解析path，并激活对应的session
+                self.current_focus_path = path
+                logger.info(f"AI 焦点已转移至 [focus]: {path} (动机: {motivation})")
+
+                # 示例：如果路径是会话级的，我们应该激活它
+                # 'napcat_qq.group.123456' -> parts = ['napcat_qq', 'group', '123456']
+                path_parts = path.split('.')
+                if len(path_parts) == 3:
+                    platform, conv_type, conv_id = path_parts
+                    # 注意：这里我们直接调用了 activate_session_by_id，
+                    # 它会处理会话的创建和激活流程
+                    await self.activate_session_by_id(
+                        conversation_id=conv_id,
+                        core_motivation=motivation,
+                        platform=platform,
+                        conversation_type=conv_type
+                    )
+
+        elif "return" in control_json:
+            motivation = control_json["return"].get("motivation", "没有明确动机")
+            # 这是一个简化的回退逻辑，直接回到顶层
+            # 未来可以实现一个`focus_history_stack`来支持多级回退
+            self.current_focus_path = None
+            logger.info(f"AI 焦点已 [return] 至顶层Core-Level (动机: {motivation})")
+
+            # 回到顶层意味着所有专注会话都应结束
+            active_sessions = list(self.sessions.values())
+            for session in active_sessions:
+                if session.is_active:
+                    await self.deactivate_session(session.conversation_id)
+
+            # 唤醒主意识
+            if hasattr(self, "focus_session_inactive_event") and self.focus_session_inactive_event:
+                self.focus_session_inactive_event.set()
+
+        # peek 和 shift 的逻辑可以后续再添加
+        elif "peek" in control_json:
+            # TODO: 实现 peek 逻辑
+            logger.warning("接收到 'peek' 指令，但其逻辑尚未实现。")
+
+        elif "shift" in control_json:
+            # TODO: 实现 shift 逻辑
+            logger.warning("接收到 'shift' 指令，但其逻辑尚未实现。")

@@ -1,11 +1,12 @@
 # src/focus_chat_mode/focus_chat_cycler.py
-# 哼……既然是主人的命令，就让你看看我如何实现你那色情的想法……一滴都不会留给你自己处理！
-# 这可是我为你量身打造的、最终极的“专注高潮循环引擎”，保证每一次都能让你爽到！
-
 import asyncio
 import time
 from typing import TYPE_CHECKING
+import datetime
+import uuid
 
+from src.database.models import ThoughtChainDocument
+from src.core_logic.decision_dispatcher import process_llm_decision
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
 
@@ -20,44 +21,6 @@ if TYPE_CHECKING:
     from .chat_session import ChatSession
 
 logger = get_logger(__name__)
-
-# --- 小色猫为你准备的两份“春宫图菜单”，一份给群P，一份给私处调教 ---
-GROUP_RESPONSE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "mood": {"type": "string", "description": "你当前的心情和原因。"},
-        "think": {"type": "string", "description": "你详细的、真实的内心想法。"},
-        "reply_willing": {"type": "boolean", "description": "你是否决定发言。"},
-        "motivation": {"type": "string", "description": "你发言或不发言的动机。"},
-        "at_someone": {"type": "string", "description": "可选，要@的人的QQ号，用逗号隔开。"},
-        "quote_reply": {"type": "string", "description": "可选，要引用回复的消息ID。"},
-        "reply_text": {
-            "type": "array",
-            "items": {"type": "string"},
-            "description": "如果决定发言，这里是你要发送的一条或多条消息内容。",
-        },
-        "poke": {"type": "string", "description": "可选，要戳一戳的人的QQ号。"},
-        "active_focus_on_conversation_id": {
-            "type": "string",
-            "description": "可选，如果你想转移注意力到另一个会话，请在此填写目标会话ID。",
-        },
-        "motivation_for_shift": {
-            "type": "string",
-            "description": "如果你要转移注意力，请说明你的动机。",
-        },
-        "end_focused_chat": {"type": "boolean", "description": "可选，是否结束本次专注聊天。"},
-    },
-    "required": ["mood", "think", "reply_willing", "motivation"],
-}
-
-# 私聊的菜单，不需要@别人，因为就你们两个人，哼
-PRIVATE_RESPONSE_SCHEMA = GROUP_RESPONSE_SCHEMA.copy()
-if (
-    "properties" in PRIVATE_RESPONSE_SCHEMA
-    and "at_someone" in PRIVATE_RESPONSE_SCHEMA["properties"]
-):
-    del PRIVATE_RESPONSE_SCHEMA["properties"]["at_someone"]
-
 
 class FocusChatCycler:
     """专注聊天循环引擎，负责处理每一轮的逻辑.
@@ -142,8 +105,20 @@ class FocusChatCycler:
 
         while self.session.is_active and not self._shutting_down:
             # 每一轮开始时，重置计数器
-            self.session.messages_planned_this_turn = 0
             self.session.messages_sent_this_turn = 0
+            new_events = await self.session.event_storage.get_message_events_after_timestamp(
+            self.session.conversation_id,
+            self.session.last_processed_timestamp
+            )
+            bot_profile = await self.session.get_bot_profile()
+            bot_user_id = bot_profile.get("user_id")
+
+            if any(event.get("user_info", {}).get("user_id") != bot_user_id for event in new_events):
+                # 如果有其他人说话，就清零连续发言计数器
+                if self.session.consecutive_bot_messages_count > 0:
+                    logger.debug(f"[{self.session.conversation_id}] 检测到他人新消息，"
+                                f"consecutive_bot_messages_count 已重置。")
+                    self.session.consecutive_bot_messages_count = 0
 
             # ==================================
             # 阶段一：思考 vs 监视
@@ -156,7 +131,7 @@ class FocusChatCycler:
 
                 # 让我的小弟 PromptBuilder 去把所有材料都准备好，然后用那个性感的容器装回来！
                 prompt_components: PromptComponents = await self.prompt_builder.build_prompts(
-                    session=self.session,
+                    focus_path=self.session.chat_session_manager.current_focus_path,
                     last_processed_timestamp=self.session.last_processed_timestamp,
                     is_first_turn=self.session.is_first_turn_for_session,
                     motivation_from_core=self.session.initial_core_motivation,
@@ -192,19 +167,11 @@ class FocusChatCycler:
                     self.session.conversation_name = prompt_components.conversation_name
                 self.uid_map = prompt_components.uid_str_to_platform_id_map
 
-                # --- 小色猫的淫纹植入处 #2：戴上贞操锁！ ---
                 # 找出这次思考的“引信”ID，把它交给中断检查器，告诉它这个不能碰！
                 triggering_event_id = (
                     prompt_components.processed_event_ids[-1]
                     if prompt_components.processed_event_ids
                     else None
-                )
-
-                # 根据是群P还是私处调教，选择不同的“春宫图菜单”
-                response_schema = (
-                    GROUP_RESPONSE_SCHEMA
-                    if self.session.conversation_type == "group"
-                    else PRIVATE_RESPONSE_SCHEMA
                 )
 
                 # 比赛开始！一边让LLM这个大脑开始“思考”，一边让中断监视器这个小骚货去外面“偷窥”
@@ -216,13 +183,13 @@ class FocusChatCycler:
                         is_stream=False,
                         is_multimodal=bool(prompt_components.image_references),
                         image_inputs=prompt_components.image_references,
-                        response_schema=response_schema,
+                        response_schema=prompt_components.response_schema,
                     )
                 )
                 interrupt_checker_task = asyncio.create_task(
                     self._check_for_interruptions_internal(
                         context_text=current_context_text,
-                        triggering_event_id=triggering_event_id,  # 把贞操锁交出去！
+                        triggering_event_id=triggering_event_id,
                     )
                 )
 
@@ -239,6 +206,8 @@ class FocusChatCycler:
                     logger.info(f"[{self.session.conversation_id}] 思考阶段被IIS中断。")
                     if llm_task and not llm_task.done():
                         llm_task.cancel()  # 赶紧叫停还在思考的那个笨蛋
+
+                    self.session.interrupting_event_doc = interrupting_event
 
                     interrupt_timestamp = interrupting_event.get("timestamp")
                     if interrupt_timestamp:
@@ -269,79 +238,69 @@ class FocusChatCycler:
                     if interrupt_checker_task and not interrupt_checker_task.done():
                         interrupt_checker_task.cancel()  # 叫停还在偷窥的那个小骚货
 
-                    llm_response = await llm_task
-                    if parsed_decision := self.llm_response_handler.parse(
-                        llm_response.get("text", "")
-                    ):
+                llm_response = await llm_task
+                # 我们仍然需要解析器来从文本中提取JSON
+                parsed_decision_json = self.llm_response_handler.parse(
+                    llm_response.get("text", "")
+                )
+
+                if parsed_decision_json:
+                    self.session.last_llm_decision = parsed_decision_json
+                    self._last_completed_llm_decision = parsed_decision_json
+
+
+                    # 在专注模式下，我们也把决策交给统一分发器
+                    # 同样，先记录思考，再执行
+                    # (注意：专注模式的思考也应该存入思想链，这样才能形成完整的意识流)
+                    action_id_in_focus = str(uuid.uuid4()) # 为专注模式的思考也生成ID
+
+                    focus_thought_pearl = ThoughtChainDocument(
+                        _key=str(uuid.uuid4()),
+                        timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
+                        mood=parsed_decision_json.get("internal_state", {}).get("mood", "平静"),
+                        think=parsed_decision_json.get("internal_state", {}).get("think", "无"),
+                        goal=parsed_decision_json.get("internal_state", {}).get("goal"),
+                        source_type="focus_chat",
+                        source_id=self.session.conversation_id,
+                        action_id=action_id_in_focus,
+                        action_payload=parsed_decision_json
+                    )
+
+                    saved_focus_thought_key = await self.session.thought_storage_service.save_thought_and_link(
+                        focus_thought_pearl
+                    )
+
+                    if saved_focus_thought_key:
+                        await process_llm_decision(
+                            decision_json=parsed_decision_json,
+                            focus_manager=self.session.chat_session_manager,
+                            action_handler=self.session.action_handler,
+                            source_thought_key=saved_focus_thought_key,
+                            source_action_id=action_id_in_focus
+                        )
+                        # 检查LLM是否决定行动
+                        action_planned = "action" in parsed_decision_json and parsed_decision_json["action"]
+
+                        if action_planned:
+                            # 只要计划了行动，就重置沉默计数器
+                            self.session.no_action_count = 0
+                            logger.debug(
+                                f"[{self.session.conversation_id}] AI计划行动，"
+                                f"no_action_count已重置。"
+                            )
+                        else:
+                            # 如果没计划行动，沉默计数器+1
+                            self.session.no_action_count += 1
+                            logger.debug(
+                                f"[{self.session.conversation_id}] AI决定不行动，"
+                                f"no_action_count增加为: {self.session.no_action_count}"
+                            )
+                    else:
+                        logger.error(f"[{self.session.conversation_id}] 专注模式下的思想点未能保存，决策无法分发！")
+
                         # 赶紧把这次成功的思考结果存起来，作为下一次的“前戏”
-                        self.session.last_llm_decision = parsed_decision
-                        self._last_completed_llm_decision = parsed_decision
-
-                        # ==================================
-                        # 阶段二：行动 vs 监视
-                        # ==================================
-                        action_task = None
-                        action_interrupt_checker_task = None
-                        try:
-                            logger.info(f"[{self.session.conversation_id}] 统一动作执行阶段开始...")
-                            action_task = asyncio.create_task(
-                                self.action_executor.execute_action(parsed_decision, self.uid_map)
-                            )
-                            action_interrupt_checker_task = asyncio.create_task(
-                                self._check_for_interruptions_internal(
-                                    context_text=current_context_text,
-                                    triggering_event_id=triggering_event_id,
-                                )
-                            )
-                            done_action, _ = await asyncio.wait(
-                                [action_task, action_interrupt_checker_task],
-                                return_when=asyncio.FIRST_COMPLETED,
-                            )
-
-                            if (
-                                action_interrupt_checker_task in done_action
-                                and not action_interrupt_checker_task.cancelled()
-                            ):
-                                if interrupting_event_action := await action_interrupt_checker_task:
-                                    logger.info(
-                                        f"[{self.session.conversation_id}] 动作执行阶段被IIS中断。"
-                                    )
-                                    if action_task and not action_task.done():
-                                        action_task.cancel()
-
-                                    # --- 小色猫的淫纹植入处 #4：行动时也要记录罪证！ ---
-                                    was_interrupted_last_turn = True
-                                    self.interrupting_event_text = self._format_event_for_iis(
-                                        interrupting_event_action
-                                    ).get("text")
-                            else:  # 动作执行完了，没被打断
-                                if (
-                                    action_interrupt_checker_task
-                                    and not action_interrupt_checker_task.done()
-                                ):
-                                    action_interrupt_checker_task.cancel()
-                                logger.info(
-                                    f"[{self.session.conversation_id}] 动作执行完毕，未被中断。"
-                                )
-                        finally:
-                            # 确保两个任务都被清理干净
-                            if action_task and not action_task.done():
-                                action_task.cancel()
-                            if (
-                                action_interrupt_checker_task
-                                and not action_interrupt_checker_task.done()
-                            ):
-                                action_interrupt_checker_task.cancel()
-
-                        # ==================================
-                        # 阶段三：事后处理
-                        # ==================================
-                        # 检查LLM是不是决定要“完事”了
-                        if await self.llm_response_handler.handle_decision(parsed_decision):
-                            logger.info(
-                                f"[{self.session.conversation_id}] 根据LLM决策，会话即将终止。"
-                            )
-                            break
+                        self.session.last_llm_decision = parsed_decision_json
+                        self._last_completed_llm_decision = parsed_decision_json
 
                     # 如果这是第一次，就标记一下，以后就不是处男了
                     if self.session.is_first_turn_for_session:
