@@ -616,6 +616,7 @@ CORE_USER_PROMPT = """
 <action>
 <action_log>
 {action_log_block}
+(该功能尚未完善, 目前不会显示focus动作的执行状态, 请等待完善. 完善后会直接删除这一提示, 无需您反复尝试)
 </action_log>
 
 <action_request>
@@ -624,6 +625,7 @@ CORE_USER_PROMPT = """
 
 <action_response>
 {action_response_block}
+(该功能尚未完善, 目前不会显示任何动作的执行结果, 请等待完善. 完善后会直接删除这一提示, 无需您反复尝试)
 </action_response>
 </action>
 
@@ -634,4 +636,4 @@ CORE_USER_PROMPT = """
 <output_format>
 请结合以上所有信息，输出你现在的心情，内心想法等内容。
 </output_format>
-"""
+"""  # noqa: E501
