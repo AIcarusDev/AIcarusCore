@@ -298,7 +298,6 @@ class DefaultMessageProcessor:
         try:
             # 测试入口点
             text_content = proto_event.get_text_content()
-            print(f"收到的文本内容: {text_content}")
             if text_content.strip() == "完整测试":
                 logger.info(
                     f"收到来自会话 {proto_event.conversation_info.conversation_id} "
