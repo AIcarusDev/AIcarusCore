@@ -1,7 +1,7 @@
 [project]
-name = "AIcarus"
-version = "0.0.1"
-description = "为时已晚有机体！"
+name = "AIcarusCore"
+version = "2.0.0"
+description = "AIcarusCore 是一个高度模块化、可扩展的AI认知框架。它不仅仅是一个聊天机器人后端，更是一个模拟多层意识结构、旨在实现更动态、更具自主性AI行为的实验性平台。"
 
 [tool.ruff]
 # 我们的代码将以 Python 3.12+ 为目标。
