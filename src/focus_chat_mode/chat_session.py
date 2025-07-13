@@ -12,11 +12,10 @@ from src.database import ConversationStorageService
 from src.database.services.event_storage_service import EventStorageService
 from src.database.services.thought_storage_service import ThoughtStorageService  # 哼，新来的！
 from src.llmrequest.llm_processor import Client as LLMProcessorClient
+from src.focus_chat_mode.focus_chat_cycler import FocusChatCycler
 
-from .action_executor import ActionExecutor
 from .behavioral_guidance_generator import BehavioralGuidanceGenerator
 from .chat_prompt_builder import ChatPromptBuilder
-from .focus_chat_cycler import FocusChatCycler
 from .summarization_manager import SummarizationManager
 
 if TYPE_CHECKING:
@@ -25,6 +24,7 @@ if TYPE_CHECKING:
     )
     from src.common.summarization_observation.summarization_service import SummarizationService
     from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
+    from src.core_logic.internal_info_builder import InternalInfoBuilder
     from src.database.services.summary_storage_service import SummaryStorageService
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 
@@ -46,42 +46,40 @@ class ChatSession:
         action_handler (ActionHandler): 动作处理器，用于执行各种动作和获取数据.
         bot_id (str): 机器人的唯一标识符.
         platform (str): 平台标识符.
-        conversation_type (str): 会话类型.
-        core_logic (CoreLogicFlow): 核心逻辑处理器.
-        chat_session_manager (ChatSessionManager): 聊天会话管理器.
-        conversation_service (ConversationStorageService): 会话存储服务.
-        summarization_service (SummarizationService): 摘要服务.
-        summary_storage_service (SummaryStorageService): 摘要存储服务.
-        intelligent_interrupter (IntelligentInterrupter): 智能中断系统，
-            用于处理会话中的智能中断逻辑.
+        conversation_type (str): 会话类型（如群聊或私聊）.
+        conversation_name (str | None): 会话名称（如果适用）.
+        core_logic (CoreLogicFlow): 核心逻辑处理器，用于处理会话的核心逻辑.
+        chat_session_manager (ChatSessionManager): 聊天会话管理器，用于管理多个会话实例.
+        conversation_service (ConversationStorageService): 会话存储服务，用于持久化会话数据.
+        summarization_service (SummarizationService): 摘要服务，用于生成会话摘要.
+        summary_storage_service (SummaryStorageService): 摘要存储服务，用于持久化会话摘要.
+        internal_info_builder (InternalInfoBuilder): 内部信息构建器，用于生成内部状态信息块.
+        intelligent_interrupter (IntelligentInterrupter): 智能中断系统，用于处理会话中的智能中断逻辑.
         thought_storage_service (ThoughtStorageService): 思考存储服务，用于存储和检索思考数据.
-        action_executor (ActionExecutor): 动作执行器，用于处理和执行动作.
-        llm_response_handler (LLMResponseHandler): LLM响应处理器，用于处理LLM的响应.
-        summarization_manager (SummarizationManager): 摘要管理器，用于生成和存储会话摘要.
-        guidance_generator (BehavioralGuidanceGenerator): 行为指导生成器，用于生成行为指导和建议.
         is_active (bool): 会话是否处于活动状态.
         last_active_time (float): 上次活动的时间戳.
-        last_processed_timestamp (float): 上次处理的时间戳.
+        last_processed_timestamp (float): 上次处理的时间戳，用于跟踪新事件.
         last_llm_decision (dict[str, Any] | None): 上次LLM决策的结果.
-        sent_actions_context (OrderedDict[str, dict[str, Any]]): 已发送动作的上下文信息，
-            按发送顺序存储.
-        processing_lock (asyncio.Lock): 异步锁，用于确保会话处理的线程安全.
+        interrupting_event_doc (dict | None): 用于存储中断事件的文档.
+        sent_actions_context (OrderedDict[str, dict[str, Any]]): 已发送动作的上下文信息.
         messages_planned_this_turn (int): 本轮计划发送的消息数量.
         messages_sent_this_turn (int): 本轮实际发送的消息数量.
-        background_tasks (set[asyncio.Task]): 背景任务集合，用于管理会话中的异步任务.
+        background_tasks (set[asyncio.Task]): 背景任务集合，用于管理异步任务.
         is_first_turn_for_session (bool): 是否为会话的第一轮思考.
         initial_core_think (str | None): 初始核心思考内容.
-        initial_core_mood (str | None): 初始核心情绪状态.
-        initial_core_motivation (str | None): 初始核心动机.
+        initial_core_mood (str | None): 初始核心心境内容.
+        initial_core_motivation (str | None): 初始核心动机内容.
         current_handover_summary (str | None): 当前交接摘要内容.
         events_since_last_summary (list[dict[str, Any]]): 自上次摘要以来的事件列表.
         message_count_since_last_summary (int): 自上次摘要以来的消息计数.
-        no_action_count (int): 连续未执行动作的计数.
-        consecutive_bot_messages_count (int): 连续机器人消息的计数.
-        bot_profile_cache (dict[str, Any]): 机器人档案缓存，用于快速访问机器人信息.
-        last_profile_update_time (float): 上次更新机器人档案的时间戳.
-        conversation_details_cache (dict[str, Any]): 会话详情缓存，用于快速访问会话信息.
+        no_action_count (int): 连续未采取行动的计数.
+        consecutive_bot_messages_count (int): 连续收到机器人的消息计数.
+        bot_profile_cache (dict[str, Any]): 机器人的档案缓存，用于快速访问。
+        last_profile_update_time (float): 上次更新机器人物档案的时间戳.
+        conversation_details_cache (dict[str, Any]): 会话详情缓存，用于快速访问。
         last_details_update_time (float): 上次更新会话详情的时间戳.
+        SUMMARY_INTERVAL (int): 摘要生成的时间间隔，单位为分钟.
+        prompt_builder (ChatPromptBuilder): 用于构建聊天提示的生成器。
     """
 
     def __init__(
@@ -98,9 +96,30 @@ class ChatSession:
         conversation_service: ConversationStorageService,
         summarization_service: "SummarizationService",
         summary_storage_service: "SummaryStorageService",
+        internal_info_builder: "InternalInfoBuilder",
         intelligent_interrupter: "IntelligentInterrupter",
-        thought_storage_service: ThoughtStorageService,  # 哼，新来的！
+        thought_storage_service: "ThoughtStorageService",
     ) -> None:
+        """初始化聊天会话.
+        Args:
+            conversation_id (str): 会话的唯一标识符.
+            llm_client (LLMProcessorClient): LLM处理器客户端，用于与LLM交互.
+            event_storage (EventStorageService): 事件存储服务，用于存储和检索事件数据.
+            action_handler (ActionHandler): 动作处理器，用于执行各种动作和获取数据.
+            bot_id (str): 机器人的唯一标识符.
+            platform (str): 平台标识符.
+            conversation_type (str): 会话类型.
+            core_logic (CoreLogicFlow): 核心逻辑处理器.
+            chat_session_manager (ChatSessionManager): 聊天会话管理器.
+            conversation_service (ConversationStorageService): 会话存储服务.
+            summarization_service (SummarizationService): 摘要服务.
+            summary_storage_service (SummaryStorageService): 摘要存储服务.
+            internal_info_builder (InternalInfoBuilder): 内部信息构建器，用于生成内部状态信息块.
+            intelligent_interrupter (IntelligentInterrupter): 智能中断系统，
+                用于处理会话中的智能中断逻辑.
+            thought_storage_service (ThoughtStorageService): 思考存储服务，用于存储和检索思考数据.
+        """
+        # --- 模块化组件 ---
         self.conversation_id: str = conversation_id
         self.llm_client: LLMProcessorClient = llm_client
         self.event_storage: EventStorageService = event_storage
@@ -114,13 +133,19 @@ class ChatSession:
         self.conversation_service = conversation_service
         self.summarization_service = summarization_service
         self.summary_storage_service = summary_storage_service
+        self.internal_info_builder = internal_info_builder
         self.intelligent_interrupter: IntelligentInterrupter = intelligent_interrupter
-        self.thought_storage_service: ThoughtStorageService = (
-            thought_storage_service  # 哼，新来的！
+        self.thought_storage_service: ThoughtStorageService = thought_storage_service
+
+        # --- ChatPromptBuilder 的初始化 ---
+        self.prompt_builder = ChatPromptBuilder(
+            session=self,
+            event_storage=self.event_storage,
+            internal_info_builder=self.internal_info_builder,
         )
 
-        # --- 模块化组件 --
-        self.action_executor = ActionExecutor(self)
+        # 现在，cycler 被创建的时候，它要的 prompt_builder 已经准备好了
+        self.cycler = FocusChatCycler(self)
         self.summarization_manager = SummarizationManager(self)
         self.guidance_generator = BehavioralGuidanceGenerator(self)
 
@@ -129,11 +154,11 @@ class ChatSession:
         self.last_active_time: float = 0.0
         self.last_processed_timestamp: float = 0.0
         self.last_llm_decision: dict[str, Any] | None = None
-        self.interrupting_event_doc: dict | None = None # 用于存储中断事件的文档
+        self.interrupting_event_doc: dict | None = None
         self.sent_actions_context: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self.processing_lock = asyncio.Lock()
-        self.messages_planned_this_turn: int = 0  # 计划发几条
-        self.messages_sent_this_turn: int = 0  # 实际发了机条
+        self.messages_planned_this_turn: int = 0
+        self.messages_sent_this_turn: int = 0
         self.background_tasks: set[asyncio.Task] = set()
 
         # --- 上下文和记忆属性 ---
@@ -151,21 +176,37 @@ class ChatSession:
         self.conversation_details_cache: dict[str, Any] = {}
         self.last_details_update_time: float = 0.0
 
-        # --- 辅助组件 ---
         self.SUMMARY_INTERVAL: int = getattr(config.focus_chat_mode, "summary_interval", 5)
-        self.prompt_builder = ChatPromptBuilder(
-            session=self,
-            event_storage=self.event_storage,
-            action_handler=self.action_handler,
-            bot_id=self.bot_id,
-            platform=self.platform,
-            conversation_id=self.conversation_id,
-            conversation_type=self.conversation_type,
-        )
-        # 哼，这里要把 Cycler 也改造一下，让它能接收 uid_map
-        self.cycler = FocusChatCycler(self)
 
         logger.info(f"[ChatSession][{self.conversation_id}] 实例已创建，依赖已注入。")
+
+    def inherit_initial_state(self, last_thought: dict | None, core_motivation: str | None = None) -> None:
+        """
+        从上一个状态（通常是CoreLogic或另一个ChatSession）继承初始思考和心境。
+        这是实现“意识流”无缝衔接的关键方法。
+
+        Args:
+            last_thought (dict | None): 上一个思考周期的完整文档字典。
+            core_motivation (str | None): (可选) 触发本次切换的、更高优先级的动机。
+        """
+        if not last_thought:
+            logger.warning(f"[{self.conversation_id}] 尝试继承初始状态，但 last_thought 为空，操作跳过。")
+            return
+
+        # 从上一轮思考中提取核心内部状态
+        # 激活会话时，is_first_turn_for_session 会被设为 True
+        # 这会告诉 PromptBuilder 使用这些初始状态
+        self.is_first_turn_for_session = True
+        self.initial_core_think = last_thought.get("think")
+        self.initial_core_mood = last_thought.get("mood")
+
+        # 关键：新指令的动机（core_motivation，例如 focus 或 shift 的动机）优先级更高。
+        # 如果没有新动机，才使用上一轮思考本身的动机（如果有的话）。
+        self.initial_core_motivation = core_motivation or last_thought.get("motivation")
+
+        logger.info(
+            f"[{self.conversation_id}] 已成功继承初始状态。Think: {self.initial_core_think[:30] if self.initial_core_think else 'None'}..."
+        )
 
     async def get_conversation_details(self) -> dict[str, Any]:
         """智能获取会话的详细信息，比如成员数.
@@ -321,7 +362,8 @@ class ChatSession:
                 f"重置为第一轮思考。"
             )
             if self.cycler:
-                self.cycler.wakeup()  # 唤醒可能正在休眠的循环
+                task = asyncio.create_task(self.cycler.start())
+                self.background_tasks.add(task)  # 唤醒可能正在休眠的循环
             return
 
         self.is_active = True
@@ -376,7 +418,8 @@ class ChatSession:
         # 创建一个后台任务来执行异步的关闭逻辑
         shutdown_task = None
         if self.cycler:
-            shutdown_task = asyncio.create_task(self.cycler.shutdown())
+            shutdown_task = asyncio.create_task(self.cycler.shutdown(self.current_handover_summary))
+            self.background_tasks.add(shutdown_task)
         else:
             # 如果没有 cycler，则直接调用会话自身的 shutdown
             shutdown_task = asyncio.create_task(self.shutdown())

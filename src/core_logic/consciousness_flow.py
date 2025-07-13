@@ -20,60 +20,12 @@ from src.core_logic.thought_generator import ThoughtGenerator
 from src.core_logic.thought_persistor import ThoughtPersistor
 from src.database import ThoughtStorageService
 from src.database.models import ThoughtChainDocument
+from src.platform_builders.registry import platform_builder_registry
 
 if TYPE_CHECKING:
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 
 logger = get_logger(__name__)
-
-CORE_RESPONSE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "mood": {"type": "string"},
-        "think": {"type": "string"},
-        "goal": {"type": "string"},
-        "action": {
-            "type": "object",
-            "properties": {
-                "core": {
-                    "type": "object",
-                    "properties": {
-                        "web_search": {
-                            "type": "object",
-                            "properties": {
-                                "query": {"type": "string"},
-                                "motivation": {"type": "string"},
-                            },
-                            "required": ["query", "motivation"],
-                        }
-                    },
-                },
-                "napcat_qq": {
-                    "type": "object",
-                    "properties": {
-                        "focus": {
-                            "type": "object",
-                            "properties": {
-                                "conversation_id": {"type": "string"},
-                                "motivation": {"type": "string"},
-                            },
-                            "required": ["conversation_id", "motivation"],
-                        },
-                        "get_list": {
-                            "type": "object",
-                            "properties": {
-                                "list_type": {"type": "string", "enum": ["friend", "group"]},
-                                "motivation": {"type": "string"},
-                            },
-                            "required": ["list_type", "motivation"],
-                        },
-                    },
-                },
-            },
-        },
-    },
-    "required": ["mood", "think", "goal"],
-}
 
 
 class CoreLogic:
@@ -159,42 +111,8 @@ class CoreLogic:
         focus_params = action_payload.get("napcat_qq", {}).get("focus")
 
         if focus_params and isinstance(focus_params, dict):
-            logger.info("主意识截获 'focus' 指令，准备亲自处理会话激活。")
-            target_conv_id = focus_params.get("conversation_id")
-            motivation = focus_params.get("motivation", "没有明确动机")
-
-            if not target_conv_id:
-                logger.error("'focus' 动作缺少 conversation_id，无法激活。")
-                return False
-
-            try:
-                unread_convs = await self.prompt_builder.unread_info_service.get_structured_unread_conversations()  # noqa: E501
-                target_conv_details = next(
-                    (c for c in unread_convs if c.get("conversation_id") == target_conv_id), None
-                )
-
-                if not target_conv_details:
-                    logger.error(f"无法激活会话 '{target_conv_id}'，因为它不在未读列表中。")
-                    return False
-
-                await self.chat_session_manager.activate_session_by_id(
-                    conversation_id=target_conv_id,
-                    core_motivation=motivation,
-                    platform=target_conv_details["platform"],
-                    conversation_type=target_conv_details["type"],
-                )
-
-                if "focus" in action_payload.get("napcat_qq", {}):
-                    del action_payload["napcat_qq"]["focus"]
-                if not action_payload.get("napcat_qq"):
-                    del action_payload["napcat_qq"]
-
                 # 既然是 focus，那就返回 True
                 return True
-
-            except Exception as e:
-                logger.error(f"主意识在处理 'focus' 指令时发生错误: {e}", exc_info=True)
-                return False
 
         # 把剩下的垃圾（如果有的话）丢给ActionHandler去处理。
         if action_payload:
@@ -243,10 +161,47 @@ class CoreLogic:
 
             # 1. 构建 Prompt (它内部自己会去拿最新的状态，我们不用管了)
             current_time_str = get_formatted_time_for_llm()
-            system_prompt, user_prompt, response_schema, _ = await self.prompt_builder.build_prompts(
+            system_prompt, user_prompt, response_schema = await self.prompt_builder.build_prompts(
                 current_time_str,
                 self.chat_session_manager.current_focus_path # 把当前焦点路径告诉PromptBuilder
             )
+            # 【关键修复点 2】: 从 PlatformBuilder 单独获取 JSON Schema
+            # 这个逻辑需要添加到 prompt_builder.build_prompts 之后，thought_generator.generate_thought 之前
+            focus_path = self.chat_session_manager.current_focus_path
+            if focus_path and focus_path != "core":
+                path_parts = focus_path.split('.')
+                current_platform_id = path_parts[0]
+                current_level = "platform"
+            else:
+                current_platform_id = "core"
+                current_level = "core"
+
+            builder = platform_builder_registry.get_builder(current_platform_id)
+            final_response_schema = {}
+            if builder:
+                controls_schema, _ = builder.get_level_consciousness_controls_definitions(current_level)
+                actions_schema, _ = builder.get_level_actions_definitions(current_level)
+
+                # 将两个 schema 合并
+                final_response_schema = {
+                    "type": "object",
+                    "properties": {
+                        "internal_state": { # internal_state 是固定的
+                            "type": "object",
+                            "properties": {
+                                "mood": {"type": "string"},
+                                "think": {"type": "string"},
+                                "goal": {"type": "string"}
+                            },
+                            "required": ["mood", "think", "goal"]
+                        },
+                        "consciousness_control": controls_schema,
+                        "action": actions_schema
+                    },
+                    "required": ["internal_state"]
+                }
+            else:
+                logger.warning(f"未能为平台 '{current_platform_id}' 找到 builder，将使用空的 response_schema。")
 
             # 2. 生成思考
             logger.info(
@@ -257,8 +212,9 @@ class CoreLogic:
                 system_prompt=system_prompt,
                 user_prompt=user_prompt,
                 image_inputs=[],
-                response_schema=response_schema, # 把动态生成的Schema传给LLM
+                response_schema=final_response_schema, # 把动态生成的Schema传给LLM
             )
+
 
             if generated_thought_json:
                 # 3. 把思考结果打包成“思想点”并存入数据库
@@ -283,7 +239,6 @@ class CoreLogic:
                     source_type="core",
                     source_id=None,
                     action_id=action_id,
-                    # 注意：这里我们把整个V4.0的JSON都存起来，方便追溯
                     action_payload=generated_thought_json,
                 )
 

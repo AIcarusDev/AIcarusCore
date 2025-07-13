@@ -74,6 +74,13 @@ class MessageBuilder:
                     self._clear_segments()
 
         logger.info(f"MessageBuilder 指令处理完毕。共发送消息: {any_message_sent}")
+
+        # 只有在所有步骤都处理完毕，并且确实有消息被成功发送出去之后，
+        # 在这里，统一、唯一地发出“唤醒”信号。
+        if any_message_sent:
+            logger.info(f"MessageBuilder 在会话 '{self.session.conversation_id}' 中已发送完所有消息，将唤醒其循环进行下一轮思考。")
+            self.session.cycler.wakeup()
+
         return any_message_sent
 
     # 这个方法迁移到这里了，处理打字延迟的计算

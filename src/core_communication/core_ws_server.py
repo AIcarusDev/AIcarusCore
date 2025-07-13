@@ -133,6 +133,7 @@ class CoreWebsocketServer:
             "websocket": websocket,
             "last_heartbeat": current_timestamp,
             "display_name": display_name,
+            "bot_profile": None,  # 新增一个字段来缓存机器人档案
         }
         # 通知 ActionSender
         self.action_sender.register_adapter(adapter_id, display_name, websocket)
@@ -169,13 +170,18 @@ class CoreWebsocketServer:
             # 给一点点时间，确保连接完全稳定
             await asyncio.sleep(0.5)
 
-            inspection_success = await inspect_and_initialize_self_profile(
+            success, profile_data = await inspect_and_initialize_self_profile(
                 person_service=self.person_service,
                 action_handler=self.action_handler_instance,
                 platform_id=adapter_id,
             )
 
-            if not inspection_success:
+            if success and profile_data:
+                logger.success(f"安检成功，获取到适配器 '{adapter_id}' 的机器人档案。")
+                # 将获取到的档案缓存起来
+                if adapter_id in self.adapter_clients_info:
+                    self.adapter_clients_info[adapter_id]["bot_profile"] = profile_data
+            else:
                 logger.error(f"后台安检仪式失败！适配器 '{adapter_id}' 的相关功能可能受影响。")
         except Exception as e:
             logger.error(
@@ -425,6 +431,29 @@ class CoreWebsocketServer:
                 await self.server.wait_closed()
             logger.info("AIcarus 核心 WebSocket 服务器已关闭。")
             self.server = None
+
+    def get_connected_platforms_info(self) -> str:
+        """
+        构建并返回所有已连接平台的信息字符串，用于填充 aicarus_prompt。
+        """
+        if not self.adapter_clients_info:
+            return "你暂时没有可用平台，可能是与平台连接断开或程序刚刚启动，请稍等。"
+
+        info_parts = ["你当前有以下可用平台："]
+        for adapter_id, info in self.adapter_clients_info.items():
+            profile = info.get("bot_profile")
+            display_name = info.get("display_name", adapter_id)
+            
+            info_parts.append(f"- {display_name}")
+            if profile and isinstance(profile, dict):
+                bot_id = profile.get("user_id", "未知ID")
+                bot_name = profile.get("nickname", "未知昵称")
+                info_parts.append(f"    - 你的{adapter_id}号是：{bot_id}")
+                info_parts.append(f"    - 你的{adapter_id}名称是：{bot_name}")
+            else:
+                info_parts.append(f"    - (正在获取机器人信息...)")
+        
+        return "\n".join(info_parts)
 
     async def stop(self) -> None:
         """停止WebSocket服务器和所有活动连接.

@@ -293,37 +293,50 @@ class DefaultMessageProcessor:
             logger.error(f"处理机器人档案更新通知时出错: {e}", exc_info=True)
 
     async def _handle_message_event(
-        self, proto_event: ProtocolEvent, websocket: WebSocketServerProtocol
+        self,
+        proto_event: ProtocolEvent,
+        websocket: WebSocketServerProtocol
     ) -> bool:
+        """
+        处理所有消息类事件的核心方法。
+        它的职责是：
+        1. 检查事件是否需要触发中层平台的被动激活。
+        2. 将事件分发给专注聊天管理器进行后续处理。
+        """
         try:
-            # 测试入口点
-            text_content = proto_event.get_text_content()
-            print(f"收到的文本内容: {text_content}")
-            if text_content.strip() == "完整测试":
-                logger.info(
-                    f"收到来自会话 {proto_event.conversation_info.conversation_id} "
-                    f"的'完整测试'指令！进入测试模式！"
-                )
-                # 我们需要 ActionHandler 来提交动作
-                action_handler = (
-                    self.core_initializer_ref.action_handler_instance
-                    if self.core_initializer_ref
-                    else None
-                )
-                if not action_handler:
-                    logger.error(
-                        "无法执行后门测试：CoreSystemInitializer 或 ActionHandler 未被注入！"
+            platform_id = proto_event.get_platform()
+
+            # 检查AI当前是否正专注于这个平台
+            if (self.qq_chat_session_manager and
+                self.qq_chat_session_manager.current_focus_path == platform_id):
+
+                # 检查是否为高优先级事件 (@我 或 回复我)
+                is_high_priority = False
+                bot_id = self.qq_chat_session_manager.bot_id
+                for seg in proto_event.content:
+                    if (seg.type == "at" and str(seg.data.get("user_id")) == bot_id) or \
+                        (seg.type == "quote" and str(seg.data.get("user_id")) == bot_id):
+                        is_high_priority = True
+                        break
+
+                if is_high_priority:
+                    logger.info(
+                        f"AI正专注于平台 '{platform_id}'，收到高优先级事件，将触发主意识思考循环。"
                     )
-                    return False
+                    # 唤醒主循环
+                    if self.core_initializer_ref and self.core_initializer_ref.core_logic_instance:
+                        self.core_initializer_ref.core_logic_instance.trigger_immediate_thought_cycle()
+                    else:
+                        logger.error("无法触发主循环：CoreLogic 实例未注入到 MessageProcessor。")
 
-                # 开始执行测试动作序列
-                await self._perform_test_actions(proto_event, action_handler)
+            # --- 激活逻辑结束 ---
 
-                # 测试结束，告诉上层我们已经处理完了，不需要再进入专注模式等后续流程
-                return False
+            # --- 统一分发到专注模式管理器 ---
+            # 无论是否触发了中层激活，消息都需要给专注模式管理器过目
+            # 它会自己判断当前是否有激活的会话，以及是否需要中断等
             if self.qq_chat_session_manager:
-                # 关键步骤3: 将带有新 event_type 的事件传递给下一层处理器
                 await self.qq_chat_session_manager.handle_incoming_message(proto_event)
+
             return True
         except Exception as e:
             logger.error(

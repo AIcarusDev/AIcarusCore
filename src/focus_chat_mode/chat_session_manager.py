@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from src.common.intelligent_interrupt_system.intelligent_interrupter import (
         IntelligentInterrupter,
     )
+    from src.core_logic.internal_info_builder import InternalInfoBuilder
     from src.common.summarization_observation.summarization_service import SummarizationService
     from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
 
@@ -63,7 +64,8 @@ class ChatSessionManager:
         summarization_service: "SummarizationService",
         summary_storage_service: "SummaryStorageService",
         intelligent_interrupter: "IntelligentInterrupter",
-        thought_storage_service: "ThoughtStorageService",  # 哼，新来的！
+        thought_storage_service: "ThoughtStorageService",
+        internal_info_builder: "InternalInfoBuilder",
         core_logic: Optional["CoreLogicFlow"] = None,
     ) -> None:
         self.config = config
@@ -75,7 +77,8 @@ class ChatSessionManager:
         self.conversation_service = conversation_service
         self.summarization_service = summarization_service
         self.summary_storage_service = summary_storage_service
-        self.thought_storage_service = thought_storage_service  # 哼，新来的！
+        self.thought_storage_service = thought_storage_service
+        self.internal_info_builder = internal_info_builder
 
         self.intelligent_interrupter = intelligent_interrupter
 
@@ -152,7 +155,8 @@ class ChatSessionManager:
                     summarization_service=self.summarization_service,
                     summary_storage_service=self.summary_storage_service,
                     intelligent_interrupter=self.intelligent_interrupter,
-                    thought_storage_service=self.thought_storage_service,  # 哼，新来的！
+                    thought_storage_service=self.thought_storage_service,
+                    internal_info_builder=self.internal_info_builder
                 )
 
             return self.sessions[conversation_id]
@@ -384,48 +388,90 @@ class ChatSessionManager:
 
         logger.info(f"FocusManager 收到意识控制指令: {control_json}")
 
-        # V4.0规定 consciousness_control 中一次只有一个key
+        # consciousness_control 中一次只有一个key
         if "focus" in control_json:
             params = control_json["focus"]
-            path = params.get("path")
             motivation = params.get("motivation", "没有明确动机")
-            if path:
-                # TODO:完备的路径解析和激活逻辑
-                # 这是一个简化的实现，直接设置路径
-                # 理想情况下，这里应该解析path，并激活对应的session
-                self.current_focus_path = path
-                logger.info(f"AI 焦点已转移至 [focus]: {path} (动机: {motivation})")
 
-                # 示例：如果路径是会话级的，我们应该激活它
-                # 'napcat_qq.group.123456' -> parts = ['napcat_qq', 'group', '123456']
-                path_parts = path.split('.')
-                if len(path_parts) == 3:
-                    platform, conv_type, conv_id = path_parts
-                    # 注意：这里我们直接调用了 activate_session_by_id，
-                    # 它会处理会话的创建和激活流程
-                    await self.activate_session_by_id(
-                        conversation_id=conv_id,
-                        core_motivation=motivation,
-                        platform=platform,
-                        conversation_type=conv_type
-                    )
+            # --- 从顶层进入中层平台的逻辑 ---
+            if platform_id_to_focus := params.get("platform_id"):
+                logger.info(f"AI 决定 [focus] 到平台: {platform_id_to_focus} (动机: {motivation})")
+                self.current_focus_path = platform_id_to_focus
+                if self.core_logic:
+                    self.core_logic.trigger_immediate_thought_cycle()
+
+            # --- 从中层进入底层会话的逻辑 (已修复) ---
+            elif conversation_id_to_focus := params.get("conversation_id"):
+                logger.info(f"AI 决定 [focus] 到会话: {conversation_id_to_focus} (动机: {motivation})")
+
+                # 激活前，获取上一轮思考
+                last_thought = await self.thought_storage_service.get_latest_thought_document()
+                if not last_thought:
+                    logger.warning("未能从 thought_storage_service 获取到最新的思考文档，意识流可能断裂。")
+
+                # 激活新会话
+                conv_doc = await self.conversation_service.get_conversation_document_by_id(conversation_id_to_focus)
+                if not conv_doc:
+                    logger.error(f"无法 'focus'，数据库中找不到会话 '{conversation_id_to_focus}'。")
+                    return
+
+                platform = conv_doc.get("platform")
+                conv_type = conv_doc.get("type")
+                if not platform or not conv_type:
+                    logger.error(f"会话 '{conversation_id_to_focus}' 档案不完整，缺少 platform 或 type。")
+                    return
+
+                await self.activate_session_by_id(
+                    conversation_id=conversation_id_to_focus,
+                    core_motivation=motivation,
+                    platform=platform,
+                    conversation_type=conv_type
+                )
+
+                # 为新会话注入“前世记忆”
+                # 等待一小会儿，确保新会话已在self.sessions中创建
+                await asyncio.sleep(0.1)
+                new_session = self.sessions.get(conversation_id_to_focus)
+                if new_session:
+                    # 调用我们刚刚定义的 inherit_initial_state 方法
+                    new_session.inherit_initial_state(last_thought, core_motivation=motivation)
+                    logger.info(f"意识流无缝衔接：成功将上一层级的思考状态传递给了新会话 '{conversation_id_to_focus}'。")
+                else:
+                    logger.error(f"Focus 失败：新会话 '{conversation_id_to_focus}' 未能成功激活并加入sessions字典。")
 
         elif "return" in control_json:
             motivation = control_json["return"].get("motivation", "没有明确动机")
-            # 这是一个简化的回退逻辑，直接回到顶层
-            # 未来可以实现一个`focus_history_stack`来支持多级回退
-            self.current_focus_path = None
-            logger.info(f"AI 焦点已 [return] 至顶层Core-Level (动机: {motivation})")
 
-            # 回到顶层意味着所有专注会话都应结束
-            active_sessions = list(self.sessions.values())
-            for session in active_sessions:
-                if session.is_active:
-                    await self.deactivate_session(session.conversation_id)
+            if not self.current_focus_path:
+                logger.warning("在顶层Core-Level尝试执行 'return'，这是一个无效操作，已忽略。")
+                return
 
-            # 唤醒主意识
-            if hasattr(self, "focus_session_inactive_event") and self.focus_session_inactive_event:
-                self.focus_session_inactive_event.set()
+            path_parts = self.current_focus_path.split('.')
+
+            # 【核心修改】判断当前层级并执行相应的返回逻辑
+            if len(path_parts) >= 2: # 当前在底层 (e.g., 'napcat_qq.group.123')
+                # 从底层返回到中层
+                current_session_id = path_parts[-1]
+                platform_id = path_parts[0]
+                self.current_focus_path = platform_id # 路径设置为平台ID
+                logger.info(f"AI 焦点已从会话 '{current_session_id}' [return] 到平台 '{platform_id}' (动机: {motivation})")
+
+                # 停用刚刚离开的会话
+                await self.deactivate_session(current_session_id)
+
+                # 唤醒主循环，让它在新的中层上进行思考
+                if self.core_logic:
+                    self.core_logic.trigger_immediate_thought_cycle()
+
+            elif len(path_parts) == 1: # 当前在中层 (e.g., 'napcat_qq')
+                # 从中层返回到顶层
+                platform_id = path_parts[0]
+                self.current_focus_path = None # 返回顶层，路径设为 None
+                logger.info(f"AI 焦点已从平台 '{platform_id}' [return] 到顶层Core-Level (动机: {motivation})")
+
+                # 唤醒主循环
+                if self.core_logic:
+                    self.core_logic.trigger_immediate_thought_cycle()
 
         # peek 和 shift 的逻辑可以后续再添加
         elif "peek" in control_json:
@@ -433,5 +479,63 @@ class ChatSessionManager:
             logger.warning("接收到 'peek' 指令，但其逻辑尚未实现。")
 
         elif "shift" in control_json:
-            # TODO: 实现 shift 逻辑
-            logger.warning("接收到 'shift' 指令，但其逻辑尚未实现。")
+            params = control_json["shift"]
+            target_conv_id = params.get("conversation_id")
+            motivation = params.get("motivation", "没有明确动机")
+
+            if not self.current_focus_path or len(self.current_focus_path.split('.')) < 2:
+                logger.error("无法执行 'shift'，因为当前不处于任何具体的会话中。")
+                return
+
+            if not target_conv_id:
+                logger.error("'shift' 指令缺少目标 'conversation_id'。")
+                return
+
+            current_conv_id = self.current_focus_path.split('.')[-1]
+            if current_conv_id == target_conv_id:
+                logger.warning(f"AI 尝试 'shift' 到当前所在的会话 '{target_conv_id}'，操作无意义，已忽略。")
+                return
+
+            logger.info(f"AI 决定从会话 '{current_conv_id}' [shift] 到 '{target_conv_id}' (动机: {motivation})")
+
+            # 1. 找到当前会话实例
+            current_session = self.sessions.get(current_conv_id)
+            if not current_session:
+                logger.error(f"严重错误：找不到当前会话 '{current_conv_id}' 的实例，无法执行 'shift'。")
+                # 异常处理：直接当成 focus 处理
+                await self.handle_consciousness_control({"focus": params})
+                return
+
+            # 2. 【关键】获取当前会话的“临终思考”，作为传递给下一个会话的上下文
+            # 这是为了实现“意识不中断”
+            last_thought = await current_session.thought_storage_service.get_latest_thought_document()
+
+            # 3. 带着“遗言”和“动机”优雅地结束当前会话
+            # 我们需要让 SummarizationManager 在生成最终总结时，知道AI要去哪里
+            handover_context = {
+                "motivation": motivation,
+                "target_id": target_conv_id
+            }
+            # 调用我们之前改造好的 deactivate 方法
+            current_session.deactivate(handover_context=handover_context)
+            # 给予一个短暂的关闭时间，确保总结等异步任务完成
+            await asyncio.sleep(0.5)
+
+            # 4. 激活新会话，这里直接复用 focus 的逻辑即可
+            # 我们伪造一个 focus 指令，让现有的 focus 处理器去完成激活
+            focus_params = {
+                "conversation_id": target_conv_id,
+                "motivation": motivation
+            }
+            await self.handle_consciousness_control({"focus": focus_params})
+
+            # 5. 【关键】为新会话注入“前世记忆”
+            # 等待一小会儿，确保新会话已经被创建和激活
+            await asyncio.sleep(0.1)
+            new_session = self.sessions.get(target_conv_id)
+            if new_session and last_thought:
+                # 调用我们之前在 ChatSession 中添加的继承方法
+                new_session.inherit_initial_state(last_thought, core_motivation=motivation)
+                logger.info(f"成功将上一个会话的思考状态传递给了新会话 '{target_conv_id}'。")
+            elif not new_session:
+                logger.error(f"Shift 失败：新会话 '{target_conv_id}' 未能成功激活。")

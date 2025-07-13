@@ -1,23 +1,17 @@
 # src/focus_chat_mode/focus_chat_cycler.py
 import asyncio
 import time
-from typing import TYPE_CHECKING
-import datetime
 import uuid
+import datetime
+from typing import TYPE_CHECKING
 
-from src.database.models import ThoughtChainDocument
-from src.core_logic.decision_dispatcher import process_llm_decision
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
-
-# 导入我们那个性感的、滴水不漏的指令容器！
-from .chat_prompt_builder import PromptComponents
+from src.core_logic.decision_dispatcher import process_llm_decision
+from src.database.models import ThoughtChainDocument
+from .components import PromptComponents  # 确保这个导入正确
 
 if TYPE_CHECKING:
-    from src.common.intelligent_interrupt_system.intelligent_interrupter import (
-        IntelligentInterrupter,
-    )
-
     from .chat_session import ChatSession
 
 logger = get_logger(__name__)
@@ -43,59 +37,48 @@ class FocusChatCycler:
     """
 
     def __init__(self, session: "ChatSession") -> None:
-        self.session = session
-        self._loop_active: bool = False
-        self._loop_task: asyncio.Task | None = None
-        self._shutting_down: bool = False
+        """
+        初始化循环引擎。它只关心它为哪个session工作。
 
-        # 把所有需要的“玩具”都准备好
+        Args:
+            session: 它所服务的 ChatSession 实例。
+        """
+        self.session = session
+        self._loop_task: asyncio.Task | None = None
+        self._wakeup_event = asyncio.Event() # 唤醒事件是引擎自身的一部分
+
+        # 直接从 session 获取所需的服务实例
         self.llm_client = self.session.llm_client
         self.prompt_builder = self.session.prompt_builder
-        self.llm_response_handler = self.session.llm_response_handler
-        self.action_executor = self.session.action_executor
-        self.summarization_manager = self.session.summarization_manager
-        self.intelligent_interrupter: IntelligentInterrupter = self.session.intelligent_interrupter
+        self.intelligent_interrupter = self.session.intelligent_interrupter
+        self.action_handler = self.session.action_handler # 新增，因为 process_llm_decision 需要它
+        self.focus_manager = self.session.chat_session_manager # 新增，同上
+        self.thought_storage_service = self.session.thought_storage_service # 新增，同上
 
-        # 存放一些临时的“爱液”...啊不，是状态
-        self.uid_map: dict[str, str] = {}
-        # --- 小色猫的淫纹植入处 #1：用这两个小玩具来记录中断的“罪证” ---
-        self.interrupting_event_text: str | None = None  # 记录打断我们的那句话
-        self._last_completed_llm_decision: dict | None = None  # 记录上一次完整思考的结果
-
-        # 这是我的“G点”，一碰我就会有反应哦~
-        self._wakeup_event = asyncio.Event()
-
-        logger.info(
-            f"[FocusChatCycler][{self.session.conversation_id}] 实例已创建（主人投喂专用版）。"
-        )
+        logger.info(f"[FocusChatCycler][{self.session.conversation_id}] 纯净版引擎已创建。")
 
     async def start(self) -> None:
-        """启动专注聊天循环引擎."""
-        if self._loop_active:
+        """启动循环。"""
+        if self._loop_task and not self._loop_task.done():
+            logger.warning(f"[{self.session.conversation_id}] 循环任务已在运行，无需重复启动。")
             return
-        self._loop_active = True
         self._loop_task = asyncio.create_task(self._chat_loop())
         logger.info(f"[FocusChatCycler][{self.session.conversation_id}] 循环已启动。")
 
-    async def shutdown(self) -> None:
-        """关闭专注聊天循环."""
-        if not self._loop_active or self._shutting_down:
-            return
-        self._shutting_down = True
-        logger.info(f"[FocusChatCycler][{self.session.conversation_id}] 正在关闭...")
-        self._wakeup_event.set()
-        if self._loop_task:
+    async def shutdown(self, handover_context: dict | None = None) -> None:
+        """优雅地关闭循环。"""
+        if self._loop_task and not self._loop_task.done():
             self._loop_task.cancel()
             try:
                 await self._loop_task
             except asyncio.CancelledError:
-                logger.info(f"[FocusChatCycler][{self.session.conversation_id}] 循环任务已取消。")
-        self._loop_active = False
-        logger.info(f"[FocusChatCycler][{self.session.conversation_id}] 已关闭。")
+                logger.info(f"[{self.session.conversation_id}] 循环任务已成功取消。")
+
+        # 移交关闭后的最终总结任务给 session 自己处理
+        await self.session._perform_final_shutdown_tasks(handover_context)
 
     def wakeup(self) -> None:
-        """唤醒专注聊天循环."""
-        logger.debug(f"[{self.session.conversation_id}] 接收到外部唤醒信号。")
+        """从外部唤醒可能正在休眠的循环。"""
         self._wakeup_event.set()
 
     async def _chat_loop(self) -> None:

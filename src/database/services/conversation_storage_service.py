@@ -151,7 +151,10 @@ class ConversationStorageService:
                 result = await collection.insert(doc_for_db, overwrite=False)
                 if result and result.get("_key"):
                     logger.info(f"新的会话档案 '{doc_key}' 已成功创建，ID: {result['_key']}")
-                    return result["_key"]
+                    return {
+                        "_key": result["_key"],
+                        "_id": f"{self.COLLECTION_NAME}/{result['_key']}"
+                    }
                 else:
                     # 这种情况理论上不应该发生，如果insert调用没有抛异常
                     logger.error(
@@ -165,7 +168,6 @@ class ConversationStorageService:
                 )
                 # 可以考虑再次尝试 get 并 update，或者直接返回失败
                 return None
-        return None  # 确保所有路径都有返回值
 
     async def get_conversation_document_by_id(self, conversation_id: str) -> dict[str, Any] | None:
         """根据 conversation_id (即文档的 _key) 获取完整的会话文档."""

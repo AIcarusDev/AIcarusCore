@@ -1,22 +1,15 @@
 # src/focus_chat_mode/chat_prompt_builder.py
-import contextlib
-import os
-import yaml
 from typing import TYPE_CHECKING, Any
 
 from src.platform_builders.registry import platform_builder_registry
-from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logging_config import get_logger
 from src.common.focus_chat_history_builder.chat_history_formatter import format_chat_history_for_llm
 from src.common.time_utils import get_formatted_time_for_llm
-
-# 导入你的顶层config对象
 from src.config import config
 from src.database.services.event_storage_service import EventStorageService
 from src.prompt_templates import prompt_templates
-
-from .components import PromptComponents
-
+from src.prompt_templates.aicarus_rule import AICARUS_RULE
+from src.core_logic.internal_info_builder import InternalInfoBuilder
 if TYPE_CHECKING:
     from .chat_session import ChatSession
 
@@ -24,143 +17,173 @@ logger = get_logger(__name__)
 
 
 class ChatPromptBuilder:
-    """专注聊天模式下的Prompt构建器.
-
-    负责构建适合专注聊天模式的Prompt组件。
-
-    Attributes:
-        session (ChatSession): 当前聊天会话实例。
-        event_storage (EventStorageService): 事件存储服务，用于获取聊天记录。
-        action_handler (ActionHandler): 动作处理器，用于执行动作。
-        bot_id (str): 机器人的唯一标识符。
-        platform (str): 聊天平台标识符。
-        conversation_id (str): 当前会话的唯一标识符。
-        conversation_type (str): 会话类型（如私聊或群聊）。
-    """
+    """专注聊天模式下的Prompt构建器，遵循三层信息块模型."""
 
     def __init__(
         self,
         session: "ChatSession",
         event_storage: EventStorageService,
-        action_handler: ActionHandler,
-        bot_id: str,
-        platform: str,
-        conversation_id: str,
-        conversation_type: str,
+        internal_info_builder: InternalInfoBuilder,
     ) -> None:
         self.session = session
-        self.event_storage: EventStorageService = event_storage
-        self.action_handler: ActionHandler = action_handler
-        self.bot_id: str = bot_id
-        self.platform: str = platform
-        self.conversation_id: str = conversation_id
-        self.conversation_type: str = conversation_type
+        self.event_storage = event_storage
+        self.internal_info_builder = internal_info_builder
+        logger.info(f"[ChatPromptBuilder][{self.session.conversation_id}] 实例已创建。")
 
-        try:
-            self._temp_image_dir = config.runtime_environment.temp_file_directory
-            if not self._temp_image_dir:
-                logger.warning("配置文件中的 temp_file_directory 为空，将使用默认备用路径。")
-                # 尝试从 config_paths 获取 PROJECT_ROOT 作为备用方案的基础
-                try:
-                    from src.config.config_paths import PROJECT_ROOT
+    def _get_persona_block(self) -> str:
+        """构建角色信息块."""
+        description = config.persona.description or ""
+        profile = config.persona.profile or ""
+        return f'你是"{config.persona.bot_name}"；\n{description}\n{profile}'
 
-                    self._temp_image_dir = str(PROJECT_ROOT / "temp_images_runtime_fallback")
-                except ImportError:
-                    logger.error(
-                        "无法从 src.config.config_paths 导入 PROJECT_ROOT，"
-                        "备用临时目录将基于当前文件位置猜测。"
-                    )
-                    current_file_path = os.path.abspath(__file__)
-                    # 假设此文件在 AIcarusCore/src/logic/chat/chat_prompt_builder.py
-                    project_root_guess = os.path.dirname(
-                        os.path.dirname(os.path.dirname(os.path.dirname(current_file_path)))
-                    )
-                    self._temp_image_dir = os.path.join(
-                        project_root_guess, "temp_images_runtime_fallback"
-                    )
-        except AttributeError as e:
-            logger.error(
-                f"无法从配置 (config.runtime_environment.temp_file_directory) "
-                f"获取临时文件目录: {e}。请检查配置文件结构和内容。将使用默认备用路径。"
-            )
-            try:
-                from src.config.config_paths import PROJECT_ROOT
+    def _get_available_platforms_block(self) -> str:
+        """构建可用平台信息块."""
+        # 假设可以通过 session 访问到 core_logic，再访问到 ws_server
+        if hasattr(self.session, 'core_logic') and hasattr(self.session.core_logic, 'core_ws_server'):
+            return self.session.core_logic.core_ws_server.get_connected_platforms_info()
+        logger.warning("无法通过 session 访问到 core_ws_server，返回硬编码的平台信息。")
+        return "你暂时没有可用平台，可能是与平台连接断开或程序刚刚启动，请稍等。"
 
-                self._temp_image_dir = str(PROJECT_ROOT / "temp_images_runtime_fallback_attr_error")
-            except ImportError:
-                logger.error(
-                    "无法从 src.config.config_paths 导入 PROJECT_ROOT，"
-                    "备用临时目录将基于当前文件位置猜测 (AttributeError)。"
-                )
-                current_file_path = os.path.abspath(__file__)
-                project_root_guess = os.path.dirname(
-                    os.path.dirname(os.path.dirname(os.path.dirname(current_file_path)))
-                )
-                self._temp_image_dir = os.path.join(
-                    project_root_guess, "temp_images_runtime_fallback_attr_error"
-                )
+    async def _get_current_state_block(self) -> str:
+        """构建底层会话的当前状态信息块."""
+        bot_profile = await self.session.get_bot_profile()
+        if self.session.conversation_type == "group":
+            conversation_details = await self.session.get_conversation_details()
+            return (f'你当前正在 qq 群"{self.session.conversation_name or "未知群聊"}"中参与 qq 群聊，'
+                    f'（该群现在包括你共有{conversation_details.get("member_count", "未知")}个成员）\n'
+                    f'你在该群的群名片是"{bot_profile.get("card", config.persona.bot_name)}"')
+        else: # private
+            user_nick = self.session.conversation_name or "对方"
+            return f"你当前正在 qq 上与{user_nick}私聊"
 
-        os.makedirs(self._temp_image_dir, exist_ok=True)
-        logger.info(
-            f"[ChatPromptBuilder][{self.conversation_id}] 实例已创建 (bot_id: {self.bot_id}, "
-            f"type: {self.conversation_type}). "
-            f"将使用临时图片目录: {self._temp_image_dir}"
-        )
+    def _get_behavior_guidelines_block(self) -> str:
+        """为底层会话构建包含链式指令的行为准则块."""
+        return r'''现在是你的内心思考时间，你需要仔细阅读<chat_history>与<internal_info>中的内容，分析讨论话题、成员关系、以及你和他人最近的发言与反应，并基于这些分析，形成你接下来的内心想法和行动决策。
+
+**如果你决定回复或发言(使用 `"send_message"` 动作)：**
+
+你需要通过构建`"action"`中的`"send_message"`对象来完成。这需要遵循一个“链式指令”系统：
+
+- **指令序列 (`steps`)**: 你的发言内容由一个名为`"steps"`的数组构成。你将通过组合不同的指令（`command`）来精确构建你的消息。
+
+  - **可用指令 (`command`) 详解**:
+
+    - `"command": "text"`: 发送纯文本。
+
+        - 参数: `{"params": {"text": "你想说的内容"}}`
+
+    - `"command": "at"`: @群聊中的某个人。
+
+        - 参数: `{"params": {"at": "对方的ID"}}` (ID 从`<user_logs>`中获取)
+
+    - `"command": "reply"`: 引用并回复某条消息。
+
+        - 参数: `{"params": {"reply": "被回复消息的ID"}}` (ID 从`<chat_history>`中获取)
+
+    - `"command": "send_and_break"`: 发送并换行。这个指令非常重要，它会将当前已构建的所有内容（text, at, reply）作为一条消息发送出去，并清空工作台，准备下一条消息。它没有参数。
+
+    - **构建消息示例**:
+
+        - **发送单条消息**: `你想@一位id为123123123，群名称为小明的用户，说"你好"`
+
+        ```json
+        "steps": [
+        {"command": "at", "params": {"at": "123123123"}},
+        {"command": "text", "params": {"text": " 你好"}},
+        ]
+        ```
+
+        _由于没有别的内容了，所以可以不用"send_and_break"_
+        _这样，你发送的消息就是：`@小明 你好`_
+
+        - **分条发送多条消息**: `你想先说"等一下"，然后单独发第二条"我想想"`
+        ```json
+        "steps": [
+        {"command": "text", "params": {"text": "等一下"}},
+        {"command": "send_and_break"},
+        {"command": "text", "params": {"text": "我想想"}}
+        ]
+        ```
+        _这样，你将会发送两条消息，依次是：`等一下`与`我想想`_
+
+**注意事项**：
+
+- **耐心与观察**：
+
+    - 关注对话的自然流转。如果感觉对方正在输入或思考，或其发言明显未结束，请耐心等待，避免打断。
+    - 如果你发送消息后对方没有立即回应，优先考虑对方是否在忙或话题已结束。你的内心想法与行动应倾向于“耐心等待”，而非立即追问。
+
+- **发言技巧**：
+
+    - **简洁自然**：发言内容应简短、自然，可省略主语和不必要的标点符号。
+        - 尤其是在你已经拆分了多条消息的情况下，每条消息可以非常简短，甚至只有 5 个字以内。
+    - 你可以选择只发一条消息，也可以选择把一段完整的消息拆分为多条（多个`"send_and_break"`），但是需要注意一下拆分的消息数量，避免依次发送过多的消息导致刷屏。
+
+- **社交准则**：
+
+    - **功能勿滥用**：
+        - `"at"`功能通常只有你迫切的想要某人注意到你时使用，通常可能不需要，请不要滥用。
+        - `"reply"`功能通常只在聊天记录较乱，或你的消息需要明确的引用/回复另一条消息时使用，请不要滥用。
+    - 注意话题的自然推进，不要在一个话题上停留太久或揪着一个话题不放，除非你觉得真的有必要。
+    - 不要把注意力放在别人发的表情包上，它们只是一种辅助表达方式。
+    - 注意分辨会话中谁在与谁说话，你不一定是当前聊天的主角，消息中的“你”不一定指的是你自己，也可能是别人。
+    - **严禁泄露**：绝不允许在任何输出（包括思考、心情、动机、发言内容）中包含`U0, U1`等内部用户标识符。'''
+
+    def _get_input_xml_block_description(self) -> str:
+        """为底层会话构建输入XML块描述."""
+        return """输入 XML 块介绍：
+- <external_info>: 这个块包含了当前聊天会话的全部上下文信息。
+    - <Conversation_Info>: 当前会话的基本信息（比如群名、群公告）。
+    - <user_logs>: 当前会话里出现过的用户列表和他们的ID。
+    - <chat_history>: 详细的聊天记录。
+    - <unread_summary>: (可选) 其它你没在看的会话的未读消息摘要。
+- <meta_info>: 这个块里有系统根据当前聊天情况给你的动态行为建议，内容可能很重要，请留意。如果为空，就不用管。
+- <internal_info>: 这个块非常重要，它记录了你上一轮的完整内心活动，是你本次思考的关键依据。
+    - <action_response>: (可选) 如果你上一轮的行动有返回结果（比如联网搜索），结果会在这里面。"""
 
     async def build_prompts(
         self,
         focus_path: str,
         last_processed_timestamp: float,
-        is_first_turn: bool,
-        motivation_from_core: str | None = None,
-        was_last_turn_interrupted: bool = False,
-        interrupting_event_text: str | None = None,
-    ) -> PromptComponents:
+        is_context_switch: bool = False,
+    ) -> tuple[str, str, dict[str, Any]]:
         """
         构建专注聊天模式下给LLM的System Prompt和User Prompt。
-        V4.1版本：实现了真正的动态Schema供给。
+        返回: (system_prompt, user_prompt, state_for_log)
         """
         logger.debug(f"[{self.session.conversation_id}] ChatPromptBuilder 开始构建Prompt...")
 
-        # 1. 确定当前层级和平台 (在专注模式下，level固定为'cellular')
+        # 1. 获取层级专属的动作/意识控制描述
         path_parts = focus_path.split('.')
         current_platform_id = path_parts[0]
         current_level = "cellular"
-
-        # 2. 获取层级专属的【描述】
         builder = platform_builder_registry.get_builder(current_platform_id)
-        available_controls_desc = "你当前没有可用的导航指令。"
-        available_actions_desc = "你当前没有可用的外部行动。"
-
+        available_controls_desc, available_actions_desc = "你当前没有可用的导航指令。", "你当前没有可用的外部行动。"
         if builder:
             controls_desc, actions_desc = builder.get_level_specific_descriptions(current_level)
             if controls_desc: available_controls_desc = controls_desc
             if actions_desc: available_actions_desc = actions_desc
 
-        # 3. 获取层级专属的【Schema】并组装最终的 Response Schema
-        final_response_schema = {
-            "type": "object",
-            "properties": {
-                "internal_state": {
-                    "type": "object",
-                    "properties": { "mood": {"type": "string"}, "think": {"type": "string"}, "goal": {"type": "string"} },
-                    "required": ["mood", "think", "goal"],
-                }
-            },
-            "required": ["internal_state"]
+        # 2. 构建所有 System Prompt 的信息块
+        system_prompt_blocks = {
+            "aicarus_rule_block": AICARUS_RULE,
+            "current_time": get_formatted_time_for_llm(),
+            "persona_block": self._get_persona_block(),
+            "available_platforms_block": self._get_available_platforms_block(),
+            "current_state_block": await self._get_current_state_block(),
+            "behavior_guidelines_block": self._get_behavior_guidelines_block(),
+            "input_XML_block_description": self._get_input_xml_block_description(),
+            "available_consciousness_controls": available_controls_desc,
+            "available_actions": available_actions_desc,
         }
-        if builder:
-            controls_schema, actions_schema = builder.get_level_specific_definitions(current_level)
-            if controls_schema and controls_schema.get("properties"):
-                final_response_schema["properties"]["consciousness_control"] = controls_schema
-            if actions_schema and actions_schema.get("properties"):
-                final_response_schema["properties"]["action"] = actions_schema
-            if final_response_schema["properties"].get("action"):
-                final_response_schema["required"].append("action")
 
-        # 4. 获取聊天记录等上下文信息
+        # 3. 填充 System Prompt
+        system_prompt = prompt_templates.CORE_CYCLE_SYSTEM_PROMPT.format(**system_prompt_blocks)
+
+        # 4. 构建 User Prompt 的信息块
+        # 4.1 external_info_block
         bot_profile = await self.session.get_bot_profile()
-        prompt_components = await format_chat_history_for_llm(
+        history_components = await format_chat_history_for_llm(
             event_storage=self.event_storage,
             conversation_id=self.session.conversation_id,
             bot_id=self.session.bot_id,
@@ -169,189 +192,46 @@ class ChatPromptBuilder:
             conversation_type=self.session.conversation_type,
             conversation_name=self.session.conversation_name,
             last_processed_timestamp=last_processed_timestamp,
-            is_first_turn=is_first_turn,
+            is_first_turn=is_context_switch,
         )
-
-        # 5. 填充System Prompt
-        current_time_str = get_formatted_time_for_llm()
-        persona_config = config.persona
-
-        if self.session.conversation_type == "group":
-            system_prompt_template = prompt_templates.GROUP_SYSTEM_PROMPT
-            conversation_details = await self.session.get_conversation_details()
-            system_prompt = system_prompt_template.format(
-                current_time=current_time_str,
-                bot_name=persona_config.bot_name,
-                optional_description=persona_config.description,
-                optional_profile=persona_config.profile,
-                bot_id=bot_profile.get("user_id", self.bot_id),
-                bot_nickname=bot_profile.get("nickname", persona_config.bot_name),
-                conversation_name=prompt_components.conversation_name or "未知群聊",
-                bot_card=bot_profile.get("card", persona_config.bot_name),
-                member_count=conversation_details.get("member_count", "未知"),
-                # 新增的占位符
-                available_consciousness_controls_desc=available_controls_desc,
-                available_actions_desc=available_actions_desc
-            )
-        else: # private
-            system_prompt_template = prompt_templates.PRIVATE_SYSTEM_PROMPT
-            user_nick = "对方"
-            for pid, u_info in prompt_components.user_map.items():
-                if pid != bot_profile.get("user_id", self.bot_id):
-                    user_nick = u_info.get("nick", "对方")
-                    break
-            system_prompt = system_prompt_template.format(
-                current_time=current_time_str,
-                bot_name=persona_config.bot_name,
-                optional_description=persona_config.description,
-                optional_profile=persona_config.profile,
-                bot_id=bot_profile.get("user_id", self.bot_id),
-                user_nick=user_nick,
-                # 新增的占位符
-                available_consciousness_controls_desc=available_controls_desc,
-                available_actions_desc=available_actions_desc
-            )
-
-        # 6. 填充User Prompt
-        latest_thought_doc = await self.session.thought_storage_service.get_latest_thought_document()
-        previous_thoughts_block_str = self._build_previous_thoughts_block(
-            is_first_turn=is_first_turn,
-            was_interrupted=was_last_turn_interrupted,
-            latest_thought_doc=latest_thought_doc,
-            session=self.session,
-            interrupt_text=interrupting_event_text,
-            motivation_from_core=motivation_from_core,
-        )
-        dynamic_guidance_str = self.session.guidance_generator.generate_guidance()
-        unread_summary_str = await self.session.core_logic.prompt_builder.unread_info_service.generate_unread_summary_text(
+        # 确保调用的是正确的方法
+        unread_summary_str = await self.session.core_logic.unread_info_service.generate_unread_summary_text(
             exclude_conversation_id=self.session.conversation_id
         )
-
-        user_prompt_template = prompt_templates.GROUP_USER_PROMPT if self.session.conversation_type == "group" else prompt_templates.PRIVATE_USER_PROMPT
-        user_prompt = user_prompt_template.format(
-            unread_summary=unread_summary_str or "所有其他会话均无未读消息。",
-            conversation_info_block=prompt_components.conversation_info_block,
-            user_list_block=prompt_components.user_list_block,
-            chat_history_log_block=prompt_components.chat_history_log_block,
-            previous_thoughts_block=previous_thoughts_block_str,
-            dynamic_behavior_guidance=dynamic_guidance_str,
-            member_count=conversation_details.get("member_count", "未知") if self.session.conversation_type == "group" else "",
-            max_member_count=conversation_details.get("max_member_count", "未知") if self.session.conversation_type == "group" else ""
+        external_info_block = (
+            f"{history_components.conversation_info_block}\n"
+            f"{history_components.user_list_block}\n"
+            f"{history_components.chat_history_log_block}\n"
+            f"<unread_summary>\n{unread_summary_str or '所有其他会话均无未读消息。'}\n</unread_summary>"
         )
 
-        # 7. 将所有结果打包到 PromptComponents 容器中返回
-        prompt_components.system_prompt = system_prompt
-        prompt_components.user_prompt = user_prompt
-        # 把动态生成的Schema也塞进去！
-        prompt_components.response_schema = final_response_schema
+        # 4.2 meta_info_block
+        meta_info_block = self.session.guidance_generator.generate_guidance()
 
-        return prompt_components
+        # 4.3 internal_info_block
+        internal_info_block = await self.internal_info_builder.build_internal_info_block(
+            is_context_switch=is_context_switch
+        )
 
-    def _build_previous_thoughts_block(
-        self,
-        is_first_turn: bool,
-        was_interrupted: bool,
-        latest_thought_doc: dict[str, Any] | None,  # 接收最新的思想点
-        session: "ChatSession",
-        interrupt_text: str | None,
-        motivation_from_core: str | None,
-    ) -> str:
-        # 优先处理中断情况
-        if was_interrupted:
-            if session.messages_sent_this_turn == 0:
-                if latest_thought_doc:
-                    think = latest_thought_doc.get("think", "我被打断前正在想...")
-                    mood = latest_thought_doc.get("mood", "平静")
-                    parts = [
-                        f'刚刚你的心情是："{mood}"。',
-                        f'刚刚你的内心想法是："{think}"。',
-                        f"但你还没来得及做出任何行动，就被新的消息"
-                        f"“{interrupt_text or '某条新消息'}”吸引了注意。",
-                    ]
-                    return "".join(parts)
-                return (
-                    f"你正准备开始思考，但就被新的消息“{interrupt_text or '某条新消息'}”"
-                    f"打断了。你需要先处理这个新情况。"
-                )
-            else:
-                if latest_thought_doc:
-                    think = latest_thought_doc.get("think", "我被打断前正在想...")
-                    mood = latest_thought_doc.get("mood", "平静")
-                    motivation = "（动机信息遗失）"
-                    if latest_thought_doc.get("action_payload"):
-                        with contextlib.suppress(IndexError, AttributeError):
-                            motivation = next(
-                                iter(
-                                    next(
-                                        iter(latest_thought_doc["action_payload"].values())
-                                    ).values()
-                                )
-                            ).get("motivation", "（动机信息遗失）")
+        user_prompt_blocks = {
+            "external_info_block": external_info_block,
+            "meta_info_block": meta_info_block,
+            "internal_info_block": internal_info_block,
+        }
 
-                    parts = [
-                        f'刚刚你的心情是："{mood}"。',
-                        f'刚刚你的内心想法是："{think}"。',
-                        f"出于这个想法，你决定发言，"
-                        f"并计划发送 {session.messages_planned_this_turn} 条消息。",
-                        f"原因是：{motivation}。" if motivation else "",
-                        f"但是，在你发送了 {session.messages_sent_this_turn} 条消息后，"
-                        f"新的消息“{interrupt_text or '某条新消息'}”让你感到意外，"
-                        f"所以你停下了后续的发言。现在你需要基于这个新情况重新思考。",
-                    ]
-                    return "\n".join(p for p in parts if p)
-                return "你在发送消息时被打断了，但上一轮的思考记录丢失了。请重新评估情况。"
+        # 5. 组装 User Prompt
+        user_prompt = prompt_templates.CORE_CYCLE_USER_PROMPT.format(**user_prompt_blocks)
 
-        # 如果是进入专注模式的第一轮
-        if is_first_turn:
-            mood_part = "平静"
-            think_part = "我好像忘了"
-            if latest_thought_doc:
-                mood_part = latest_thought_doc.get("mood", "平静")
-                think_part = latest_thought_doc.get("think", "我好像忘了")
+        logger.debug(
+            f"[{current_level}] - 准备发送给LLM的完整Prompt:\n"
+            f"==================== SYSTEM PROMPT ({current_level}) ====================\n"
+            f"{system_prompt}\n"
+            f"==================== USER PROMPT ({current_level}) ======================\n"
+            f"{user_prompt}\n"
+            f"=================================================================="
+        )
 
-            motivation_part = motivation_from_core or "我决定过来看看。"
+        # 准备用于日志记录的状态信息
+        state_for_log = {**system_prompt_blocks, **user_prompt_blocks}
 
-            # // 这就是你想要的那个开场白！
-            return (
-                f"你刚才的心情是“{mood_part}”。\n你刚才的想法是：“{think_part}”。\n"
-                f"你现在刚刚把注意力放到这个会话中，因为：“{motivation_part}”。"
-            )
-
-        # // 后续的正常循环也从最新的思想点里拿信息
-        if latest_thought_doc:
-            think = latest_thought_doc.get("think", "我好像忘了")
-            mood = latest_thought_doc.get("mood", "平静")
-
-            action_desc = "暂时不发言"
-            motivation = ""
-            action_payload = latest_thought_doc.get("action_payload")
-            if action_payload:
-                try:
-                    platform, actions = next(iter(action_payload.items()))
-                    action_name, params = next(iter(actions.items()))
-                    motivation = params.get("motivation", "")
-
-                    if action_name == "send_message":
-                        content = params.get("content", [])
-                        text_parts = [
-                            seg.get("data", {}).get("text", "")
-                            for seg in content
-                            if seg.get("type") == "text"
-                        ]
-                        full_text = "".join(text_parts)
-                        action_desc = (
-                            f"发言（内容：{full_text[:30]}{'...' if len(full_text) > 30 else ''}）"
-                        )
-                    else:
-                        action_desc = f"执行了动作：{platform}.{action_name}"
-
-                except (IndexError, AttributeError):
-                    action_desc = "执行了一个未知动作"
-
-            parts = [f"刚刚你的心情是：“{mood}”\n刚刚你的内心想法是：“{think}”"]
-            parts.append(f"出于这个想法，你刚才做了：{action_desc}")
-            if motivation:
-                parts.append(f"因为：{motivation}")
-            return "\n".join(parts)
-
-        return "我正在处理当前会话，但上一轮的思考信息似乎丢失了。"
+        return system_prompt, user_prompt, state_for_log

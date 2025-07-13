@@ -6,7 +6,6 @@ import threading
 
 from src import platform_builders  # 确保能导入这个包
 from src.action.action_handler import ActionHandler
-from src.action.providers.internal_tools_provider import InternalToolsProvider
 from src.common.custom_logging.logging_config import get_logger
 from src.common.intelligent_interrupt_system.iis_main import IISBuilder
 from src.common.intelligent_interrupt_system.intelligent_interrupter import IntelligentInterrupter
@@ -23,8 +22,9 @@ from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
 # 导入新的服务类
 from src.core_logic.context_builder import ContextBuilder
 from src.core_logic.intrusive_thoughts import IntrusiveThoughtsGenerator
+from src.core_logic.internal_info_builder import InternalInfoBuilder
 from src.core_logic.prompt_builder import ThoughtPromptBuilder
-from src.core_logic.state_manager import AIStateManager  # 确保导入 AIStateManager
+from src.core_logic.state_manager import AIStateManager
 from src.core_logic.thought_generator import ThoughtGenerator
 from src.core_logic.thought_persistor import ThoughtPersistor
 from src.database import (
@@ -110,7 +110,8 @@ class CoreSystemInitializer:
 
         self.unread_info_service: UnreadInfoService | None = None
         self.summarization_service: SummarizationService | None = None
-        self.state_manager_instance: AIStateManager | None = None  # AIStateManager instance
+        self.state_manager_instance: AIStateManager | None = None
+        self.internal_info_builder_instance: InternalInfoBuilder | None = None
         self.thought_prompt_builder_instance: ThoughtPromptBuilder | None = None
         self.iis_builder_instance: IISBuilder | None = None
         self.interrupt_model_instance: IntelligentInterrupter | None = None
@@ -302,12 +303,24 @@ class CoreSystemInitializer:
             )
             logger.info("UnreadInfoService 初始化成功。")
 
-            # 4. Prompt构造器 ThoughtPromptBuilder
+            # 4. 内部信息构建器 InternalInfoBuilder
+            # 【新增的修复点】在这里创建实例
+            if not self.thought_storage_service:
+                raise RuntimeError("ThoughtStorageService 未初始化，无法创建 InternalInfoBuilder。")
+            self.internal_info_builder_instance = InternalInfoBuilder(
+                thought_storage_service=self.thought_storage_service
+            )
+            logger.info("InternalInfoBuilder 初始化成功。")
+
+            # 5. Prompt构造器 ThoughtPromptBuilder
+            # 注意：它依赖 core_comm_layer，但 core_comm_layer 在后面才初始化
+            # 我们先创建实例，后面再回填依赖
             self.thought_prompt_builder_instance = ThoughtPromptBuilder(
                 unread_info_service=self.unread_info_service,
-                state_manager=self.state_manager_instance,  # 把 state_manager 喂给它！
+                internal_info_builder=self.internal_info_builder_instance,
+                core_ws_server=None,  # 稍后回填
             )
-            logger.info("ThoughtPromptBuilder 初始化成功。")
+            logger.info("ThoughtPromptBuilder 初始化成功 (依赖稍后回填)。")
 
             # 5. 摘要服务 SummarizationService
             summary_llm = self.summary_llm_client or self.main_consciousness_llm_client
@@ -327,6 +340,7 @@ class CoreSystemInitializer:
                         self.conversation_storage_service,
                         self.action_handler_instance,
                         self.interrupt_model_instance,
+                        self.internal_info_builder_instance, # 确保它也准备好了
                     ]
                 ):
                     self.qq_chat_session_manager = ChatSessionManager(
@@ -340,18 +354,15 @@ class CoreSystemInitializer:
                         summary_storage_service=self.summary_storage_service,
                         intelligent_interrupter=self.interrupt_model_instance,
                         thought_storage_service=self.thought_storage_service,
+                        internal_info_builder=self.internal_info_builder_instance,  # 注入！
                         core_logic=None,
                     )
-                    logger.info("ChatSessionManager 初始化完成，并已成功注入智能打断系统。")
+                    logger.info("ChatSessionManager 初始化完成，并已成功注入新的依赖。")
                 else:
                     logger.warning(
-                        "ChatSessionManager 依赖不足（可能缺少LLM客户端或智能打断模型）",
+                        "ChatSessionManager 依赖不足（可能缺少LLM客户端或智能打断模型或InternalInfoBuilder）",
                         "，无法初始化。",
                     )
-                    self.qq_chat_session_manager = None
-            else:
-                self.qq_chat_session_manager = None
-                logger.info("专注聊天子意识模块未启用。")
 
             # 7. 消息处理器 DefaultMessageProcessor
             self.message_processor = DefaultMessageProcessor(
@@ -378,8 +389,6 @@ class CoreSystemInitializer:
             )
             logger.info("ActionHandler 的依赖已设置。")
 
-            internal_tools_provider = InternalToolsProvider()
-            self.action_handler_instance.register_provider(internal_tools_provider)
             logger.info("ActionHandler 的动作提供者已注册。")
 
             # ActionHandler 现在也需要知道 web_search_agent_client
@@ -407,6 +416,12 @@ class CoreSystemInitializer:
                 "CoreWebsocketServer 准备在 "
                 f"ws://{config.server.host}:{config.server.port} 上监听。"
             )
+
+            # 回填 core_ws_server 依赖
+            if self.thought_prompt_builder_instance:
+                self.thought_prompt_builder_instance.core_ws_server = self.core_comm_layer
+                logger.info("CoreWebsocketServer 依赖已回填到 ThoughtPromptBuilder。")
+
 
             self.context_builder_instance = ContextBuilder(
                 event_storage=self.event_storage_service,
