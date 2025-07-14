@@ -25,11 +25,35 @@ async def inspect_and_initialize_self_profile(
     # 1. 检查我是否已在数据库中登记
     persons_collection = await person_service._get_collection("persons")
     if await persons_collection.has(SELF_PERSON_ID):
-        logger.info(f"核心档案 '{SELF_PERSON_ID}' 已存在。将直接返回现有档案。")
-        # TODO: 应该从 person_service 获取已存在的 profile，而不是返回 None
-        return True, {"status": "existing"}
+        logger.info(f"核心档案 '{SELF_PERSON_ID}' 已存在。将从数据库加载现有档案。")
 
-    logger.info("未发现自身核心档案，启动首次检查流程。")
+        # --- 关键修复点：从数据库加载档案，而不是返回一个无用的消息 ---
+        all_accounts = await person_service.get_all_self_accounts()
+        target_account = None
+        for acc in all_accounts:
+            if acc.get("platform") == platform_id:
+                target_account = acc
+                break
+
+        if target_account:
+            logger.success(f"成功从数据库为平台 '{platform_id}' 加载到自身账户信息。")
+            # 构造一个和首次安检时结构一致的返回字典
+            # 注意：这个返回不包含群列表，因为我们假设群信息会通过其他方式（如通知）更新
+            # 如果需要，这里也可以加入获取群列表的逻辑
+            profile_data = {
+                "user_id": target_account.get("platform_id"),
+                "nickname": target_account.get("nickname"),
+                "platform": platform_id,
+                "groups": {}, # 非首次启动，暂时不获取群列表，依赖后续更新
+                "status": "existing_and_loaded"
+            }
+            return True, profile_data
+        else:
+            # 这种情况比较少见，比如数据库有person但没有这个平台的account
+            logger.warning(f"数据库中存在核心档案，但未找到平台 '{platform_id}' 的账户信息。将尝试重新获取。")
+            # 继续执行下面的首次检查流程
+
+    logger.info("未发现自身核心档案或特定平台档案，启动首次检查流程。")
 
     logger.info(f"试图通过平台 '{platform_id}' 获取自身完整档案...")
     success, profile_data = await action_handler.execute_simple_action(

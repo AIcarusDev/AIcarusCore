@@ -147,13 +147,12 @@ class UnreadInfoService:
 
         # 先检查一下是不是@我或者回复我
         for seg in content:
-            if seg.get("type") == "at" and seg.get("data", {}).get("user_id") == self.bot_id:
+            if seg.get("type") == "at" and str(seg.get("data", {}).get("user_id")) == self.bot_id:
                 is_at_me = True
-            if seg.get("type") == "quote" and seg.get("data", {}).get("user_id") == self.bot_id:
+            if seg.get("type") == "quote" and str(seg.get("data", {}).get("user_id")) == self.bot_id:
                 is_reply_to_me = True
 
-        # 再处理戳一戳这种特殊事件
-        if event_type in ("user.poke", "group.user.poke", "private.user.poke"):
+        if event_type.endswith("user.poke"):
             target_id = (
                 event.get("content", [{}])[0]
                 .get("data", {})
@@ -235,7 +234,7 @@ class UnreadInfoService:
 
         # 只处理指定平台的会话
         platform_convs = []
-        for conv_doc, events in unread_convs_with_events:
+        for conv_doc, events, _ in unread_convs_with_events:
             if conv_doc.get("platform") == platform_id:
                 platform_convs.append((conv_doc, events))
 
@@ -284,7 +283,7 @@ class UnreadInfoService:
             summary_parts.append("</from_private>")
 
         summary_parts.append("</conversation_list>")
-        
+
         return "\n".join(line for line in summary_parts if line is not None).replace("\n\n\n", "\n\n").strip()
 
     async def generate_unread_summary_text(self, exclude_conversation_id: str | None = None) -> str:
@@ -299,11 +298,10 @@ class UnreadInfoService:
 
         # 按平台分组
         grouped_by_platform = defaultdict(list)
-        for conv_doc, events in unread_convs_with_events:
+        for conv_doc, events, _ in unread_convs_with_events:
             platform = conv_doc.get("platform", "unknown_platform")
             grouped_by_platform[platform].append((conv_doc, events))
 
-        # 哼，不加那个多余的 <unread_summary> 了，直接开始！
         summary_parts = []
         for platform, convs in grouped_by_platform.items():
             summary_parts.append(f"<from_{platform}>")
@@ -337,26 +335,15 @@ class UnreadInfoService:
                 summary_parts.append("<from_private>")
                 for conv_doc, events in private_chats:
                     conv_id = conv_doc.get("conversation_id", "unknown_id")
-
-                    # --- 小色猫的淫纹注入处！ ---
-                    # 笨蛋！当然是先从events里把最新的那根肉棒（latest_event）掏出来！
                     latest_event = events[-1]
                     unread_count = len(events)
                     timestamp = latest_event.get("timestamp", 0)
                     time_str = datetime.fromtimestamp(timestamp / 1000.0).strftime("%H:%M")
-
-                    # 然后再用这根火热的肉棒去干别的事！这才是正确的顺序！
                     sender_display_name = self._get_sender_display_name(latest_event, "private")
-
-                    # 用发送者的名字作为会话名
                     conv_name = conv_doc.get("name") or sender_display_name
-
-                    # 最后，生成预览，一气呵成，爽！
                     message_preview = self._create_message_preview(
                         latest_event, sender_display_name
                     )
-                    # --- 淫纹注入结束 ---
-
                     summary_parts.append(f"- [用户名称]：{conv_name}")
                     summary_parts.append(f"  - [ID]：{conv_id}")
                     summary_parts.append(f"  - [最新消息]：{message_preview}")
@@ -366,7 +353,6 @@ class UnreadInfoService:
 
             summary_parts.append(f"</from_{platform}>")
 
-        # 把所有行用换行符合并起来，但是要处理一下空行的问题
         return (
             "\n".join(line for line in summary_parts if line is not None)
             .replace("\n\n\n", "\n\n")
@@ -393,8 +379,7 @@ class UnreadInfoService:
             return []
 
         structured_list = []
-        for conv_doc, events in unread_convs_with_events:
-            # 随便拿一条消息来获取最新的会话名和发送者信息
+        for conv_doc, events, _ in unread_convs_with_events:
             latest_event = events[-1]
             sender_name = self._get_sender_display_name(
                 latest_event, conv_doc.get("type", "unknown")
@@ -425,13 +410,17 @@ class UnreadInfoService:
         if not unread_convs_with_events:
             return "所有平台均无新消息。"
 
-        # 按平台分组，并记录每个平台是否有高优事件
-        platforms_with_news = defaultdict(lambda: {"has_high_priority": False})
+        # --- 核心修复点 ---
+        platforms_with_news = defaultdict(lambda: {"has_high_priority": False, "has_any_news": False})
         for conv_doc, _, has_high_priority in unread_convs_with_events:
             platform = conv_doc.get("platform")
             if platform:
+                # 只要有任何新闻，就标记
+                platforms_with_news[platform]["has_any_news"] = True
                 if has_high_priority:
+                    # 如果是高优新闻，再额外标记
                     platforms_with_news[platform]["has_high_priority"] = True
+        # --- 修复结束 ---
 
         if not platforms_with_news:
             return "所有平台均无新消息。"
@@ -440,7 +429,10 @@ class UnreadInfoService:
         for platform, info in sorted(platforms_with_news.items()):
             if info["has_high_priority"]:
                 summary_lines.append(f"你的 '{platform}' 上似乎有人找你。")
-            else:
+            elif info["has_any_news"]: # 现在这个判断才会生效
                 summary_lines.append(f"你的 '{platform}' 上似乎有新消息。")
+
+        if not summary_lines:
+            return "所有平台均无新消息。"
 
         return "\n".join(summary_lines)

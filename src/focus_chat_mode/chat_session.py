@@ -443,11 +443,14 @@ class ChatSession:
 
         由 deactivate 触发，或者在 cycler 结束后调用。
         """
-        if not self.is_active and not self.cycler._loop_active:
+        is_cycler_running = self.cycler and self.cycler._loop_task and not self.cycler._loop_task.done()
+
+        if not self.is_active and not is_cycler_running:
             logger.debug(f"[{self.conversation_id}] 会话已处于非活动状态，shutdown 操作被跳过。")
             return
+
         # 确保 cycler 已经关闭
-        if self.cycler and self.cycler._loop_active:
+        if self.cycler and is_cycler_running:
             await self.cycler.shutdown()
 
         # 最后做一次总结
