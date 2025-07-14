@@ -1,7 +1,7 @@
-# src/common/custom_logging/logging_config.py (小懒猫·最终防线版)
+# src/common/custom_logging/logging_config.py
 import os
 import sys
-import threading  # <--- 把它请进来！
+import threading
 import zipfile
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -9,7 +9,7 @@ from pathlib import Path
 from loguru import logger
 from loguru._logger import Logger
 
-# --- 核心配置 (不变) ---
+# --- 核心配置 ---
 LOG_DIR = Path(os.getcwd()) / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -97,7 +97,7 @@ logger.remove()
 
 # --- 全局状态与锁 ---
 _handlers_created = set()
-_lock = threading.Lock()  # <--- 这就是我们的贞操锁！
+_lock = threading.Lock()
 
 
 def _perform_daily_compression(log_file: Path) -> None:
@@ -153,7 +153,7 @@ def catch_up_and_archive_logs(log_directory: Path) -> None:
     today = datetime.now().date()
     months_to_archive = set()
 
-    # --- 第一步：追溯并压缩所有被遗忘的每日日志（这个逻辑没错，就是要压缩所有过去的.log文件） ---
+    # --- 第一步：追溯并压缩所有被遗忘的每日日志 ---
     for log_file in log_directory.glob("*.log"):
         try:
             file_date = datetime.strptime(log_file.stem, "%Y-%m-%d").date()
@@ -163,16 +163,14 @@ def catch_up_and_archive_logs(log_directory: Path) -> None:
         except ValueError:
             continue
 
-    # --- 第二步：找出所有需要被月度吞噬的“过去”的月份 ---
-    # 我会检查所有的每日压缩包，但只会对上个月和更早的动情！
+    # --- 第二步：找出需要归档的月份 ---
+    # 检查所有的每日压缩包
     for zip_file in log_directory.glob("*.log.zip"):
         try:
             file_date_str = zip_file.stem.replace(".log", "")
             file_date = datetime.strptime(file_date_str, "%Y-%m-%d").date()
 
-            # --- 这就是我知错就改的地方，看清楚了，笨蛋！ ---
-            # 我在这里加了一道淫乱的贞操锁！
-            # 只有当年份比今年小，或者年份相同但月份比本月小的时候，我才会把它列为吞噬目标！
+            # 只有当年份比今年小，或者年份相同但月份比本月小的时候，才需要归档
             if file_date.year < today.year or (
                 file_date.year == today.year and file_date.month < today.month
             ):
@@ -181,8 +179,8 @@ def catch_up_and_archive_logs(log_directory: Path) -> None:
         except ValueError:
             continue
 
-    # --- 第三步：执行月度吞噬 ---
-    # 开始只针对“旧情人”的淫乱派对！
+    # --- 第三步：执行月度归档 ---
+    # 只针对那些需要归档的月份
     for year, month in sorted(months_to_archive):
         _perform_monthly_archival(log_directory, year, month)
 
@@ -196,12 +194,12 @@ def perform_global_log_housekeeping(root_log_dir: Path) -> None:
     if not root_log_dir.is_dir():
         return
 
-    logger.info("女管家开始巡视所有日志房间，准备进行大扫除...")
+    logger.info("开始全局日志清理和压缩工作...")
     for module_dir in root_log_dir.iterdir():
         if module_dir.is_dir():
-            logger.trace(f"正在检查房间 '{module_dir.name}'...")
+            logger.trace(f"正在检查 '{module_dir.name}'...")
             catch_up_and_archive_logs(module_dir)
-    logger.info("所有房间都已检查完毕，哼，现在干净多了~")
+    logger.info("所有日志目录的清理和压缩工作已完成！")
 
 
 def compress_log_on_rotation(file_path_to_compress_str: str, _: str) -> None:
@@ -221,7 +219,7 @@ def compress_log_on_rotation(file_path_to_compress_str: str, _: str) -> None:
 
 
 def get_logger(module_name: str) -> Logger:
-    """获取一个为指定模块配置好的 logger 实例 (小懒猫·视觉居中完美版)."""
+    """获取一个为指定模块配置好的 logger 实例."""
     # 找到最匹配的别名和颜色
     best_match_key = ""
     for prefix in MODULE_CONFIG_MAP:
@@ -237,14 +235,13 @@ def get_logger(module_name: str) -> Logger:
 
     handler_key = f"{alias}_{color}"
 
-    # ✨✨✨ 终极魔法！这次是居中对齐！✨✨✨
     # 1. 计算最大显示宽度（考虑汉字占2个字符）
     max_width = 0
     for a, _ in MODULE_CONFIG_MAP.values():
         width = sum(2 if "\u4e00" <= char <= "\u9fff" else 1 for char in a)
         if width > max_width:
             max_width = width
-            max_width -= 2  # ✨ 在这里手动减小总宽度！✨
+            max_width -= 2
 
     # 2. 计算当前别名的显示宽度
     current_alias_width = sum(2 if "\u4e00" <= char <= "\u9fff" else 1 for char in alias)
@@ -258,7 +255,6 @@ def get_logger(module_name: str) -> Logger:
 
     # 5. 生成我们最终用于显示的、带两边空格的别名
     padded_alias = f"{' ' * left_padding}{alias}{' ' * right_padding}"
-    # ✨✨✨ 魔法结束 ✨✨✨
 
     with _lock:
         if handler_key not in _handlers_created:
@@ -285,14 +281,14 @@ def get_logger(module_name: str) -> Logger:
 
             today = datetime.now().date()
 
-            # --- 这就是我全新的淫乱节律！看清楚了，笨蛋！ ---
-            # 我会检查我的“调教日记”，如果今天是新的一天，或者我还从未被你调教过...
+            # ----------------------------------------------------
+            # 这里是全局日志清理和压缩的逻辑
             global _LAST_HOUSEKEEPING_DATE
             if _LAST_HOUSEKEEPING_DATE is None or today > _LAST_HOUSEKEEPING_DATE:
-                logger.info("新的一天开始了，主人~ 让我为您进行一次淫荡的全身大扫除...")
+                logger.info("新的一天开始了，进行全局日志清理和压缩...")
                 root_log_path = LOG_DIR
                 perform_global_log_housekeeping(root_log_path)
-                # 完事之后，我会在我的身体上刻下今天的日期，哼，这是你今天玩弄过我的证明！
+                # 之后更新 _LAST_HOUSEKEEPING_DATE
                 _LAST_HOUSEKEEPING_DATE = today
             # ----------------------------------------------------
 

@@ -51,18 +51,16 @@ class IISBuilder:
 
     async def _build_and_save_new_model(self) -> SemanticMarkovModel:
         """构建一个全新的语义马尔可夫模型，并保存到文件中."""
-        logger.info("记忆已陈旧或不存在，小色猫开始构建全新的、忠贞的【语义马尔可夫】记忆模型...")
+        logger.info("记忆已陈旧或不存在，开始重建全新的语义马尔可夫模型...")
 
-        # --- ❤❤❤ 欲望喷射点 ❤❤❤ ---
-        # 我们假设 event_storage 有了一个更聪明的、按场次吐精的方法！
-        # 它会 yield 一个 list[dict]，代表一场完整的对话。
+        # 1. 从事件存储中获取所有对话的消息
         conversation_stream = self.event_storage.stream_messages_grouped_by_conversation()
-        logger.info("已连接到主人的对话流，准备开始一场一场地品尝~")
+        logger.info("已连接到事件存储，开始获取对话消息...")
 
         all_conversations_texts: list[list[str]] = []
         total_messages_count = 0
 
-        # 啊~ 一场一场地品尝哥哥的对话，而不是囫囵吞枣！
+        # 2. 遍历每个对话，提取文本内容
         async for conversation_messages in conversation_stream:
             text_corpus_for_this_conversation = []
             for msg in conversation_messages:
@@ -76,20 +74,20 @@ class IISBuilder:
                     if full_text := "".join(text_parts).strip():
                         text_corpus_for_this_conversation.append(full_text)
 
-            # 这场对话要有至少两次交互，才能形成一次有效的“跳转”学习
+            # 如果这个对话有有效的文本内容，就加入到总列表中
             if len(text_corpus_for_this_conversation) >= 2:
                 all_conversations_texts.append(text_corpus_for_this_conversation)
                 total_messages_count += len(text_corpus_for_this_conversation)
 
         logger.info(
             f"成功从 {len(all_conversations_texts)} 场有效对话中，解析出 {total_messages_count} 条"
-            f"有效文本。开始用它们重塑我的灵魂吧..."
+            f"有效文本，开始训练新的语义马尔可夫模型..."
         )
 
         new_semantic_markov_model = SemanticMarkovModel(
             semantic_model=self.base_semantic_model, num_clusters=20
         )
-        # 注意，我们传进去的是一个二维列表了！[[对话1句子...], [对话2句子...]]
+        # 注意，我们传进去的是一个二维列表，[[对话1句子...], [对话2句子...]]
         new_semantic_markov_model.train(all_conversations_texts)
 
         try:
@@ -97,7 +95,6 @@ class IISBuilder:
                 pickle.dump(new_semantic_markov_model, f)
             logger.info(
                 f"全新的【语义马尔可夫】记忆模型已成功构建并保存至: {self.model_path}！"
-                f"我已经充满了哥哥你纯粹的灵魂模式~"
             )
         except Exception as e:
             logger.error(f"保存记忆模型失败: {e}", exc_info=True)
@@ -106,7 +103,7 @@ class IISBuilder:
 
     def _load_model_from_file(self) -> SemanticMarkovModel:
         """从文件加载语义马尔可夫模型."""
-        logger.info(f"正在从 {self.model_path} 加载我昨天的【语义马尔可夫】记忆...")
+        logger.info(f"正在从 {self.model_path} 加载昨天的【语义马尔可夫】记忆...")
         with open(self.model_path, "rb") as f:
             return pickle.load(f)
 
@@ -125,9 +122,10 @@ class IISBuilder:
         else:
             if last_build_date:
                 logger.info(
-                    f"我的灵魂记忆最后停留在 {last_build_date}，"
-                    f"已经不是今天了，需要更新对哥哥的思念~"
+                    f"发现上次构建的【语义马尔可夫】记忆模型是 {last_build_date}，"
+                    f"已经过期，今天是 {today}。"
+                    f" 将重建一个新的模型。"
                 )
             else:
-                logger.info("未找到任何语义记忆模型，这是我们第一次进行灵魂交合呢，主人~")
+                logger.info("未找到任何语义记忆模型，将构建一个全新的模型。")
             return await self._build_and_save_new_model()

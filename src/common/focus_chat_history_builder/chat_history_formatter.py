@@ -1,19 +1,14 @@
 # src/common/focus_chat_history_builder/chat_history_formatter.py
-# 哼，笨蛋主人，看好了，这才是被本小猫彻底调教过的、最完美的聊天记录格式化工具！
-# 它现在会吐出一个紧致又性感的 PromptComponents 容器，保证滴水不漏！
 
 import os
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-# 导入我们那些色色的协议和工具
+# 导入必要的协议和工具函数
 from aicarus_protocols import ConversationInfo, Event, Seg, UserInfo, extract_text_from_content
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
-
-# --- 小色猫的淫纹植入处！ ---
-# 同样，让它也去新的“爱巢”里拿玩具！
 from src.focus_chat_mode.components import PromptComponents
 
 if TYPE_CHECKING:
@@ -55,21 +50,21 @@ async def format_chat_history_for_llm(
     Returns:
         一个填充好的 `PromptComponents` 对象，包含格式化后的聊天记录及相关信息。
     """
-    # 确保我有一个地方可以临时存放你的“色图”，虽然我现在更喜欢直接玩弄数据流
+    # 确保有一个地方可以临时存放图片数据
     temp_image_dir = config.runtime_environment.temp_file_directory
     os.makedirs(temp_image_dir, exist_ok=True)
 
-    # 决定是从粮仓（数据库）取食，还是直接吃你喂的
+    # 决定是从数据库获取事件还是使用调用者传入的原始事件
     if raw_events_from_caller is not None:
         event_dicts = raw_events_from_caller
     else:
         event_dicts = await event_storage.get_recent_chat_message_documents(
             conversation_id=conversation_id,
-            limit=50,  # 每次最多吞50条，免得被噎死
+            limit=50,  # 每次最多获取50条消息
             fetch_all_event_types=False,
         )
 
-    # 把粗糙的字典，都变成我喜欢的、光滑的 Event 对象
+    # 把字典列表转换为 Event 对象列表
     raw_events: list[Event] = []
     if event_dicts:
         for event_dict in event_dicts:
@@ -115,7 +110,7 @@ async def format_chat_history_for_llm(
                     f"将数据库事件字典转换为Event对象时出错: {e_conv}", exc_info=True
                 )
 
-    # 去重，我可不想重复品尝同一个人的“精液”
+    # 去重，确保每个消息只出现一次
     if raw_events:
         unique_events_dict: dict[str, Event] = {}
         for event_obj in sorted(raw_events, key=lambda e: e.time, reverse=True):
@@ -130,13 +125,13 @@ async def format_chat_history_for_llm(
                 unique_events_dict[dedup_key] = event_obj
         raw_events = sorted(unique_events_dict.values(), key=lambda e: e.time)
 
-    # 准备好小本本，记下每个人的代号（U0, U1...）
+    # 准备用户映射和平台ID到UID的映射
     user_map: dict[str, dict[str, Any]] = {}
     platform_id_to_uid_str: dict[str, str] = {}
     uid_counter = 0
     conversation_name_str = conversation_name or "未知会话"
 
-    # 先把我自己（U0）记上
+    # 先把机器人自己加进去
     final_bot_id = str(bot_profile.get("user_id", bot_id))
     final_bot_nickname = bot_profile.get("nickname", config.persona.bot_name or "bot")
     final_bot_card = bot_profile.get("card", final_bot_nickname)
@@ -149,14 +144,14 @@ async def format_chat_history_for_llm(
         "perm": bot_profile.get("role", "成员"),
     }
 
-    # 从最新的消息里偷窥一下，看看有没有更准确的群名
+    # 从最新的消息里获取会话名称
     if raw_events:
         for event in reversed(raw_events):
             if event.conversation_info and event.conversation_info.name:
                 conversation_name_str = event.conversation_info.name
                 break
 
-    # 把其他人都记到小本本上
+    # 把其他人的用户信息也加进来
     for event_data in raw_events:
         if event_data.user_info and event_data.user_info.user_id:
             p_user_id = event_data.user_info.user_id
@@ -200,14 +195,14 @@ async def format_chat_history_for_llm(
         user_list_lines.append(user_line)
     user_list_block_str = "\n".join(user_list_lines)
 
-    # 开始构建聊天记录，这是最色情的部分
+    # 开始构建聊天记录
     chat_log_lines: list[str] = []
     image_references: list[str] = []
     unread_section_started = False
     last_valid_text_message: str | None = None
     added_platform_message_ids_for_log: set[str] = set()
 
-    # ↓↓↓↓ 这就是我的小本本！烦死了！ ↓↓↓↓
+    # 这里我们需要一个映射，方便后续处理消息的用户ID
     message_id_to_event_map: dict[str, Event] = {}
     for event in raw_events:
         if msg_id := event.get_message_id():
@@ -217,7 +212,7 @@ async def format_chat_history_for_llm(
         log_line = ""
         msg_id_for_display = event_data_log.get_message_id() or event_data_log.event_id
 
-        # 标记已读未读的分割线，像拉开内衣的吊带一样性感
+        # 标记已读未读的分割线
         if (
             not is_first_turn
             and event_data_log.time > last_processed_timestamp
@@ -337,7 +332,7 @@ async def format_chat_history_for_llm(
             # 从事件类型里把具体的通知类型抠出来，比如 'member_increase'
             notice_subtype = event_data_log.event_type.split(".")[-1]
 
-            # 开始区分不同的通知类型，拼出人话
+            # 开始区分不同的通知类型
             if notice_subtype == "member_increase":
                 operator_info = notice_data.get("operator_user_info", {})
                 operator_id = operator_info.get("user_id") if operator_info else None
@@ -470,7 +465,7 @@ async def format_chat_history_for_llm(
     # 准备好反向的用户ID映射
     uid_str_to_platform_id_map = {uid: pid for pid, uid in platform_id_to_uid_str.items()}
 
-    # 最后，把所有零件都塞进我们那个性感的容器里，一次性射给你！
+    # 最后，把所有零件组合成一个 PromptComponents 对象
     return PromptComponents(
         chat_history_log_block=chat_history_log_block_str,
         user_list_block=user_list_block_str,

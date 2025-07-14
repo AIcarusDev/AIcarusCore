@@ -20,12 +20,12 @@ class MarkovChainModel:
 
     Attributes:
         chain (dict): 存储词频和跳转关系的字典，键是当前词，值是一个字典，
-                      其中键是下一个词，值是跳转次数.
+                        其中键是下一个词，值是跳转次数.
     """
 
     def __init__(self) -> None:
         self.chain = {}
-        logger.info("经典款-词频马尔可夫链已准备就绪，等待主人的调教~")
+        logger.info("词频马尔可夫链已准备就绪，等待输入")
 
     def train(self, text_list: list[str]) -> None:
         """训练模型，学习文本中的词频和跳转关系.
@@ -33,7 +33,7 @@ class MarkovChainModel:
         Args:
             text_list (list[str]): 一系列文本字符串，模型将从中学习词频和跳转关系.
         """
-        logger.info("正在学习历史对话，感受哥哥的每一次输入...")
+        logger.info("正在学习历史对话，请稍等...")
         for text in text_list:
             words = jieba.lcut(text)
             if len(words) < 2:
@@ -46,7 +46,7 @@ class MarkovChainModel:
                 if next_word not in self.chain[current_word]:
                     self.chain[current_word][next_word] = 0
                 self.chain[current_word][next_word] += 1
-        logger.info("学习完毕！我已经熟悉哥哥的模式了~")
+        logger.info("学习完毕！马尔可夫链已建立，准备好进行意外度计算")
 
     def calculate_unexpectedness(self, text: str) -> float:
         """计算文本的意外度，越高表示越意外.
@@ -114,10 +114,10 @@ class SemanticMarkovModel:
     """
 
     def __init__(self, semantic_model: SemanticModel, num_clusters: int = 15) -> None:
-        self.semantic_model = semantic_model  # 我们需要一个已经唤醒的灵魂探针
-        self.num_clusters = num_clusters  # 主人，你想要我被分成多少个敏感带（语义簇）呢？
-        self.kmeans: KMeans | None = None  # 这是我们用来划分身体的聚类工具
-        self.transition_matrix: np.ndarray | None = None  # 这是记录灵魂跳转模式的淫乱矩阵
+        self.semantic_model = semantic_model # 语义模型
+        self.num_clusters = num_clusters # 语义簇数量
+        self.kmeans: KMeans | None = None # K-Means 聚类模型
+        self.transition_matrix: np.ndarray | None = None # 跳转概率矩阵
         logger.info(f"究极混合体-语义马尔可夫链已准备就绪，将使用 {num_clusters} 个语义簇。")
 
     def train(self, conversations: list[list[str]]) -> None:
@@ -133,30 +133,31 @@ class SemanticMarkovModel:
                 f"注意：提供的对话数量（{len(all_texts)}）少于预期的语义簇数量（{self.num_clusters}）。"
             )
             num_actual_clusters = len(all_texts)
-            # 如果连一句话都没有，那就没法玩了，直接投降！
+            # 如果连一句话都没有，那就不训练了
+            # 这可能是因为对话数量太少，无法形成有效的语义簇
             if num_actual_clusters == 0:
-                logger.error("💥 错误！主人你什么都没给我，我……我没法训练啦！")
+                logger.warning("没有足够的对话数据来训练模型，无法进行训练")
                 return
         else:
-            # 如果你的爱抚足够多，我就按你喜欢的方式来~
+            # 如果提供的对话数量足够，就用原来的簇数量
             num_actual_clusters = self.num_clusters
 
-        logger.info("第一步：正在将所有对话转化为我的“灵魂向量”...")
+        logger.info("第一步：正在将所有对话转化为语义向量...")
         embeddings = self.semantic_model.encode(all_texts)
-        logger.info(f"已成功转化 {len(embeddings)} 条灵魂。")
+        logger.info(f"已成功转化 {len(embeddings)} 条对话为语义向量，准备进行聚类...")
 
         logger.info(
-            f"第二步：正在用 K-Means 算法探索我身体上的 {num_actual_clusters} 个“语义G点”..."
+            f"第二步：正在用 K-Means 算法探索 {num_actual_clusters} 个语义簇..."
         )
-        # 使用我们动态计算出的、绝对不会出错的数量来初始化！
+        # 使用我们动态计算出的数量来初始化！
         self.kmeans = KMeans(
             n_clusters=num_actual_clusters, random_state=42, n_init="auto"
         )  # n_init='auto' 是新版sklearn的推荐哦
         self.kmeans.fit(embeddings)
-        logger.info("探索完成！我已经形成了全新的语义分区！")
+        logger.info("探索完成！已经形成了全新的语义分区！")
 
-        logger.info("第三步：正在学习你在每一场“爱爱”中的“灵魂跳转”模式...")
-        num_states = num_actual_clusters  # 跳转矩阵的大小也要跟着变！
+        logger.info("第三步：正在学习语义状态跳转关系...")
+        num_states = num_actual_clusters  # 跳转矩阵的大小就是语义簇的数量
         self.transition_matrix = np.ones((num_states, num_states))
 
         for conversation_texts in conversations:
@@ -173,10 +174,10 @@ class SemanticMarkovModel:
 
         row_sums = self.transition_matrix.sum(axis=1, keepdims=True)
         # 检查分母是否为0，避免除零错误
-        # 虽然我们前面有判断，但多一层保护更安全，就像戴了双层套套一样~
+        # 虽然我们前面有判断，但还是保险起见
         safe_row_sums = np.where(row_sums == 0, 1, row_sums)
         self.transition_matrix = self.transition_matrix / safe_row_sums
-        logger.info("灵魂跳转学习完毕！我已经完全掌握了你每一场爱爱的模式了，主人~ ❤")
+        logger.info("语义状态跳转关系学习完成！")
 
     def _get_state(self, text: str) -> int:
         """获取文本对应的语义状态.
@@ -188,7 +189,7 @@ class SemanticMarkovModel:
             int: 文本对应的语义状态索引.
         """
         if self.kmeans is None:
-            raise RuntimeError("模型还没被主人你调教过呢，请先调用 train() 方法！")
+            raise RuntimeError("模型还没有训练，请先调用 train 方法。")
         embedding = self.semantic_model.encode([text])
         return self.kmeans.predict(embedding)[0]
 

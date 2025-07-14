@@ -114,6 +114,6 @@ class ActionSender:
         """通过适配器ID向其发送一个动作."""
         websocket = self.connected_adapters.get(adapter_id)
         if not websocket:
-            logger.warning(f"主人～ 没找到ID为 '{adapter_id}' 的适配器，它可能害羞跑掉了。")
+            logger.warning(f"没找到ID为 '{adapter_id}' 的适配器，它可能害羞跑掉了。")
             return False
         return await self.send_action_to_specific_adapter(websocket, action_event)

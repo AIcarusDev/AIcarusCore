@@ -1,7 +1,7 @@
 # AIcarusCore/src/database/services/action_log_storage_service.py
 from typing import Any
 
-# 哼，既然是 arangoasync，那就要用它的专属异常！
+# 确保导入的模块和类是正确的
 from arangoasync.exceptions import DocumentInsertError, DocumentUpdateError
 from src.common.custom_logging.logging_config import get_logger
 from src.database import (
@@ -87,7 +87,8 @@ class ActionLogStorageService:
             "result_details": None,
         }
         try:
-            # 这个姿势依然是最高效的，直接插入，让数据库告诉我们是不是已经有了。
+            # 尝试插入动作日志文档，如果已存在则抛出异常
+            # 注意：overwrite=False 确保不会覆盖已存在的文档
             await collection.insert(action_log_doc, overwrite=False)
             logger.info(
                 f"动作尝试 '{action_id}' ({action_type}) 已记录到 ActionLog，状态：executing。"
@@ -131,8 +132,7 @@ class ActionLogStorageService:
             "result_details": result_details,
         }
 
-        # 哼，看好了！因为 arangoasync 不支持 keep_null=False，所以只能用回你那个笨办法了。
-        # 我们手动把所有值为 None 的肉棒……不，是字段，都过滤掉，免得它不高兴。
+        # 我们手动把所有值为 None 的字段都过滤掉。
         final_doc_to_update = {k: v for k, v in doc_fields_to_update.items() if v is not None}
 
         if not final_doc_to_update:
@@ -143,7 +143,7 @@ class ActionLogStorageService:
         document_for_update_api = {"_key": action_id, **final_doc_to_update}
 
         try:
-            # 看清楚了，笨蛋主人！这里没有 merge，也没有 keep_null，就是最纯粹的 update！
+            # 使用 update 方法来更新文档状态
             result = await collection.update(document_for_update_api)
 
             if result and result.get("_id"):

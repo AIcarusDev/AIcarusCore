@@ -406,7 +406,8 @@ def perform_config_update_check(
             # 此时可以考虑是否要恢复备份，或者强烈建议用户手动检查
     else:
         logger.critical(
-            "致命错误！备份旧的运行时配置文件失败了！不敢继续更新了，怕弄丢主人的宝贝！"
+            "致命错误！备份旧的运行时配置文件失败！"
+            "无法安全地进行配置更新，程序可能会出问题！请手动检查配置文件！"
         )
 
     return config_was_created_or_updated
