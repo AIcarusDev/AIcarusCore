@@ -407,3 +407,27 @@ class PersonStorageService:
 
         results = await self.conn_manager.execute_query(query, bind_vars)
         return results[0] if results else None
+
+    async def get_all_self_accounts(self) -> list[dict[str, Any]]:
+        """获取机器人自身（SELF_PERSON_ID）关联的所有平台账号信息."""
+        query = """
+            LET self_person = DOCUMENT(@@persons_coll, @self_person_key)
+            FILTER self_person != null
+            FOR acc IN 1..1 OUTBOUND self_person @@has_account_coll
+                RETURN {
+                    platform: acc.platform,
+                    platform_id: acc.platform_id,
+                    nickname: acc.nickname
+                }
+        """
+        bind_vars = {
+            "@persons_coll": CoreDBCollections.PERSONS,
+            "self_person_key": SELF_PERSON_ID,
+            "@has_account_coll": CoreDBCollections.HAS_ACCOUNT,
+        }
+        try:
+            results = await self.conn_manager.execute_query(query, bind_vars)
+            return results if results is not None else []
+        except Exception as e:
+            logger.error(f"获取自身所有平台账号信息时失败: {e}", exc_info=True)
+            return []

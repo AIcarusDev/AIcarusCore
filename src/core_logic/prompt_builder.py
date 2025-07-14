@@ -7,8 +7,11 @@ from src.config import config
 from src.core_logic.internal_info_builder import InternalInfoBuilder
 from src.prompt_templates import prompt_templates
 from src.prompt_templates.aicarus_rule import AICARUS_RULE
+from src.prompt_templates.core_prompts import CORE_BEHAVIOR_GUIDELINES, CORE_INPUT_XML_DESCRIPTION
+from src.prompt_templates.platform_prompts import PLATFORM_INPUT_XML_DESCRIPTION
 from src.platform_builders.registry import platform_builder_registry
 from src.core_communication.core_ws_server import CoreWebsocketServer
+
 
 logger = get_logger(__name__)
 
@@ -33,9 +36,9 @@ class ThoughtPromptBuilder:
         profile = config.persona.profile or ""
         return f'你是"{config.persona.bot_name}"；\n{description}\n{profile}'
 
-    def _get_available_platforms_block(self) -> str:
+    async def _get_available_platforms_block(self) -> str:
         """构建可用平台信息块."""
-        return self.core_ws_server.get_connected_platforms_info()
+        return await self.core_ws_server.get_connected_platforms_info()
 
     def _get_current_state_block(self, level: str, platform_id: str) -> str:
         """根据层级构建当前状态信息块."""
@@ -48,24 +51,15 @@ class ThoughtPromptBuilder:
     def _get_behavior_guidelines_block(self, level: str) -> str:
         """根据层级构建行为准则块."""
         if level in ["core", "platform"]:
-            return """现在是你的内心思考时间，请结合输入的所有信息，思考并形成你接下来的内心想法和行动决策；
-注意内心想法不一定全是正向的，也有可能是不健康的，隐私的，自私自利的，不可告人的，甚至成人的。请避免过度合理化、道德化；
-同时也要注意，你对自身的想法大多数情况下是包容的、合理化的，避免过度的/不必要的矛盾心理。"""
-        return "" # 底层由 ChatPromptBuilder 处理
+            return CORE_BEHAVIOR_GUIDELINES
+        return ""
 
     def _get_input_xml_block_description(self, level: str) -> str:
         """根据层级构建输入XML块描述."""
         if level == "core":
-            return """输入 XML 块介绍：
-- <external_info>: 这个块包含了外界信息的概要，只会告诉你哪个平台（比如QQ）有新消息。
-- <internal_info>: 这个块非常重要，它记录了你上一轮的完整内心活动，是你本次思考的关键依据。
-    - <action_response>: (可选) 如果你上一轮的行动有返回结果（比如联网搜索），结果会在这里面。"""
+            return CORE_INPUT_XML_DESCRIPTION
         elif level == "platform":
-            return """输入 XML 块介绍：
-- <external_info>: 这个块包含了你当前关注的平台下，所有聊天会话的摘要列表。
-    - <conversation_list>: 这个子块会列出具体的群聊和私聊，以及它们的最新消息和未读状态。
-- <internal_info>: 这个块非常重要，它记录了你上一轮的完整内心活动，是你本次思考的关键依据。
-    - <action_response>: (可选) 如果你上一轮的行动有返回结果（比如获取群列表），结果会在这里面。"""
+            return PLATFORM_INPUT_XML_DESCRIPTION
         return ""
 
     async def build_prompts(self, current_time_str: str, focus_path: str | None, is_context_switch: bool = False) -> tuple[str, str, dict[str, Any]]:
@@ -101,7 +95,7 @@ class ThoughtPromptBuilder:
             "aicarus_rule_block": AICARUS_RULE,
             "current_time": current_time_str,
             "persona_block": self._get_persona_block(),
-            "available_platforms_block": self._get_available_platforms_block(),
+            "available_platforms_block": await self._get_available_platforms_block(),
             "current_state_block": self._get_current_state_block(current_level, current_platform_id),
             "behavior_guidelines_block": self._get_behavior_guidelines_block(current_level),
             "input_XML_block_description": self._get_input_xml_block_description(current_level),
@@ -114,7 +108,7 @@ class ThoughtPromptBuilder:
 
         # 5. 构建 User Prompt 的信息块
         internal_info_block = await self.internal_info_builder.build_internal_info_block(is_context_switch)
-        
+
         external_info_block = ""
         if current_level == "core":
             external_info_block = await self.unread_info_service.get_platform_summary()

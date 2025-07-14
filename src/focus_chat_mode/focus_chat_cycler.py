@@ -74,8 +74,8 @@ class FocusChatCycler:
             except asyncio.CancelledError:
                 logger.info(f"[{self.session.conversation_id}] 循环任务已成功取消。")
 
-        # 移交关闭后的最终总结任务给 session 自己处理
-        await self.session._perform_final_shutdown_tasks(handover_context)
+        # 我只负责死
+        # 善后的事情交给 session 去处理
 
     def wakeup(self) -> None:
         """从外部唤醒可能正在休眠的循环。"""

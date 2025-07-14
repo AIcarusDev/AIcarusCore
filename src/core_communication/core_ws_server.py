@@ -432,28 +432,71 @@ class CoreWebsocketServer:
             logger.info("AIcarus 核心 WebSocket 服务器已关闭。")
             self.server = None
 
-    def get_connected_platforms_info(self) -> str:
+    async def get_connected_platforms_info(self) -> str:
         """
-        构建并返回所有已连接平台的信息字符串，用于填充 aicarus_prompt。
+        构建并返回所有平台的信息字符串，现在它能感知在线、离线和安检中的状态了！
         """
-        if not self.adapter_clients_info:
+        # 从老鸨那里获取所有我曾经注册过的平台账号
+        all_known_bots = await self.person_service.get_all_self_accounts()
+        known_platforms = {bot['platform']: bot for bot in all_known_bots}
+
+        # 获取当前正连着网线的平台
+        connected_platforms_info = self.adapter_clients_info
+
+        all_platform_ids = set(known_platforms.keys()) | set(connected_platforms_info.keys())
+
+        if not all_platform_ids:
             return "你暂时没有可用平台，可能是与平台连接断开或程序刚刚启动，请稍等。"
 
-        info_parts = ["你当前有以下可用平台："]
-        for adapter_id, info in self.adapter_clients_info.items():
-            profile = info.get("bot_profile")
-            display_name = info.get("display_name", adapter_id)
-            
-            info_parts.append(f"- {display_name}")
-            if profile and isinstance(profile, dict):
-                bot_id = profile.get("user_id", "未知ID")
+        online_parts = []
+        offline_parts = []
+
+        for platform_id in sorted(list(all_platform_ids)):
+            display_name = "未知平台"
+
+            # 情况 1 & 2: 平台当前在线
+            if platform_id in connected_platforms_info:
+                info = connected_platforms_info[platform_id]
+                display_name = info.get("display_name", platform_id)
+                profile = info.get("bot_profile")
+
+                if profile and isinstance(profile, dict): # 安检通过，有身份了！(情况 1)
+                    bot_id = profile.get("user_id", "读取失败")
+                    bot_name = profile.get("nickname", "读取失败")
+                    online_parts.append(f"- {display_name}")
+                    online_parts.append(f"    - 你的{platform_id}号是：{bot_id}")
+                    online_parts.append(f"    - 你的{platform_id}名称是：{bot_name}")
+                else: # 正在安检，还不知道自己是谁！(情况 2)
+                    online_parts.append(f"- {display_name} (正在获取机器人信息...)")
+
+            # 情况 3: 平台不在线，但数据库里有记录
+            elif platform_id in known_platforms:
+                profile = known_platforms[platform_id]
+                bot_id = profile.get("platform_id", "未知ID")
                 bot_name = profile.get("nickname", "未知昵称")
-                info_parts.append(f"    - 你的{adapter_id}号是：{bot_id}")
-                info_parts.append(f"    - 你的{adapter_id}名称是：{bot_name}")
-            else:
-                info_parts.append(f"    - (正在获取机器人信息...)")
-        
-        return "\n".join(info_parts)
+                # 适配器里拿不到 display_name，就用平台 ID 代替
+                display_name = platform_id
+                offline_parts.append(f"- {display_name}")
+                offline_parts.append(f"    - 你的{platform_id}号是：{bot_id}")
+                offline_parts.append(f"    - 你的{platform_id}名称是：{bot_name}")
+
+        # 组装最终的报告
+        final_parts = []
+        if online_parts:
+            final_parts.append("你当前有以下可用平台：")
+            final_parts.extend(online_parts)
+
+        if offline_parts:
+            if not online_parts: # 情况 4 的一种，有记录但都不在线
+                final_parts.append("你暂时没有可用平台，可能是与平台连接断开或程序刚刚启动，请稍等。")
+            final_parts.append("\n以下平台暂时没有连接：")
+            final_parts.extend(offline_parts)
+
+        # 如果折腾了半天啥也没有（比如只连上一个还在安检的），就用默认的
+        if not final_parts:
+            return "你暂时没有可用平台，可能是与平台连接断开或程序刚刚启动，请稍等。"
+
+        return "\n".join(final_parts)
 
     async def stop(self) -> None:
         """停止WebSocket服务器和所有活动连接.
