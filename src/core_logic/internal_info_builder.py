@@ -1,6 +1,6 @@
 # 文件: src/core_logic/internal_info_builder.py
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from aicarus_protocols import Event
 from src.common.custom_logging.logging_config import get_logger
@@ -23,7 +23,7 @@ class InternalInfoBuilder:
         # 我们需要一个对 prompt_builder 的引用来获取UID映射，这个需要在 main.py 里注入
         self.prompt_builder: ThoughtPromptBuilder | None = None
 
-    async def build_internal_info_block(self, is_context_switch: bool, session: ChatSession | None = None) -> str:
+    async def build_internal_info_block(self, is_context_switch: bool, session: Optional["ChatSession"] = None) -> str:
         """构建内部信息块。这是所有内心活动报告的唯一出口。
         """
         logger.debug(f"开始构建内部信息块... (上下文切换: {is_context_switch})")

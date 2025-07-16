@@ -5,7 +5,7 @@ import datetime
 import threading
 import time
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from aicarus_protocols import Event, Seg
 from src.action.action_handler import ActionHandler
@@ -296,7 +296,7 @@ class CoreLogic:
                 logger.error(f"[{session.conversation_id}] 中断检查器内部发生错误: {e}", exc_info=True)
                 await asyncio.sleep(2)
 
-    async def _process_and_dispatch_thought(self, thought_json: dict, focus_path: str | None, session: "ChatSession" | None) -> None:
+    async def _process_and_dispatch_thought(self, thought_json: dict, focus_path: str | None, session: Optional["ChatSession"]) -> None:
         """封装保存和分发思考的逻辑。
         现在它会额外记录消息发送计划和实际发送数量。
         """

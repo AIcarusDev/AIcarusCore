@@ -1,5 +1,5 @@
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from src.common.custom_logging.logging_config import get_logger
 from src.common.focus_chat_history_builder.chat_history_formatter import format_chat_history_for_llm
@@ -47,7 +47,7 @@ class ThoughtPromptBuilder:
         self.core_ws_server = core_ws_server
         self.is_context_switch_flag: bool = False
 
-    async def build_prompts_components(self, focus_path: str | None, session: "ChatSession" | None = None) -> PromptComponents:
+    async def build_prompts_components(self, focus_path: str | None, session: Optional["ChatSession"] = None) -> PromptComponents:
         """第一步：构建思考所需的所有组件，但不最终组装。
         返回一个 PromptComponents 数据容器对象。
         """
