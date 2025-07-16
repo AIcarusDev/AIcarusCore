@@ -322,7 +322,9 @@ class CoreSystemInitializer:
             )
             logger.info("ThoughtPromptBuilder 初始化成功 (依赖稍后回填)。")
 
-            self.internal_info_builder_instance.prompt_builder = self.thought_prompt_builder_instance
+            self.internal_info_builder_instance.prompt_builder = (
+                self.thought_prompt_builder_instance
+            )
             logger.info("PromptBuilder 依赖已回填到 InternalInfoBuilder。")
 
             # 5. 摘要服务 SummarizationService
@@ -342,7 +344,7 @@ class CoreSystemInitializer:
                         self.conversation_storage_service,
                         self.action_handler_instance,
                         self.interrupt_model_instance,
-                        self.internal_info_builder_instance, # 确保它也准备好了
+                        self.internal_info_builder_instance,  # 确保它也准备好了
                     ]
                 ):
                     self.qq_chat_session_manager = ChatSessionManager(
@@ -362,8 +364,9 @@ class CoreSystemInitializer:
                     logger.info("ChatSessionManager 初始化完成，并已成功注入新的依赖。")
                 else:
                     logger.warning(
-                        "ChatSessionManager 依赖不足（可能缺少LLM客户端或智能打断模型或InternalInfoBuilder）",
-                        "，无法初始化。",
+                        "ChatSessionManager 依赖不足"
+                        "（可能缺少LLM客户端或智能打断模型或InternalInfoBuilder）"
+                        "，无法初始化。"
                     )
 
             # 7. 消息处理器 DefaultMessageProcessor
@@ -483,14 +486,14 @@ class CoreSystemInitializer:
 
             if self.action_handler_instance:
                 self.action_handler_instance.set_dependencies(
-                thought_service=self.thought_storage_service,
-                event_service=self.event_storage_service,
-                action_log_service=self.action_log_service,
-                conversation_service=self.conversation_storage_service,
-                action_sender=action_sender,
-                chat_session_manager=self.qq_chat_session_manager,
-                core_logic=self.core_logic_instance,
-            )
+                    thought_service=self.thought_storage_service,
+                    event_service=self.event_storage_service,
+                    action_log_service=self.action_log_service,
+                    conversation_service=self.conversation_storage_service,
+                    action_sender=action_sender,
+                    chat_session_manager=self.qq_chat_session_manager,
+                    core_logic=self.core_logic_instance,
+                )
 
             logger.info("ActionHandler 的依赖已设置。")
             # 12. 设置立即触发思想生成的事件
@@ -530,12 +533,11 @@ class CoreSystemInitializer:
                 )
             if self.core_logic_instance:
                 # 启动主思考循环
-                all_tasks.append(
-                    await self.core_logic_instance.start_thinking_loop()
-                )
+                all_tasks.append(await self.core_logic_instance.start_thinking_loop())
 
             # 3. 创建一个新的后台任务，专门负责等待安检并更新服务
-            async def _wait_for_inspection_and_update_services():
+            async def _wait_for_inspection_and_update_services() -> None:
+                """等待安检完成并更新服务."""
                 # 等待一小段时间，让适配器有时间连接并触发安检
                 await asyncio.sleep(5)
 
@@ -543,7 +545,8 @@ class CoreSystemInitializer:
                     logger.error("无法执行安检后更新：核心服务未初始化。")
                     return
 
-                # CoreWebsocketServer 的 _run_inspection_ceremony 会把任务加到 active_inspection_tasks
+                # CoreWebsocketServer 的 _run_inspection_ceremony
+                # 会把任务加到 active_inspection_tasks
                 # 我们要等待所有这些任务完成
                 if self.core_comm_layer.active_inspection_tasks:
                     logger.info("等待所有平台的安检仪式完成，以便更新系统级服务...")
@@ -553,9 +556,7 @@ class CoreSystemInitializer:
                 # 安检完成后，从 PersonService 中获取所有自身的账号信息
                 all_self_accounts = await self.person_storage_service.get_all_self_accounts()
                 if all_self_accounts:
-                    bot_ids_map = {
-                        acc['platform']: acc['platform_id'] for acc in all_self_accounts
-                    }
+                    bot_ids_map = {acc["platform"]: acc["platform_id"] for acc in all_self_accounts}
                     # 将获取到的ID地图注入到 UnreadInfoService
                     if self.unread_info_service:
                         self.unread_info_service.update_self_bot_ids(bot_ids_map)
@@ -564,7 +565,9 @@ class CoreSystemInitializer:
 
             # 将这个等待和更新的逻辑作为一个独立的后台任务启动
             all_tasks.append(
-                asyncio.create_task(_wait_for_inspection_and_update_services(), name="ServiceUpdater")
+                asyncio.create_task(
+                    _wait_for_inspection_and_update_services(), name="ServiceUpdater"
+                )
             )
 
             if not all_tasks:

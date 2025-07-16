@@ -1,7 +1,6 @@
 # src/focus_chat_mode/chat_session_manager.py
 # 聊天会话管理器模块，用于管理聊天会话的生命周期和相关操作。
 import asyncio
-import time
 from typing import TYPE_CHECKING, Optional
 
 from aicarus_protocols import Event
@@ -156,14 +155,15 @@ class ChatSessionManager:
                     summary_storage_service=self.summary_storage_service,
                     intelligent_interrupter=self.intelligent_interrupter,
                     thought_storage_service=self.thought_storage_service,
-                    internal_info_builder=self.internal_info_builder
+                    internal_info_builder=self.internal_info_builder,
                 )
 
             return self.sessions[conversation_id]
 
-    async def deactivate_session(self, conversation_id: str, handover_context: dict | None = None) -> None:
-        """处理会话停用。现在它负责触发最终总结并从管理器中移除会话档案。
-        """
+    async def deactivate_session(
+        self, conversation_id: str, handover_context: dict | None = None
+    ) -> None:
+        """处理会话停用。现在它负责触发最终总结并从管理器中移除会话档案."""
         async with self.lock:
             session = self.sessions.pop(conversation_id, None)
             if session:
@@ -172,10 +172,11 @@ class ChatSessionManager:
                 shift_motivation = handover_context.get("motivation") if handover_context else None
                 target_id = handover_context.get("target_id") if handover_context else None
                 await session.summarization_manager.create_and_save_final_summary(
-                    shift_motivation=shift_motivation,
-                    target_conversation_id=target_id
+                    shift_motivation=shift_motivation, target_conversation_id=target_id
                 )
-                logger.info(f"[SessionManager] 会话 '{conversation_id}' 的最终总结已处理，档案已移除。")
+                logger.info(
+                    f"[SessionManager] 会话 '{conversation_id}' 的最终总结已处理，档案已移除。"
+                )
 
     async def shutdown(self) -> None:
         """关闭所有活动的聊天会话."""
@@ -204,8 +205,9 @@ class ChatSessionManager:
         logger.info("[SessionManager] 所有活动会话的关闭流程已完成。")
 
     async def handle_consciousness_control(self, control_json: dict) -> None:
-        """处理来自LLM决策的意识控制指令。
-        这是焦点管理的核心，负责根据指令更新 self.current_focus_path 并触发主循环。
+        """处理来自LLM决策的意识控制指令.
+
+        这是焦点管理的核心，负责根据指令更新 self.current_focus_path 并触发主循环.
         """
         if not control_json or not isinstance(control_json, dict):
             return
@@ -227,21 +229,23 @@ class ChatSessionManager:
 
             # 构建新的焦点路径
             new_focus_path = ""
-            if not self.current_focus_path: # 从顶层进入中层
+            if not self.current_focus_path:  # 从顶层进入中层
                 new_focus_path = target_id
-            else: # 从中层进入底层
+            else:  # 从中层进入底层
                 new_focus_path = f"{self.current_focus_path}.{target_id}"
 
             # 如果是进入底层会话，需要预先创建会话档案
-            if len(new_focus_path.split('.')) >= 2:
-                conv_doc = await self.conversation_service.get_conversation_document_by_id(target_id)
+            if len(new_focus_path.split(".")) >= 2:
+                conv_doc = await self.conversation_service.get_conversation_document_by_id(
+                    target_id
+                )
                 if not conv_doc:
                     logger.error(f"无法 'focus'，数据库中找不到会话 '{target_id}'。")
                     return
                 await self.get_or_create_session(
                     conversation_id=target_id,
                     platform=conv_doc.get("platform"),
-                    conversation_type=conv_doc.get("type")
+                    conversation_type=conv_doc.get("type"),
                 )
 
             self.current_focus_path = new_focus_path
@@ -253,43 +257,50 @@ class ChatSessionManager:
                 logger.warning("在顶层Core-Level尝试执行 'return'，这是一个无效操作，已忽略。")
                 return
 
-            path_parts = self.current_focus_path.split('.')
-            if len(path_parts) > 1: # 从底层返回中层
+            path_parts = self.current_focus_path.split(".")
+            if len(path_parts) > 1:  # 从底层返回中层
                 # 在返回前，需要处理刚刚离开的会话的最终总结
                 leaving_conv_id = path_parts[-1]
                 await self.deactivate_session(leaving_conv_id, {"motivation": motivation})
                 self.current_focus_path = ".".join(path_parts[:-1])
-            else: # 从中层返回顶层
+            else:  # 从中层返回顶层
                 self.current_focus_path = None
             # 触发主循环
             focus_switched = True
-            logger.info(f"AI 决定 [return] 到: '{self.current_focus_path or 'Core'}' (动机: {motivation})")
+            logger.info(
+                f"AI 决定 [return] 到: '{self.current_focus_path or 'Core'}' (动机: {motivation})"
+            )
 
         elif command == "shift":
             target_conv_id = params.get("conversation_id")
-            if not target_conv_id or not self.current_focus_path or '.' not in self.current_focus_path:
+            if (
+                not target_conv_id
+                or not self.current_focus_path
+                or "." not in self.current_focus_path
+            ):
                 logger.error("'shift' 指令无效：缺少目标ID或当前不在底层会话中。")
                 return
 
-            leaving_conv_id = self.current_focus_path.split('.')[-1]
-            platform_path = ".".join(self.current_focus_path.split('.')[:-1])
+            leaving_conv_id = self.current_focus_path.split(".")[-1]
+            platform_path = ".".join(self.current_focus_path.split(".")[:-1])
 
             # 先处理离开的会话
-            await self.deactivate_session(leaving_conv_id, {
-                "motivation": motivation,
-                "target_id": target_conv_id
-            })
+            await self.deactivate_session(
+                leaving_conv_id, {"motivation": motivation, "target_id": target_conv_id}
+            )
 
             # 再处理进入新的会话
-            conv_doc = await self.conversation_service.get_conversation_document_by_id(target_conv_id)
+            conv_doc = await self.conversation_service.get_conversation_document_by_id(
+                target_conv_id
+            )
             if not conv_doc:
                 logger.error(f"无法 'shift'，数据库中找不到目标会话 '{target_conv_id}'。")
-                self.current_focus_path = platform_path # 退回到平台层
+                self.current_focus_path = platform_path  # 退回到平台层
             else:
                 await self.get_or_create_session(
                     conversation_id=target_conv_id,
                     platform=conv_doc.get("platform"),
-                    conversation_type=conv_doc.get("type")
+                    conversation_type=conv_doc.get("type"),
                 )
                 self.current_focus_path = f"{platform_path}.{target_conv_id}"
 
@@ -297,6 +308,6 @@ class ChatSessionManager:
             logger.info(f"AI 决定 [shift] 到: '{self.current_focus_path}' (动机: {motivation})")
 
         # 如果发生了任何焦点切换，就唤醒主循环并设置上下文切换标志
-        if focus_switched and self.core_logic and hasattr(self.core_logic, 'prompt_builder'):
+        if focus_switched and self.core_logic and hasattr(self.core_logic, "prompt_builder"):
             self.core_logic.prompt_builder.is_context_switch_flag = True
             self.core_logic.trigger_immediate_thought_cycle()

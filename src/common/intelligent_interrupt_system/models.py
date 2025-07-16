@@ -114,10 +114,10 @@ class SemanticMarkovModel:
     """
 
     def __init__(self, semantic_model: SemanticModel, num_clusters: int = 15) -> None:
-        self.semantic_model = semantic_model # 语义模型
-        self.num_clusters = num_clusters # 语义簇数量
-        self.kmeans: KMeans | None = None # K-Means 聚类模型
-        self.transition_matrix: np.ndarray | None = None # 跳转概率矩阵
+        self.semantic_model = semantic_model  # 语义模型
+        self.num_clusters = num_clusters  # 语义簇数量
+        self.kmeans: KMeans | None = None  # K-Means 聚类模型
+        self.transition_matrix: np.ndarray | None = None  # 跳转概率矩阵
         logger.info(f"究极混合体-语义马尔可夫链已准备就绪，将使用 {num_clusters} 个语义簇。")
 
     def train(self, conversations: list[list[str]]) -> None:
@@ -146,9 +146,7 @@ class SemanticMarkovModel:
         embeddings = self.semantic_model.encode(all_texts)
         logger.info(f"已成功转化 {len(embeddings)} 条对话为语义向量，准备进行聚类...")
 
-        logger.info(
-            f"第二步：正在用 K-Means 算法探索 {num_actual_clusters} 个语义簇..."
-        )
+        logger.info(f"第二步：正在用 K-Means 算法探索 {num_actual_clusters} 个语义簇...")
         # 使用我们动态计算出的数量来初始化！
         self.kmeans = KMeans(
             n_clusters=num_actual_clusters, random_state=42, n_init="auto"

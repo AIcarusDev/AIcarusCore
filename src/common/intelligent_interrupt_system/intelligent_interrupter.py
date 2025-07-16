@@ -55,10 +55,7 @@ class IntelligentInterrupter:
 
         self.objective_semantic_threshold = objective_semantic_threshold
 
-        logger.info(
-            "判断器已初始化，"
-            f"核心重要概念数量: {len(self.core_importance_concepts)}, "
-        )
+        logger.info(f"判断器已初始化，核心重要概念数量: {len(self.core_importance_concepts)}, ")
 
     def _calculate_objective_importance(self, message_text: str) -> float:
         for keyword in self.objective_keywords:

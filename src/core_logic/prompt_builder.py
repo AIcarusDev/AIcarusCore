@@ -39,7 +39,7 @@ class ThoughtPromptBuilder:
         chat_session_manager: "ChatSessionManager",
         core_ws_server: "CoreWebsocketServer",
     ) -> None:
-        """初始化统一的Prompt构建器，注入所有必要的情报来源。"""
+        """初始化统一的Prompt构建器，注入所有必要的情报来源."""
         self.unread_info_service = unread_info_service
         self.internal_info_builder = internal_info_builder
         self.event_storage = event_storage_service
@@ -47,9 +47,12 @@ class ThoughtPromptBuilder:
         self.core_ws_server = core_ws_server
         self.is_context_switch_flag: bool = False
 
-    async def build_prompts_components(self, focus_path: str | None, session: Optional["ChatSession"] = None) -> PromptComponents:
-        """第一步：构建思考所需的所有组件，但不最终组装。
-        返回一个 PromptComponents 数据容器对象。
+    async def build_prompts_components(
+        self, focus_path: str | None, session: Optional["ChatSession"] = None
+    ) -> PromptComponents:
+        """第一步：构建思考所需的所有组件，但不最终组装.
+
+        返回一个 PromptComponents 数据容器对象.
         """
         current_level, current_platform_id, current_conv_id = self._parse_focus_path(focus_path)
 
@@ -57,13 +60,27 @@ class ThoughtPromptBuilder:
         builder = platform_builder_registry.get_builder(current_platform_id)
         core_builder = platform_builder_registry.get_builder("core")
 
-        plat_ctrl_schema, _ = builder.get_level_consciousness_controls_definitions(current_level) if builder else ({}, {})
-        core_ctrl_schema, _ = core_builder.get_level_consciousness_controls_definitions(current_level)
-        final_ctrl_schema_props = {**core_ctrl_schema.get("properties", {}), **plat_ctrl_schema.get("properties", {})}
+        plat_ctrl_schema, _ = (
+            builder.get_level_consciousness_controls_definitions(current_level)
+            if builder
+            else ({}, {})
+        )
+        core_ctrl_schema, _ = core_builder.get_level_consciousness_controls_definitions(
+            current_level
+        )
+        final_ctrl_schema_props = {
+            **core_ctrl_schema.get("properties", {}),
+            **plat_ctrl_schema.get("properties", {}),
+        }
 
-        plat_act_schema, _ = builder.get_level_actions_definitions(current_level) if builder else ({}, {})
+        plat_act_schema, _ = (
+            builder.get_level_actions_definitions(current_level) if builder else ({}, {})
+        )
         core_act_schema, _ = core_builder.get_level_actions_definitions(current_level)
-        final_act_schema_props = {**core_act_schema.get("properties", {}), **plat_act_schema.get("properties", {})}
+        final_act_schema_props = {
+            **core_act_schema.get("properties", {}),
+            **plat_act_schema.get("properties", {}),
+        }
 
         response_schema = {
             "type": "object",
@@ -73,24 +90,23 @@ class ThoughtPromptBuilder:
                     "properties": {
                         "mood": {"type": "string"},
                         "think": {"type": "string"},
-                        "goal": {"type": "string"}
+                        "goal": {"type": "string"},
                     },
-                    "required": ["mood", "think", "goal"]
+                    "required": ["mood", "think", "goal"],
                 },
                 "consciousness_control": {
                     "type": "object",
                     "properties": final_ctrl_schema_props,
-                    "maxProperties": 1
+                    "maxProperties": 1,
                 },
-                "action": {
-                    "type": "object",
-                    "properties": final_act_schema_props
-                }
+                "action": {"type": "object", "properties": final_act_schema_props},
             },
-            "required": ["internal_state"]
+            "required": ["internal_state"],
         }
 
-        plat_ctrl_desc = builder.get_level_consciousness_controls_descriptions(current_level) if builder else ""
+        plat_ctrl_desc = (
+            builder.get_level_consciousness_controls_descriptions(current_level) if builder else ""
+        )
         core_ctrl_desc = core_builder.get_level_consciousness_controls_descriptions(current_level)
         available_controls_desc = "\n".join(filter(None, [core_ctrl_desc, plat_ctrl_desc]))
 
@@ -105,25 +121,25 @@ class ThoughtPromptBuilder:
             "persona_block": self._get_persona_block(),
             "available_platforms_block": await self._get_available_platforms_block(),
             "current_state_block": await self._get_current_state_block(
-                current_level,
-                current_platform_id,
-                current_conv_id
+                current_level, current_platform_id, current_conv_id
             ),
             "behavior_guidelines_block": self._get_behavior_guidelines_block(current_level),
             "input_XML_block_description": self._get_input_xml_block_description(current_level),
-            "available_consciousness_controls": available_controls_desc or "你当前没有可用的导航指令。",
+            "available_consciousness_controls": available_controls_desc
+            or "你当前没有可用的导航指令。",
             "available_actions": available_actions_desc or "你当前没有可用的外部行动。",
         }
 
         # 3. 构建 User Prompt 的信息块
         internal_info_block = await self.internal_info_builder.build_internal_info_block(
-            is_context_switch=self.is_context_switch_flag,
-            session=session
+            is_context_switch=self.is_context_switch_flag, session=session
         )
-        external_info_block, meta_info_block, history_components = await self._get_external_and_meta_info_blocks(
-            current_level,
-            current_platform_id,
-            current_conv_id
+        (
+            external_info_block,
+            meta_info_block,
+            history_components,
+        ) = await self._get_external_and_meta_info_blocks(
+            current_level, current_platform_id, current_conv_id
         )
 
         user_prompt_blocks = {
@@ -137,15 +153,20 @@ class ThoughtPromptBuilder:
             system_prompt_blocks=system_prompt_blocks,
             user_prompt_blocks=user_prompt_blocks,
             response_schema=response_schema,
-            last_valid_text_message=history_components.last_valid_text_message if history_components else None,
-            image_references=history_components.image_references if history_components else []
+            last_valid_text_message=history_components.last_valid_text_message
+            if history_components
+            else None,
+            image_references=history_components.image_references if history_components else [],
         )
 
     def finalize_prompts(self, components: PromptComponents) -> tuple[str, str, dict[str, Any]]:
-        """第二步：使用准备好的组件，最终组装成System和User Prompt字符串。
-        """
-        system_prompt = prompt_templates.CORE_CYCLE_SYSTEM_PROMPT.format(**components.system_prompt_blocks)
-        user_prompt = prompt_templates.CORE_CYCLE_USER_PROMPT.format(**components.user_prompt_blocks)
+        """第二步：使用准备好的组件，最终组装成System和User Prompt字符串."""
+        system_prompt = prompt_templates.CORE_CYCLE_SYSTEM_PROMPT.format(
+            **components.system_prompt_blocks
+        )
+        user_prompt = prompt_templates.CORE_CYCLE_USER_PROMPT.format(
+            **components.user_prompt_blocks
+        )
 
         logger.debug(
             f"准备发送给LLM的完整Prompt:\n"
@@ -161,9 +182,9 @@ class ThoughtPromptBuilder:
     # --- 私有辅助方法 ---
 
     def _parse_focus_path(self, focus_path: str | None) -> tuple[str, str, str | None]:
-        """解析焦点路径，返回层级、平台ID和会话ID。"""
+        """解析焦点路径，返回层级、平台ID和会话ID."""
         if focus_path and focus_path != "core":
-            path_parts = focus_path.split('.')
+            path_parts = focus_path.split(".")
             current_platform_id = path_parts[0]
             if len(path_parts) >= 2:
                 current_level = "cellular"
@@ -178,40 +199,56 @@ class ThoughtPromptBuilder:
         return current_level, current_platform_id, current_conv_id
 
     def _get_persona_block(self) -> str:
-        return f'你是"{config.persona.bot_name}"；\n{config.persona.description}\n{config.persona.profile}'
+        return (
+            f'你是"{config.persona.bot_name}"；\n'
+            f"{config.persona.description}\n"
+            f"{config.persona.profile}"
+        )
 
     async def _get_available_platforms_block(self) -> str:
         return await self.core_ws_server.get_connected_platforms_info()
 
-    async def _get_current_state_block(self, level: str, platform_id: str, conv_id: str | None) -> str:
+    async def _get_current_state_block(
+        self, level: str, platform_id: str, conv_id: str | None
+    ) -> str:
         if level == "core":
             return "你当前专注于：发呆/自我思考。"
         elif level == "platform":
             return f"你当前专注于：{platform_id} 平台。"
         elif level == "cellular" and conv_id:
             session = self.chat_session_manager.sessions.get(conv_id)
-            if not session: return "错误：找不到当前会话的档案。"
+            if not session:
+                return "错误：找不到当前会话的档案。"
             bot_profile = await session.get_bot_profile()
             if session.conversation_type == "group":
-                return (f'你当前正在 qq 群"{session.conversation_name or "未知群聊"}"中参与 qq 群聊，'
-                        f'你在该群的群名片是"{bot_profile.get("card", config.persona.bot_name)}"')
+                return (
+                    f'你当前正在 qq 群"{session.conversation_name or "未知群聊"}"中参与 qq 群聊，'
+                    f'你在该群的群名片是"{bot_profile.get("card", config.persona.bot_name)}"'
+                )
             else:
                 return f"你当前正在 qq 上与{session.conversation_name or '对方'}私聊"
         return "未知状态"
 
     def _get_behavior_guidelines_block(self, level: str) -> str:
-        if level in ["core", "platform"]: return CORE_BEHAVIOR_GUIDELINES
-        if level == "cellular": return FOCUS_BEHAVIOR_GUIDELINES
+        if level in ["core", "platform"]:
+            return CORE_BEHAVIOR_GUIDELINES
+        if level == "cellular":
+            return FOCUS_BEHAVIOR_GUIDELINES
         return ""
 
     def _get_input_xml_block_description(self, level: str) -> str:
-        if level == "core": return CORE_INPUT_XML_DESCRIPTION
-        if level == "platform": return PLATFORM_INPUT_XML_DESCRIPTION
-        if level == "cellular": return FOCUS_INPUT_XML_DESCRIPTION
+        if level == "core":
+            return CORE_INPUT_XML_DESCRIPTION
+        if level == "platform":
+            return PLATFORM_INPUT_XML_DESCRIPTION
+        if level == "cellular":
+            return FOCUS_INPUT_XML_DESCRIPTION
         return ""
 
-    async def _get_external_and_meta_info_blocks(self, level: str, platform_id: str, conv_id: str | None) -> tuple[str, str, PromptComponents | None]:
-        """根据层级获取外部信息和元信息"""
+    async def _get_external_and_meta_info_blocks(
+        self, level: str, platform_id: str, conv_id: str | None
+    ) -> tuple[str, str, PromptComponents | None]:
+        """根据层级获取外部信息和元信息."""
         external_info = ""
         meta_info = ""
         history_components = None
@@ -219,10 +256,13 @@ class ThoughtPromptBuilder:
         if level == "core":
             external_info = await self.unread_info_service.get_platform_summary()
         elif level == "platform":
-            external_info = await self.unread_info_service.get_conversation_list_summary(platform_id, exclude_conversation_id=None)
+            external_info = await self.unread_info_service.get_conversation_list_summary(
+                platform_id, exclude_conversation_id=None
+            )
         elif level == "cellular" and conv_id:
             session = self.chat_session_manager.sessions.get(conv_id)
-            if not session: return "错误：找不到会话档案，无法构建上下文。", "", None
+            if not session:
+                return "错误：找不到会话档案，无法构建上下文。", "", None
 
             bot_profile = await session.get_bot_profile()
             history_components = await format_chat_history_for_llm(
@@ -240,9 +280,13 @@ class ThoughtPromptBuilder:
             # 获取后立即更新时间戳
             if history_components.processed_event_ids:
                 # 获取最后一个事件的时间戳
-                last_event = await self.event_storage.get_events_by_ids([history_components.processed_event_ids[-1]])
+                last_event = await self.event_storage.get_events_by_ids(
+                    [history_components.processed_event_ids[-1]]
+                )
                 if last_event:
-                    session.last_processed_timestamp = last_event[0].get("timestamp", time.time() * 1000)
+                    session.last_processed_timestamp = last_event[0].get(
+                        "timestamp", time.time() * 1000
+                    )
             else:
                 session.last_processed_timestamp = time.time() * 1000
 
@@ -256,7 +300,8 @@ class ThoughtPromptBuilder:
                 f"{history_components.conversation_info_block}\n"
                 f"{history_components.user_list_block}\n"
                 f"{history_components.chat_history_log_block}\n"
-                f"<unread_summary>\n{unread_summary_str or '所有其他会话均无未读消息。'}\n</unread_summary>"
+                f"<unread_summary>\n{unread_summary_str or '所有其他会话均无未读消息。'}\n"
+                f"</unread_summary>"
             )
 
             guidance_generator = BehavioralGuidanceGenerator(session)

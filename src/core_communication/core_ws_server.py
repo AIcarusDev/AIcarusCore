@@ -433,11 +433,10 @@ class CoreWebsocketServer:
             self.server = None
 
     async def get_connected_platforms_info(self) -> str:
-        """构建并返回所有平台的信息字符串，现在它能感知在线、离线和安检中的状态了！
-        """
+        """构建并返回所有平台的信息字符串，现在它能感知在线、离线和安检中的状态了!"""
         # 从老鸨那里获取所有我曾经注册过的平台账号
         all_known_bots = await self.person_service.get_all_self_accounts()
-        known_platforms = {bot['platform']: bot for bot in all_known_bots}
+        known_platforms = {bot["platform"]: bot for bot in all_known_bots}
 
         # 获取当前正连着网线的平台
         connected_platforms_info = self.adapter_clients_info
@@ -450,7 +449,7 @@ class CoreWebsocketServer:
         online_parts = []
         offline_parts = []
 
-        for platform_id in sorted(list(all_platform_ids)):
+        for platform_id in sorted(all_platform_ids):
             display_name = "未知平台"
 
             # 情况 1 & 2: 平台当前在线
@@ -459,13 +458,13 @@ class CoreWebsocketServer:
                 display_name = info.get("display_name", platform_id)
                 profile = info.get("bot_profile")
 
-                if profile and isinstance(profile, dict): # 安检通过，有身份了！(情况 1)
+                if profile and isinstance(profile, dict):  # 安检通过，有身份了！(情况 1)
                     bot_id = profile.get("user_id", "读取失败")
                     bot_name = profile.get("nickname", "读取失败")
                     online_parts.append(f"- {display_name}")
                     online_parts.append(f"    - 你的{platform_id}号是：{bot_id}")
                     online_parts.append(f"    - 你的{platform_id}名称是：{bot_name}")
-                else: # 正在安检，还不知道自己是谁！(情况 2)
+                else:  # 正在安检，还不知道自己是谁！(情况 2)
                     online_parts.append(f"- {display_name} (正在获取机器人信息...)")
 
             # 情况 3: 平台不在线，但数据库里有记录
@@ -486,8 +485,10 @@ class CoreWebsocketServer:
             final_parts.extend(online_parts)
 
         if offline_parts:
-            if not online_parts: # 情况 4 的一种，有记录但都不在线
-                final_parts.append("你暂时没有可用平台，可能是与平台连接断开或程序刚刚启动，请稍等。")
+            if not online_parts:  # 情况 4 的一种，有记录但都不在线
+                final_parts.append(
+                    "你暂时没有可用平台，可能是与平台连接断开或程序刚刚启动，请稍等。"
+                )
             final_parts.append("\n以下平台暂时没有连接：")
             final_parts.extend(offline_parts)
 

@@ -293,11 +293,10 @@ class DefaultMessageProcessor:
             logger.error(f"处理机器人档案更新通知时出错: {e}", exc_info=True)
 
     async def _handle_message_event(
-        self,
-        proto_event: ProtocolEvent,
-        websocket: WebSocketServerProtocol
+        self, proto_event: ProtocolEvent, websocket: WebSocketServerProtocol
     ) -> bool:
-        """处理所有消息类事件的核心方法。
+        """处理所有消息类事件的核心方法.
+
         它的职责是：
         1. 检查事件是否需要触发中层平台的被动激活。
         2. 将事件分发给专注聊天管理器进行后续处理。
@@ -306,15 +305,17 @@ class DefaultMessageProcessor:
             platform_id = proto_event.get_platform()
 
             # 检查AI当前是否正专注于这个平台
-            if (self.qq_chat_session_manager and
-                self.qq_chat_session_manager.current_focus_path == platform_id):
-
+            if (
+                self.qq_chat_session_manager
+                and self.qq_chat_session_manager.current_focus_path == platform_id
+            ):
                 # 检查是否为高优先级事件 (@我 或 回复我)
                 is_high_priority = False
                 bot_id = self.qq_chat_session_manager.bot_id
                 for seg in proto_event.content:
-                    if (seg.type == "at" and str(seg.data.get("user_id")) == bot_id) or \
-                        (seg.type == "quote" and str(seg.data.get("user_id")) == bot_id):
+                    if (seg.type == "at" and str(seg.data.get("user_id")) == bot_id) or (
+                        seg.type == "quote" and str(seg.data.get("user_id")) == bot_id
+                    ):
                         is_high_priority = True
                         break
 

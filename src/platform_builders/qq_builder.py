@@ -198,26 +198,27 @@ class QQBuilder(BasePlatformBuilder):
             conversation_info=ConversationInfo.from_dict(conv_info_dict),
         )
 
-
-    def get_level_consciousness_controls_definitions(self, level: str) -> tuple[dict[str, Any], dict[str, Any]]:
-        """QQ平台不提供任何意识控制，由CoreBuilder统一管理。"""
+    def get_level_consciousness_controls_definitions(
+        self, level: str
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """QQ平台不提供任何意识控制，由CoreBuilder统一管理."""
         return {}, {}
 
     def get_level_consciousness_controls_descriptions(self, level: str) -> str:
-        """QQ平台不提供任何意识控制的描述。"""
+        """QQ平台不提供任何意识控制的描述."""
         return "", ""
 
     def get_level_actions_definitions(self, level: str) -> tuple[dict[str, Any], dict[str, Any]]:
-        """根据层级，提供QQ平台专属动作的JSON Schema。"""
+        """根据层级，提供QQ平台专属动作的JSON Schema."""
         props = {}
         if level == "platform":
             props["get_list"] = {
                 "type": "object",
                 "properties": {
                     "list_type": {"type": "string", "enum": ["friend", "group"]},
-                    "motivation": {"type": "string"}
+                    "motivation": {"type": "string"},
                 },
-                "required": ["list_type", "motivation"]
+                "required": ["list_type", "motivation"],
             }
         elif level == "cellular":
             props["send_message"] = {
@@ -228,27 +229,33 @@ class QQBuilder(BasePlatformBuilder):
                         "items": {
                             "type": "object",
                             "properties": {
-                                "command": {"type": "string", "enum": ["text", "at", "reply", "send_and_break"]},
-                                "params": {"type": "object"}
+                                "command": {
+                                    "type": "string",
+                                    "enum": ["text", "at", "reply", "send_and_break"],
+                                },
+                                "params": {"type": "object"},
                             },
-                            "required": ["command"]
-                        }
+                            "required": ["command"],
+                        },
                     },
-                    "motivation": {"type": "string"}
+                    "motivation": {"type": "string"},
                 },
-                "required": ["steps", "motivation"]
+                "required": ["steps", "motivation"],
             }
             props["poke_user"] = {
                 "type": "object",
-                "properties": {"target_user_id": {"type": "string"}, "motivation": {"type": "string"}},
-                "required": ["target_user_id", "motivation"]
+                "properties": {
+                    "target_user_id": {"type": "string"},
+                    "motivation": {"type": "string"},
+                },
+                "required": ["target_user_id", "motivation"],
             }
 
         schema = {"type": "object", "properties": props} if props else {}
         return schema, {}
 
     def get_level_actions_descriptions(self, level: str) -> tuple[str, str]:
-        """根据层级，提供QQ平台专属动作的自然语言描述。"""
+        """根据层级，提供QQ平台专属动作的自然语言描述."""
         descs = []
         if level == "platform":
             descs.append("- `get_list`: 获取本平台的好友或群聊列表。")

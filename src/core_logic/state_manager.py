@@ -65,7 +65,7 @@ class AIStateManager:
             # --- 关键部分：处理动作和它的“回执单” ---
 
             # 先看看有没有“发货单号”（action_id）
-            if action_id := latest_thought.get("action_id"):
+            if _action_id := latest_thought.get("action_id"):
                 # 如果有，就告诉主意识它上次试图干了啥
                 action_desc = "某个动作"
                 if action_payload := latest_thought.get("action_payload", {}):
@@ -84,10 +84,14 @@ class AIStateManager:
                 # 现在，我只关心有没有“回执单”（action_result）
                 if action_result := latest_thought.get("action_result"):
                     # 有回执单！太棒了！直接抄！
-                    state_blocks["action_response_block"] = f"你刚才的动作返回的结果是：\n---\n{action_result}\n---"
+                    state_blocks["action_response_block"] = (
+                        f"你刚才的动作返回的结果是：\n---\n{action_result}\n---"
+                    )
                 else:
                     # 没回执单，就告诉主意识快递还在路上，或者这趟活儿本来就没回执
-                    state_blocks["action_response_block"] = "该行动正在执行或未产生直接文本结果，请参考下面的行动日志了解状态。"
+                    state_blocks["action_response_block"] = (
+                        "该行动正在执行或未产生直接文本结果，请参考下面的行动日志了解状态。"
+                    )
 
             else:
                 # 如果最新的思考没有附带动作，就用初始的默认值

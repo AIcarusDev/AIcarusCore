@@ -229,9 +229,7 @@ class ThoughtStorageService:
         try:
             collection = await self.conn_manager.get_collection(self.thoughts_coll_name)
             # 使用 update 方法来更新指定文档的 action_result 字段
-            await collection.update(
-                {"_key": thought_key, "action_result": result_text}
-            )
+            await collection.update({"_key": thought_key, "action_result": result_text})
             logger.info(f"已将行动结果保存到思想点 '{thought_key}'。")
             return True
         except Exception as e:

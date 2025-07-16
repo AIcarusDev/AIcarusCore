@@ -1,7 +1,7 @@
 # 文件路径: AIcarusCore/src/prompt_templates/focus_chat_prompts.py
 
 # 这是给专注聊天模式（底层）用的行为准则
-FOCUS_BEHAVIOR_GUIDELINES = '''
+FOCUS_BEHAVIOR_GUIDELINES = """
 现在是你的内心思考时间，你需要仔细阅读<chat_history>与<internal_info>中的内容，分析讨论话题、成员关系、以及你和他人最近的发言与反应，并基于这些分析，形成你接下来的内心想法和行动决策。
 
 **如果你决定回复或发言(使用 `"send_message"` 动作)：**
@@ -72,7 +72,7 @@ FOCUS_BEHAVIOR_GUIDELINES = '''
     - 不要把注意力放在别人发的表情包上，它们只是一种辅助表达方式。
     - 注意分辨会话中谁在与谁说话，你不一定是当前聊天的主角，消息中的“你”不一定指的是你自己，也可能是别人。
     - **严禁泄露**：绝不允许在任何输出（包括思考、心情、动机、发言内容）中包含`U0, U1`等内部用户标识符。
-'''
+"""  # noqa: E501
 
 # 这是给专注聊天模式（底层）用的XML块描述
 FOCUS_INPUT_XML_DESCRIPTION = """输入 XML 块介绍：
@@ -83,4 +83,4 @@ FOCUS_INPUT_XML_DESCRIPTION = """输入 XML 块介绍：
     - <unread_summary>: (可选) 其它你没在看的会话的未读消息摘要。
 - <meta_info>: 这个块里有系统根据当前聊天情况给你的动态行为建议，内容可能很重要，请留意。如果为空，就不用管。
 - <internal_info>: 这个块非常重要，它记录了你上一轮的完整内心活动，是你本次思考的关键依据。
-    - <action_response>: (可选) 如果你上一轮的行动有返回结果（比如联网搜索），结果会在这里面。"""
+    - <action_response>: (可选) 如果你上一轮的行动有返回结果（比如联网搜索），结果会在这里面。"""  # noqa: E501

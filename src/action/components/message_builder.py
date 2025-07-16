@@ -12,40 +12,41 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+
 class MessageBuilder:
-    """一个专门为ChatSession设计的消息构建器。
+    """一个专门为ChatSession设计的消息构建器.
+
     它能读懂LLM用“链式指令”（steps数组）写的“操作步骤”，
-    然后把这些步骤翻译成一条或多条可以发送给适配器的标准消息。
+    然后把这些步骤翻译成一条或多条可以发送给适配器的标准消息.
     """
 
-    def __init__(self, session: "ChatSession", motivation: str | None):
-        """初始化 MessageBuilder 实例。
-
-        Args:
-            session: 当前的ChatSession实例。
-        """
+    def __init__(self, session: "ChatSession", motivation: str | None) -> None:
         self.session = session
         self.motivation = motivation
         self.action_handler = session.action_handler
         self.platform_id = session.platform
         self.conversation_info = ConversationInfo(
-            conversation_id=session.conversation_id,
-            type=session.conversation_type
+            conversation_id=session.conversation_id, type=session.conversation_type
         )
         self._current_segments: list[Seg] = []
 
     async def process_steps(self, steps: list[dict]) -> bool:
-        """这是核心工作方法。它会一步步阅读指令清单（steps），并执行翻译。
+        """这是核心工作方法。它会一步步阅读指令清单（steps），并执行翻译.
 
         Args:
-            steps: 一个包含指令的列表，LLM的决策结果。
+            steps: 一个包含指令的列表，LLM的决策结果.
 
         Returns:
-            bool: 如果整个过程至少成功发送了一条消息，则返回True。
+            bool: 如果整个过程至少成功发送了一条消息，则返回True.
         """
-        logger.info(f"MessageBuilder 开始为会话 {self.conversation_info.conversation_id} 处理 {len(steps)} 个指令步骤...")
+        logger.info(
+            f"MessageBuilder 开始为会话 {self.conversation_info.conversation_id} "
+            f"处理 {len(steps)} 个指令步骤..."
+        )
 
-        self.session.messages_planned_this_turn = 1 + sum(1 for step in steps if step.get("command") == "send_and_break")
+        self.session.messages_planned_this_turn = 1 + sum(
+            1 for step in steps if step.get("command") == "send_and_break"
+        )
         self.session.messages_sent_this_turn = 0
 
         any_message_sent = False
@@ -54,8 +55,10 @@ class MessageBuilder:
             # 检查是否有中断信号
             # 如果有中断，立刻停止处理后续步骤
             if self.session.interruption_context:
-                logger.info(f"MessageBuilder 在处理步骤 {i+1} 前检测到中断信号，停止后续消息发送。")
-                break # 如果已中断，立刻停止
+                logger.info(
+                    f"MessageBuilder 在处理步骤 {i + 1} 前检测到中断信号，停止后续消息发送。"
+                )
+                break  # 如果已中断，立刻停止
 
             command = step.get("command")
             params = step.get("params", {})
@@ -70,23 +73,22 @@ class MessageBuilder:
             # elif command == "image":
             #     self._add_image(params.get("image"))
             # 遇到“发送并换行”指令，或者这是最后一步了
-            if command == "send_and_break" or (i == len(steps) - 1):
-                # 检查工作台上是否有内容需要发送
-                if self._current_segments:
-                    # 再次检查是否有中断信号
-                    if self.session.interruption_context:
-                        logger.info("MessageBuilder 在发送消息前检测到中断信号，取消本次发送。")
-                        break
-                    success = await self._send_current_message()
-                    if success:
-                        any_message_sent = True
-                        # 只有发送成功了，才增加消息计数
-                        self.session.messages_sent_this_turn += 1
-                        logger.debug(
-                            f"[{self.session.conversation_id}] "
-                            f"成功发送第 {self.session.messages_sent_this_turn} 条消息。"
-                            )
-                    self._clear_segments()
+            # 检查工作台上是否有内容需要发送
+            if (command == "send_and_break" or (i == len(steps) - 1)) and self._current_segments:
+                # 再次检查是否有中断信号
+                if self.session.interruption_context:
+                    logger.info("MessageBuilder 在发送消息前检测到中断信号，取消本次发送。")
+                    break
+                success = await self._send_current_message()
+                if success:
+                    any_message_sent = True
+                    # 只有发送成功了，才增加消息计数
+                    self.session.messages_sent_this_turn += 1
+                    logger.debug(
+                        f"[{self.session.conversation_id}] "
+                        f"成功发送第 {self.session.messages_sent_this_turn} 条消息。"
+                    )
+                self._clear_segments()
 
         # 3. 行动流程结束后
         # 如果是因为中断而结束的，保留 messages_sent_this_turn 的值给下一轮思考用
@@ -94,11 +96,15 @@ class MessageBuilder:
         if not self.session.interruption_context:
             self.session.messages_planned_this_turn = 0
             self.session.messages_sent_this_turn = 0
-            logger.debug(f"[{self.session.conversation_id}] MessageBuilder 正常完成，重置发送计数器。")
+            logger.debug(
+                f"[{self.session.conversation_id}] MessageBuilder 正常完成，重置发送计数器。"
+            )
         else:
-            logger.info(f"[{self.session.conversation_id}] MessageBuilder 因中断而停止，保留发送计数 "
-                        f"(已发送: {self.session.messages_sent_this_turn} / "
-                        f"计划: {self.session.messages_planned_this_turn})。")
+            logger.info(
+                f"[{self.session.conversation_id}] MessageBuilder 因中断而停止，保留发送计数 "
+                f"(已发送: {self.session.messages_sent_this_turn} / "
+                f"计划: {self.session.messages_planned_this_turn})。"
+            )
 
         # 唤醒主循环的逻辑移到 ActionHandler 中，由它统一在 finally 中触发
         return any_message_sent
@@ -157,7 +163,7 @@ class MessageBuilder:
         # 2. 遍历文本，根据字符类型计算延迟
         for char in text:
             # --- Case 1: 中文字符 ---
-            if '\u4e00' <= char <= '\u9fff':
+            if "\u4e00" <= char <= "\u9fff":
                 try:
                     # 获取该汉字的拼音
                     p_list = pinyin(char, style=Style.NORMAL)
@@ -168,13 +174,15 @@ class MessageBuilder:
                         total_delay += random.uniform(key_delay_min, key_delay_max)
 
                     # 累加选择该汉字的延迟
-                    total_delay += random.uniform(char_selection_delay_min, char_selection_delay_max)
+                    total_delay += random.uniform(
+                        char_selection_delay_min, char_selection_delay_max
+                    )
                 except IndexError:
                     # 对于pypinyin无法处理的罕见字，使用一个固定延迟
                     total_delay += 0.2
 
             # --- Case 2: 英文字母 ---
-            elif 'a' <= char.lower() <= 'z':
+            elif "a" <= char.lower() <= "z":
                 total_delay += random.uniform(key_delay_min, key_delay_max)
 
             # --- Case 3: 需要长停顿的标点 ---
@@ -197,34 +205,33 @@ class MessageBuilder:
         # 4. 确保总延迟不超过封顶值
         return min(total_delay, max_total_delay)
 
-    def _add_text(self, text: str | None):
-        """处理 'text' 指令，往工作台上添加文字。"""
+    def _add_text(self, text: str | None) -> None:
+        """处理 'text' 指令，往工作台上添加文字."""
         if text:
             logger.debug(f"添加文字: '{text}'")
             self._current_segments.append(SegBuilder.text(text))
 
-    def _add_at(self, user_id: str | None):
-        """处理 'at' 指令，往工作台上添加@某人。"""
+    def _add_at(self, user_id: str | None) -> None:
+        """处理 'at' 指令，往工作台上添加@某人."""
         if user_id:
             logger.debug(f"添加@: {user_id}")
             # QQ的@后面最好跟个空格，不然会粘连
             self._current_segments.append(SegBuilder.at(user_id=user_id))
             self._current_segments.append(SegBuilder.text(" "))
 
-    def _add_reply(self, message_id: str | None):
-        """处理 'reply' 指令，往工作台上添加引用回复。"""
+    def _add_reply(self, message_id: str | None) -> None:
+        """处理 'reply' 指令，往工作台上添加引用回复."""
         if message_id:
             logger.debug(f"添加引用回复: {message_id}")
             self._current_segments.append(SegBuilder.reply(message_id))
 
-    def _clear_segments(self):
-        """清空工作台。"""
+    def _clear_segments(self) -> None:
+        """清空工作台."""
         logger.debug("清空当前消息段列表。")
         self._current_segments = []
 
     async def _send_current_message(self) -> bool:
-        """将工作台上拼接好的所有消息段打包，通过老板（ActionHandler）发送出去。
-        """
+        """将工作台上拼接好的所有消息段打包，通过老板（ActionHandler）发送出去."""
         if not self._current_segments:
             logger.debug("工作台是空的，无需发送。")
             return False
@@ -255,9 +262,9 @@ class MessageBuilder:
                 "conversation_id": self.conversation_info.conversation_id,
                 "conversation_type": self.conversation_info.type,
                 # 把我们辛辛苦苦拼好的消息段列表变成字典列表
-                "content": [seg.to_dict() for seg in self._current_segments]
+                "content": [seg.to_dict() for seg in self._current_segments],
             },
-            description="由MessageBuilder拼接并发送"
+            description="由MessageBuilder拼接并发送",
         )
 
         if success:
@@ -265,9 +272,12 @@ class MessageBuilder:
 
             self.session.consecutive_bot_messages_count += 1
             self.session.messages_sent_this_turn += 1
-            logger.debug(f"[{self.conversation_info.conversation_id}] "
-                    f"MessageBuilder报告：成功发送1条消息，"
-                    f"consecutive_bot_messages_count 更新为: {self.session.consecutive_bot_messages_count}")
+            logger.debug(
+                f"[{self.conversation_info.conversation_id}] "
+                f"MessageBuilder报告：成功发送1条消息，"
+                f"consecutive_bot_messages_count 更新为: "
+                f"{self.session.consecutive_bot_messages_count}"
+            )
             # 这里可以根据需要，等待一小会儿，模拟人类打字的间隔
             await asyncio.sleep(random.uniform(0.5, 1.5))
         else:

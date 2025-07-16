@@ -4,7 +4,6 @@ from datetime import datetime
 from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
-from src.config import config
 from src.database import ConversationStorageService, EventStorageService
 
 logger = get_logger(__name__)
@@ -31,9 +30,9 @@ class UnreadInfoService:
         self.self_bot_ids: dict[str, str] = {}
 
     def update_self_bot_ids(self, new_bot_ids: dict[str, str]) -> None:
-        """
-        从外部更新服务所知的、所有平台上的机器人自身ID。
-        这个方法应该在安检流程后被调用。
+        """从外部更新服务所知的、所有平台上的机器人自身ID.
+
+        这个方法应该在安检流程后被调用.
         """
         self.self_bot_ids.update(new_bot_ids)
         logger.info(f"UnreadInfoService 已更新自身ID列表: {self.self_bot_ids}")
@@ -86,16 +85,28 @@ class UnreadInfoService:
                     if bot_id_on_this_platform:
                         for event in new_events:
                             for seg in event.get("content", []):
-                                if (seg.get("type") == "at" and str(seg.get("data", {}).get("user_id")) == bot_id_on_this_platform) or \
-                                    (seg.get("type") == "quote" and str(seg.get("data", {}).get("user_id")) == bot_id_on_this_platform):
+                                if (
+                                    seg.get("type") == "at"
+                                    and str(seg.get("data", {}).get("user_id"))
+                                    == bot_id_on_this_platform
+                                ) or (
+                                    seg.get("type") == "quote"
+                                    and str(seg.get("data", {}).get("user_id"))
+                                    == bot_id_on_this_platform
+                                ):
                                     has_high_priority = True
                                     break
                             if has_high_priority:
                                 break
                     # --- 检测逻辑结束 ---
 
-                    logger.info(f"会话 '{conv_id}' 发现 {len(new_events)} 条新未读消息 (高优: {has_high_priority})。")
-                    unread_conversations_with_events.append((conv_doc, new_events, has_high_priority)) # <--- 返回三元组
+                    logger.info(
+                        f"会话 '{conv_id}' 发现 {len(new_events)} 条新未读消息 "
+                        f"(高优: {has_high_priority})。"
+                    )
+                    unread_conversations_with_events.append(
+                        (conv_doc, new_events, has_high_priority)
+                    )  # <--- 返回三元组
 
             except Exception as e:
                 logger.error(f"为会话 '{conv_id}' 检查新消息时出错: {e}", exc_info=True)
@@ -161,9 +172,15 @@ class UnreadInfoService:
         # 3. 只有当我们知道AI在这个平台上的ID时，才进行高亮判断
         if bot_id_on_this_platform:
             for seg in content:
-                if seg.get("type") == "at" and str(seg.get("data", {}).get("user_id")) == bot_id_on_this_platform:
+                if (
+                    seg.get("type") == "at"
+                    and str(seg.get("data", {}).get("user_id")) == bot_id_on_this_platform
+                ):
                     is_at_me = True
-                if seg.get("type") == "quote" and str(seg.get("data", {}).get("user_id")) == bot_id_on_this_platform:
+                if (
+                    seg.get("type") == "quote"
+                    and str(seg.get("data", {}).get("user_id")) == bot_id_on_this_platform
+                ):
                     is_reply_to_me = True
 
         if event_type.endswith("user.poke"):
@@ -235,10 +252,13 @@ class UnreadInfoService:
 
         return final_preview
 
-    async def get_conversation_list_summary(self, platform_id: str, exclude_conversation_id: str | None = None) -> str:
-        """生成中层所需的、特定平台的会话列表摘要。
-        """
-        logger.debug(f"开始为平台 '{platform_id}' 生成会话列表摘要... (将排除: {exclude_conversation_id})")
+    async def get_conversation_list_summary(
+        self, platform_id: str, exclude_conversation_id: str | None = None
+    ) -> str:
+        """生成中层所需的、特定平台的会话列表摘要."""
+        logger.debug(
+            f"开始为平台 '{platform_id}' 生成会话列表摘要... (将排除: {exclude_conversation_id})"
+        )
         unread_convs_with_events = await self._get_unread_conversations_with_events(
             exclude_conversation_id
         )
@@ -298,7 +318,11 @@ class UnreadInfoService:
 
         summary_parts.append("</conversation_list>")
 
-        return "\n".join(line for line in summary_parts if line is not None).replace("\n\n\n", "\n\n").strip()
+        return (
+            "\n".join(line for line in summary_parts if line is not None)
+            .replace("\n\n\n", "\n\n")
+            .strip()
+        )
 
     async def generate_unread_summary_text(self, exclude_conversation_id: str | None = None) -> str:
         """生成最终的、符合你那变态要求的、带XML标签的未读消息摘要."""
@@ -417,7 +441,7 @@ class UnreadInfoService:
         return sorted(structured_list, key=lambda x: x["latest_timestamp"], reverse=True)
 
     async def get_platform_summary(self) -> str:
-        """生成顶层所需的平台级摘要，能感知高优事件。"""
+        """生成顶层所需的平台级摘要，能感知高优事件."""
         logger.debug("开始生成平台级摘要...")
         unread_convs_with_events = await self._get_unread_conversations_with_events()
 
@@ -425,7 +449,9 @@ class UnreadInfoService:
             return "所有平台均无新消息。"
 
         # --- 核心修复点 ---
-        platforms_with_news = defaultdict(lambda: {"has_high_priority": False, "has_any_news": False})
+        platforms_with_news = defaultdict(
+            lambda: {"has_high_priority": False, "has_any_news": False}
+        )
         for conv_doc, _, has_high_priority in unread_convs_with_events:
             platform = conv_doc.get("platform")
             if platform:
@@ -443,7 +469,7 @@ class UnreadInfoService:
         for platform, info in sorted(platforms_with_news.items()):
             if info["has_high_priority"]:
                 summary_lines.append(f"你的 '{platform}' 上似乎有人找你。")
-            elif info["has_any_news"]: # 现在这个判断才会生效
+            elif info["has_any_news"]:  # 现在这个判断才会生效
                 summary_lines.append(f"你的 '{platform}' 上似乎有新消息。")
 
         if not summary_lines:

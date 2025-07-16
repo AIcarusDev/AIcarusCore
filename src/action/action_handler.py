@@ -78,7 +78,7 @@ class ActionHandler:
             conversation_service: 对话存储服务实例.
             action_sender: 动作发送器实例.
             chat_session_manager: 聊天会话管理器实例.
-
+            core_logic: 核心逻辑处理器实例.
         """
         self.thought_storage_service = thought_service
         self.action_log_service = action_log_service
@@ -94,17 +94,18 @@ class ActionHandler:
         logger.info("ActionHandler 的依赖已成功设置。")
 
     def set_thought_trigger(self, trigger_event: asyncio.Event | None) -> None:
-        """设置主思维触发器。"""
+        """设置主思维触发器."""
         self.thought_trigger = trigger_event
         if trigger_event:
             logger.info("ActionHandler 的主思维触发器已成功设置。")
 
     async def initialize_llm_clients(self) -> None:
-        """按需初始化LLM客户端。"""
+        """按需初始化LLM客户端."""
         # 在新架构下，ActionHandler只依赖于web_search_agent_client
         if self.web_search_agent_client:
             return
         from src.action.components.llm_client_factory import LLMClientFactory
+
         factory = LLMClientFactory()
         try:
             self.web_search_agent_client = factory.create_client(purpose_key="web_search_agent")
@@ -114,7 +115,7 @@ class ActionHandler:
             raise
 
     async def handle_action_response(self, response_event_data: dict[str, Any]) -> None:
-        """处理来自适配器的动作响应。"""
+        """处理来自适配器的动作响应."""
         if self.pending_action_manager:
             await self.pending_action_manager.handle_response(response_event_data)
         else:
@@ -126,8 +127,9 @@ class ActionHandler:
         doc_key_for_updates: str,
         action_json: dict[str, Any],
     ) -> None:
-        """统一的行动处理流程，负责解析LLM决策并执行。
-        现在它不再返回任何值，因为它会自我管理结果的保存和思考的触发。
+        """统一的行动处理流程，负责解析LLM决策并执行.
+
+        现在它不再返回任何值，因为它会自我管理结果的保存和思考的触发.
         """
         logger.info(f"--- [Action ID: {action_id}] 开始处理行动流程 ---")
 
@@ -139,9 +141,9 @@ class ActionHandler:
                 if self.thought_storage_service:
                     await self.thought_storage_service.save_action_result_to_thought(
                         thought_key=doc_key_for_updates,
-                        result_text=f"决定不行动，原因：{motivation}"
+                        result_text=f"决定不行动，原因：{motivation}",
                     )
-                return # 直接结束
+                return  # 直接结束
 
             # 2. 解析出需要执行的动作
             # 注意：当前设计依然是一次思考只执行一个平台或核心的第一个动作
@@ -153,8 +155,7 @@ class ActionHandler:
             if not actions_to_process:
                 logger.info("AI决策的动作对象为空，无需执行。")
                 await self.thought_storage_service.save_action_result_to_thought(
-                    thought_key=doc_key_for_updates,
-                    result_text="决策中未包含任何行动指令。"
+                    thought_key=doc_key_for_updates, result_text="决策中未包含任何行动指令。"
                 )
                 return
 
@@ -167,8 +168,10 @@ class ActionHandler:
             elif platform_id == "napcat_qq" and action_name == "send_message":
                 await self._execute_send_message_flow(doc_key_for_updates, params)
 
-            else: # 其他所有平台动作
-                await self._execute_platform_action_flow(platform_id, action_name, params, doc_key_for_updates)
+            else:  # 其他所有平台动作
+                await self._execute_platform_action_flow(
+                    platform_id, action_name, params, doc_key_for_updates
+                )
 
         finally:
             # 4. 无论发生什么，最后都触发一次思考循环
@@ -177,18 +180,19 @@ class ActionHandler:
                 self.thought_trigger.set()
 
     async def _execute_send_message_flow(self, doc_key_for_updates: str, params: dict) -> None:
-        """专门处理可中断的 send_message 流程。
-        """
+        """专门处理可中断的 send_message 流程."""
         from src.action.components.message_builder import MessageBuilder
 
         # 1. 获取会话信息
         # send_message 的 params 里现在应该没有 conv_id 了，要去思想点里找
-        thought_doc = await self.thought_storage_service.get_thought_document_by_key(doc_key_for_updates)
+        thought_doc = await self.thought_storage_service.get_thought_document_by_key(
+            doc_key_for_updates
+        )
         if not thought_doc or not (focus_path := thought_doc.get("source_id")):
             logger.error("无法执行 send_message：无法从思想点中获取会话上下文。")
             return
 
-        conv_id = focus_path.split('.')[-1]
+        conv_id = focus_path.split(".")[-1]
         session = self.chat_session_manager.sessions.get(conv_id)
         if not session:
             logger.error(f"无法执行 send_message：找不到会话 '{conv_id}' 的档案。")
@@ -199,37 +203,39 @@ class ActionHandler:
 
         # 3. 我们需要一个中断检查器与消息发送流程“竞速”
         interrupt_checker_task = asyncio.create_task(
-            self.core_logic._check_for_interruptions(session, None) # 上下文暂时用None
+            self.core_logic._check_for_interruptions(session, None)  # 上下文暂时用None
         )
         message_sender_task = asyncio.create_task(
             message_builder.process_steps(params.get("steps", []))
         )
 
-        done, pending = await asyncio.wait([interrupt_checker_task, message_sender_task], return_when=asyncio.FIRST_COMPLETED)
+        done, pending = await asyncio.wait(
+            [interrupt_checker_task, message_sender_task], return_when=asyncio.FIRST_COMPLETED
+        )
 
         if interrupt_checker_task in done:
             # 中断检查官赢了！
-            message_sender_task.cancel() # 取消发送
+            message_sender_task.cancel()  # 取消发送
             interrupting_event = await interrupt_checker_task
             if interrupting_event:
                 # 记录中断现场
                 session.interruption_context = {
                     "was_interrupted_while_sending": True,
-                    "interrupting_event_doc": interrupting_event
+                    "interrupting_event_doc": interrupting_event,
                 }
             logger.info(f"[{session.conversation_id}] 消息发送被中断！")
 
         if message_sender_task in done:
             # 消息发送正常完成
-            interrupt_checker_task.cancel() # 取消中断检查
+            interrupt_checker_task.cancel()  # 取消中断检查
             logger.info(f"[{session.conversation_id}] 消息发送流程正常完成。")
             # 可以在这里处理发送结果，但 MessageBuilder 内部已经处理了
             # await message_sender_task
             pass
 
     async def _execute_core_web_search(self, doc_key_for_updates: str, params: dict) -> None:
-        """执行核心的网页搜索动作，并保存结果。"""
-        await self.initialize_llm_clients() # 确保客户端已初始化
+        """执行核心的网页搜索动作，并保存结果."""
+        await self.initialize_llm_clients()  # 确保客户端已初始化
         query = params.get("query")
         motivation = params.get("motivation", "没有明确动机")
 
@@ -252,8 +258,10 @@ class ActionHandler:
                 thought_key=doc_key_for_updates, result_text=result_text
             )
 
-    async def _execute_platform_action_flow(self, platform_id: str, action_name: str, params: dict, doc_key_for_updates: str) -> None:
-        """执行一个平台动作的完整流程：构建->发送->等待响应。"""
+    async def _execute_platform_action_flow(
+        self, platform_id: str, action_name: str, params: dict, doc_key_for_updates: str
+    ) -> None:
+        """执行一个平台动作的完整流程：构建->发送->等待响应."""
         builder = platform_builder_registry.get_builder(platform_id)
         if not builder:
             logger.error(f"找不到平台 '{platform_id}' 的翻译官。")
@@ -268,11 +276,13 @@ class ActionHandler:
         await self._execute_platform_action(
             action_to_send=action_event.to_dict(),
             thought_doc_key=doc_key_for_updates,
-            original_action_description=f"{platform_id}.{action_name}"
+            original_action_description=f"{platform_id}.{action_name}",
         )
 
-    async def execute_simple_action(self, platform_id: str, action_name: str, params: dict, description: str) -> tuple[bool, Any]:
-        """一个更简单的动作执行入口，用于内部系统调用，如专注模式。"""
+    async def execute_simple_action(
+        self, platform_id: str, action_name: str, params: dict, description: str
+    ) -> tuple[bool, Any]:
+        """一个更简单的动作执行入口，用于内部系统调用，如专注模式."""
         builder = platform_builder_registry.get_builder(platform_id)
         if not builder:
             return False, {"error": f"找不到平台 '{platform_id}' 的翻译官。"}
@@ -287,13 +297,18 @@ class ActionHandler:
             original_action_description=description,
         )
 
-    async def _execute_platform_action(self, action_to_send: dict[str, Any], thought_doc_key: str | None, original_action_description: str) -> tuple[bool, Any]:
-        """底层动作执行器：发送动作到适配器并等待响应。"""
+    async def _execute_platform_action(
+        self,
+        action_to_send: dict[str, Any],
+        thought_doc_key: str | None,
+        original_action_description: str,
+    ) -> tuple[bool, Any]:
+        """底层动作执行器：发送动作到适配器并等待响应."""
         if not self.action_sender or not self.action_log_service or not self.pending_action_manager:
             return False, {"error": "内部错误：核心服务不可用。"}
 
         event_type = action_to_send.get("event_type", "")
-        platform = event_type.split('.')[1] if '.' in event_type else "unknown"
+        platform = event_type.split(".")[1] if "." in event_type else "unknown"
         core_action_id = action_to_send.setdefault("event_id", str(uuid.uuid4()))
         timestamp = int(time.time() * 1000)
         action_to_send["timestamp"] = timestamp
@@ -304,12 +319,16 @@ class ActionHandler:
             timestamp=timestamp,
             platform=platform,
             bot_id=action_to_send.get("bot_id", config.persona.bot_name),
-            conversation_id=action_to_send.get("conversation_info", {}).get("conversation_id", "unknown_conv_id"),
-            content=action_to_send.get("content", [])
+            conversation_id=action_to_send.get("conversation_info", {}).get(
+                "conversation_id", "unknown_conv_id"
+            ),
+            content=action_to_send.get("content", []),
         )
 
         try:
-            send_success = await self.action_sender.send_action_to_adapter_by_id(platform, action_to_send)
+            send_success = await self.action_sender.send_action_to_adapter_by_id(
+                platform, action_to_send
+            )
             if not send_success:
                 return False, {"error": f"发送到适配器 '{platform}' 失败。"}
         except Exception as e:

@@ -110,8 +110,8 @@ class CoreLogic:
         focus_params = action_payload.get("napcat_qq", {}).get("focus")
 
         if focus_params and isinstance(focus_params, dict):
-                # 既然是 focus，那就返回 True
-                return True
+            # 既然是 focus，那就返回 True
+            return True
 
         # 把剩下的垃圾（如果有的话）丢给ActionHandler去处理。
         if action_payload:
@@ -123,26 +123,28 @@ class CoreLogic:
 
             if result_text:
                 await self.thought_storage_service.save_action_result_to_thought(
-                    thought_key=saved_thought_key,
-                    result_text=result_text
+                    thought_key=saved_thought_key, result_text=result_text
                 )
 
         # 如果不是 focus 动作，就返回 False
         return False
 
     async def _core_thinking_loop(self) -> None:
-        """统一意识流的主思考循环，整合了“竞速模式”中断机制。
-        """
+        """统一意识流的主思考循环，整合了“竞速模式”中断机制."""
         thinking_interval_sec = config.core_logic_settings.thinking_interval_seconds
         logger.info(f"=== {config.persona.bot_name} 的统一意识流已启动（带竞速中断） ===")
 
         while not self.stop_event.is_set():
             llm_task = None
             interrupt_checker_task = None
-            session = None # 先声明
+            session = None  # 先声明
             try:
                 # 1. 解析当前焦点
-                focus_path = self.chat_session_manager.current_focus_path if self.chat_session_manager else None
+                focus_path = (
+                    self.chat_session_manager.current_focus_path
+                    if self.chat_session_manager
+                    else None
+                )
                 current_level, _, current_conv_id = self._parse_focus_path(focus_path)
 
                 # 如果在底层，先获取session实例
@@ -153,13 +155,15 @@ class CoreLogic:
                 # 【关键】把session传给prompt_builder，让它能读取中断记忆
                 prompt_components = await self.prompt_builder.build_prompts_components(
                     focus_path=focus_path,
-                    session=session # <-- 新增参数
+                    session=session,  # <-- 新增参数
                 )
-                system_prompt, user_prompt, response_schema = self.prompt_builder.finalize_prompts(prompt_components)
+                system_prompt, user_prompt, response_schema = self.prompt_builder.finalize_prompts(
+                    prompt_components
+                )
                 self.prompt_builder.is_context_switch_flag = False
 
                 # 3. 如果在底层会话，启动“竞速模式”
-                if session: # session存在，说明在底层
+                if session:  # session存在，说明在底层
                     logger.info(f"[{session.conversation_id}] 进入竞速模式：思考 vs 中断检查...")
 
                     llm_task = asyncio.create_task(
@@ -172,10 +176,14 @@ class CoreLogic:
                     )
 
                     interrupt_checker_task = asyncio.create_task(
-                        self._check_for_interruptions(session, prompt_components.last_valid_text_message)
+                        self._check_for_interruptions(
+                            session, prompt_components.last_valid_text_message
+                        )
                     )
 
-                    done, pending = await asyncio.wait([llm_task, interrupt_checker_task], return_when=asyncio.FIRST_COMPLETED)
+                    done, pending = await asyncio.wait(
+                        [llm_task, interrupt_checker_task], return_when=asyncio.FIRST_COMPLETED
+                    )
 
                     if interrupt_checker_task in done:
                         llm_task.cancel()
@@ -183,9 +191,11 @@ class CoreLogic:
                         if interrupting_event:
                             session.interruption_context = {
                                 "was_interrupted_while_thinking": True,
-                                "interrupting_event_doc": interrupting_event
+                                "interrupting_event_doc": interrupting_event,
                             }
-                        logger.info(f"[{session.conversation_id}] 思考被中断，将立即进入下一轮循环。")
+                        logger.info(
+                            f"[{session.conversation_id}] 思考被中断，将立即进入下一轮循环。"
+                        )
                         continue
 
                     if llm_task in done:
@@ -195,12 +205,17 @@ class CoreLogic:
                     # 不在底层，正常思考
                     logger.info(f"[{focus_path or 'Core'}] 开始常规思考...")
                     generated_thought_json = await self.thought_generator.generate_thought(
-                        system_prompt=system_prompt, user_prompt=user_prompt, image_inputs=[], response_schema=response_schema
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                        image_inputs=[],
+                        response_schema=response_schema,
                     )
 
                 # 4. 处理思考结果
                 if generated_thought_json:
-                    await self._process_and_dispatch_thought(generated_thought_json, focus_path, session)
+                    await self._process_and_dispatch_thought(
+                        generated_thought_json, focus_path, session
+                    )
                 else:
                     logger.warning("本轮思考未能生成有效的JSON结果。")
 
@@ -215,19 +230,21 @@ class CoreLogic:
                 await asyncio.sleep(10)
             finally:
                 # 确保竞速任务被清理
-                if llm_task and not llm_task.done(): llm_task.cancel()
-                if interrupt_checker_task and not interrupt_checker_task.done(): interrupt_checker_task.cancel()
+                if llm_task and not llm_task.done():
+                    llm_task.cancel()
+                if interrupt_checker_task and not interrupt_checker_task.done():
+                    interrupt_checker_task.cancel()
 
         logger.info(f"--- {config.persona.bot_name} 的统一意识流已停止 ---")
 
     def _parse_focus_path(self, focus_path: str | None) -> tuple[str, str, str | None]:
-        """解析焦点路径，返回层级、平台ID和会话ID。"""
+        """解析焦点路径，返回层级、平台ID和会话ID."""
         if focus_path and focus_path != "core":
-            path_parts = focus_path.split('.')
+            path_parts = focus_path.split(".")
             current_platform_id = path_parts[0]
             if len(path_parts) >= 2:
                 current_level = "cellular"
-                current_conv_id = ".".join(path_parts[1:]) # 修复：会话ID可能也包含点
+                current_conv_id = ".".join(path_parts[1:])  # 修复：会话ID可能也包含点
             else:
                 current_level = "platform"
                 current_conv_id = None
@@ -237,9 +254,10 @@ class CoreLogic:
             current_conv_id = None
         return current_level, current_platform_id, current_conv_id
 
-    async def _check_for_interruptions(self, session: "ChatSession", context_text: str | None) -> dict | None:
-        """一个独立的、非阻塞的中断检查器。它会快速检查是否有高优先级的新消息。
-        """
+    async def _check_for_interruptions(
+        self, session: "ChatSession", context_text: str | None
+    ) -> dict | None:
+        """一个独立的、非阻塞的中断检查器。它会快速检查是否有高优先级的新消息."""
         while True:  # 它会一直检查，直到被外部取消
             try:
                 # 只检查最近的、未读的消息
@@ -266,10 +284,7 @@ class CoreLogic:
                         [Seg.from_dict(c) for c in event_doc.get("content", [])]
                     )
 
-                    message_to_check = {
-                        "speaker_id": str(sender_id),
-                        "text": text_content
-                    }
+                    message_to_check = {"speaker_id": str(sender_id), "text": text_content}
 
                     if not message_to_check.get("text"):
                         continue
@@ -278,27 +293,41 @@ class CoreLogic:
                         new_message=message_to_check,
                         context_message_text=context_text,
                     ):
-                        logger.info(f"[{session.conversation_id}] IIS决策：中断！元凶ID: {event_doc.get('_key')}")
+                        logger.info(
+                            f"[{session.conversation_id}] IIS决策：中断！"
+                            f"元凶ID: {event_doc.get('_key')}"
+                        )
 
                         # 关键：将中断事件标记为已读，并更新时间戳，避免下次还把它当新的
-                        await session.event_storage.update_events_status([event_doc.get("_key")], "read")
-                        session.last_processed_timestamp = event_doc.get("timestamp", time.time() * 1000)
+                        await session.event_storage.update_events_status(
+                            [event_doc.get("_key")], "read"
+                        )
+                        session.last_processed_timestamp = event_doc.get(
+                            "timestamp", time.time() * 1000
+                        )
 
-                        return event_doc # 找到元凶，返回它的档案，任务完成
+                        return event_doc  # 找到元凶，返回它的档案，任务完成
 
                 # 如果检查了一轮没发现需要中断的，就更新时间戳，只看比最新消息还新的
-                session.last_processed_timestamp = new_events[-1].get("timestamp", time.time() * 1000)
+                session.last_processed_timestamp = new_events[-1].get(
+                    "timestamp", time.time() * 1000
+                )
                 await asyncio.sleep(0.5)
 
             except asyncio.CancelledError:
                 return None  # 被取消时，安静地退出
             except Exception as e:
-                logger.error(f"[{session.conversation_id}] 中断检查器内部发生错误: {e}", exc_info=True)
+                logger.error(
+                    f"[{session.conversation_id}] 中断检查器内部发生错误: {e}", exc_info=True
+                )
                 await asyncio.sleep(2)
 
-    async def _process_and_dispatch_thought(self, thought_json: dict, focus_path: str | None, session: Optional["ChatSession"]) -> None:
-        """封装保存和分发思考的逻辑。
-        现在它会额外记录消息发送计划和实际发送数量。
+    async def _process_and_dispatch_thought(
+        self, thought_json: dict, focus_path: str | None, session: Optional["ChatSession"]
+    ) -> None:
+        """封装保存和分发思考的逻辑.
+
+        现在它会额外记录消息发送计划和实际发送数量.
         """
         # 更新最后一次知道的内部状态
         if new_state := thought_json.get("internal_state"):
@@ -324,10 +353,10 @@ class CoreLogic:
             source_type="core_unified",
             source_id=focus_path,
             action_id=action_id,
-            action_payload=thought_json, # 注意这里存的是完整的LLM响应JSON
+            action_payload=thought_json,  # 注意这里存的是完整的LLM响应JSON
             # 默认值设为None
             messages_planned=None,
-            messages_sent=None
+            messages_sent=None,
         )
 
         # 2. 如果当前在底层会话中，就将会话中的发送计数器记录到思想点里
@@ -351,17 +380,15 @@ class CoreLogic:
                 focus_manager=self.chat_session_manager,
                 action_handler=self.action_handler_instance,
                 source_thought_key=saved_key,
-                source_action_id=action_id
+                source_action_id=action_id,
             )
         else:
             logger.error("严重逻辑错误：思想点未能成功串入思想链，无法分发决策！")
 
     async def _wait_for_next_cycle(self, interval: float) -> None:
-        """封装等待逻辑。"""
+        """封装等待逻辑."""
         with contextlib.suppress(asyncio.TimeoutError):
-            await asyncio.wait_for(
-                self.immediate_thought_trigger.wait(), timeout=interval
-            )
+            await asyncio.wait_for(self.immediate_thought_trigger.wait(), timeout=interval)
             if self.immediate_thought_trigger.is_set():
                 self.immediate_thought_trigger.clear()
                 logger.info("被动思考被触发，立即开始新一轮思考。")

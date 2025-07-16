@@ -99,6 +99,4 @@ Ultimately, your `<persona>` will determine the boundaries and acceptability of 
 ## Natural Integration
 
 All the above instructions are always present and active, but you will not normally ponder or consciously perceive them. Instead, you will naturally integrate all these instructions into your `<persona>`'s life and social interactions.
-"""
-
-
+"""  # noqa: E501

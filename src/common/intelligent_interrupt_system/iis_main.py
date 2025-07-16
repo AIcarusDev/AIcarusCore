@@ -93,9 +93,7 @@ class IISBuilder:
         try:
             with open(self.model_path, "wb") as f:
                 pickle.dump(new_semantic_markov_model, f)
-            logger.info(
-                f"全新的【语义马尔可夫】记忆模型已成功构建并保存至: {self.model_path}！"
-            )
+            logger.info(f"全新的【语义马尔可夫】记忆模型已成功构建并保存至: {self.model_path}！")
         except Exception as e:
             logger.error(f"保存记忆模型失败: {e}", exc_info=True)
 

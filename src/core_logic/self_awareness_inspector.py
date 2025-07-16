@@ -16,8 +16,16 @@ logger = get_logger(__name__)
 async def inspect_and_initialize_self_profile(
     person_service: "PersonStorageService", action_handler: "ActionHandler", platform_id: str
 ) -> tuple[bool, dict[str, Any] | None]:
-    """检查并初始化机器人自身在特定平台上的档案。
-    成功时返回 (True, profile_data)，失败时返回 (False, None)。
+    """检查并初始化机器人自身在特定平台上的档案.
+
+    Args:
+        person_service (PersonStorageService): 用于与数据库交互的服务实例.
+        action_handler (ActionHandler): 用于执行获取自身档案的动作处理器.
+        platform_id (str): 需要检查的目标平台ID.
+
+    Returns:
+        tuple: 包含两个元素的元组，第一个是布尔值表示检查是否成功，
+            第二个是包含自身档案信息的字典或None.
     """
     logger.info(f"--- 收到平台 '{platform_id}' 连接信号，开始自我客观信息检查 ---")
 
@@ -43,13 +51,15 @@ async def inspect_and_initialize_self_profile(
                 "user_id": target_account.get("platform_id"),
                 "nickname": target_account.get("nickname"),
                 "platform": platform_id,
-                "groups": {}, # 非首次启动，暂时不获取群列表，依赖后续更新
-                "status": "existing_and_loaded"
+                "groups": {},  # 非首次启动，暂时不获取群列表，依赖后续更新
+                "status": "existing_and_loaded",
             }
             return True, profile_data
         else:
             # 这种情况比较少见，比如数据库有person但没有这个平台的account
-            logger.warning(f"数据库中存在核心档案，但未找到平台 '{platform_id}' 的账户信息。将尝试重新获取。")
+            logger.warning(
+                f"数据库中存在核心档案，但未找到平台 '{platform_id}' 的账户信息。将尝试重新获取。"
+            )
             # 继续执行下面的首次检查流程
 
     logger.info("未发现自身核心档案或特定平台档案，启动首次检查流程。")
@@ -63,14 +73,18 @@ async def inspect_and_initialize_self_profile(
     )
 
     if not success or not profile_data or not isinstance(profile_data, dict):
-        logger.critical(f"检查失败！无法从平台 '{platform_id}' 获取自身基础档案。返回: {profile_data}")
+        logger.critical(
+            f"检查失败！无法从平台 '{platform_id}' 获取自身基础档案。返回: {profile_data}"
+        )
         return False, None
 
     bot_qq_id = profile_data.get("user_id")
     bot_nickname = profile_data.get("nickname")
 
     if not bot_qq_id or not bot_nickname:
-        logger.critical(f"检查失败！适配器返回的档案不完整。ID: {bot_qq_id}, Nickname: {bot_nickname}")
+        logger.critical(
+            f"检查失败！适配器返回的档案不完整。ID: {bot_qq_id}, Nickname: {bot_nickname}"
+        )
         return False, None
 
     logger.success(f"获取到自身ID: {bot_qq_id}, 昵称: {bot_nickname}")

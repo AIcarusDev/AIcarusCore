@@ -153,7 +153,7 @@ class ConversationStorageService:
                     logger.info(f"新的会话档案 '{doc_key}' 已成功创建，ID: {result['_key']}")
                     return {
                         "_key": result["_key"],
-                        "_id": f"{self.COLLECTION_NAME}/{result['_key']}"
+                        "_id": f"{self.COLLECTION_NAME}/{result['_key']}",
                     }
                 else:
                     # 这种情况理论上不应该发生，如果insert调用没有抛异常
