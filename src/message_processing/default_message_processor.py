@@ -297,8 +297,7 @@ class DefaultMessageProcessor:
         proto_event: ProtocolEvent,
         websocket: WebSocketServerProtocol
     ) -> bool:
-        """
-        处理所有消息类事件的核心方法。
+        """处理所有消息类事件的核心方法。
         它的职责是：
         1. 检查事件是否需要触发中层平台的被动激活。
         2. 将事件分发给专注聊天管理器进行后续处理。

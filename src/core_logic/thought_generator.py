@@ -31,7 +31,7 @@ class ThoughtGenerator:
         system_prompt: str,
         user_prompt: str,
         image_inputs: list[str],
-        response_schema: dict[str, Any] | None = None,  # <--- 看这里！我给它加上了！
+        response_schema: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         """生成思考结果的核心方法.
 
@@ -54,8 +54,8 @@ class ThoughtGenerator:
                 is_stream=False,
                 image_inputs=image_inputs or None,
                 is_multimodal=bool(image_inputs),
-                use_google_search=False,  # 主意识不开启接地搜索
-                response_schema=response_schema,  # <--- 在这里把它传下去！
+                use_google_search=False,
+                response_schema=response_schema,
             )
 
             if response_data.get("error"):

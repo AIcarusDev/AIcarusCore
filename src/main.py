@@ -20,9 +20,8 @@ from src.core_communication.event_receiver import EventReceiver
 from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
 
 # 导入新的服务类
-from src.core_logic.context_builder import ContextBuilder
-from src.core_logic.intrusive_thoughts import IntrusiveThoughtsGenerator
 from src.core_logic.internal_info_builder import InternalInfoBuilder
+from src.core_logic.intrusive_thoughts import IntrusiveThoughtsGenerator
 from src.core_logic.prompt_builder import ThoughtPromptBuilder
 from src.core_logic.state_manager import AIStateManager
 from src.core_logic.thought_generator import ThoughtGenerator
@@ -116,7 +115,6 @@ class CoreSystemInitializer:
         self.iis_builder_instance: IISBuilder | None = None
         self.interrupt_model_instance: IntelligentInterrupter | None = None
         self.semantic_model_instance: SemanticModel | None = None  # 语义模型也作为单例
-        self.context_builder_instance: ContextBuilder | None = None
         self.thought_generator_instance: ThoughtGenerator | None = None
         self.thought_persistor_instance: ThoughtPersistor | None = None
 
@@ -318,9 +316,14 @@ class CoreSystemInitializer:
             self.thought_prompt_builder_instance = ThoughtPromptBuilder(
                 unread_info_service=self.unread_info_service,
                 internal_info_builder=self.internal_info_builder_instance,
+                event_storage_service=self.event_storage_service,
+                chat_session_manager=self.qq_chat_session_manager,
                 core_ws_server=None,  # 稍后回填
             )
             logger.info("ThoughtPromptBuilder 初始化成功 (依赖稍后回填)。")
+
+            self.internal_info_builder_instance.prompt_builder = self.thought_prompt_builder_instance
+            logger.info("PromptBuilder 依赖已回填到 InternalInfoBuilder。")
 
             # 5. 摘要服务 SummarizationService
             summary_llm = self.summary_llm_client or self.main_consciousness_llm_client
@@ -334,7 +337,6 @@ class CoreSystemInitializer:
                 if all(
                     [
                         self.focused_chat_llm_client,
-                        config.persona.qq_id,
                         self.summarization_service,
                         self.event_storage_service,
                         self.conversation_storage_service,
@@ -348,7 +350,7 @@ class CoreSystemInitializer:
                         llm_client=self.focused_chat_llm_client,
                         event_storage=self.event_storage_service,
                         action_handler=self.action_handler_instance,
-                        bot_id=config.persona.qq_id,
+                        bot_id=config.persona.bot_name,
                         conversation_service=self.conversation_storage_service,
                         summarization_service=self.summarization_service,
                         summary_storage_service=self.summary_storage_service,
@@ -380,12 +382,11 @@ class CoreSystemInitializer:
 
             # 把所有依赖都注入给 ActionHandler
             self.action_handler_instance.set_dependencies(
-                thought_service=self.thought_storage_service,  # 注入新服务
+                thought_service=self.thought_storage_service,
                 event_service=self.event_storage_service,
                 action_log_service=self.action_log_service,
                 conversation_service=self.conversation_storage_service,
                 action_sender=action_sender,
-                chat_session_manager=self.qq_chat_session_manager,
             )
             logger.info("ActionHandler 的依赖已设置。")
 
@@ -421,17 +422,6 @@ class CoreSystemInitializer:
             if self.thought_prompt_builder_instance:
                 self.thought_prompt_builder_instance.core_ws_server = self.core_comm_layer
                 logger.info("CoreWebsocketServer 依赖已回填到 ThoughtPromptBuilder。")
-
-
-            self.context_builder_instance = ContextBuilder(
-                event_storage=self.event_storage_service,
-                core_comm=self.core_comm_layer,
-                state_manager=self.state_manager_instance,
-            )
-            logger.info("ContextBuilder 初始化成功。")
-            if self.context_builder_instance:
-                self.context_builder_instance.core_comm = self.core_comm_layer
-            logger.info("CoreWebsocketServer 实例已回填到相关服务。")
 
             if config.intrusive_thoughts_module_settings.enabled:
                 if self.intrusive_thoughts_llm_client:
@@ -477,7 +467,6 @@ class CoreSystemInitializer:
                 action_handler_instance=self.action_handler_instance,
                 state_manager=self.state_manager_instance,
                 chat_session_manager=self.qq_chat_session_manager,
-                context_builder=self.context_builder_instance,
                 thought_generator=self.thought_generator_instance,
                 thought_persistor=self.thought_persistor_instance,
                 thought_storage_service=self.thought_storage_service,  # 把思想链服务也给它！
@@ -493,7 +482,20 @@ class CoreSystemInitializer:
                 self.qq_chat_session_manager.set_core_logic(self.core_logic_instance)
 
             if self.action_handler_instance:
-                self.action_handler_instance.set_thought_trigger(self.immediate_thought_trigger)
+                self.action_handler_instance.set_dependencies(
+                thought_service=self.thought_storage_service,
+                event_service=self.event_storage_service,
+                action_log_service=self.action_log_service,
+                conversation_service=self.conversation_storage_service,
+                action_sender=action_sender,
+                chat_session_manager=self.qq_chat_session_manager,
+                core_logic=self.core_logic_instance,
+            )
+
+            logger.info("ActionHandler 的依赖已设置。")
+            # 12. 设置立即触发思想生成的事件
+            self.action_handler_instance.set_thought_trigger(self.immediate_thought_trigger)
+
             logger.info("CoreLogicFlow 初始化成功。")
             logger.info("=== AIcarus Core 系统所有核心组件初始化完毕！ ===")
         except Exception as e:
@@ -509,6 +511,7 @@ class CoreSystemInitializer:
 
         all_tasks: list[asyncio.Task] = []
         try:
+            # 1. 启动侵入性思维后台线程 (如果启用)
             if (
                 self.intrusive_generator_instance
                 and config.intrusive_thoughts_module_settings.enabled
@@ -519,21 +522,50 @@ class CoreSystemInitializer:
                 if self.intrusive_thread:
                     logger.info("侵入性思维后台线程已启动。")
 
+            # 2. 启动核心服务任务
             if self.core_comm_layer:
+                # 启动WebSocket服务器，它会开始接受适配器连接并触发安检
                 all_tasks.append(
                     asyncio.create_task(self.core_comm_layer.start(), name="CoreWSServer")
                 )
             if self.core_logic_instance:
+                # 启动主思考循环
                 all_tasks.append(
                     await self.core_logic_instance.start_thinking_loop()
-                )  # This returns a task
-            if self.qq_chat_session_manager and config.focus_chat_mode.enabled:
-                all_tasks.append(
-                    asyncio.create_task(
-                        self.qq_chat_session_manager.run_periodic_deactivation_check(),
-                        name="ChatDeactivation",
-                    )
                 )
+
+            # 3. 创建一个新的后台任务，专门负责等待安检并更新服务
+            async def _wait_for_inspection_and_update_services():
+                # 等待一小段时间，让适配器有时间连接并触发安检
+                await asyncio.sleep(5)
+
+                if not self.core_comm_layer or not self.person_storage_service:
+                    logger.error("无法执行安检后更新：核心服务未初始化。")
+                    return
+
+                # CoreWebsocketServer 的 _run_inspection_ceremony 会把任务加到 active_inspection_tasks
+                # 我们要等待所有这些任务完成
+                if self.core_comm_layer.active_inspection_tasks:
+                    logger.info("等待所有平台的安检仪式完成，以便更新系统级服务...")
+                    await asyncio.gather(*self.core_comm_layer.active_inspection_tasks)
+                    logger.success("所有安检仪式已完成。")
+
+                # 安检完成后，从 PersonService 中获取所有自身的账号信息
+                all_self_accounts = await self.person_storage_service.get_all_self_accounts()
+                if all_self_accounts:
+                    bot_ids_map = {
+                        acc['platform']: acc['platform_id'] for acc in all_self_accounts
+                    }
+                    # 将获取到的ID地图注入到 UnreadInfoService
+                    if self.unread_info_service:
+                        self.unread_info_service.update_self_bot_ids(bot_ids_map)
+                else:
+                    logger.warning("安检后未能从数据库获取到任何机器人自身账户信息。")
+
+            # 将这个等待和更新的逻辑作为一个独立的后台任务启动
+            all_tasks.append(
+                asyncio.create_task(_wait_for_inspection_and_update_services(), name="ServiceUpdater")
+            )
 
             if not all_tasks:
                 logger.warning("没有核心异步任务启动。")

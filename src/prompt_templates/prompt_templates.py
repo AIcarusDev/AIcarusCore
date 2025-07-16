@@ -1,6 +1,5 @@
 # ============================= 核心循环系统提示 =============================
-"""
-{aicarus_rule_block}: Aicarus 规则的内容
+"""{aicarus_rule_block}: Aicarus 规则的内容
 {current_time}: 当前时间
 {persona_block}: 角色设定
 {available_platforms_block}: 可用平台，也包含了机器人自身的客观平台信息（网名，id等）

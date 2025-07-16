@@ -1,4 +1,5 @@
-from typing import Any, Dict, Tuple
+from typing import Any
+
 from src.common.custom_logging.logging_config import get_logger
 from src.platform_builders.base_builder import BasePlatformBuilder
 
@@ -6,8 +7,7 @@ logger = get_logger(__name__)
 
 
 class CoreBuilder(BasePlatformBuilder):
-    """
-    核心系统内部动作和意识控制的构建器。
+    """核心系统内部动作和意识控制的构建器。
     负责定义所有层级通用的核心能力（如web_search）以及意识导航指令。
     """
 
@@ -63,7 +63,7 @@ class CoreBuilder(BasePlatformBuilder):
     def platform_id(self) -> str:
         return "core"
 
-    def get_level_consciousness_controls_definitions(self, level: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    def get_level_consciousness_controls_definitions(self, level: str) -> tuple[dict[str, Any], dict[str, Any]]:
         """根据层级，提供可用的意识控制JSON Schema。"""
         props = {}
         if level == "core":
@@ -99,13 +99,13 @@ class CoreBuilder(BasePlatformBuilder):
 
         return "\n".join(descs) or "你当前没有可用的导航指令。"
 
-    def get_level_actions_definitions(self, level: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    def get_level_actions_definitions(self, level: str) -> tuple[dict[str, Any], dict[str, Any]]:
         """为所有层级提供核心动作（如web_search）的JSON Schema。"""
         # web_search 在所有层级都可用
         props = {"web_search": self._ACTIONS_DEFINITIONS["web_search"]}
         schema = {"type": "object", "properties": props}
         return schema, {}
 
-    def get_level_actions_descriptions(self, level: str) -> Tuple[str, str]:
+    def get_level_actions_descriptions(self, level: str) -> tuple[str, str]:
         """为所有层级提供核心动作（如web_search）的自然语言描述。"""
         return self._ACTIONS_DESCRIPTIONS["web_search"], ""

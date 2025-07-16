@@ -1,6 +1,6 @@
 # D:\Aic\AIcarusCore\src\core_logic\decision_dispatcher.py
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from src.common.custom_logging.logging_config import get_logger
 
@@ -18,8 +18,7 @@ async def process_llm_decision(
     source_thought_key: str | None = None,
     source_action_id: str | None = None
 ) -> None:
-    """
-    一个统一的LLM决策分发器。
+    """一个统一的LLM决策分发器。
     它像一个交通警察，负责解析LLM的完整决策，并将不同类型的指令分发给正确的处理器。
     目前支持两种类型的指令：
     1. 意识控制指令 (consciousness_control): 决定AI的“注意力”要去哪里。

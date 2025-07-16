@@ -1,7 +1,7 @@
 # src/platform_builders/qq_builder.py
 import time
 import uuid
-from typing import Any, Dict, Tuple
+from typing import Any
 
 from aicarus_protocols import ConversationInfo, Event, Seg
 from src.common.custom_logging.logging_config import get_logger
@@ -29,6 +29,7 @@ class QQBuilder(BasePlatformBuilder):
         self._generic_actions = {
             "recall_message",
             "poke_user",
+            "send_message",
             "kick_member",
             "ban_member",
             "ban_all_members",
@@ -198,7 +199,7 @@ class QQBuilder(BasePlatformBuilder):
         )
 
 
-    def get_level_consciousness_controls_definitions(self, level: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    def get_level_consciousness_controls_definitions(self, level: str) -> tuple[dict[str, Any], dict[str, Any]]:
         """QQ平台不提供任何意识控制，由CoreBuilder统一管理。"""
         return {}, {}
 
@@ -206,7 +207,7 @@ class QQBuilder(BasePlatformBuilder):
         """QQ平台不提供任何意识控制的描述。"""
         return "", ""
 
-    def get_level_actions_definitions(self, level: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    def get_level_actions_definitions(self, level: str) -> tuple[dict[str, Any], dict[str, Any]]:
         """根据层级，提供QQ平台专属动作的JSON Schema。"""
         props = {}
         if level == "platform":
@@ -246,7 +247,7 @@ class QQBuilder(BasePlatformBuilder):
         schema = {"type": "object", "properties": props} if props else {}
         return schema, {}
 
-    def get_level_actions_descriptions(self, level: str) -> Tuple[str, str]:
+    def get_level_actions_descriptions(self, level: str) -> tuple[str, str]:
         """根据层级，提供QQ平台专属动作的自然语言描述。"""
         descs = []
         if level == "platform":

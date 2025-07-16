@@ -154,13 +154,14 @@ class ThoughtChainDocument:
     action_id: str | None = None
     action_payload: dict | None = None
     action_result: str | None = None
+    messages_planned: int | None = None
+    """(仅用于send_message) 本轮计划发送的消息总数"""
+    messages_sent: int | None = None
+    """(仅用于send_message) 本轮实际发送的消息数量"""
 
     def to_dict(self) -> dict[str, Any]:
         """将 dataclass 实例转换为字典."""
         return asdict(self)
-
-
-# --- 已有模型保持不变，这里为了完整性全部贴出 ---
 
 
 @dataclass

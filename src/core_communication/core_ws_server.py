@@ -433,8 +433,7 @@ class CoreWebsocketServer:
             self.server = None
 
     async def get_connected_platforms_info(self) -> str:
-        """
-        构建并返回所有平台的信息字符串，现在它能感知在线、离线和安检中的状态了！
+        """构建并返回所有平台的信息字符串，现在它能感知在线、离线和安检中的状态了！
         """
         # 从老鸨那里获取所有我曾经注册过的平台账号
         all_known_bots = await self.person_service.get_all_self_accounts()

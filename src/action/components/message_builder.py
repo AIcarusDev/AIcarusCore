@@ -1,27 +1,25 @@
 # D:\Aic\AIcarusCore\src\action\components\message_builder.py
-import random
 import asyncio
-from typing import TYPE_CHECKING, Any, List
+import random
+from typing import TYPE_CHECKING
 
 from aicarus_protocols import ConversationInfo, Seg, SegBuilder
+from pypinyin import Style, pinyin
 from src.common.custom_logging.logging_config import get_logger
 
 if TYPE_CHECKING:
-    from src.action.action_handler import ActionHandler
     from src.focus_chat_mode.chat_session import ChatSession
 
 logger = get_logger(__name__)
 
 class MessageBuilder:
-    """
-    一个专门的“消息翻译官”。
+    """一个专门为ChatSession设计的消息构建器。
     它能读懂LLM用“链式指令”（steps数组）写的“操作步骤”，
     然后把这些步骤翻译成一条或多条可以发送给适配器的标准消息。
     """
 
     def __init__(self, session: "ChatSession", motivation: str | None):
-        """
-        初始化翻译官，现在它直接为整个ChatSession服务。
+        """初始化 MessageBuilder 实例。
 
         Args:
             session: 当前的ChatSession实例。
@@ -34,11 +32,10 @@ class MessageBuilder:
             conversation_id=session.conversation_id,
             type=session.conversation_type
         )
-        self._current_segments: List[Seg] = []
+        self._current_segments: list[Seg] = []
 
-    async def process_steps(self, steps: List[dict]) -> bool:
-        """
-        这是翻译官的核心工作方法。它会一步步阅读指令清单（steps），并执行翻译。
+    async def process_steps(self, steps: list[dict]) -> bool:
+        """这是核心工作方法。它会一步步阅读指令清单（steps），并执行翻译。
 
         Args:
             steps: 一个包含指令的列表，LLM的决策结果。
@@ -48,9 +45,18 @@ class MessageBuilder:
         """
         logger.info(f"MessageBuilder 开始为会话 {self.conversation_info.conversation_id} 处理 {len(steps)} 个指令步骤...")
 
+        self.session.messages_planned_this_turn = 1 + sum(1 for step in steps if step.get("command") == "send_and_break")
+        self.session.messages_sent_this_turn = 0
+
         any_message_sent = False
 
         for i, step in enumerate(steps):
+            # 检查是否有中断信号
+            # 如果有中断，立刻停止处理后续步骤
+            if self.session.interruption_context:
+                logger.info(f"MessageBuilder 在处理步骤 {i+1} 前检测到中断信号，停止后续消息发送。")
+                break # 如果已中断，立刻停止
+
             command = step.get("command")
             params = step.get("params", {})
 
@@ -67,20 +73,34 @@ class MessageBuilder:
             if command == "send_and_break" or (i == len(steps) - 1):
                 # 检查工作台上是否有内容需要发送
                 if self._current_segments:
+                    # 再次检查是否有中断信号
+                    if self.session.interruption_context:
+                        logger.info("MessageBuilder 在发送消息前检测到中断信号，取消本次发送。")
+                        break
                     success = await self._send_current_message()
                     if success:
                         any_message_sent = True
-                    # 发送完后，清空工作台，准备下一条消息
+                        # 只有发送成功了，才增加消息计数
+                        self.session.messages_sent_this_turn += 1
+                        logger.debug(
+                            f"[{self.session.conversation_id}] "
+                            f"成功发送第 {self.session.messages_sent_this_turn} 条消息。"
+                            )
                     self._clear_segments()
 
-        logger.info(f"MessageBuilder 指令处理完毕。共发送消息: {any_message_sent}")
+        # 3. 行动流程结束后
+        # 如果是因为中断而结束的，保留 messages_sent_this_turn 的值给下一轮思考用
+        # 如果是正常结束的，就清理计数器
+        if not self.session.interruption_context:
+            self.session.messages_planned_this_turn = 0
+            self.session.messages_sent_this_turn = 0
+            logger.debug(f"[{self.session.conversation_id}] MessageBuilder 正常完成，重置发送计数器。")
+        else:
+            logger.info(f"[{self.session.conversation_id}] MessageBuilder 因中断而停止，保留发送计数 "
+                        f"(已发送: {self.session.messages_sent_this_turn} / "
+                        f"计划: {self.session.messages_planned_this_turn})。")
 
-        # 只有在所有步骤都处理完毕，并且确实有消息被成功发送出去之后，
-        # 在这里，统一、唯一地发出“唤醒”信号。
-        if any_message_sent:
-            logger.info(f"MessageBuilder 在会话 '{self.session.conversation_id}' 中已发送完所有消息，将唤醒其循环进行下一轮思考。")
-            self.session.cycler.wakeup()
-
+        # 唤醒主循环的逻辑移到 ActionHandler 中，由它统一在 finally 中触发
         return any_message_sent
 
     # 这个方法迁移到这里了，处理打字延迟的计算
@@ -88,40 +108,94 @@ class MessageBuilder:
     def _calculate_typing_delay(self, text: str) -> float:
         """计算模拟打字延迟.
 
-        这个方法会根据文本内容计算一个模拟打字的延迟时间，
-        以增加人性化的交互体验。它会考虑到文本中的标点符号和普通字符的不同，
-        并根据预设的延迟范围计算总的打字时间。
-
+        这个方法会根据输入的文本内容，计算出一个模拟打字的延迟时间。
+        主要考虑以下因素：
+        - 中文字符的拼音输入延迟
+        - 英文字母的输入延迟
+        - 特定标点符号的停顿
+        - 空格的微小停顿
+        - 整体打字思考时间
+        - 模拟打错字和修正的延迟
+        - 确保总延迟时间不会过长
         Args:
-            text (str): 要计算打字延迟的文本内容。
+            text (str): 要计算延迟的文本内容。
         Returns:
-            float: 计算出的打字延迟时间，单位为秒。
+            float: 计算出的总延迟时间（秒）。
         """
-        # 定义哪些标点需要停顿久一点，假装在思考
+        # --- 基础延迟参数 ---
+        # 模拟敲击单个字母或拼音的延迟（秒）
+        key_delay_min = 0.06
+        key_delay_max = 0.18
+
+        # --- 中文输入特有参数 ---
+        # 模拟在输入法中选择汉字（词）的延迟（秒）
+        char_selection_delay_min = 0.1
+        char_selection_delay_max = 0.3
+
+        # --- 通用停顿参数 ---
+        # 模拟在词语之间（空格）的微小停顿
+        space_pause = 0.1
+        # 模拟在需要思考的标点符号后的停顿
+        punctuation_pause_min = 0.4
+        punctuation_pause_max = 0.9
+        # 定义哪些标点需要长停顿
         punctuation_to_pause = "，。！？；、,."
-        # 普通字/字母的打字延迟
-        char_delay_min = 0.2
-        char_delay_max = 0.6
-        # 遇到标点符号的额外停顿
-        punc_delay_min = 0.1
-        punc_delay_max = 0.4
-        # 封顶延迟，免得一句话等半天
-        max_total_delay = 20.0
 
-        total_delay = 0.0
+        # --- 整体控制参数 ---
+        # 模拟在开始打字前的“思考”时间
+        initial_thinking_min = 0.3
+        initial_thinking_max = 0.8
+        # 防止总延迟时间过长，设置封顶值（秒）
+        max_total_delay = 25.0
+
+        if not text:
+            return 0.0
+
+        # 1. 初始思考延迟
+        total_delay = random.uniform(initial_thinking_min, initial_thinking_max)
+
+        # 2. 遍历文本，根据字符类型计算延迟
         for char in text:
-            if char in punctuation_to_pause:
-                total_delay += random.uniform(punc_delay_min, punc_delay_max)
+            # --- Case 1: 中文字符 ---
+            if '\u4e00' <= char <= '\u9fff':
+                try:
+                    # 获取该汉字的拼音
+                    p_list = pinyin(char, style=Style.NORMAL)
+                    p_str = p_list[0][0]
+
+                    # 累加输入该拼音所有字母的延迟
+                    for _ in p_str:
+                        total_delay += random.uniform(key_delay_min, key_delay_max)
+
+                    # 累加选择该汉字的延迟
+                    total_delay += random.uniform(char_selection_delay_min, char_selection_delay_max)
+                except IndexError:
+                    # 对于pypinyin无法处理的罕见字，使用一个固定延迟
+                    total_delay += 0.2
+
+            # --- Case 2: 英文字母 ---
+            elif 'a' <= char.lower() <= 'z':
+                total_delay += random.uniform(key_delay_min, key_delay_max)
+
+            # --- Case 3: 需要长停顿的标点 ---
+            elif char in punctuation_to_pause:
+                total_delay += random.uniform(punctuation_pause_min, punctuation_pause_max)
+
+            # --- Case 4: 空格 ---
+            elif char.isspace():
+                total_delay += space_pause
+
+            # --- Case 5: 其他所有字符 (如数字、普通标点等) ---
             else:
-                total_delay += random.uniform(char_delay_min, char_delay_max)
+                total_delay += random.uniform(key_delay_min, key_delay_max)
 
-        # 模拟打错字回退增加时长情况，字数越多越容易打错字
-        if len(text) > 10 and random.random() < 0.3:
-            total_delay *= 1.1
+        # 3. 模拟一定概率下的打错字和修正过程
+        if len(text) > 10 and random.random() < 0.15:
+            correction_time = random.uniform(0.5, 1.2)
+            total_delay += correction_time
 
-        # 别睡太久了，懒鬼！
-        final_delay = min(total_delay, max_total_delay)
-        return final_delay
+        # 4. 确保总延迟不超过封顶值
+        return min(total_delay, max_total_delay)
 
     def _add_text(self, text: str | None):
         """处理 'text' 指令，往工作台上添加文字。"""
@@ -149,8 +223,7 @@ class MessageBuilder:
         self._current_segments = []
 
     async def _send_current_message(self) -> bool:
-        """
-        将工作台上拼接好的所有消息段打包，通过老板（ActionHandler）发送出去。
+        """将工作台上拼接好的所有消息段打包，通过老板（ActionHandler）发送出去。
         """
         if not self._current_segments:
             logger.debug("工作台是空的，无需发送。")

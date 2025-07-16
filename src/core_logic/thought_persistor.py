@@ -1,4 +1,4 @@
-# src/core_logic/thought_persistor.py (小懒猫·点打包员版)
+# src/core_logic/thought_persistor.py
 import datetime
 import uuid
 from typing import TYPE_CHECKING, Any

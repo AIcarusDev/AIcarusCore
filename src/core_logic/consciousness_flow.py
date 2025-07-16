@@ -3,16 +3,16 @@ import asyncio
 import contextlib
 import datetime
 import threading
+import time
 import uuid
 from typing import TYPE_CHECKING
 
-from src.core_logic.decision_dispatcher import process_llm_decision
+from aicarus_protocols import Event, Seg
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logging_config import get_logger
-from src.common.time_utils import get_formatted_time_for_llm
 from src.config import config
 from src.core_communication.core_ws_server import CoreWebsocketServer
-from src.core_logic.context_builder import ContextBuilder
+from src.core_logic.decision_dispatcher import process_llm_decision
 from src.core_logic.intrusive_thoughts import IntrusiveThoughtsGenerator
 from src.core_logic.prompt_builder import ThoughtPromptBuilder
 from src.core_logic.state_manager import AIStateManager
@@ -20,9 +20,9 @@ from src.core_logic.thought_generator import ThoughtGenerator
 from src.core_logic.thought_persistor import ThoughtPersistor
 from src.database import ThoughtStorageService
 from src.database.models import ThoughtChainDocument
-from src.platform_builders.registry import platform_builder_registry
 
 if TYPE_CHECKING:
+    from src.focus_chat_mode.chat_session import ChatSession
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 
 logger = get_logger(__name__)
@@ -57,7 +57,6 @@ class CoreLogic:
         action_handler_instance: ActionHandler,
         state_manager: AIStateManager,
         chat_session_manager: "ChatSessionManager",
-        context_builder: ContextBuilder,
         thought_storage_service: ThoughtStorageService,
         thought_generator: ThoughtGenerator,
         thought_persistor: ThoughtPersistor,
@@ -70,7 +69,6 @@ class CoreLogic:
         self.action_handler_instance = action_handler_instance
         self.state_manager = state_manager
         self.chat_session_manager = chat_session_manager
-        self.context_builder = context_builder
         self.thought_generator = thought_generator
         self.thought_persistor = thought_persistor
         self.thought_storage_service = thought_storage_service  # 把存储服务也存起来
@@ -81,6 +79,7 @@ class CoreLogic:
         self.intrusive_generator_instance = intrusive_generator_instance
         self.thinking_loop_task: asyncio.Task | None = None
         self.last_known_internal_state: dict = AIStateManager.INITIAL_STATE.copy()
+        self.is_context_switch_flag = False
         logger.info(f"{self.__class__.__name__} 已创建")
 
     def trigger_immediate_thought_cycle(self) -> None:
@@ -132,143 +131,240 @@ class CoreLogic:
         return False
 
     async def _core_thinking_loop(self) -> None:
-        """
-        主思考循环，持续生成思考并处理动作.
-        这个方法会持续运行，直到 stop_event 被设置为 True。
-        它会定期生成新的思考，并根据思考结果执行相应的动作。
-        在每次循环开始时，它会检查当前的 FocusManager 状态，
-        如果当前有焦点会话，则暂停主意识，等待焦点返回顶层。
+        """统一意识流的主思考循环，整合了“竞速模式”中断机制。
         """
         thinking_interval_sec = config.core_logic_settings.thinking_interval_seconds
+        logger.info(f"=== {config.persona.bot_name} 的统一意识流已启动（带竞速中断） ===")
+
         while not self.stop_event.is_set():
-            # --- ▼▼▼ 这是我们的核心改造 ▼▼▼ ---
-            # 每次循环前，都去问 FocusManager：“我现在应该在哪？”
-            if self.chat_session_manager and self.chat_session_manager.current_focus_path is not None:
-                logger.debug(
-                    f"AI焦点在 '{self.chat_session_manager.current_focus_path}'，"
-                    "主意识（Core-Level）暂停，等待焦点返回。"
+            llm_task = None
+            interrupt_checker_task = None
+            session = None # 先声明
+            try:
+                # 1. 解析当前焦点
+                focus_path = self.chat_session_manager.current_focus_path if self.chat_session_manager else None
+                current_level, _, current_conv_id = self._parse_focus_path(focus_path)
+
+                # 如果在底层，先获取session实例
+                if current_level == "cellular" and current_conv_id:
+                    session = self.chat_session_manager.sessions.get(current_conv_id)
+
+                # 2. 构建思考所需的所有材料
+                # 【关键】把session传给prompt_builder，让它能读取中断记忆
+                prompt_components = await self.prompt_builder.build_prompts_components(
+                    focus_path=focus_path,
+                    session=session # <-- 新增参数
                 )
-                try:
-                    # 等待 focus_session_inactive_event 事件，这个事件会在焦点返回顶层时被设置
-                    await self.focus_session_inactive_event.wait()
-                    self.focus_session_inactive_event.clear()
-                    logger.info("焦点已返回顶层，主意识被唤醒，继续环境感知。")
-                except asyncio.CancelledError:
-                    logger.info("主意识在等待焦点返回时被取消。")
-                    break
-                # continue 会让循环直接跳到下一次 `while` 检查，重新判断焦点位置
-                continue
+                system_prompt, user_prompt, response_schema = self.prompt_builder.finalize_prompts(prompt_components)
+                self.prompt_builder.is_context_switch_flag = False
 
-            # 1. 构建 Prompt (它内部自己会去拿最新的状态，我们不用管了)
-            current_time_str = get_formatted_time_for_llm()
-            system_prompt, user_prompt, response_schema = await self.prompt_builder.build_prompts(
-                current_time_str,
-                self.chat_session_manager.current_focus_path # 把当前焦点路径告诉PromptBuilder
-            )
-            # 【关键修复点 2】: 从 PlatformBuilder 单独获取 JSON Schema
-            # 这个逻辑需要添加到 prompt_builder.build_prompts 之后，thought_generator.generate_thought 之前
-            focus_path = self.chat_session_manager.current_focus_path
-            if focus_path and focus_path != "core":
-                path_parts = focus_path.split('.')
-                current_platform_id = path_parts[0]
-                current_level = "platform"
-            else:
-                current_platform_id = "core"
-                current_level = "core"
+                # 3. 如果在底层会话，启动“竞速模式”
+                if session: # session存在，说明在底层
+                    logger.info(f"[{session.conversation_id}] 进入竞速模式：思考 vs 中断检查...")
 
-            builder = platform_builder_registry.get_builder(current_platform_id)
-            final_response_schema = {}
-            if builder:
-                controls_schema, _ = builder.get_level_consciousness_controls_definitions(current_level)
-                actions_schema, _ = builder.get_level_actions_definitions(current_level)
-
-                # 将两个 schema 合并
-                final_response_schema = {
-                    "type": "object",
-                    "properties": {
-                        "internal_state": { # internal_state 是固定的
-                            "type": "object",
-                            "properties": {
-                                "mood": {"type": "string"},
-                                "think": {"type": "string"},
-                                "goal": {"type": "string"}
-                            },
-                            "required": ["mood", "think", "goal"]
-                        },
-                        "consciousness_control": controls_schema,
-                        "action": actions_schema
-                    },
-                    "required": ["internal_state"]
-                }
-            else:
-                logger.warning(f"未能为平台 '{current_platform_id}' 找到 builder，将使用空的 response_schema。")
-
-            # 2. 生成思考
-            logger.info(
-                f"[{datetime.datetime.now().strftime('%H:%M:%S')}] "
-                f"{config.persona.bot_name} 开始思考 (焦点: {self.chat_session_manager.current_focus_path or 'Core'})..."
-            )
-            generated_thought_json = await self.thought_generator.generate_thought(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                image_inputs=[],
-                response_schema=final_response_schema, # 把动态生成的Schema传给LLM
-            )
-
-
-            if generated_thought_json:
-                # 3. 把思考结果打包成“思想点”并存入数据库
-                # 这部分逻辑保持不变，因为我们需要先记录再执行
-                if new_state := generated_thought_json.get("internal_state"):
-                    self.last_known_internal_state = new_state
-                logger.info(
-                    f"生成的思考内容: {generated_thought_json.get('internal_state', {}).get('think', '无内容')}"
-                )
-                action_payload = generated_thought_json.get("action")
-                consciousness_control_payload = generated_thought_json.get("consciousness_control")
-
-                # 只要有任何一种指令，就认为需要一个action_id来追踪
-                action_id = str(uuid.uuid4()) if (action_payload or consciousness_control_payload) else None
-
-                new_thought_pearl = ThoughtChainDocument(
-                    _key=str(uuid.uuid4()),
-                    timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
-                    mood=generated_thought_json.get("internal_state", {}).get("mood", "平静"),
-                    think=generated_thought_json.get("internal_state", {}).get("think", "无"),
-                    goal=generated_thought_json.get("internal_state", {}).get("goal"),
-                    source_type="core",
-                    source_id=None,
-                    action_id=action_id,
-                    action_payload=generated_thought_json,
-                )
-
-                saved_key = await self.thought_storage_service.save_thought_and_link(
-                    new_thought_pearl
-                )
-
-                if saved_key:
-                    # 4. 调用统一决策分发器
-                    await process_llm_decision(
-                        decision_json=generated_thought_json,
-                        focus_manager=self.chat_session_manager,
-                        action_handler=self.action_handler_instance,
-                        source_thought_key=saved_key,
-                        source_action_id=action_id
+                    llm_task = asyncio.create_task(
+                        self.thought_generator.generate_thought(
+                            system_prompt=system_prompt,
+                            user_prompt=user_prompt,
+                            image_inputs=prompt_components.image_references,
+                            response_schema=response_schema,
+                        )
                     )
-                else:
-                    logger.error("严重逻辑错误：思想点未能成功串入思想链，无法分发决策！")
 
-            # 6. 等待下一次闹钟
-            with contextlib.suppress(asyncio.TimeoutError):
-                await asyncio.wait_for(
-                    self.immediate_thought_trigger.wait(), timeout=float(thinking_interval_sec)
+                    interrupt_checker_task = asyncio.create_task(
+                        self._check_for_interruptions(session, prompt_components.last_valid_text_message)
+                    )
+
+                    done, pending = await asyncio.wait([llm_task, interrupt_checker_task], return_when=asyncio.FIRST_COMPLETED)
+
+                    if interrupt_checker_task in done:
+                        llm_task.cancel()
+                        interrupting_event = await interrupt_checker_task
+                        if interrupting_event:
+                            session.interruption_context = {
+                                "was_interrupted_while_thinking": True,
+                                "interrupting_event_doc": interrupting_event
+                            }
+                        logger.info(f"[{session.conversation_id}] 思考被中断，将立即进入下一轮循环。")
+                        continue
+
+                    if llm_task in done:
+                        interrupt_checker_task.cancel()
+                        generated_thought_json = await llm_task
+                else:
+                    # 不在底层，正常思考
+                    logger.info(f"[{focus_path or 'Core'}] 开始常规思考...")
+                    generated_thought_json = await self.thought_generator.generate_thought(
+                        system_prompt=system_prompt, user_prompt=user_prompt, image_inputs=[], response_schema=response_schema
+                    )
+
+                # 4. 处理思考结果
+                if generated_thought_json:
+                    await self._process_and_dispatch_thought(generated_thought_json, focus_path, session)
+                else:
+                    logger.warning("本轮思考未能生成有效的JSON结果。")
+
+                # 5. 等待下一次循环
+                await self._wait_for_next_cycle(thinking_interval_sec)
+
+            except asyncio.CancelledError:
+                logger.info("统一意识流主循环被取消。")
+                break
+            except Exception as e:
+                logger.error(f"统一意识流主循环发生严重错误: {e}", exc_info=True)
+                await asyncio.sleep(10)
+            finally:
+                # 确保竞速任务被清理
+                if llm_task and not llm_task.done(): llm_task.cancel()
+                if interrupt_checker_task and not interrupt_checker_task.done(): interrupt_checker_task.cancel()
+
+        logger.info(f"--- {config.persona.bot_name} 的统一意识流已停止 ---")
+
+    def _parse_focus_path(self, focus_path: str | None) -> tuple[str, str, str | None]:
+        """解析焦点路径，返回层级、平台ID和会话ID。"""
+        if focus_path and focus_path != "core":
+            path_parts = focus_path.split('.')
+            current_platform_id = path_parts[0]
+            if len(path_parts) >= 2:
+                current_level = "cellular"
+                current_conv_id = ".".join(path_parts[1:]) # 修复：会话ID可能也包含点
+            else:
+                current_level = "platform"
+                current_conv_id = None
+        else:
+            current_level = "core"
+            current_platform_id = "core"
+            current_conv_id = None
+        return current_level, current_platform_id, current_conv_id
+
+    async def _check_for_interruptions(self, session: "ChatSession", context_text: str | None) -> dict | None:
+        """一个独立的、非阻塞的中断检查器。它会快速检查是否有高优先级的新消息。
+        """
+        while True:  # 它会一直检查，直到被外部取消
+            try:
+                # 只检查最近的、未读的消息
+                new_events = await session.event_storage.get_message_events_after_timestamp(
+                    session.conversation_id,
+                    session.last_processed_timestamp,
+                    limit=10,
+                    status="unread",
                 )
+                if not new_events:
+                    await asyncio.sleep(0.5)  # 没有新消息就稍微休息一下
+                    continue
+
+                bot_profile = await session.get_bot_profile()
+                current_bot_id = str(bot_profile.get("user_id") or session.bot_id)
+
+                for event_doc in new_events:
+                    sender_id = event_doc.get("user_info", {}).get("user_id")
+                    if sender_id and str(sender_id) == current_bot_id:
+                        continue  # 忽略自己发的消息
+
+                    # 格式化消息以供IIS判断
+                    text_content = Event.get_text_from_content_list(
+                        [Seg.from_dict(c) for c in event_doc.get("content", [])]
+                    )
+
+                    message_to_check = {
+                        "speaker_id": str(sender_id),
+                        "text": text_content
+                    }
+
+                    if not message_to_check.get("text"):
+                        continue
+
+                    if session.intelligent_interrupter.should_interrupt(
+                        new_message=message_to_check,
+                        context_message_text=context_text,
+                    ):
+                        logger.info(f"[{session.conversation_id}] IIS决策：中断！元凶ID: {event_doc.get('_key')}")
+
+                        # 关键：将中断事件标记为已读，并更新时间戳，避免下次还把它当新的
+                        await session.event_storage.update_events_status([event_doc.get("_key")], "read")
+                        session.last_processed_timestamp = event_doc.get("timestamp", time.time() * 1000)
+
+                        return event_doc # 找到元凶，返回它的档案，任务完成
+
+                # 如果检查了一轮没发现需要中断的，就更新时间戳，只看比最新消息还新的
+                session.last_processed_timestamp = new_events[-1].get("timestamp", time.time() * 1000)
+                await asyncio.sleep(0.5)
+
+            except asyncio.CancelledError:
+                return None  # 被取消时，安静地退出
+            except Exception as e:
+                logger.error(f"[{session.conversation_id}] 中断检查器内部发生错误: {e}", exc_info=True)
+                await asyncio.sleep(2)
+
+    async def _process_and_dispatch_thought(self, thought_json: dict, focus_path: str | None, session: "ChatSession" | None) -> None:
+        """封装保存和分发思考的逻辑。
+        现在它会额外记录消息发送计划和实际发送数量。
+        """
+        # 更新最后一次知道的内部状态
+        if new_state := thought_json.get("internal_state"):
+            self.last_known_internal_state = new_state
+
+        logger.info(
+            f"生成的思考内容: {thought_json.get('internal_state', {}).get('think', '无内容')}"
+        )
+
+        # 准备行动ID
+        action_payload = thought_json.get("action")
+        consciousness_control_payload = thought_json.get("consciousness_control")
+        action_id = str(uuid.uuid4()) if (action_payload or consciousness_control_payload) else None
+
+        # --- ▼▼▼ 核心改造点 ▼▼▼ ---
+        # 1. 创建思想点实例
+        new_thought_pearl = ThoughtChainDocument(
+            _key=str(uuid.uuid4()),
+            timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
+            mood=thought_json.get("internal_state", {}).get("mood", "平静"),
+            think=thought_json.get("internal_state", {}).get("think", "无"),
+            goal=thought_json.get("internal_state", {}).get("goal"),
+            source_type="core_unified",
+            source_id=focus_path,
+            action_id=action_id,
+            action_payload=thought_json, # 注意这里存的是完整的LLM响应JSON
+            # 默认值设为None
+            messages_planned=None,
+            messages_sent=None
+        )
+
+        # 2. 如果当前在底层会话中，就将会话中的发送计数器记录到思想点里
+        if session:
+            new_thought_pearl.messages_planned = session.messages_planned_this_turn
+            new_thought_pearl.messages_sent = session.messages_sent_this_turn
+            logger.debug(
+                f"[{session.conversation_id}] 将发送计数器存入思想点: "
+                f"计划={session.messages_planned_this_turn}, "
+                f"已发送={session.messages_sent_this_turn}"
+            )
+        # --- ▲▲▲ 改造结束 ▲▲▲ ---
+
+        # 保存并链接思想点
+        saved_key = await self.thought_storage_service.save_thought_and_link(new_thought_pearl)
+
+        if saved_key:
+            # 分发决策
+            await process_llm_decision(
+                decision_json=thought_json,
+                focus_manager=self.chat_session_manager,
+                action_handler=self.action_handler_instance,
+                source_thought_key=saved_key,
+                source_action_id=action_id
+            )
+        else:
+            logger.error("严重逻辑错误：思想点未能成功串入思想链，无法分发决策！")
+
+    async def _wait_for_next_cycle(self, interval: float) -> None:
+        """封装等待逻辑。"""
+        with contextlib.suppress(asyncio.TimeoutError):
+            await asyncio.wait_for(
+                self.immediate_thought_trigger.wait(), timeout=interval
+            )
+            if self.immediate_thought_trigger.is_set():
                 self.immediate_thought_trigger.clear()
                 logger.info("被动思考被触发，立即开始新一轮思考。")
-
-            if self.stop_event.is_set():
-                break
-        logger.info(f"--- {config.persona.bot_name} 的意识流动已停止 ---")
 
     async def start_thinking_loop(self) -> asyncio.Task:
         """启动主思考循环，开始持续思考和处理动作.

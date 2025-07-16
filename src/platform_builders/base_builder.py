@@ -1,6 +1,7 @@
 # src/platform_builders/base_builder.py
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Tuple
+from typing import Any
+
 
 class BasePlatformBuilder(ABC):
     @property
@@ -9,9 +10,8 @@ class BasePlatformBuilder(ABC):
         pass
 
     @abstractmethod
-    def get_level_actions_definitions(self, level: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        """
-        根据指定的层级，返回该层级可用的和【外部行动】的JSON Schema定义。
+    def get_level_actions_definitions(self, level: str) -> tuple[dict[str, Any], dict[str, Any]]:
+        """根据指定的层级，返回该层级可用的和【外部行动】的JSON Schema定义。
 
         Args:
             level (str): 当前的焦点层级 ('core', 'platform', 'cellular')。
@@ -24,8 +24,7 @@ class BasePlatformBuilder(ABC):
 
     @abstractmethod
     def get_level_actions_descriptions(self, level: str) -> str:
-        """
-        根据指定的层级，返回该层级可用动作的【自然语言描述】。
+        """根据指定的层级，返回该层级可用动作的【自然语言描述】。
 
         Args:
             level (str): 当前的焦点层级 ('core', 'platform', 'cellular')。
@@ -36,9 +35,8 @@ class BasePlatformBuilder(ABC):
         pass
 
     @abstractmethod
-    def get_level_consciousness_controls_definitions(self, level: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        """
-        根据指定的层级，返回该层级可用的和【内在控制】的JSON Schema定义。
+    def get_level_consciousness_controls_definitions(self, level: str) -> tuple[dict[str, Any], dict[str, Any]]:
+        """根据指定的层级，返回该层级可用的和【内在控制】的JSON Schema定义。
 
         Args:
             level (str): 当前的焦点层级 ('core', 'platform', 'cellular')。
@@ -51,8 +49,7 @@ class BasePlatformBuilder(ABC):
 
     @abstractmethod
     def get_level_consciousness_controls_descriptions(self, level: str) -> str:
-        """
-        根据指定的层级，返回该层级可用内在控制的【自然语言描述】。
+        """根据指定的层级，返回该层级可用内在控制的【自然语言描述】。
 
         Args:
             level (str): 当前的焦点层级 ('core', 'platform', 'cellular')。

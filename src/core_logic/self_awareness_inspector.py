@@ -1,6 +1,6 @@
 # 文件路径: src/core_logic/self_awareness_inspector.py
 import asyncio
-from typing import TYPE_CHECKING, Any, Dict, Tuple
+from typing import TYPE_CHECKING, Any
 
 from aicarus_protocols import UserInfo as ProtocolUserInfo
 from src.common.custom_logging.logging_config import get_logger
@@ -15,9 +15,8 @@ logger = get_logger(__name__)
 
 async def inspect_and_initialize_self_profile(
     person_service: "PersonStorageService", action_handler: "ActionHandler", platform_id: str
-) -> Tuple[bool, Dict[str, Any] | None]:
-    """
-    检查并初始化机器人自身在特定平台上的档案。
+) -> tuple[bool, dict[str, Any] | None]:
+    """检查并初始化机器人自身在特定平台上的档案。
     成功时返回 (True, profile_data)，失败时返回 (False, None)。
     """
     logger.info(f"--- 收到平台 '{platform_id}' 连接信号，开始自我客观信息检查 ---")
