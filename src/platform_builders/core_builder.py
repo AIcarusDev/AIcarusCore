@@ -150,6 +150,6 @@ class CoreBuilder(BasePlatformBuilder):
         schema = {"type": "object", "properties": props}
         return schema, {}
 
-    def get_level_actions_descriptions(self, level: str) -> tuple[str, str]:
+    def get_level_actions_descriptions(self, level: str) -> str:
         """为所有层级提供核心动作（如web_search）的自然语言描述."""
-        return self._ACTIONS_DESCRIPTIONS["web_search"], ""
+        return self._ACTIONS_DESCRIPTIONS["web_search"]

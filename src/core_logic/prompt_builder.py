@@ -60,6 +60,31 @@ class ThoughtPromptBuilder:
         builder = platform_builder_registry.get_builder(current_platform_id)
         core_builder = platform_builder_registry.get_builder("core")
 
+        # --- 意识控制描述 ---
+        # 先获取核心的描述
+        core_ctrl_desc = core_builder.get_level_consciousness_controls_descriptions(current_level)
+        # 只有当不在顶层('core')且有特定平台构建器时，才获取并拼接平台的描述
+        if current_level != "core" and builder:
+            plat_ctrl_desc = builder.get_level_consciousness_controls_descriptions(current_level)
+            available_controls_desc = "\n".join(filter(None, [core_ctrl_desc, plat_ctrl_desc]))
+        else:
+            # 在顶层时，平台构建器就是核心构建器，我们只取一份核心描述
+            available_controls_desc = core_ctrl_desc
+
+        # --- 外部行动描述 ---
+        # 先获取核心的描述
+        core_act_desc = core_builder.get_level_actions_descriptions(current_level)
+        # 只有当不在顶层('core')且有特定平台构建器时，才获取并拼接平台的描述
+        if current_level != "core" and builder:
+            # 修改点：不再使用 [0] 索引，因为我们已经统一了返回类型为 str
+            plat_act_desc = builder.get_level_actions_descriptions(current_level)
+            available_actions_desc = "\n".join(filter(None, [core_act_desc, plat_act_desc]))
+        else:
+            # 在顶层时，只取核心动作描述
+            available_actions_desc = core_act_desc
+
+
+        # --- 意识控制 Schema ---
         plat_ctrl_schema, _ = (
             builder.get_level_consciousness_controls_definitions(current_level)
             if builder
@@ -73,6 +98,7 @@ class ThoughtPromptBuilder:
             **plat_ctrl_schema.get("properties", {}),
         }
 
+        # --- 外部行动 Schema ---
         plat_act_schema, _ = (
             builder.get_level_actions_definitions(current_level) if builder else ({}, {})
         )
@@ -82,6 +108,7 @@ class ThoughtPromptBuilder:
             **plat_act_schema.get("properties", {}),
         }
 
+        # --- 最终响应 Schema ---
         response_schema = {
             "type": "object",
             "properties": {
@@ -104,16 +131,6 @@ class ThoughtPromptBuilder:
             "required": ["internal_state"],
         }
 
-        plat_ctrl_desc = (
-            builder.get_level_consciousness_controls_descriptions(current_level) if builder else ""
-        )
-        core_ctrl_desc = core_builder.get_level_consciousness_controls_descriptions(current_level)
-        available_controls_desc = "\n".join(filter(None, [core_ctrl_desc, plat_ctrl_desc]))
-
-        plat_act_desc = builder.get_level_actions_descriptions(current_level)[0] if builder else ""
-        core_act_desc = core_builder.get_level_actions_descriptions(current_level)[0]
-        available_actions_desc = "\n".join(filter(None, [core_act_desc, plat_act_desc]))
-
         # 2. 构建 System Prompt 的信息块
         system_prompt_blocks = {
             "aicarus_rule_block": AICARUS_RULE,
@@ -125,6 +142,7 @@ class ThoughtPromptBuilder:
             ),
             "behavior_guidelines_block": self._get_behavior_guidelines_block(current_level),
             "input_XML_block_description": self._get_input_xml_block_description(current_level),
+            # 使用我们上面修正过的描述变量
             "available_consciousness_controls": available_controls_desc
             or "你当前没有可用的导航指令。",
             "available_actions": available_actions_desc or "你当前没有可用的外部行动。",

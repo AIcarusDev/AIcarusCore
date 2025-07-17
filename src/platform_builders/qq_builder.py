@@ -262,7 +262,7 @@ class QQBuilder(BasePlatformBuilder):
         schema = {"type": "object", "properties": props} if props else {}
         return schema, {}
 
-    def get_level_actions_descriptions(self, level: str) -> tuple[str, str]:
+    def get_level_actions_descriptions(self, level: str) -> str:
         """根据层级，提供QQ平台专属动作的自然语言描述."""
         descs = []
         if level == "platform":
