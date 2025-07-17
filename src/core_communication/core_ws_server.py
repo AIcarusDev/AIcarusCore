@@ -188,6 +188,21 @@ class CoreWebsocketServer:
                 f"在为适配器 '{adapter_id}' 举行后台安检仪式时发生严重错误: {e}", exc_info=True
             )
 
+    async def wait_for_all_inspections(self):
+        """
+        等待所有正在进行的安检任务完成。
+        这个方法提供了一个阻塞点，确保在继续执行依赖安检结果的逻辑前，
+        所有平台的身份信息都已获取。
+        """
+        if not self.active_inspection_tasks:
+            logger.info("没有正在进行的安检任务需要等待。")
+            return
+
+        logger.info(f"正在等待 {len(self.active_inspection_tasks)} 个平台的安检仪式完成...")
+        await asyncio.gather(*self.active_inspection_tasks)
+        logger.success("所有待处理的安检仪式均已完成。")
+
+
     async def _unregister_adapter(
         self, websocket: WebSocketServerProtocol, reason: str = "连接关闭"
     ) -> None:
@@ -313,32 +328,36 @@ class CoreWebsocketServer:
                 if self._stop_event.is_set():
                     break
 
-                # 换成我这个充满弹性和包容性的、全新的性感姿势！
-                # ↓↓↓ 小猫咪的淫纹植入处！ ↓↓↓
+                # 预先检查，如果消息明显不是心跳，就直接跳过解析，交给后面的标准处理器
+                # 这样可以避免不必要的JSON解析和宽泛的异常捕获
+                if ".heartbeat" not in message_str:
+                    await self.event_receiver.handle_message(
+                        message_str, websocket, adapter_id, display_name
+                    )
+                    continue
+
+                # 如果消息中包含".heartbeat"，我们再尝试将其作为心跳处理
                 try:
-                    # 尝试解析消息，看看是不是私密的心跳信号
                     message_dict = json.loads(message_str)
-                    # --- ❤❤❤ 最终高潮修复点！❤❤❤ ---
-                    # 我把它调教得更‘淫荡’、更‘包容’了
                     msg_event_type = message_dict.get("event_type")
                     if (
                         msg_event_type
                         and msg_event_type.startswith("meta.")
                         and msg_event_type.endswith(".heartbeat")
                     ):
-                        # 啊~ 是心跳，感觉到了！
+                        # 确认是心跳，更新时间戳并继续下一次循环
                         self.adapter_clients_info[adapter_id]["last_heartbeat"] = time.time()
                         logger.debug(
                             f"适配器 '{display_name}({adapter_id})' 的心跳已收到，计时器已重置~"
                         )
-                        # 心跳这种私密的事处理完就好了，不用再往后传了，直接等待下一次爱抚
                         continue
                 except (json.JSONDecodeError, KeyError, TypeError):
-                    # 如果消息不是我们想要的心跳格式，就当作普通消息，交给后面的逻辑去处理
+                    # 解析失败，说明它虽然包含".heartbeat"字符串但不是有效的心跳事件
+                    # 这种情况我们依然将它视为普通消息，交给标准处理器
+                    logger.debug("消息包含'.heartbeat'但不是有效的心跳事件，交由标准处理器分析。")
                     pass
-                # ↑↑↑ 小猫咪的淫纹植入处！ ↑↑↑
 
-                # 将消息处理委托给 EventReceiver
+                # 如果代码执行到这里，说明它不是一个被我们处理掉的心跳事件
                 await self.event_receiver.handle_message(
                     message_str, websocket, adapter_id, display_name
                 )
@@ -434,7 +453,7 @@ class CoreWebsocketServer:
 
     async def get_connected_platforms_info(self) -> str:
         """构建并返回所有平台的信息字符串，现在它能感知在线、离线和安检中的状态了!"""
-        # 从老鸨那里获取所有我曾经注册过的平台账号
+        # 从数据库获取所有已知的机器人账号
         all_known_bots = await self.person_service.get_all_self_accounts()
         known_platforms = {bot["platform"]: bot for bot in all_known_bots}
 
@@ -449,50 +468,56 @@ class CoreWebsocketServer:
         online_parts = []
         offline_parts = []
 
+        # 遍历所有平台，生成结构化描述
         for platform_id in sorted(all_platform_ids):
-            display_name = "未知平台"
+            # 尝试从在线适配器中获取显示名称，如果没有，就用平台ID自身
+            display_name = connected_platforms_info.get(platform_id, {}).get("display_name", platform_id)
+
+            # 构造每个平台的描述块
+            platform_block = [
+                f"- 平台名称: {display_name}",
+                f"  - 平台ID: {platform_id}"  # 关键：明确提供机器可读的ID
+            ]
 
             # 情况 1 & 2: 平台当前在线
             if platform_id in connected_platforms_info:
                 info = connected_platforms_info[platform_id]
-                display_name = info.get("display_name", platform_id)
                 profile = info.get("bot_profile")
 
-                if profile and isinstance(profile, dict):  # 安检通过，有身份了！(情况 1)
+                if profile and isinstance(profile, dict):  # 安检通过，有身份了！
                     bot_id = profile.get("user_id", "读取失败")
                     bot_name = profile.get("nickname", "读取失败")
-                    online_parts.append(f"- {display_name}")
-                    online_parts.append(f"    - 你的{platform_id}号是：{bot_id}")
-                    online_parts.append(f"    - 你的{platform_id}名称是：{bot_name}")
-                else:  # 正在安检，还不知道自己是谁！(情况 2)
-                    online_parts.append(f"- {display_name} (正在获取祂的信息...)")
+                    platform_block.append(f"  - 状态: 在线")
+                    platform_block.append(f"  - 你的{platform_id}号是：{bot_id}")
+                    platform_block.append(f"  - 你的{platform_id}名称是：{bot_name}")
+                else:  # 正在安检
+                    platform_block.append("  - 状态: 在线 (正在获取你的信息，请稍等...)")
+
+                online_parts.extend(platform_block)
 
             # 情况 3: 平台不在线，但数据库里有记录
             elif platform_id in known_platforms:
                 profile = known_platforms[platform_id]
                 bot_id = profile.get("platform_id", "未知ID")
                 bot_name = profile.get("nickname", "未知昵称")
-                # 适配器里拿不到 display_name，就用平台 ID 代替
-                display_name = platform_id
-                offline_parts.append(f"- {display_name}")
-                offline_parts.append(f"    - 你的{platform_id}号是：{bot_id}")
-                offline_parts.append(f"    - 你的{platform_id}名称是：{bot_name}")
+                platform_block.append("  - 状态: 离线")
+                platform_block.append(f"  - 你的{platform_id}号是：{bot_id}")
+                platform_block.append(f"  - 你的{platform_id}名称是：{bot_name}")
+                offline_parts.extend(platform_block)
 
         # 组装最终的报告
         final_parts = []
         if online_parts:
-            final_parts.append("你当前有以下可用平台：")
+            final_parts.append("你当前在线的平台：")
             final_parts.extend(online_parts)
 
         if offline_parts:
-            if not online_parts:  # 情况 4 的一种，有记录但都不在线
-                final_parts.append(
-                    "你暂时没有可用平台，可能是与平台连接断开或程序刚刚启动，请稍等。"
-                )
-            final_parts.append("\n以下平台暂时没有连接：")
+            if not online_parts:
+                final_parts.append("你暂时没有可用平台，可能是与平台连接断开或程序刚刚启动，请稍等。")
+            else:
+                final_parts.append("\n你当前离线的平台(可能断开了)：")
             final_parts.extend(offline_parts)
 
-        # 如果折腾了半天啥也没有（比如只连上一个还在安检的），就用默认的
         if not final_parts:
             return "你暂时没有可用平台，可能是与平台连接断开或程序刚刚启动，请稍等。"
 

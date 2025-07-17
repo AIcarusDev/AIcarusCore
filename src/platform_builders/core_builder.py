@@ -71,7 +71,7 @@ class CoreBuilder(BasePlatformBuilder):
     }
 
     _ACTIONS_DESCRIPTIONS: ClassVar = {
-        "web_search": "- `web_search`: 进行一次互联网搜索，以获取外部信息。"
+        "web_search": "    - `web_search`: 进行一次互联网搜索，以获取外部信息。"
     }
 
     @property
@@ -129,11 +129,11 @@ class CoreBuilder(BasePlatformBuilder):
         descs = []
         if level == "core":
             descs.append(
-                "- `focus(platform_id, motivation)`: 专注于一个具体的平台，需要提供目标平台的名称。"
+                "    - `focus(platform_id, motivation)`: 专注于一个具体的平台，需要提供目标平台的ID。"
             )
         elif level == "platform":
             descs.append(
-                "- `focus(conversation_id, motivation)`: "
+                "    - `focus(conversation_id, motivation)`: "
                 "深入到本平台下一个具体的会话，需要提供目标会话的ID。"
             )
             descs.append(self._CONSCIOUSNESS_CONTROLS_DESCRIPTIONS["return_from_platform"])

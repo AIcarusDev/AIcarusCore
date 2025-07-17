@@ -214,7 +214,7 @@ class QQBuilder(BasePlatformBuilder):
 
     def get_level_consciousness_controls_descriptions(self, level: str) -> str:
         """QQ平台不提供任何意识控制的描述."""
-        return "", ""
+        return ""
 
     def get_level_actions_definitions(self, level: str) -> tuple[dict[str, Any], dict[str, Any]]:
         """根据层级，提供QQ平台专属动作的JSON Schema."""
@@ -266,9 +266,9 @@ class QQBuilder(BasePlatformBuilder):
         """根据层级，提供QQ平台专属动作的自然语言描述."""
         descs = []
         if level == "platform":
-            descs.append("- `get_list`: 获取本平台的好友或群聊列表。")
+            descs.append("    - `get_list`: 获取本平台的好友或群聊列表。")
         elif level == "cellular":
-            descs.append("- `send_message`: 在当前会话中发送消息。")
-            descs.append("- `poke_user`: 在当前会话中戳一戳某人。")
+            descs.append("    - `send_message`: 在当前会话中发送消息。")
+            descs.append("    - `poke_user`: 在当前会话中戳一戳某人。")
 
         return "\n".join(descs) or "你当前没有可用的动作。"

@@ -1,4 +1,5 @@
 import time
+import json
 from typing import TYPE_CHECKING, Any, Optional
 
 from src.common.custom_logging.logging_config import get_logger
@@ -56,35 +57,10 @@ class ThoughtPromptBuilder:
         """
         current_level, current_platform_id, current_conv_id = self._parse_focus_path(focus_path)
 
-        # 1. 获取层级专属的动作/意识控制的Schema和描述
         builder = platform_builder_registry.get_builder(current_platform_id)
         core_builder = platform_builder_registry.get_builder("core")
 
-        # --- 意识控制描述 ---
-        # 先获取核心的描述
-        core_ctrl_desc = core_builder.get_level_consciousness_controls_descriptions(current_level)
-        # 只有当不在顶层('core')且有特定平台构建器时，才获取并拼接平台的描述
-        if current_level != "core" and builder:
-            plat_ctrl_desc = builder.get_level_consciousness_controls_descriptions(current_level)
-            available_controls_desc = "\n".join(filter(None, [core_ctrl_desc, plat_ctrl_desc]))
-        else:
-            # 在顶层时，平台构建器就是核心构建器，我们只取一份核心描述
-            available_controls_desc = core_ctrl_desc
-
-        # --- 外部行动描述 ---
-        # 先获取核心的描述
-        core_act_desc = core_builder.get_level_actions_descriptions(current_level)
-        # 只有当不在顶层('core')且有特定平台构建器时，才获取并拼接平台的描述
-        if current_level != "core" and builder:
-            # 修改点：不再使用 [0] 索引，因为我们已经统一了返回类型为 str
-            plat_act_desc = builder.get_level_actions_descriptions(current_level)
-            available_actions_desc = "\n".join(filter(None, [core_act_desc, plat_act_desc]))
-        else:
-            # 在顶层时，只取核心动作描述
-            available_actions_desc = core_act_desc
-
-
-        # --- 意识控制 Schema ---
+        # --- 获取基础的 Schema 定义 ---
         plat_ctrl_schema, _ = (
             builder.get_level_consciousness_controls_definitions(current_level)
             if builder
@@ -97,6 +73,21 @@ class ThoughtPromptBuilder:
             **core_ctrl_schema.get("properties", {}),
             **plat_ctrl_schema.get("properties", {}),
         }
+
+        # 如果当前在顶层，并且 focus 指令存在，我们动态注入 enum 约束
+        if current_level == 'core' and 'focus' in final_ctrl_schema_props:
+            # 从注册中心获取所有已注册的平台构建器的ID
+            # 我们要排除 'core' 本身，因为它不是一个可以 focus 的外部平台
+            all_platform_ids = [
+                pid for pid in platform_builder_registry.get_all_builders().keys() if pid != 'core'
+            ]
+
+            if all_platform_ids:
+                logger.debug(f"动态生成 focus.platform_id 的 enum 列表: {all_platform_ids}")
+                # 找到 focus -> properties -> platform_id，然后注入 enum
+                focus_properties = final_ctrl_schema_props['focus'].get('properties', {})
+                if 'platform_id' in focus_properties:
+                    focus_properties['platform_id']['enum'] = all_platform_ids
 
         # --- 外部行动 Schema ---
         plat_act_schema, _ = (
@@ -131,7 +122,25 @@ class ThoughtPromptBuilder:
             "required": ["internal_state"],
         }
 
-        # 2. 构建 System Prompt 的信息块
+        # --- 组装 System Prompt 的描述部分 ---
+        # 注意，这里用的是 get_level_consciousness_controls_descriptions
+        # 而不是get_level_consciousness_controls_definitions
+        core_ctrl_desc = core_builder.get_level_consciousness_controls_descriptions(current_level)
+        if current_level != "core" and builder:
+            plat_ctrl_desc = builder.get_level_consciousness_controls_descriptions(current_level)
+            available_controls_desc = "\n".join(filter(None, [core_ctrl_desc, plat_ctrl_desc]))
+        else:
+            available_controls_desc = core_ctrl_desc
+
+        # 注意，这里用的是 get_level_actions_descriptions
+        # 而不是 get_level_actions_definitions
+        core_act_desc = core_builder.get_level_actions_descriptions(current_level)
+        if current_level != "core" and builder:
+            plat_act_desc = builder.get_level_actions_descriptions(current_level)
+            available_actions_desc = "\n".join(filter(None, [core_act_desc, plat_act_desc]))
+        else:
+            available_actions_desc = core_act_desc
+
         system_prompt_blocks = {
             "aicarus_rule_block": AICARUS_RULE,
             "current_time": get_formatted_time_for_llm(),
@@ -142,7 +151,6 @@ class ThoughtPromptBuilder:
             ),
             "behavior_guidelines_block": self._get_behavior_guidelines_block(current_level),
             "input_XML_block_description": self._get_input_xml_block_description(current_level),
-            # 使用我们上面修正过的描述变量
             "available_consciousness_controls": available_controls_desc
             or "你当前没有可用的导航指令。",
             "available_actions": available_actions_desc or "你当前没有可用的外部行动。",
@@ -178,13 +186,30 @@ class ThoughtPromptBuilder:
         )
 
     def finalize_prompts(self, components: PromptComponents) -> tuple[str, str, dict[str, Any]]:
-        """第二步：使用准备好的组件，最终组装成System和User Prompt字符串."""
+        """第二步：使用准备好的组件，最终组装系统和用户提示.
+        返回系统提示、用户提示和响应Schema的元组。
+        """
         system_prompt = prompt_templates.CORE_CYCLE_SYSTEM_PROMPT.format(
             **components.system_prompt_blocks
         )
         user_prompt = prompt_templates.CORE_CYCLE_USER_PROMPT.format(
             **components.user_prompt_blocks
         )
+
+        try:
+            schema_json_str = json.dumps(
+                components.response_schema,
+                ensure_ascii=False,
+                indent=2
+            )
+            logger.debug(
+                f"为本次思考生成的 JSON Schema 如下：\n"
+                f"==================== RESPONSE SCHEMA ====================\n"
+                f"{schema_json_str}\n"
+                f"======================================================="
+            )
+        except Exception as e:
+            logger.error(f"序列化 response_schema 用于日志记录时失败: {e}")
 
         logger.debug(
             f"准备发送给LLM的完整Prompt:\n"
@@ -198,6 +223,31 @@ class ThoughtPromptBuilder:
         return system_prompt, user_prompt, components.response_schema
 
     # --- 私有辅助方法 ---
+    async def get_last_valid_text_message(self, conversation_id: str) -> str | None:
+        """
+        一个专门的方法，只为获取指定会话的最后一条有效文本消息。
+        这在中断检查时非常有用。
+        """
+        if not conversation_id or not self.chat_session_manager:
+            return None
+
+        session = self.chat_session_manager.sessions.get(conversation_id)
+        if not session:
+            return None
+
+        # 复用 format_chat_history_for_llm 来获取我们想要的信息，但只取所需
+        history_components = await format_chat_history_for_llm(
+            event_storage=self.event_storage,
+            conversation_id=session.conversation_id,
+            bot_id=session.bot_id,
+            platform=session.platform,
+            bot_profile=await session.get_bot_profile(),
+            conversation_type=session.conversation_type,
+            conversation_name=session.conversation_name,
+            last_processed_timestamp=session.last_processed_timestamp,
+            is_first_turn=False, # 不需要切换上下文标志
+        )
+        return history_components.last_valid_text_message
 
     def _parse_focus_path(self, focus_path: str | None) -> tuple[str, str, str | None]:
         """解析焦点路径，返回层级、平台ID和会话ID."""
@@ -224,11 +274,13 @@ class ThoughtPromptBuilder:
         )
 
     async def _get_available_platforms_block(self) -> str:
+        """获取当前所有已连接平台的信息."""
         return await self.core_ws_server.get_connected_platforms_info()
 
     async def _get_current_state_block(
         self, level: str, platform_id: str, conv_id: str | None
     ) -> str:
+        """获取当前状态的描述信息."""
         if level == "core":
             return "你当前专注于：发呆/自我思考。"
         elif level == "platform":

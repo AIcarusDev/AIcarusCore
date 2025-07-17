@@ -21,6 +21,7 @@ from .services.action_log_storage_service import ActionLogStorageService
 from .services.conversation_storage_service import ConversationStorageService
 from .services.event_storage_service import EventStorageService
 from .services.person_storage_service import PersonStorageService
+from .services.summary_storage_service import SummaryStorageService
 from .services.thought_storage_service import ThoughtStorageService
 
 __all__ = [
@@ -40,5 +41,6 @@ __all__ = [
     "PersonProfile",
     "PersonStorageService",
     "StandardCollection",
+    "SummaryStorageService",
     "ThoughtStorageService",
 ]

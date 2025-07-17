@@ -38,24 +38,65 @@ class InternalInfoBuilder:
                 session.interruption_context = None
                 return report
 
-            # 2. 如果没有中断，走正常流程
             latest_thought_doc = await self.thought_storage_service.get_latest_thought_document()
+
+            # 2. 如果是上下文切换，生成特殊的“刚刚抵达”报告
+            if is_context_switch:
+                logger.info("检测到上下文切换，生成“刚刚抵达”的内部信息报告。")
+                if not latest_thought_doc:
+                    # 这是一个不应该发生的状态。如果发生，说明有严重的逻辑错误。
+                    # 我们不再静默处理，而是抛出异常，让主循环捕获它。
+                    critical_error_msg = "状态不一致：在上下文切换时，未能找到上一个思想点！"
+                    logger.critical(critical_error_msg)
+                    raise RuntimeError(critical_error_msg)
+
+                # 提取触发切换的动机
+                motivation = "未知原因"
+                control_payload = latest_thought_doc.get("action_payload", {}).get("consciousness_control")
+                if control_payload and isinstance(control_payload, dict):
+                    command, params = next(iter(control_payload.items()))
+                    motivation = params.get("motivation", f"执行 {command} 指令")
+
+                # 复用上一轮的核心状态
+                goal = latest_thought_doc.get("goal") or "无"
+                mood = latest_thought_doc.get("mood", "平静")
+                think = latest_thought_doc.get("think", "...")
+
+                # 判断是抵达平台还是会话
+                arrival_target = "这个平台"
+                if session: # 如果有 session 对象，说明已进入底层会话
+                    arrival_target = "这个会话"
+
+                lines = [
+                    f"你当前的目标是：【{goal}】",
+                    f'你刚才的心情是："{mood}"',
+                    f'你刚才的内心想法是："{think}"',
+                    f"出于这个想法，你刚刚来到{arrival_target}。",
+                    f'因为："{motivation}"'
+                ]
+                return "\n".join(lines)
+
+            # 3. 如果没有中断且不是上下文切换，走正常流程
             if not latest_thought_doc:
                 logger.warning("思想链为空，返回初始文本。")
                 return "你刚刚开始思考，还没有任何内部状态历史。"
 
-            # 3. 处理正常的、非中断的思考历史
             goal = latest_thought_doc.get("goal") or "无"
             mood = latest_thought_doc.get("mood", "平静")
             think = latest_thought_doc.get("think", "...")
-
-            # 使用新的、更详细的动作描述格式化方法
+            # 生成上一个动作的描述（如果有的话）
             action_desc = self._format_previous_action(latest_thought_doc)
-            motivation = latest_thought_doc.get("action_payload", {}).get("napcat_qq", {}).get(
-                "send_message", {}
-            ).get("motivation") or latest_thought_doc.get("action_payload", {}).get("core", {}).get(
-                "web_search", {}
-            ).get("motivation")
+            action_payload = latest_thought_doc.get("action_payload", {})
+
+            # 尝试从多个潜在位置提取动机
+            motivation = None
+            if action_payload.get("napcat_qq"):
+                send_message_action = action_payload["napcat_qq"].get("send_message", {})
+                motivation = send_message_action.get("motivation")
+            if not motivation and action_payload.get("core"):
+                web_search_action = action_payload["core"].get("web_search", {})
+                motivation = web_search_action.get("motivation")
+
             action_result = latest_thought_doc.get("action_result")
 
             lines = [
@@ -81,84 +122,99 @@ class InternalInfoBuilder:
         interrupting_event_doc = context.get("interrupting_event_doc", {})
 
         # 1. 获取上一轮的思考，这是我们报告的基础
+        #    对于中断来说，最新的思想点就是被打断的那个计划，所以我们直接获取它
         latest_thought_doc = await self.thought_storage_service.get_latest_thought_document()
         if not latest_thought_doc:
-            return "你似乎被打断了，但之前的思考已经记不清了。"
+                    # 这是一个不应该发生的状态。如果发生，说明有严重的逻辑错误。
+                    # 我们不静默处理，而是抛出异常，让主循环捕获它。
+                    critical_error_msg = "状态不一致：在上下文切换时，未能找到上一个思想点！"
+                    logger.critical(critical_error_msg)
+                    raise RuntimeError(critical_error_msg)
 
-        # 情况1：思考时被打断，完美复现您文档中的“无事发生”
+        # --- 场景一：思考时被打断 ---
+        # 这种情况下，AI的思考任务被取消，没有产生新的思想点，所以我们应该描述“被打断前”的状态。
+        # 最稳妥的方式是直接回滚到上一个正常的内部信息块。
         if context.get("was_interrupted_while_thinking"):
             logger.info(
                 f"[{session.conversation_id}] 正在生成“思考时被打断”的报告，将回滚到上一状态。"
             )
-            # 我们直接复用正常流程，但是传入的是倒数第二个思想点
-            # （注意：这个逻辑需要 get_second_latest_thought_document，暂时简化）
-            # 简化版：直接返回上一轮的完整描述
-            return await self.build_internal_info_block(False, None)
+            # 这里的 is_context_switch 设为 False，因为我们不是在切换上下文，而是在恢复被打断前的状态。
+            # session 设为 None，以确保它生成的是一个通用的、不依赖于当前会话的报告。
+            return await self.build_internal_info_block(is_context_switch=False, session=None)
 
-        # 情况2 & 3：发送时被打断
-        if context.get("was_interrupted_while_sending"):
-            logger.info(f"[{session.conversation_id}] 正在生成“发送时被打断”的报告...")
-            # 提取打断事件的关键信息
+        # --- 场景二：行动时被打断 (包含发送消息) ---
+        # 这是我们新的、更通用的中断处理逻辑。
+        if context.get("was_interrupted_while_acting"):
+            logger.info(f"[{session.conversation_id}] 正在生成“行动时被打断”的报告...")
+
+            # a. 提取打断事件的关键信息
             interrupting_event = Event.from_dict(interrupting_event_doc)
             interrupt_text = interrupting_event.get_text_content()
             interrupt_sender_id = (
                 interrupting_event.user_info.user_id if interrupting_event.user_info else "未知用户"
             )
 
-            # 获取打断者的UID
+            # b. 获取打断者的UID，以便LLM理解
             interrupt_sender_uid = "未知UID"
             if self.prompt_builder:
                 # 获取最新的UID映射
+                # 注意：这里我们重新调用了构建聊天历史的函数，只为了获取UID映射。
+                # 这是一个小小的性能开销，但确保了信息的准确性。
                 history_components = await self.prompt_builder._get_external_and_meta_info_blocks(
                     "cellular", session.platform, session.conversation_id
                 )
                 uid_map = (
                     history_components[2].uid_str_to_platform_id_map
-                    if history_components[2]
+                    if history_components and history_components[2]
                     else {}
                 )
-                for uid, pid in uid_map.items():
-                    if pid == interrupt_sender_id:
-                        interrupt_sender_uid = uid
-                        break
+                # 反转映射以便通过 platform_id 查找 uid
+                pid_to_uid_map = {pid: uid for uid, pid in uid_map.items()}
+                interrupt_sender_uid = pid_to_uid_map.get(interrupt_sender_id, f"未知用户({interrupt_sender_id[:4]})")
 
-            # 组装报告
+            # c. 从思想点中提取AI被打断前的计划
             mood = latest_thought_doc.get("mood", "平静")
             think = latest_thought_doc.get("think", "...")
             goal = latest_thought_doc.get("goal", "无")
-            motivation = (
-                latest_thought_doc.get("action_payload", {})
-                .get("napcat_qq", {})
-                .get("send_message", {})
-                .get("motivation")
-            )
 
+            # 使用 _format_planned_action 来生成“本来想做”的描述
+            planned_action_desc = self._format_planned_action(latest_thought_doc)
+
+            # d. 组装最终的、连贯的叙事报告
             lines = [
                 f"你当前的目标是：【{goal}】",
                 f'你刚才的心情是："{mood}"。',
                 f'你刚才的内心想法是："{think}"。',
-                self._format_planned_action(latest_thought_doc),  # 使用新的、更详细的“计划”描述
+                planned_action_desc, # "出于这个想法，你本来想做：发言(...)"
             ]
-            if motivation:
-                lines.append(f'因为："{motivation}"')
 
-            sent_count = session.messages_sent_this_turn
+            # 根据是否已经发送了部分消息，选择不同的措辞
+            sent_count = session.messages_sent_this_turn or 0 # 从会话状态获取
             if sent_count > 0:
-                # 情况2
                 lines.append(
                     f"但是，在你发送到第 {sent_count} 条消息后，{interrupt_sender_uid} 的新消息"
-                    f"“{interrupt_text}”似乎让你感觉有一点意外，所以你停下了后续的消息发送。"
+                    f"“{interrupt_text}”似乎让你感觉有一点意外，所以你停下了后续的行动。"
                 )
             else:
-                # 情况3
                 lines.append(
-                    f"但是，你还没有开始发言，{interrupt_sender_uid} 的新消息“{interrupt_text}”"
-                    f"似乎让你感觉有一点意外，所以你停下了发言的动作。"
+                    f"但是，在你正要行动时，{interrupt_sender_uid} 的新消息“{interrupt_text}”"
+                    f"似乎让你感觉有一点意外，所以你停下了动作。"
                 )
 
             return "\n".join(lines)
 
-        return "<!-- 未知的中断类型 -->"
+        # 如果 context 中有旧的 was_interrupted_while_sending，也可以在这里添加一个兼容性处理
+        # 但既然我们已经统一为 was_interrupted_while_acting，理论上这里可以不写。
+        # 为了健壮性，可以加一个警告。
+        if context.get("was_interrupted_while_sending"):
+            logger.warning("发现遗留的中断类型 'was_interrupted_while_sending'，请更新逻辑。")
+            # 这里可以复用上面的逻辑，或者返回一个通用消息
+            return "你在发送消息时被打断了。"
+
+
+        # 如果是未知的、无法处理的中断类型，返回一个通用提示
+        logger.error(f"发现未知的中断类型，上下文: {context}")
+        return "你的行动被一个未知类型的事件打断了。"
 
     def _format_previous_action(self, thought_doc: dict) -> str:
         """格式化【已完成】的动作描述."""

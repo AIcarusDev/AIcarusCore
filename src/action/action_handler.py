@@ -184,11 +184,10 @@ class ActionHandler:
                 self.thought_trigger.set()
 
     async def _execute_send_message_flow(self, doc_key_for_updates: str, params: dict) -> None:
-        """专门处理可中断的 send_message 流程."""
+        """专门处理 send_message 流程."""
         from src.action.components.message_builder import MessageBuilder
 
         # 1. 获取会话信息
-        # send_message 的 params 里现在应该没有 conv_id 了，要去思想点里找
         thought_doc = await self.thought_storage_service.get_thought_document_by_key(
             doc_key_for_updates
         )
@@ -202,40 +201,21 @@ class ActionHandler:
             logger.error(f"无法执行 send_message：找不到会话 '{conv_id}' 的档案。")
             return
 
-        # 2. 创建 MessageBuilder 并启动可中断的发送流程
+        # 2. 创建 MessageBuilder 并直接启动发送流程
         message_builder = MessageBuilder(session, motivation=params.get("motivation"))
 
-        # 3. 我们需要一个中断检查器与消息发送流程“竞速”
-        interrupt_checker_task = asyncio.create_task(
-            self.core_logic._check_for_interruptions(session, None)  # 上下文暂时用None
-        )
-        message_sender_task = asyncio.create_task(
+        # 3. 直接、纯粹地执行发送任务。
+        #    MessageBuilder.process_steps 内部处理了所有发送逻辑。
+        #    我们不再 await 它，而是创建一个后台任务，这样 ActionHandler 可以立即返回，
+        #    让 CoreLogic 继续执行竞速逻辑。
+        send_task = asyncio.create_task(
             message_builder.process_steps(params.get("steps", []))
         )
+        # 将任务添加到后台任务集合中，以便管理和清理
+        self._background_tasks.add(send_task)
+        send_task.add_done_callback(self._background_tasks.discard)
 
-        done, pending = await asyncio.wait(
-            [interrupt_checker_task, message_sender_task], return_when=asyncio.FIRST_COMPLETED
-        )
-
-        if interrupt_checker_task in done:
-            # 中断检查官赢了！
-            message_sender_task.cancel()  # 取消发送
-            interrupting_event = await interrupt_checker_task
-            if interrupting_event:
-                # 记录中断现场
-                session.interruption_context = {
-                    "was_interrupted_while_sending": True,
-                    "interrupting_event_doc": interrupting_event,
-                }
-            logger.info(f"[{session.conversation_id}] 消息发送被中断！")
-
-        if message_sender_task in done:
-            # 消息发送正常完成
-            interrupt_checker_task.cancel()  # 取消中断检查
-            logger.info(f"[{session.conversation_id}] 消息发送流程正常完成。")
-            # 可以在这里处理发送结果，但 MessageBuilder 内部已经处理了
-            # await message_sender_task
-            pass
+        logger.info(f"[{session.conversation_id}] 消息发送流程已提交到后台执行。")
 
     async def _execute_core_web_search(self, doc_key_for_updates: str, params: dict) -> None:
         """执行核心的网页搜索动作，并保存结果."""

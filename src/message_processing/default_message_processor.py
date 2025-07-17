@@ -23,7 +23,7 @@ from websockets.server import WebSocketServerProtocol
 if TYPE_CHECKING:
     from src.action.action_handler import ActionHandler  # 确保导入 ActionHandler
     from src.core_communication.core_ws_server import CoreWebsocketServer
-    from src.main import CoreSystemInitializer
+    from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
 logger = get_logger(__name__)
 
 
@@ -61,7 +61,7 @@ class DefaultMessageProcessor:
         self.semantic_model: SemanticModel = semantic_model
         self.core_comm_layer: CoreWebsocketServer | None = core_websocket_server
         self.qq_chat_session_manager = qq_chat_session_manager
-        self.core_initializer_ref: CoreSystemInitializer | None = None
+        self.core_logic: "CoreLogicFlow" | None = None
         logger.info("DefaultMessageProcessor 初始化完成，已配备PersonStorageService服务。")
         if self.core_comm_layer:
             logger.info("DefaultMessageProcessor 已获得 CoreWebsocketServer 实例的引用。")
@@ -114,7 +114,8 @@ class DefaultMessageProcessor:
             event_status = "ignored"
 
         try:
-            # --- 核心改造点：关联Person ---
+            # 关联Person信息
+            # 如果用户信息存在，尝试查找或创建对应的 Person 和 Account
             person_id, account_uid = None, None
             if proto_event.user_info and proto_event.user_info.user_id:
                 (
@@ -304,44 +305,31 @@ class DefaultMessageProcessor:
         返回 True 表示消息已被处理或忽略，False 表示处理失败。
         """
         try:
-            # 确保我们有 CoreLogic 的引用，否则无法进行任何判断
-            if not self.core_initializer_ref or not self.core_initializer_ref.core_logic_instance:
+            if not self.core_logic:
                 logger.error("无法处理消息事件：CoreLogic 实例未注入到 MessageProcessor。")
                 return False
 
-            core_logic = self.core_initializer_ref.core_logic_instance
-            focus_manager = core_logic.chat_session_manager
+            focus_manager = self.core_logic.chat_session_manager
 
-            # 获取当前焦点路径，例如 "napcat_qq" 或 "napcat_qq.12345"
             current_focus_path = focus_manager.current_focus_path if focus_manager else None
 
-            # 场景1: 注意力在顶层 (Core-Level)
             if not current_focus_path or current_focus_path == "core":
-                # 祂在发呆，任何外部消息都不应打扰祂的定时思考。
                 logger.info(
                     f"事件 '{proto_event.event_id}' 到达，但祂正在发呆/内心思考。不立即唤醒。"
                 )
-                # 不做任何事，等待下一次定时思考循环
                 return True
 
-            # 场景2: 祂的注意力在底层 (Cellular-Level)，即正在某个群聊中
             event_platform = proto_event.get_platform()
             event_conv_id = proto_event.conversation_info.conversation_id if proto_event.conversation_info else None
 
             if current_focus_path.startswith(f"{event_platform}.{event_conv_id}"):
-                # 消息来自AI正在专注的会话。
-                # 在这种情况下，我们不需要主动唤醒祂，因为它已经在处理这个会话。
-                # DefaultMessageProcessor 不应干预。
                 logger.info(
                     f"事件 '{proto_event.event_id}' 来自当前专注的会话，"
                     "交由内部中断机制处理，不主动唤醒。"
                 )
                 return True
 
-            # 场景3: 注意力在中层 (Platform-Level)
             if current_focus_path == event_platform:
-                # 消息来自AI正在关注的平台，但不是当前专注的某个群。
-                # 在这种情况下，我们只对高优先级事件（@我或回复我）做出反应。
                 bot_id_on_this_platform = None
                 if focus_manager:
                     bot_id_on_this_platform = focus_manager.self_bot_ids_map.get(event_platform)
@@ -362,7 +350,8 @@ class DefaultMessageProcessor:
                             f"事件 '{proto_event.event_id}' 是高优先级事件 (@/回复)，"
                             "正在唤醒祂进行思考..."
                         )
-                        core_logic.trigger_immediate_thought_cycle()
+                        # --- 修复点3: 直接调用 self.core_logic ---
+                        self.core_logic.trigger_immediate_thought_cycle()
                     else:
                         logger.info(
                             f"事件 '{proto_event.event_id}' 是普通消息，"
@@ -373,7 +362,6 @@ class DefaultMessageProcessor:
 
                 return True
 
-            # 其他情况（例如，AI专注在平台A，但收到了平台B的消息），不打扰。
             logger.info(
                 f"事件 '{proto_event.event_id}' 来自非当前专注的路径 "
                 f"(当前: '{current_focus_path}', 事件源: '{event_platform}.{event_conv_id}')，"
@@ -388,7 +376,9 @@ class DefaultMessageProcessor:
             return False
 
     async def _handle_request_event(
-        self, proto_event: ProtocolEvent, websocket: WebSocketServerProtocol
+        self,
+        proto_event: ProtocolEvent,
+        websocket: WebSocketServerProtocol
     ) -> None:
         """处理请求类事件（如好友请求、加群请求）."""
         try:

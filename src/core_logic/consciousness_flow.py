@@ -334,11 +334,8 @@ class CoreLogic:
     async def _process_and_dispatch_thought(
         self, thought_json: dict, focus_path: str | None, session: Optional["ChatSession"]
     ) -> None:
-        """封装保存和分发思考的逻辑.
-
-        现在它会额外记录消息发送计划和实际发送数量.
-        """
-        # 更新最后一次知道的内部状态
+        """封装保存和分发思考的逻辑，现在它还负责动作执行的中断检查。"""
+        # --- 步骤 1: 更新内部状态和创建思想点 ---
         if new_state := thought_json.get("internal_state"):
             self.last_known_internal_state = new_state
 
@@ -346,12 +343,10 @@ class CoreLogic:
             f"生成的思考内容: {thought_json.get('internal_state', {}).get('think', '无内容')}"
         )
 
-        # 准备行动ID
         action_payload = thought_json.get("action")
         consciousness_control_payload = thought_json.get("consciousness_control")
         action_id = str(uuid.uuid4()) if (action_payload or consciousness_control_payload) else None
 
-        # 1. 创建思想点实例
         new_thought_pearl = ThoughtChainDocument(
             _key=str(uuid.uuid4()),
             timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
@@ -361,13 +356,11 @@ class CoreLogic:
             source_type="core_unified",
             source_id=focus_path,
             action_id=action_id,
-            action_payload=thought_json,  # 注意这里存的是完整的LLM响应JSON
-            # 默认值设为None
+            action_payload=thought_json,
             messages_planned=None,
             messages_sent=None,
         )
 
-        # 2. 如果当前在底层会话中，就将会话中的发送计数器记录到思想点里
         if session:
             new_thought_pearl.messages_planned = session.messages_planned_this_turn
             new_thought_pearl.messages_sent = session.messages_sent_this_turn
@@ -377,20 +370,69 @@ class CoreLogic:
                 f"已发送={session.messages_sent_this_turn}"
             )
 
-        # 保存并链接思想点
         saved_key = await self.thought_storage_service.save_thought_and_link(new_thought_pearl)
 
-        if saved_key:
-            # 分发决策
-            await process_llm_decision(
+        if not saved_key:
+            logger.error("严重逻辑错误：思想点未能成功串入思想链，无法分发决策！")
+            return
+
+        # --- 步骤 2: 准备并执行竞速 ---
+
+        # 准备执行决策的任务
+        decision_task = asyncio.create_task(
+            process_llm_decision(
                 decision_json=thought_json,
                 focus_manager=self.chat_session_manager,
                 action_handler=self.action_handler_instance,
                 source_thought_key=saved_key,
                 source_action_id=action_id,
             )
-        else:
-            logger.error("严重逻辑错误：思想点未能成功串入思想链，无法分发决策！")
+        )
+
+        # 只有在底层会话中且有实际动作时，才需要启动中断检查器
+        if session and (action_payload or consciousness_control_payload):
+            logger.info(f"[{session.conversation_id}] 动作执行将受到中断检查。")
+
+            # 使用我们刚刚在 PromptBuilder 中创建的新方法获取上下文
+            context_text = await self.prompt_builder.get_last_valid_text_message(session.conversation_id)
+
+            interrupt_checker_task = asyncio.create_task(
+                self._check_for_interruptions(
+                    session, context_text
+                )
+            )
+
+            # --- 竞速开始！ ---
+            done, pending = await asyncio.wait(
+                [decision_task, interrupt_checker_task], return_when=asyncio.FIRST_COMPLETED
+            )
+
+            if interrupt_checker_task in done:
+                # 中断获胜！
+                logger.info(f"[{session.conversation_id}] 动作执行被中断！正在取消决策任务...")
+                decision_task.cancel()  # 取消决策分发和动作执行
+
+                # 处理中断现场
+                interrupting_event = await interrupt_checker_task
+                if interrupting_event:
+                    session.interruption_context = {
+                        "was_interrupted_while_acting": True,
+                        "interrupting_event_doc": interrupting_event,
+                    }
+                # 直接返回，进入下一轮思考循环
+                return
+
+            if decision_task in done:
+                # 决策任务先完成，说明动作已成功分派或执行
+                logger.info(f"[{session.conversation_id}] 决策任务正常完成，取消中断检查。")
+                interrupt_checker_task.cancel() # 取消不再需要的中断检查
+
+        # --- 步骤 3: 最终确保决策任务完成 ---
+        # 确保决策任务完成，无论是正常结束还是被取消
+        try:
+            await decision_task
+        except asyncio.CancelledError:
+            logger.info("决策任务已被中断取消，无需等待。")
 
     async def _wait_for_next_cycle(self, interval: float) -> None:
         """封装等待逻辑."""
