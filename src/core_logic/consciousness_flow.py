@@ -7,7 +7,7 @@ import time
 import uuid
 from typing import TYPE_CHECKING, Optional
 
-from aicarus_protocols import Event, Seg
+from aicarus_protocols import Event, Seg, extract_text_from_content
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
@@ -130,9 +130,14 @@ class CoreLogic:
         return False
 
     async def _core_thinking_loop(self) -> None:
-        """统一意识流的主思考循环，整合了“竞速模式”中断机制."""
+        """
+        主思考循环，负责持续思考和处理动作.
+        这个方法会持续运行，直到 stop_event 被设置为 True.
+        它会定期检查当前的思考焦点，并根据焦点生成新的思考内容。
+        如果在底层会话中，它还会启动一个中断检查器来处理可能的高优先级消息。
+        """
         thinking_interval_sec = config.core_logic_settings.thinking_interval_seconds
-        logger.info(f"=== {config.persona.bot_name} 的统一意识流已启动（带竞速中断） ===")
+        logger.info(f"=== {config.persona.bot_name} 的统一意识流开始运行 ===")
 
         while not self.stop_event.is_set():
             llm_task = None
@@ -152,19 +157,21 @@ class CoreLogic:
                     session = self.chat_session_manager.sessions.get(current_conv_id)
 
                 # 2. 构建思考所需的所有材料
-                # 【关键】把session传给prompt_builder，让它能读取中断记忆
+                # 注意：如果在底层会话中，prompt_builder 会自动处理会话上下文
                 prompt_components = await self.prompt_builder.build_prompts_components(
                     focus_path=focus_path,
-                    session=session,  # <-- 新增参数
+                    session=session,
                 )
                 system_prompt, user_prompt, response_schema = self.prompt_builder.finalize_prompts(
                     prompt_components
                 )
                 self.prompt_builder.is_context_switch_flag = False
 
-                # 3. 如果在底层会话，启动“竞速模式”
+
+                # 3. 如果在底层会话中，启动中断检查器
+                # 注意：这个检查器是非阻塞的，它会在后台持续运行，
                 if session:  # session存在，说明在底层
-                    logger.info(f"[{session.conversation_id}] 进入竞速模式：思考 vs 中断检查...")
+                    logger.info(f"[{session.conversation_id}] 将受到中断检查。")
 
                     llm_task = asyncio.create_task(
                         self.thought_generator.generate_thought(
@@ -255,7 +262,9 @@ class CoreLogic:
         return current_level, current_platform_id, current_conv_id
 
     async def _check_for_interruptions(
-        self, session: "ChatSession", context_text: str | None
+        self,
+        session: "ChatSession",
+        context_text: str | None
     ) -> dict | None:
         """一个独立的、非阻塞的中断检查器。它会快速检查是否有高优先级的新消息."""
         while True:  # 它会一直检查，直到被外部取消
@@ -280,7 +289,7 @@ class CoreLogic:
                         continue  # 忽略自己发的消息
 
                     # 格式化消息以供IIS判断
-                    text_content = Event.get_text_from_content_list(
+                    text_content = extract_text_from_content(
                         [Seg.from_dict(c) for c in event_doc.get("content", [])]
                     )
 
@@ -342,7 +351,6 @@ class CoreLogic:
         consciousness_control_payload = thought_json.get("consciousness_control")
         action_id = str(uuid.uuid4()) if (action_payload or consciousness_control_payload) else None
 
-        # --- ▼▼▼ 核心改造点 ▼▼▼ ---
         # 1. 创建思想点实例
         new_thought_pearl = ThoughtChainDocument(
             _key=str(uuid.uuid4()),
@@ -368,7 +376,6 @@ class CoreLogic:
                 f"计划={session.messages_planned_this_turn}, "
                 f"已发送={session.messages_sent_this_turn}"
             )
-        # --- ▲▲▲ 改造结束 ▲▲▲ ---
 
         # 保存并链接思想点
         saved_key = await self.thought_storage_service.save_thought_and_link(new_thought_pearl)
@@ -401,7 +408,7 @@ class CoreLogic:
         Returns:
             asyncio.Task: 启动的思考循环任务对象.
         """
-        logger.info(f"=== {config.persona.bot_name} (意识流版) 的大脑准备开始持续思考 ===")
+        logger.info(f"=== {config.persona.bot_name} 的大脑准备开始持续思考 ===")
         self.thinking_loop_task = asyncio.create_task(self._core_thinking_loop())
         return self.thinking_loop_task
 
@@ -415,36 +422,3 @@ class CoreLogic:
                 await self.thinking_loop_task
             except asyncio.CancelledError:
                 logger.info("主思考循环任务已被取消。")
-
-    async def _activate_new_focus_session_from_core(self, target_conv_id: str) -> None:
-        """从 CoreLogic 内部直接激活一个新的专注会话.
-
-        这个方法是给 LLMResponseHandler 调用的，用于 LLM 决策直接转移专注.
-
-        Args:
-            target_conv_id (str): 目标会话的 ID，表示要激活的专注会话的唯一标识符.
-        """
-        logger.info(f"CoreLogic 接收到直接激活新专注会话的请求: {target_conv_id}")
-        # 构建一个模拟的 action_payload，让 _dispatch_action 去处理
-        mock_action_payload = {
-            "napcat_qq": {
-                "focus": {
-                    "conversation_id": target_conv_id,
-                    "motivation": "LLM 决策直接转移专注",
-                }
-            }
-        }
-        # 创建一个临时的 ThoughtChainDocument，只包含 action_payload
-        # 其他字段不重要，因为 _dispatch_action 只关心 action_payload
-        mock_thought_pearl = ThoughtChainDocument(
-            _key=str(uuid.uuid4()),
-            timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
-            mood="平静",
-            think="根据LLM指令激活新专注会话",
-            goal="激活指定会话",
-            source_type="core",
-            source_id=None,
-            action_id=str(uuid.uuid4()),
-            action_payload=mock_action_payload,
-        )
-        await self._dispatch_action(mock_thought_pearl)

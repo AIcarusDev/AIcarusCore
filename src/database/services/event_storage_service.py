@@ -228,7 +228,7 @@ class EventStorageService:
         Args:
             platform (str): 平台标识.
             conversation_id (str | None): 会话ID.
-            bot_id (str | None): 机器人ID.
+            bot_id (str | None): 祂的ID.
 
         Returns:
             dict[str, Any] | None: 最新的动作响应事件文档，如果没有找到则返回 None.

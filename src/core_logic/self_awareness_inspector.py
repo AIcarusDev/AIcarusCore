@@ -16,7 +16,7 @@ logger = get_logger(__name__)
 async def inspect_and_initialize_self_profile(
     person_service: "PersonStorageService", action_handler: "ActionHandler", platform_id: str
 ) -> tuple[bool, dict[str, Any] | None]:
-    """检查并初始化机器人自身在特定平台上的档案.
+    """检查并初始化祂自身在特定平台上的档案.
 
     Args:
         person_service (PersonStorageService): 用于与数据库交互的服务实例.
@@ -69,7 +69,8 @@ async def inspect_and_initialize_self_profile(
         platform_id=platform_id,
         action_name="get_bot_profile",
         params={},
-        description="安检：获取机器人自身完整档案",
+        bot_id="pending_inspection",
+        description="安检：获取祂自身的完整档案",
     )
 
     if not success or not profile_data or not isinstance(profile_data, dict):

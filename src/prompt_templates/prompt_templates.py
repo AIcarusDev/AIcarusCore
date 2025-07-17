@@ -6,8 +6,8 @@
 {aicarus_rule_block}: Aicarus 规则的内容
 {current_time}: 当前时间
 {persona_block}: 角色设定
-{available_platforms_block}: 可用平台，也包含了机器人自身的客观平台信息（网名，id等）
-{current_state_block}: 机器人当前状态，例如：发呆，聊天等
+{available_platforms_block}: 可用平台，也包含了祂自身的客观平台信息（网名，id等）
+{current_state_block}: 祂当前的状态，例如：发呆，聊天等
 {behavior_guidelines_block}: 行为准则指导
 {available_actions}: 可用动作说明
 {input_XML_block_description}： 输入 XML 块的描述

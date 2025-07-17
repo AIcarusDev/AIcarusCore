@@ -57,7 +57,7 @@ class ActionLogStorageService:
             action_type (str): 动作的类型，例如 "send_message", "execute_command" 等.
             timestamp (int): 动作尝试的时间戳，单位为毫秒.
             platform (str): 动作所属的平台，例如 "telegram", "discord" 等.
-            bot_id (str): 处理此动作的机器人的唯一标识符.
+            bot_id (str): 处理此动作的祂的唯一标识符.
             conversation_id (str): 关联的会话 ID.
             content (list[dict[str, Any]]): 动作的内容，通常是一个字典列表，
                 包含消息或命令的详细信息.

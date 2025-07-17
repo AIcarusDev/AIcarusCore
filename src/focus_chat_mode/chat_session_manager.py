@@ -37,7 +37,7 @@ class ChatSessionManager:
         llm_client (LLMProcessorClient): LLM 处理器客户端，用于与 LLM 交互。
         event_storage (EventStorageService): 事件存储服务，用于存储和检索事件。
         action_handler (ActionHandler): 动作处理器，用于处理会话中的动作。
-        bot_id (str): 机器人的唯一标识符，用于识别和处理消息。
+        bot_id (str): 祂的唯一标识符，用于识别和处理消息。
         conversation_service (ConversationStorageService): 会话存储服务，用于管理会话数据.
         summarization_service (SummarizationService): 摘要服务，用于生成会话摘要.
         summary_storage_service (SummaryStorageService): 摘要存储服务，用于存储和检索摘要数据.
@@ -58,7 +58,7 @@ class ChatSessionManager:
         llm_client: LLMProcessorClient,
         event_storage: EventStorageService,
         action_handler: ActionHandler,
-        bot_id: str,
+        self_bot_ids_map: dict[str, str],
         conversation_service: ConversationStorageService,
         summarization_service: "SummarizationService",
         summary_storage_service: "SummaryStorageService",
@@ -71,7 +71,7 @@ class ChatSessionManager:
         self.llm_client = llm_client
         self.event_storage = event_storage
         self.action_handler = action_handler
-        self.bot_id = bot_id
+        self.self_bot_ids_map = self_bot_ids_map
 
         self.conversation_service = conversation_service
         self.summarization_service = summarization_service
@@ -139,13 +139,21 @@ class ChatSessionManager:
 
                 if not self.core_logic:
                     raise RuntimeError("CoreLogic未注入，ChatSessionManager无法创建会话。")
+                # 确保在创建会话时使用正确的自身ID
+                bot_id_for_session = self.self_bot_ids_map.get(platform)
+                if not bot_id_for_session:
+                    # 如果因为某种原因找不到（比如安检失败），这是一个严重问题
+                    raise RuntimeError(
+                        f"无法为平台 '{platform}' 创建会话，"
+                        "因为在 ChatSessionManager 的 ID 地图中找不到祂对应的ID。"
+                    )
 
                 self.sessions[conversation_id] = ChatSession(
                     conversation_id=conversation_id,
                     llm_client=self.llm_client,
                     event_storage=self.event_storage,
                     action_handler=self.action_handler,
-                    bot_id=self.bot_id,
+                    bot_id=bot_id_for_session,
                     platform=platform,
                     conversation_type=conversation_type,
                     core_logic=self.core_logic,

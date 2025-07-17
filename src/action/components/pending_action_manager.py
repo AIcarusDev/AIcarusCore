@@ -5,7 +5,6 @@ import time
 from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
-from src.config import config
 from src.database import ActionLogStorageService, ConversationStorageService, ThoughtStorageService
 from src.database.services.event_storage_service import EventStorageService
 
@@ -65,6 +64,10 @@ class PendingActionManager:
             self._pending_actions.pop(action_id, None)
 
     async def _handle_action_timeout(self, action_id: str) -> None:
+        """
+        处理动作超时的情况.
+        如果动作在指定时间内没有响应，将记录超时并设置相应的 Future。
+        """
         if action_id not in self._pending_actions:
             return
 
@@ -137,7 +140,7 @@ class PendingActionManager:
         新版：使用 upsert 逻辑，确保即使会话档案不存在也能正确创建和更新。
         """
         if not isinstance(report_data, dict):
-            logger.warning("收到的机器人档案报告不是一个有效的字典。")
+            logger.warning("收到的祂的档案报告不是一个有效的字典。")
             return
 
         bot_id = report_data.get("user_id")
@@ -146,18 +149,18 @@ class PendingActionManager:
 
         if not bot_id or not groups_info or not isinstance(groups_info, dict):
             logger.warning(
-                f"机器人档案报告缺少 bot_id、platform 或 groups 信息。报告内容: {report_data}"
+                f"祂的档案报告缺少 bot_id、platform 或 groups 信息。报告内容: {report_data}"
             )
             return
 
-        logger.info(f"正在处理机器人(ID: {bot_id})的 {len(groups_info)} 个群聊档案更新...")
+        logger.info(f"正在处理祂(ID: {bot_id})的 {len(groups_info)} 个群聊档案更新...")
 
         update_tasks = []
         for group_id, group_profile in groups_info.items():
             if not isinstance(group_profile, dict):
                 continue
 
-            # 构造机器人在这个群里的档案信息
+            # 构造祂在这个群里的档案信息
             bot_profile_in_conv = {
                 "user_id": bot_id,
                 "nickname": report_data.get("nickname"),
@@ -193,12 +196,16 @@ class PendingActionManager:
             )
             failure_count = len(results) - success_count
             logger.info(
-                f"机器人档案同步完成。成功 upsert {success_count} 个会话，失败 {failure_count} 个。"
+                f"祂的档案同步完成。成功 upsert {success_count} 个会话，失败 {failure_count} 个。"
             )
         else:
-            logger.info("机器人档案报告中没有需要更新的群聊信息。")
+            logger.info("祂的档案报告中没有需要更新的群聊信息。")
 
     def _get_original_id_from_response(self, data: dict[str, Any]) -> str | None:
+        """
+        从响应事件中解析出 original_event_id.
+        如果无法解析，将返回 None。
+        """
         content = data.get("content", [])
         if content and isinstance(content, list) and len(content) > 0:
             first_seg = content[0]
@@ -226,8 +233,17 @@ class PendingActionManager:
         return False, "unknown_format", "响应格式不正确", None
 
     def _create_final_result_message(
-        self, desc: str, succ: bool, err: str, det: dict | None
+        self,
+        desc: str,
+        succ: bool,
+        err: str,
+        det: dict | None
     ) -> str:
+        """
+        创建最终的结果消息.
+        根据动作的成功与否，构建一个清晰的结果消息。
+        如果有详细信息，则附加到消息末尾。
+        """
         if succ:
             msg = f"动作 '{desc}' 已成功执行。"
             if det:
@@ -236,8 +252,15 @@ class PendingActionManager:
         return f"动作 '{desc}' 执行失败: {err}"
 
     async def _save_successful_action_as_event(
-        self, action_id: str, sent_dict: dict[str, Any], resp_data: dict[str, Any]
+        self,
+        action_id: str,
+        sent_dict: dict[str, Any],
+        resp_data: dict[str, Any]
     ) -> None:
+        """
+        保存成功的动作作为事件到数据库中.
+        这将确保动作的结果被记录下来，以便后续查询和分析。
+        """
         event_to_save = sent_dict.copy()
         event_to_save["event_id"] = action_id
         event_to_save["timestamp"] = int(time.time() * 1000)
@@ -250,12 +273,16 @@ class PendingActionManager:
         event_to_save["user_info"] = {
             "platform": resp_data.get("platform", "unknown_platform"),
             "user_id": resp_data.get("bot_id", "unknown_user_id"),
-            "user_nickname": config.persona.bot_name,
+            "user_nickname": "AIcarus (Self)",
         }
         await self.event_storage_service.save_event_document(event_to_save)
         logger.info(f"成功的平台动作 '{action_id}' 已作为事件存入 events 表。")
 
     async def _get_sent_message_id_safe(self, event_data: dict[str, Any]) -> str:
+        """
+        安全地从事件数据中提取 sent_message_id.
+        如果无法提取，将返回一个默认值。
+        """
         default_id = "unknow_message_id"
         if not isinstance(event_data, dict):
             logger.error(

@@ -38,9 +38,9 @@ async def format_chat_history_for_llm(
     Args:
         event_storage: 事件存储服务实例。
         conversation_id: 目标会话的ID。
-        bot_id: 机器人的ID。
+        bot_id: 祂的ID。
         platform: 平台名称，例如 'napcat_qq'。
-        bot_profile: 机器人在该会话中的用户信息。
+        bot_profile: 祂在该会话中的用户信息。
         conversation_type: 会话类型（如 "group" 或 "private"）。
         conversation_name: 会话名称。
         last_processed_timestamp: 上次处理的时间戳，用于区分已读和未读消息。
@@ -131,7 +131,7 @@ async def format_chat_history_for_llm(
     uid_counter = 0
     conversation_name_str = conversation_name or "未知会话"
 
-    # 先把机器人自己加进去
+    # 先把祂自己加进去
     final_bot_id = str(bot_profile.get("user_id", bot_id))
     final_bot_nickname = bot_profile.get("nickname", config.persona.bot_name or "bot")
     final_bot_card = bot_profile.get("card", final_bot_nickname)

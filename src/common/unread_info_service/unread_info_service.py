@@ -17,7 +17,7 @@ class UnreadInfoService:
     Attributes:
         event_storage (EventStorageService): 事件存储服务，用于访问消息事件数据.
         conversation_storage (ConversationStorageService): 会话存储服务，用于访问会话数据.
-        bot_id (str): 机器人的唯一标识符，默认为配置中的QQ ID，如果未设置则为 "unknown_bot_id".
+        bot_id (str): 祂的唯一标识符，默认为配置中的QQ ID，如果未设置则为 "unknown_bot_id".
     """
 
     def __init__(
@@ -30,7 +30,7 @@ class UnreadInfoService:
         self.self_bot_ids: dict[str, str] = {}
 
     def update_self_bot_ids(self, new_bot_ids: dict[str, str]) -> None:
-        """从外部更新服务所知的、所有平台上的机器人自身ID.
+        """从外部更新服务所知的、所有平台上的祂自身的ID.
 
         这个方法应该在安检流程后被调用.
         """

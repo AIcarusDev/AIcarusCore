@@ -206,6 +206,23 @@ class ThoughtStorageService:
             logger.error(f"获取最新思想点时发生错误: {e}", exc_info=True)
             return None
 
+    async def get_document_by_key(self, thought_key: str) -> dict | None:
+        """根据 key 获取思想点文档。"""
+        if not thought_key:
+            return None
+        try:
+            collection = await self.conn_manager.get_collection(self.thoughts_coll_name)
+            doc = await collection.get(thought_key)
+            if doc:
+                logger.debug(f"成功获取思想点: {thought_key}")
+                return doc
+            else:
+                logger.warning(f"未能找到 key 为 '{thought_key}' 的思想点。")
+                return None
+        except Exception as e:
+            logger.error(f"根据 key '{thought_key}' 获取思想点时发生错误: {e}", exc_info=True)
+            return None
+
     async def get_latest_main_thought_document(self, limit: int = 1) -> list[dict[str, Any]]:
         """获取最新的一个或多个主意识思考文档."""
         if limit <= 0:
@@ -220,6 +237,31 @@ class ThoughtStorageService:
         bind_vars = {"@collection": self.main_thoughts_coll_name, "limit": limit}
         results = await self.conn_manager.execute_query(query, bind_vars)
         return results if results is not None else []
+
+    async def get_thought_document_by_key(self, thought_key: str) -> dict | None:
+        """
+        根据 _key 获取单个思想点文档。
+
+        Args:
+            thought_key: 思想点文档的唯一 _key。
+
+        Returns:
+            包含思想点信息的字典，如果未找到则返回 None。
+        """
+        if not thought_key:
+            return None
+        try:
+            # 直接使用底层 collection 的 get 方法，这是最高效的按主键查询方式
+            collection = await self.conn_manager.get_collection(self.thoughts_coll_name)
+            thought_doc = await collection.get(thought_key)
+            if thought_doc:
+                logger.debug(f"成功通过 key '{thought_key}' 获取到思想点文档。")
+            else:
+                logger.warning(f"未能通过 key '{thought_key}' 找到思想点文档。")
+            return thought_doc
+        except Exception as e:
+            logger.error(f"根据 key '{thought_key}' 获取思想点时发生错误: {e}", exc_info=True)
+            return None
 
     async def save_action_result_to_thought(self, thought_key: str, result_text: str) -> bool:
         """把行动的回执单贴到对应的思想点上."""

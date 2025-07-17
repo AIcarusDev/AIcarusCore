@@ -67,7 +67,7 @@ class QQBuilder(BasePlatformBuilder):
         """返回平台ID，唯一标识一个平台，这个ID必须和Adapter的core_platform_id完全一致."""
         return "napcat_qq"
 
-    def build_action_event(self, action_name: str, params: dict[str, Any]) -> Event | None:
+    def build_action_event(self, action_name: str, params: dict[str, Any], bot_id: str) -> Event | None:
         """这个方法负责将平台特有的动作转换成标准的Event格式，它会根据动作名称和参数来决定如何构建Event对象.
 
         Args:
@@ -86,9 +86,9 @@ class QQBuilder(BasePlatformBuilder):
         """
         # 1. 先处理那些需要特殊处理的动作
         if action_name == "send_message":
-            return self._build_send_message(params)
+            return self._build_send_message(params, bot_id)
         if action_name == "send_forward_message":
-            return self._build_send_forward_message(params)
+            return self._build_send_forward_message(params, bot_id)
 
         # 2. 然后，检查这个动作是不是在白名单里
         if action_name in self._generic_actions:
@@ -108,7 +108,11 @@ class QQBuilder(BasePlatformBuilder):
                 if conv_id:
                     conv_info = ConversationInfo(conversation_id=str(conv_id), type="group")
 
-            return self._build_generic_event(action_name, params, conv_info)
+            return self._build_generic_event(
+                action_name,
+                params, bot_id,
+                conv_info
+            )
 
         # 3. 如果哪个都不沾，那就真的不认识了
         logger.warning(f"QQBuilder 的白名单和特殊名单里都没有这个动作: {action_name}")
@@ -117,7 +121,11 @@ class QQBuilder(BasePlatformBuilder):
     # --- 下面是每个动作的具体“翻译”实现 ---
 
     def _build_generic_event(
-        self, action_name: str, params: dict[str, Any], conv_info: ConversationInfo | None = None
+        self,
+        action_name: str,
+        params: dict[str, Any],
+        bot_id: str,
+        conv_info: ConversationInfo | None = None
     ) -> Event:
         """一个通用的翻译模板，这个方法会根据动作名称和参数来构建一个标准的Event对象.
 
@@ -135,12 +143,12 @@ class QQBuilder(BasePlatformBuilder):
             event_id=str(uuid.uuid4()),
             event_type=final_event_type,
             time=int(time.time() * 1000),
-            bot_id=config.persona.qq_id or "unknown_bot",
+            bot_id=bot_id,
             content=[action_seg],
             conversation_info=conv_info,
         )
 
-    def _build_send_message(self, params: dict[str, Any]) -> Event | None:
+    def _build_send_message(self, params: dict[str, Any], bot_id: str) -> Event | None:
         """这个发消息的比较特殊，内容是消息段列表，而不是 action_params.
 
         Args:
@@ -166,14 +174,14 @@ class QQBuilder(BasePlatformBuilder):
             event_id=str(uuid.uuid4()),
             event_type=f"action.{self.platform_id}.send_message",
             time=int(time.time() * 1000),
-            bot_id=config.persona.qq_id or "unknown_bot",
+            bot_id=bot_id,
             content=message_segs,
             conversation_info=ConversationInfo(
                 conversation_id=str(conversation_id), type=conv_type
             ),
         )
 
-    def _build_send_forward_message(self, params: dict[str, Any]) -> Event | None:
+    def _build_send_forward_message(self, params: dict[str, Any], bot_id: str) -> Event | None:
         """这个合并转发消息的处理也比较特殊，它需要一个节点列表和会话信息.
 
         Args:
@@ -193,7 +201,7 @@ class QQBuilder(BasePlatformBuilder):
             event_id=str(uuid.uuid4()),
             event_type=f"action.{self.platform_id}.send_forward_message",
             time=int(time.time() * 1000),
-            bot_id=config.persona.qq_id or "unknown_bot",
+            bot_id=bot_id,
             content=node_segs,
             conversation_info=ConversationInfo.from_dict(conv_info_dict),
         )

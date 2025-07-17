@@ -1,5 +1,6 @@
 from typing import Any, ClassVar
 
+from aicarus_protocols import Event
 from src.common.custom_logging.logging_config import get_logger
 from src.platform_builders.base_builder import BasePlatformBuilder
 
@@ -17,22 +18,33 @@ class CoreBuilder(BasePlatformBuilder):
     _CONSCIOUSNESS_CONTROLS_DEFINITIONS: ClassVar = {
         "focus": {
             "type": "object",
-            "properties": {"conversation_id": {"type": "string"}, "motivation": {"type": "string"}},
+            "properties": {
+                "conversation_id": {"type": "string"},
+                "motivation": {"type": "string"}
+            },
             "required": ["conversation_id", "motivation"],
         },
         "return": {
             "type": "object",
-            "properties": {"motivation": {"type": "string"}},
+            "properties": {
+                "motivation": {"type": "string"}
+            },
             "required": ["motivation"],
         },
         "shift": {
             "type": "object",
-            "properties": {"conversation_id": {"type": "string"}, "motivation": {"type": "string"}},
+            "properties": {
+                "conversation_id": {"type": "string"},
+                "motivation": {"type": "string"}
+            },
             "required": ["conversation_id", "motivation"],
         },
         "peek": {
             "type": "object",
-            "properties": {"conversation_id": {"type": "string"}, "motivation": {"type": "string"}},
+            "properties": {
+                "conversation_id": {"type": "string"},
+                "motivation": {"type": "string"}
+            },
             "required": ["conversation_id", "motivation"],
         },
     }
@@ -40,9 +52,8 @@ class CoreBuilder(BasePlatformBuilder):
     _CONSCIOUSNESS_CONTROLS_DESCRIPTIONS: ClassVar = {
         "focus_platform": "- `focus`: 深入到一个具体的平台，需要提供目标平台的ID。",
         "focus_conversation": "- `focus`: 深入到当前平台下一个具体的会话，需要提供目标会话的ID。",
-        "return": "- `return`: 返回到上一个层级。在底层时返回中层，在中层时返回顶层。",
         "shift": "- `shift`: 在当前层级进行横向移动，例如从一个会话切换到另一个会话。",
-        "peek": "- `peek`: “窥视”另一个会话或平台的信息，但保持当前的主要注意力焦点不变。（高阶功能）",  # noqa: E501
+        "peek": "- `peek`: “窥视”另一个会话或平台的信息，但保持当前的主要注意力焦点不变。",  # noqa: E501
         "shift": "- `shift`: 将注意力从当前会话，直接转移到本平台内的另一个会话，需要提供目标会话的ID。",  # noqa: E501
         "return_from_cellular": "- `return(motivation)`: 暂时退出当前会话，返回到平台。",
         "return_from_platform": "- `return(motivation)`: 暂时退出当前平台。",
@@ -51,7 +62,10 @@ class CoreBuilder(BasePlatformBuilder):
     _ACTIONS_DEFINITIONS: ClassVar = {
         "web_search": {
             "type": "object",
-            "properties": {"query": {"type": "string"}, "motivation": {"type": "string"}},
+            "properties": {
+                "query": {"type": "string"},
+                "motivation": {"type": "string"}
+            },
             "required": ["query", "motivation"],
         }
     }
@@ -65,6 +79,20 @@ class CoreBuilder(BasePlatformBuilder):
         """返回平台ID."""
         return "core"
 
+    def build_action_event(self, action_name: str, params: dict[str, Any], bot_id: str) -> Event | None:
+        """
+        核心构建器不负责构建发送给外部适配器的Event。
+        核心动作（如web_search）由ActionHandler内部直接处理。
+        这个方法只是为了满足抽象基类的接口要求。
+        """
+        logger.warning(
+            f"CoreBuilder 的 build_action_event 被意外调用！"
+            f"Action: {action_name}, Params: {params}。"
+            "这通常不应该发生。"
+        )
+        # 核心动作不通过这种方式构建事件，所以返回None
+        return None
+
     def get_level_consciousness_controls_definitions(
         self, level: str
     ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -73,7 +101,10 @@ class CoreBuilder(BasePlatformBuilder):
         if level == "core":
             props["focus"] = {  # 顶层用 platform_id
                 "type": "object",
-                "properties": {"platform_id": {"type": "string"}, "motivation": {"type": "string"}},
+                "properties": {
+                    "platform_id": {"type": "string"},
+                    "motivation": {"type": "string"}
+                },
                 "required": ["platform_id", "motivation"],
             }
         elif level == "platform":

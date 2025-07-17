@@ -4,6 +4,7 @@ import asyncio
 import time
 from typing import TYPE_CHECKING, Any
 
+from src.config import config
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logging_config import get_logger
 from src.database import ConversationStorageService
@@ -40,7 +41,7 @@ class ChatSession:
         llm_client (LLMProcessorClient): LLM处理器客户端，用于与LLM交互.
         event_storage (EventStorageService): 事件存储服务，用于存储和检索事件数据.
         action_handler (ActionHandler): 动作处理器，用于执行各种动作和获取数据.
-        bot_id (str): 机器人的唯一标识符.
+        bot_id (str): 祂的唯一标识符.
         platform (str): 平台标识符.
         conversation_type (str): 会话类型（如群聊或私聊）.
         conversation_name (str | None): 会话名称（如果适用）.
@@ -70,9 +71,9 @@ class ChatSession:
         events_since_last_summary (list[dict[str, Any]]): 自上次摘要以来的事件列表.
         message_count_since_last_summary (int): 自上次摘要以来的消息计数.
         no_action_count (int): 连续未采取行动的计数.
-        consecutive_bot_messages_count (int): 连续收到机器人的消息计数.
-        bot_profile_cache (dict[str, Any]): 机器人的档案缓存，用于快速访问。
-        last_profile_update_time (float): 上次更新机器人物档案的时间戳.
+        consecutive_bot_messages_count (int): 连续收到祂的消息计数.
+        bot_profile_cache (dict[str, Any]): 祂的档案缓存，用于快速访问。
+        last_profile_update_time (float): 上次更新祂档案的时间戳.
         conversation_details_cache (dict[str, Any]): 会话详情缓存，用于快速访问。
         last_details_update_time (float): 上次更新会话详情的时间戳.
         SUMMARY_INTERVAL (int): 摘要生成的时间间隔，单位为分钟.
@@ -106,7 +107,7 @@ class ChatSession:
             llm_client (LLMProcessorClient): LLM处理器客户端，用于与LLM交互.
             event_storage (EventStorageService): 事件存储服务，用于存储和检索事件数据.
             action_handler (ActionHandler): 动作处理器，用于执行各种动作和获取数据.
-            bot_id (str): 机器人的唯一标识符.
+            bot_id (str): 祂的唯一标识符.
             platform (str): 平台标识符.
             conversation_type (str): 会话类型.
             core_logic (CoreLogicFlow): 核心逻辑处理器.
@@ -228,7 +229,7 @@ class ChatSession:
                 self.no_action_count = 0
 
     async def get_bot_profile(self) -> dict[str, Any]:
-        """智能获取机器人档案，优先使用缓存，再查数据库."""
+        """智能获取祂的档案，优先使用缓存，再查数据库."""
         if self.bot_profile_cache and (
             time.time() - self.last_profile_update_time < CACHE_EXPIRATION_SECONDS
         ):
@@ -240,13 +241,14 @@ class ChatSession:
         if conv_doc and (db_profile := conv_doc.get("bot_profile_in_this_conversation")):
             self.bot_profile_cache = db_profile
             self.last_profile_update_time = time.time()
-            logger.debug(f"[{self.conversation_id}] 从数据库加载了机器人档案并放入缓存。")
+            logger.debug(f"[{self.conversation_id}] 从数据库加载了祂的档案并放入缓存。")
             return self.bot_profile_cache
 
         logger.warning(
-            f"[{self.conversation_id}] 缓存和数据库中均未找到有效的机器人档案。将使用空档案。"
+            f"[{self.conversation_id}] 缓存和数据库中均未找到祂有效的档案。"
+            f"将使用初始化时提供的 ID '{self.bot_id}' 构建一个临时的基础档案。"
         )
-        return {}
+        return {"user_id": self.bot_id, "nickname": config.persona.bot_name, "card": config.persona.bot_name}
 
     async def get_conversation_details(self) -> dict[str, Any]:
         """智能获取会话的详细信息，比如成员数（带缓存）."""

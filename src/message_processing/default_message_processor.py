@@ -209,10 +209,10 @@ class DefaultMessageProcessor:
             )
 
     async def _handle_bot_profile_update(self, event: ProtocolEvent) -> None:
-        """处理机器人自身档案更新的通知，并更新相关会话的缓存和数据库."""
+        """处理祂自身档案更新的通知，并更新相关会话的缓存和数据库."""
         try:
             if not event.content:
-                logger.warning("收到的机器人档案更新通知没有内容。")
+                logger.warning("收到的档案更新通知没有内容。")
                 return
 
             # 通知的核心内容在第一个 seg 的 data 里
@@ -222,11 +222,11 @@ class DefaultMessageProcessor:
             new_value = report_data.get("new_value")
 
             if not conversation_id or not update_type:
-                logger.warning(f"机器人档案更新通知格式不正确，缺少关键信息: {report_data}")
+                logger.warning(f"祂的档案更新通知格式不正确，缺少关键信息: {report_data}")
                 return
 
             logger.info(
-                f"收到会话 '{conversation_id}' 的机器人档案更新通知: "
+                f"收到会话 '{conversation_id}' 中祂的档案更新通知: "
                 f"'{update_type}' -> '{new_value}'"
             )
 
@@ -240,7 +240,7 @@ class DefaultMessageProcessor:
             if session and session.is_active:
                 # 如果会话活跃，直接更新它的短期记忆（内存缓存）
                 logger.info(
-                    f"会话 '{conversation_id}' 处于激活状态，正在实时更新其机器人档案缓存。"
+                    f"会话 '{conversation_id}' 处于激活状态，正在实时更新其祂的档案缓存。"
                 )
                 if update_type == "card_change":
                     session.bot_profile_cache["card"] = new_value
@@ -257,7 +257,7 @@ class DefaultMessageProcessor:
             else:
                 # 如果会话不活跃，我们只更新数据库里的长期记忆
                 # 这样下次会话被激活时，它就能从数据库读到最新的信息
-                logger.info(f"会话 '{conversation_id}' 不活跃，仅更新其在数据库中的机器人档案。")
+                logger.info(f"会话 '{conversation_id}' 不活跃，仅更新其在数据库中祂的档案。")
 
                 # 先从数据库读出旧的档案，但我们只关心它的 card
                 conv_doc = await self.conversation_service.get_conversation_document_by_id(
@@ -290,54 +290,97 @@ class DefaultMessageProcessor:
                 )
 
         except Exception as e:
-            logger.error(f"处理机器人档案更新通知时出错: {e}", exc_info=True)
+            logger.error(f"处理祂的档案更新通知时出错: {e}", exc_info=True)
 
     async def _handle_message_event(
-        self, proto_event: ProtocolEvent, websocket: WebSocketServerProtocol
+        self,
+        proto_event: ProtocolEvent,
+        websocket: WebSocketServerProtocol
     ) -> bool:
-        """处理所有消息类事件的核心方法.
-
-        它的职责是：
-        1. 检查事件是否需要触发中层平台的被动激活。
-        2. 将事件分发给专注聊天管理器进行后续处理。
+        """
+        处理所有消息类事件的核心方法.
+        这个方法会根据当前祂的注意力状态决定是否处理消息。
+        它会检查当前的注意力路径，并根据路径决定是否唤醒祂或者忽略消息。
+        返回 True 表示消息已被处理或忽略，False 表示处理失败。
         """
         try:
-            platform_id = proto_event.get_platform()
+            # 确保我们有 CoreLogic 的引用，否则无法进行任何判断
+            if not self.core_initializer_ref or not self.core_initializer_ref.core_logic_instance:
+                logger.error("无法处理消息事件：CoreLogic 实例未注入到 MessageProcessor。")
+                return False
 
-            # 检查AI当前是否正专注于这个平台
-            if (
-                self.qq_chat_session_manager
-                and self.qq_chat_session_manager.current_focus_path == platform_id
-            ):
-                # 检查是否为高优先级事件 (@我 或 回复我)
-                is_high_priority = False
-                bot_id = self.qq_chat_session_manager.bot_id
-                for seg in proto_event.content:
-                    if (seg.type == "at" and str(seg.data.get("user_id")) == bot_id) or (
-                        seg.type == "quote" and str(seg.data.get("user_id")) == bot_id
-                    ):
-                        is_high_priority = True
-                        break
+            core_logic = self.core_initializer_ref.core_logic_instance
+            focus_manager = core_logic.chat_session_manager
 
-                if is_high_priority:
-                    logger.info(
-                        f"AI正专注于平台 '{platform_id}'，收到高优先级事件，将触发主意识思考循环。"
-                    )
-                    # 唤醒主循环
-                    if self.core_initializer_ref and self.core_initializer_ref.core_logic_instance:
-                        self.core_initializer_ref.core_logic_instance.trigger_immediate_thought_cycle()
+            # 获取当前焦点路径，例如 "napcat_qq" 或 "napcat_qq.12345"
+            current_focus_path = focus_manager.current_focus_path if focus_manager else None
+
+            # 场景1: 注意力在顶层 (Core-Level)
+            if not current_focus_path or current_focus_path == "core":
+                # 祂在发呆，任何外部消息都不应打扰祂的定时思考。
+                logger.info(
+                    f"事件 '{proto_event.event_id}' 到达，但祂正在发呆/内心思考。不立即唤醒。"
+                )
+                # 不做任何事，等待下一次定时思考循环
+                return True
+
+            # 场景2: 祂的注意力在底层 (Cellular-Level)，即正在某个群聊中
+            event_platform = proto_event.get_platform()
+            event_conv_id = proto_event.conversation_info.conversation_id if proto_event.conversation_info else None
+
+            if current_focus_path.startswith(f"{event_platform}.{event_conv_id}"):
+                # 消息来自AI正在专注的会话。
+                # 在这种情况下，我们不需要主动唤醒祂，因为它已经在处理这个会话。
+                # DefaultMessageProcessor 不应干预。
+                logger.info(
+                    f"事件 '{proto_event.event_id}' 来自当前专注的会话，"
+                    "交由内部中断机制处理，不主动唤醒。"
+                )
+                return True
+
+            # 场景3: 注意力在中层 (Platform-Level)
+            if current_focus_path == event_platform:
+                # 消息来自AI正在关注的平台，但不是当前专注的某个群。
+                # 在这种情况下，我们只对高优先级事件（@我或回复我）做出反应。
+                bot_id_on_this_platform = None
+                if focus_manager:
+                    bot_id_on_this_platform = focus_manager.self_bot_ids_map.get(event_platform)
+
+                if bot_id_on_this_platform:
+                    is_high_priority = False
+                    for seg in proto_event.content:
+                        if (
+                            seg.type == "at" and str(seg.data.get("user_id")) == bot_id_on_this_platform
+                        ) or (
+                            seg.type == "quote" and str(seg.data.get("user_id")) == bot_id_on_this_platform
+                        ):
+                            is_high_priority = True
+                            break
+
+                    if is_high_priority:
+                        logger.info(
+                            f"事件 '{proto_event.event_id}' 是高优先级事件 (@/回复)，"
+                            "正在唤醒祂进行思考..."
+                        )
+                        core_logic.trigger_immediate_thought_cycle()
                     else:
-                        logger.error("无法触发主循环：CoreLogic 实例未注入到 MessageProcessor。")
+                        logger.info(
+                            f"事件 '{proto_event.event_id}' 是普通消息，"
+                            "祂正专注于平台层，不立即唤醒。"
+                        )
+                else:
+                    logger.warning(f"无法为平台 '{event_platform}' 找到祂的ID，跳过高优事件判断。")
 
-            # --- 激活逻辑结束 ---
+                return True
 
-            # --- 统一分发到专注模式管理器 ---
-            # 无论是否触发了中层激活，消息都需要给专注模式管理器过目
-            # 它会自己判断当前是否有激活的会话，以及是否需要中断等
-            if self.qq_chat_session_manager:
-                await self.qq_chat_session_manager.handle_incoming_message(proto_event)
-
+            # 其他情况（例如，AI专注在平台A，但收到了平台B的消息），不打扰。
+            logger.info(
+                f"事件 '{proto_event.event_id}' 来自非当前专注的路径 "
+                f"(当前: '{current_focus_path}', 事件源: '{event_platform}.{event_conv_id}')，"
+                "不立即唤醒。"
+            )
             return True
+
         except Exception as e:
             logger.error(
                 f"处理消息事件 (ID: {proto_event.event_id}) 时发生错误: {e}", exc_info=True

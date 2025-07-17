@@ -253,6 +253,9 @@ class MessageBuilder:
 
         logger.info(f"准备发送拼接好的消息，包含 {len(self._current_segments)} 个消息段。")
 
+        bot_profile = await self.session.get_bot_profile()
+        correct_bot_id = bot_profile.get("user_id", self.session.bot_id)
+
         # 我们使用老板（ActionHandler）提供的那个简单的发动作工具
         # execute_simple_action 内部会处理事件构建和发送
         success, payload = await self.action_handler.execute_simple_action(
@@ -264,6 +267,7 @@ class MessageBuilder:
                 # 把我们辛辛苦苦拼好的消息段列表变成字典列表
                 "content": [seg.to_dict() for seg in self._current_segments],
             },
+            bot_id=correct_bot_id,
             description="由MessageBuilder拼接并发送",
         )
 

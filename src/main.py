@@ -334,40 +334,8 @@ class CoreSystemInitializer:
             self.summarization_service = SummarizationService(llm_client=summary_llm)
             logger.info("SummarizationService 初始化成功。")
 
-            # 6. 专注聊天管理器 ChatSessionManager (现在它也需要 thought_storage_service)
-            if config.focus_chat_mode.enabled:
-                if all(
-                    [
-                        self.focused_chat_llm_client,
-                        self.summarization_service,
-                        self.event_storage_service,
-                        self.conversation_storage_service,
-                        self.action_handler_instance,
-                        self.interrupt_model_instance,
-                        self.internal_info_builder_instance,  # 确保它也准备好了
-                    ]
-                ):
-                    self.qq_chat_session_manager = ChatSessionManager(
-                        config=config.focus_chat_mode,
-                        llm_client=self.focused_chat_llm_client,
-                        event_storage=self.event_storage_service,
-                        action_handler=self.action_handler_instance,
-                        bot_id=config.persona.bot_name,
-                        conversation_service=self.conversation_storage_service,
-                        summarization_service=self.summarization_service,
-                        summary_storage_service=self.summary_storage_service,
-                        intelligent_interrupter=self.interrupt_model_instance,
-                        thought_storage_service=self.thought_storage_service,
-                        internal_info_builder=self.internal_info_builder_instance,  # 注入！
-                        core_logic=None,
-                    )
-                    logger.info("ChatSessionManager 初始化完成，并已成功注入新的依赖。")
-                else:
-                    logger.warning(
-                        "ChatSessionManager 依赖不足"
-                        "（可能缺少LLM客户端或智能打断模型或InternalInfoBuilder）"
-                        "，无法初始化。"
-                    )
+            # 6. 专注聊天管理器 ChatSessionManager
+
 
             # 7. 消息处理器 DefaultMessageProcessor
             self.message_processor = DefaultMessageProcessor(
@@ -375,7 +343,7 @@ class CoreSystemInitializer:
                 conversation_service=self.conversation_storage_service,
                 person_service=self.person_storage_service,
                 semantic_model=self.semantic_model_instance,
-                qq_chat_session_manager=self.qq_chat_session_manager,
+                qq_chat_session_manager=None,
             )
             self.message_processor.core_initializer_ref = self
             logger.info("DefaultMessageProcessor 初始化成功。")
@@ -383,21 +351,8 @@ class CoreSystemInitializer:
             # 8. 通信层 CoreWebsocketServer
             action_sender = ActionSender()
 
-            # 把所有依赖都注入给 ActionHandler
-            self.action_handler_instance.set_dependencies(
-                thought_service=self.thought_storage_service,
-                event_service=self.event_storage_service,
-                action_log_service=self.action_log_service,
-                conversation_service=self.conversation_storage_service,
-                action_sender=action_sender,
-            )
-            logger.info("ActionHandler 的依赖已设置。")
-
-            logger.info("ActionHandler 的动作提供者已注册。")
-
             # ActionHandler 现在也需要知道 web_search_agent_client
             self.action_handler_instance.web_search_agent_client = self.web_search_agent_client
-            await self.action_handler_instance.initialize_llm_clients()
             logger.info("ActionHandler 的 LLM 客户端已手动初始化。")
 
             event_receiver = EventReceiver(
@@ -428,7 +383,7 @@ class CoreSystemInitializer:
 
             if config.intrusive_thoughts_module_settings.enabled:
                 if self.intrusive_thoughts_llm_client:
-                    # 用我们全新的、干净的构造方法来创建它！
+                    # 9. 侵入性思维生成器 IntrusiveThoughtsGenerator
                     self.intrusive_generator_instance = IntrusiveThoughtsGenerator(
                         llm_client=self.intrusive_thoughts_llm_client,
                         stop_event=self.stop_event,
@@ -455,8 +410,6 @@ class CoreSystemInitializer:
                     self.core_comm_layer,
                     self.action_handler_instance,
                     self.state_manager_instance,
-                    self.qq_chat_session_manager if config.focus_chat_mode.enabled else True,
-                    self.context_builder_instance,
                     self.thought_generator_instance,
                     self.thought_persistor_instance,
                     self.thought_prompt_builder_instance,
@@ -469,7 +422,7 @@ class CoreSystemInitializer:
                 core_comm_layer=self.core_comm_layer,
                 action_handler_instance=self.action_handler_instance,
                 state_manager=self.state_manager_instance,
-                chat_session_manager=self.qq_chat_session_manager,
+                chat_session_manager=None,
                 thought_generator=self.thought_generator_instance,
                 thought_persistor=self.thought_persistor_instance,
                 thought_storage_service=self.thought_storage_service,  # 把思想链服务也给它！
@@ -478,12 +431,9 @@ class CoreSystemInitializer:
                 immediate_thought_trigger=self.immediate_thought_trigger,
                 intrusive_generator_instance=self.intrusive_generator_instance,
             )
-            logger.info("CoreLogicFlow (意识流版) 初始化成功。")
+            logger.info("CoreLogicFlow初始化成功。")
 
             # 11. 回填依赖
-            if self.qq_chat_session_manager and self.core_logic_instance:
-                self.qq_chat_session_manager.set_core_logic(self.core_logic_instance)
-
             if self.action_handler_instance:
                 self.action_handler_instance.set_dependencies(
                     thought_service=self.thought_storage_service,
@@ -493,6 +443,7 @@ class CoreSystemInitializer:
                     action_sender=action_sender,
                     chat_session_manager=self.qq_chat_session_manager,
                     core_logic=self.core_logic_instance,
+                    person_service=self.person_storage_service,
                 )
 
             logger.info("ActionHandler 的依赖已设置。")
@@ -560,21 +511,72 @@ class CoreSystemInitializer:
                     # 将获取到的ID地图注入到 UnreadInfoService
                     if self.unread_info_service:
                         self.unread_info_service.update_self_bot_ids(bot_ids_map)
+
+                    if config.focus_chat_mode.enabled:
+                        logger.info("安检完成，现在开始创建 ChatSessionManager...")
+                        if all(
+                            [
+                                self.focused_chat_llm_client,
+                                self.summarization_service,
+                                self.event_storage_service,
+                                self.conversation_storage_service,
+                                self.action_handler_instance,
+                                self.interrupt_model_instance,
+                                self.internal_info_builder_instance,
+                            ]
+                        ):
+                            # 使用新的构造函数，传入 bot_ids_map
+                            self.qq_chat_session_manager = ChatSessionManager(
+                                config=config.focus_chat_mode,
+                                llm_client=self.focused_chat_llm_client,
+                                event_storage=self.event_storage_service,
+                                action_handler=self.action_handler_instance,
+                                self_bot_ids_map=bot_ids_map,
+                                conversation_service=self.conversation_storage_service,
+                                summarization_service=self.summarization_service,
+                                summary_storage_service=self.summary_storage_service,
+                                intelligent_interrupter=self.interrupt_model_instance,
+                                thought_storage_service=self.thought_storage_service,
+                                internal_info_builder=self.internal_info_builder_instance,
+                                core_logic=self.core_logic_instance, # core_logic 已经创建
+                            )
+                            logger.success("ChatSessionManager 基于安检后的ID成功创建！")
+
+                            # ChatSessionManager 创建后，立即把 CoreLogic 注入给它
+                            if self.qq_chat_session_manager and self.core_logic_instance:
+                                self.qq_chat_session_manager.set_core_logic(self.core_logic_instance)
+                                logger.info("已向 ChatSessionManager 回填 CoreLogic 依赖。")
+
+                            # --- 开始回填依赖 ---
+                            if self.message_processor:
+                                self.message_processor.qq_chat_session_manager = self.qq_chat_session_manager
+                                logger.info("已向 MessageProcessor 回填 ChatSessionManager 依赖。")
+                            if self.action_handler_instance:
+                                self.action_handler_instance.chat_session_manager = self.qq_chat_session_manager
+                                logger.info("已向 ActionHandler 回填 ChatSessionManager 依赖。")
+                            if self.core_logic_instance:
+                                self.core_logic_instance.chat_session_manager = self.qq_chat_session_manager
+                                logger.info("已向 CoreLogicFlow 回填 ChatSessionManager 依赖。")
+                            if self.thought_prompt_builder_instance:
+                                self.thought_prompt_builder_instance.chat_session_manager = self.qq_chat_session_manager
+                                logger.info("已向 ThoughtPromptBuilder 回填 ChatSessionManager 依赖。")
+
+                        else:
+                            logger.error("安检后创建 ChatSessionManager 失败，依赖不足。")
+
                 else:
-                    logger.warning("安检后未能从数据库获取到任何机器人自身账户信息。")
+                    logger.warning("安检后未能从数据库获取到任何祂的自身信息，无法创建 ChatSessionManager。")
 
             # 将这个等待和更新的逻辑作为一个独立的后台任务启动
-            all_tasks.append(
-                asyncio.create_task(
-                    _wait_for_inspection_and_update_services(), name="ServiceUpdater"
-                )
+            asyncio.create_task(
+                _wait_for_inspection_and_update_services(), name="ServiceUpdater"
             )
 
             if not all_tasks:
-                logger.warning("没有核心异步任务启动。")
+                logger.warning("没有核心守护任务启动，程序可能会立即退出。")
                 return
 
-            logger.info(f"已启动 {len(all_tasks)} 个核心异步任务。")
+            logger.info(f"已启动 {len(all_tasks)} 个核心守护任务。ServiceUpdater 在后台独立运行。")
             done, pending = await asyncio.wait(all_tasks, return_when=asyncio.FIRST_COMPLETED)
             for task in done:
                 task_name = task.get_name()

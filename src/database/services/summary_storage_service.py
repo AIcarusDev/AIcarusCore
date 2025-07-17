@@ -42,7 +42,7 @@ class SummaryStorageService:
             conversation_id: 会话的ID。
             summary_text: 总结的文本内容。
             platform: 会话所属平台。
-            bot_id: 处理此会话的机器人ID。
+            bot_id: 处理此会话中祂的ID。
             event_ids_covered: 此总结所覆盖的事件ID列表。
 
         Returns:

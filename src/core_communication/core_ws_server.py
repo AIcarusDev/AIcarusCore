@@ -133,7 +133,7 @@ class CoreWebsocketServer:
             "websocket": websocket,
             "last_heartbeat": current_timestamp,
             "display_name": display_name,
-            "bot_profile": None,  # 新增一个字段来缓存机器人档案
+            "bot_profile": None,  # 新增一个字段来缓存祂的档案
         }
         # 通知 ActionSender
         self.action_sender.register_adapter(adapter_id, display_name, websocket)
@@ -177,7 +177,7 @@ class CoreWebsocketServer:
             )
 
             if success and profile_data:
-                logger.success(f"安检成功，获取到适配器 '{adapter_id}' 的机器人档案。")
+                logger.success(f"安检成功，获取到适配器 '{adapter_id}' 中祂的档案。")
                 # 将获取到的档案缓存起来
                 if adapter_id in self.adapter_clients_info:
                     self.adapter_clients_info[adapter_id]["bot_profile"] = profile_data
@@ -465,7 +465,7 @@ class CoreWebsocketServer:
                     online_parts.append(f"    - 你的{platform_id}号是：{bot_id}")
                     online_parts.append(f"    - 你的{platform_id}名称是：{bot_name}")
                 else:  # 正在安检，还不知道自己是谁！(情况 2)
-                    online_parts.append(f"- {display_name} (正在获取机器人信息...)")
+                    online_parts.append(f"- {display_name} (正在获取祂的信息...)")
 
             # 情况 3: 平台不在线，但数据库里有记录
             elif platform_id in known_platforms:

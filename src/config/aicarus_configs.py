@@ -6,19 +6,19 @@ from .config_base import ConfigBase
 
 @dataclass
 class PersonaSettings(ConfigBase):
-    """定义 AI 机器人的人格设置.
+    """定义祂的人格设置.
 
     包括名称、描述和个人资料信息.
     """
 
     bot_name: str = "霜"
-    """AI 机器人的名称."""
+    """祂的名称."""
 
     description: str = ""
-    """AI 机器人的描述信息."""
+    """祂的描述信息."""
 
     profile: str = ""
-    """AI 机器人的个人资料信息."""
+    """祂的个人资料信息."""
 
 
 @dataclass

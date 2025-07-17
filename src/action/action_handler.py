@@ -13,6 +13,7 @@ from src.database import (
     ConversationStorageService,
     EventStorageService,
     ThoughtStorageService,
+    PersonStorageService,
 )
 from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.platform_builders.registry import platform_builder_registry
@@ -57,6 +58,7 @@ class ActionHandler:
         self.chat_session_manager: ChatSessionManager | None = None
         self.core_logic: CoreLogic | None = None
         self._background_tasks: set[asyncio.Task] = set()
+        self.person_service: PersonStorageService | None = None
         logger.info(f"{self.__class__.__name__} instance created.")
 
     def set_dependencies(
@@ -66,6 +68,7 @@ class ActionHandler:
         action_log_service: ActionLogStorageService,
         conversation_service: ConversationStorageService,
         action_sender: ActionSender,
+        person_service: PersonStorageService,
         chat_session_manager: "ChatSessionManager",
         core_logic: "CoreLogic",
     ) -> None:
@@ -83,6 +86,7 @@ class ActionHandler:
         self.thought_storage_service = thought_service
         self.action_log_service = action_log_service
         self.action_sender = action_sender
+        self.person_service = person_service
         self.chat_session_manager = chat_session_manager
         self.core_logic = core_logic
         self.pending_action_manager = PendingActionManager(
@@ -259,7 +263,11 @@ class ActionHandler:
             )
 
     async def _execute_platform_action_flow(
-        self, platform_id: str, action_name: str, params: dict, doc_key_for_updates: str
+        self,
+        platform_id: str,
+        action_name: str,
+        params: dict,
+        doc_key_for_updates: str
     ) -> None:
         """执行一个平台动作的完整流程：构建->发送->等待响应."""
         builder = platform_builder_registry.get_builder(platform_id)
@@ -267,7 +275,23 @@ class ActionHandler:
             logger.error(f"找不到平台 '{platform_id}' 的翻译官。")
             return
 
-        action_event = builder.build_action_event(action_name, params)
+        if not self.person_service:
+            logger.error("PersonStorageService 未注入到 ActionHandler，无法获取祂的ID！")
+            return
+
+        self_account = await self.person_service.get_self_account_for_platform(platform_id)
+        if not self_account or not self_account.get("platform_id"):
+            logger.error(f"无法为平台 '{platform_id}' 获取已安检的祂的ID。动作无法执行。")
+            # 可以在这里保存一个失败结果到思想点
+            await self.thought_storage_service.save_action_result_to_thought(
+                thought_key=doc_key_for_updates,
+                result_text=f"动作执行失败：我找不到自己在这个平台({platform_id})上的身份信息。"
+            )
+            return
+
+        correct_bot_id = self_account["platform_id"]
+
+        action_event = builder.build_action_event(action_name, params, bot_id=correct_bot_id)
         if not action_event:
             logger.error(f"平台 '{platform_id}' 的翻译官不会翻译动作 '{action_name}'。")
             return
@@ -280,14 +304,20 @@ class ActionHandler:
         )
 
     async def execute_simple_action(
-        self, platform_id: str, action_name: str, params: dict, description: str
+    self,
+    platform_id: str,
+    action_name: str,
+    params: dict,
+    bot_id: str,
+    description: str
     ) -> tuple[bool, Any]:
         """一个更简单的动作执行入口，用于内部系统调用，如专注模式."""
         builder = platform_builder_registry.get_builder(platform_id)
         if not builder:
             return False, {"error": f"找不到平台 '{platform_id}' 的翻译官。"}
 
-        action_event = builder.build_action_event(action_name, params)
+        # 将 bot_id 传递给 builder
+        action_event = builder.build_action_event(action_name, params, bot_id=bot_id)
         if not action_event:
             return False, {"error": f"平台 '{platform_id}' 的翻译官不会翻译动作 '{action_name}'。"}
 
@@ -313,12 +343,20 @@ class ActionHandler:
         timestamp = int(time.time() * 1000)
         action_to_send["timestamp"] = timestamp
 
+        # 确保 bot_id 存在于动作中
+        bot_id_for_log = action_to_send.get("bot_id")
+
+        if not bot_id_for_log:
+            # 如果真的没有，这是一个严重错误，我们必须记录下来
+            logger.error(f"严重逻辑错误：动作事件中缺少 bot_id！无法记录日志。事件: {action_to_send}")
+            bot_id_for_log = "error_missing_bot_id" # 在日志中明确记录错误
+
         await self.action_log_service.save_action_attempt(
             action_id=core_action_id,
             action_type=event_type,
             timestamp=timestamp,
+            bot_id=bot_id_for_log,
             platform=platform,
-            bot_id=action_to_send.get("bot_id", config.persona.bot_name),
             conversation_id=action_to_send.get("conversation_info", {}).get(
                 "conversation_id", "unknown_conv_id"
             ),
@@ -343,14 +381,18 @@ class ActionHandler:
         )
 
     async def system_get_bot_profile(self, adapter_id: str) -> None:
-        """系统触发获取机器人档案的动作，适用于平台适配器."""
-        logger.info(f"系统触发为适配器 '{adapter_id}' 获取机器人档案。")
+        """系统触发获取祂档案的动作，适用于平台适配器."""
+        logger.info(f"系统触发为适配器 '{adapter_id}' 获取祂的档案。")
         builder = platform_builder_registry.get_builder(adapter_id)
         if not builder:
             logger.error(f"找不到平台 '{adapter_id}' 的翻译官，无法发起上线安检！")
             return
 
-        action_event = builder.build_action_event(action_name="get_bot_profile", params={})
+        action_event = builder.build_action_event(
+            action_name="get_bot_profile",
+            params={},
+            bot_id="pending_inspection" # 这里用一个特殊的标识表示待安检状态
+        )
 
         if not action_event:
             logger.error(f"平台 '{adapter_id}' 的翻译官不会翻译 get_bot_profile 动作！")
