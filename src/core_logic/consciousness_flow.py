@@ -152,6 +152,11 @@ class CoreLogic:
                 )
                 current_level, _, current_conv_id = self._parse_focus_path(focus_path)
 
+                handover_result_to_process = None
+                if session and session.pending_handover_result:
+                    handover_result_to_process = session.pending_handover_result
+                    session.pending_handover_result = None # 用完即焚
+
                 # 如果在底层，先获取session实例
                 if current_level == "cellular" and current_conv_id:
                     session = self.chat_session_manager.sessions.get(current_conv_id)
@@ -161,6 +166,7 @@ class CoreLogic:
                 prompt_components = await self.prompt_builder.build_prompts_components(
                     focus_path=focus_path,
                     session=session,
+                    handover_result=handover_result_to_process
                 )
                 system_prompt, user_prompt, response_schema = self.prompt_builder.finalize_prompts(
                     prompt_components

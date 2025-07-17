@@ -49,7 +49,10 @@ class ThoughtPromptBuilder:
         self.is_context_switch_flag: bool = False
 
     async def build_prompts_components(
-        self, focus_path: str | None, session: Optional["ChatSession"] = None
+        self,
+        focus_path: str | None,
+        session: Optional["ChatSession"] = None,
+        handover_result: dict | None = None
     ) -> PromptComponents:
         """第一步：构建思考所需的所有组件，但不最终组装.
 
@@ -122,7 +125,16 @@ class ThoughtPromptBuilder:
             "required": ["internal_state"],
         }
 
-        # --- 组装 System Prompt 的描述部分 ---
+        # --- 2. 外部信息获取 ---
+        (
+            external_info_block,
+            meta_info_block,
+            history_components,
+        ) = await self._get_external_and_meta_info_blocks(
+            current_level, current_platform_id, current_conv_id
+        )
+
+        # --- 3. 构建 System Prompt 的组件 ---
         # 注意，这里用的是 get_level_consciousness_controls_descriptions
         # 而不是get_level_consciousness_controls_definitions
         core_ctrl_desc = core_builder.get_level_consciousness_controls_descriptions(current_level)
@@ -156,16 +168,11 @@ class ThoughtPromptBuilder:
             "available_actions": available_actions_desc or "你当前没有可用的外部行动。",
         }
 
-        # 3. 构建 User Prompt 的信息块
+        # --- 4. 构建 User Prompt 的组件 ---
         internal_info_block = await self.internal_info_builder.build_internal_info_block(
-            is_context_switch=self.is_context_switch_flag, session=session
-        )
-        (
-            external_info_block,
-            meta_info_block,
-            history_components,
-        ) = await self._get_external_and_meta_info_blocks(
-            current_level, current_platform_id, current_conv_id
+            is_context_switch=self.is_context_switch_flag,
+            session=session,
+            handover_result=handover_result
         )
 
         user_prompt_blocks = {
@@ -174,7 +181,7 @@ class ThoughtPromptBuilder:
             "internal_info_block": internal_info_block,
         }
 
-        # 4. 组装并返回 PromptComponents 数据容器
+        # 5. 组装并返回 PromptComponents 数据容器
         return PromptComponents(
             system_prompt_blocks=system_prompt_blocks,
             user_prompt_blocks=user_prompt_blocks,
@@ -367,11 +374,10 @@ class ThoughtPromptBuilder:
                 exclude_conversation_id=session.conversation_id
             )
             external_info = (
-                f"{history_components.conversation_info_block}\n"
-                f"{history_components.user_list_block}\n"
-                f"{history_components.chat_history_log_block}\n"
-                f"<unread_summary>\n{unread_summary_str or '所有其他会话均无未读消息。'}\n"
-                f"</unread_summary>"
+                f"<Conversation_Info>\n{history_components.conversation_info_block}\n</Conversation_Info>\n\n"
+                f"<user_logs>\n{history_components.user_list_block}\n</user_logs>\n\n"
+                f"<chat_history>\n{history_components.chat_history_log_block}\n</chat_history>\n\n"
+                f"<unread_summary>\n{unread_summary_str or '所有其他会话均无未读消息。'}\n</unread_summary>"
             )
 
             guidance_generator = BehavioralGuidanceGenerator(session)

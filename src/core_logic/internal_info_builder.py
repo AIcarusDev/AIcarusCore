@@ -19,102 +19,162 @@ class InternalInfoBuilder:
     它现在支持中断记忆的特殊处理，能够生成详细的被打断报告.
     """
 
+    TEMPLATE = """
+你当前的目标是：【{goal}】
+你刚才的心情是："{mood}"
+你刚才的内心想法是："{think}"
+{from_think_action}
+{and_separator}
+{from_think_consciousness_controls}
+{if_interruptions}
+{action_response}
+    """.strip()
+
     def __init__(self, thought_storage_service: ThoughtStorageService) -> None:
         self.thought_storage_service = thought_storage_service
         # 我们需要一个对 prompt_builder 的引用来获取UID映射，这个需要在 main.py 里注入
         self.prompt_builder: ThoughtPromptBuilder | None = None
 
     async def build_internal_info_block(
-        self, is_context_switch: bool, session: Optional["ChatSession"] = None
+        self,
+        is_context_switch: bool, # 注意：is_context_switch 现在主要用于控制 control 块的措辞
+        session: Optional["ChatSession"] = None,
+        handover_result: dict | None = None,
     ) -> str:
-        """构建内部信息块。这是所有内心活动报告的唯一出口."""
+        """构建内部信息块。这是所有内心活动报告的唯一出口。"""
         logger.debug(f"开始构建内部信息块... (上下文切换: {is_context_switch})")
+
         try:
-            # 1. 优先检查中断记忆，这是最高优先级的叙事
-            if session and session.interruption_context:
-                logger.info(f"[{session.conversation_id}] 检测到中断记忆，正在生成特殊报告...")
-                report = await self._build_interruption_report(session)
-                # 使用后立即清除，这是一次性记忆
-                session.interruption_context = None
-                return report
-
-            latest_thought_doc = await self.thought_storage_service.get_latest_thought_document()
-
-            # 2. 如果是上下文切换，生成特殊的“刚刚抵达”报告
-            if is_context_switch:
-                logger.info("检测到上下文切换，生成“刚刚抵达”的内部信息报告。")
-                if not latest_thought_doc:
-                    # 这是一个不应该发生的状态。如果发生，说明有严重的逻辑错误。
-                    # 我们不再静默处理，而是抛出异常，让主循环捕获它。
-                    critical_error_msg = "状态不一致：在上下文切换时，未能找到上一个思想点！"
-                    logger.critical(critical_error_msg)
-                    raise RuntimeError(critical_error_msg)
-
-                # 提取触发切换的动机
-                motivation = "未知原因"
-                control_payload = latest_thought_doc.get("action_payload", {}).get("consciousness_control")
-                if control_payload and isinstance(control_payload, dict):
-                    command, params = next(iter(control_payload.items()))
-                    motivation = params.get("motivation", f"执行 {command} 指令")
-
-                # 复用上一轮的核心状态
-                goal = latest_thought_doc.get("goal") or "无"
-                mood = latest_thought_doc.get("mood", "平静")
-                think = latest_thought_doc.get("think", "...")
-
-                # 判断是抵达平台还是会话
-                arrival_target = "这个平台"
-                if session: # 如果有 session 对象，说明已进入底层会话
-                    arrival_target = "这个会话"
-
-                lines = [
-                    f"你当前的目标是：【{goal}】",
-                    f'你刚才的心情是："{mood}"',
-                    f'你刚才的内心想法是："{think}"',
-                    f"出于这个想法，你刚刚来到{arrival_target}。",
-                    f'因为："{motivation}"'
-                ]
-                return "\n".join(lines)
-
-            # 3. 如果没有中断且不是上下文切换，走正常流程
-            if not latest_thought_doc:
-                logger.warning("思想链为空，返回初始文本。")
+            latest_thought = await self.thought_storage_service.get_latest_thought_document()
+            if not latest_thought:
                 return "你刚刚开始思考，还没有任何内部状态历史。"
 
-            goal = latest_thought_doc.get("goal") or "无"
-            mood = latest_thought_doc.get("mood", "平静")
-            think = latest_thought_doc.get("think", "...")
-            # 生成上一个动作的描述（如果有的话）
-            action_desc = self._format_previous_action(latest_thought_doc)
-            action_payload = latest_thought_doc.get("action_payload", {})
+            # 1. 初始化所有模板变量
+            template_vars = {
+                "goal": latest_thought.get("goal") or "无",
+                "mood": latest_thought.get("mood", "平静"),
+                "think": latest_thought.get("think", "..."),
+                "from_think_action": "",
+                "and_separator": "",
+                "from_think_consciousness_controls": "",
+                "if_interruptions": "",
+                "action_response": "",
+            }
 
-            # 尝试从多个潜在位置提取动机
-            motivation = None
-            if action_payload.get("napcat_qq"):
-                send_message_action = action_payload["napcat_qq"].get("send_message", {})
-                motivation = send_message_action.get("motivation")
-            if not motivation and action_payload.get("core"):
-                web_search_action = action_payload["core"].get("web_search", {})
-                motivation = web_search_action.get("motivation")
+            action_payload = latest_thought.get("action_payload", {})
+            control_payload = action_payload.get("consciousness_control")
 
-            action_result = latest_thought_doc.get("action_result")
+            # 2. 填充各个组件
+            template_vars["from_think_action"] = self._build_action_desc(action_payload)
+            template_vars["from_think_consciousness_controls"] = self._build_control_desc(
+                control_payload, is_context_switch, session
+            )
 
-            lines = [
-                f"你当前的目标是：【{goal}】",
-                f'你刚才的心情是："{mood}"',
-                f'你刚才的内心想法是："{think}"',
-                action_desc,
-            ]
-            if motivation:
-                lines.append(f'因为："{motivation}"')
-            if action_result:
-                lines.append(f"行动的结果是：{action_result}")
+            if template_vars["from_think_action"] and template_vars["from_think_consciousness_controls"]:
+                template_vars["and_separator"] = "并且，"
 
-            return "\n".join(lines)
+            if session and session.interruption_context:
+                template_vars["if_interruptions"] = await self._build_interruption_report(session)
+                session.interruption_context = None # 用完即焚
+
+            template_vars["action_response"] = self._build_action_response_desc(
+                latest_thought, handover_result
+            )
+
+            # 3. 渲染最终模板，并移除所有空行
+            rendered_string = self.TEMPLATE.format(**template_vars)
+            non_empty_lines = [line.strip() for line in rendered_string.splitlines() if line.strip()]
+
+            return "\n".join(non_empty_lines)
 
         except Exception as e:
             logger.error(f"构建内部信息块时发生严重错误: {e}", exc_info=True)
             return "<!-- 内部信息构建失败 -->"
+
+    def _build_action_desc(self, action_payload: dict | None) -> str:
+        """构建【基于想法的动作】描述。"""
+        if not action_payload:
+            return "" # 无动作，返回空
+
+        # 我们只关心 "action" 键，忽略 "consciousness_control"
+        action_part = action_payload.get("action")
+        if not action_part or not isinstance(action_part, dict):
+            # 如果没有 action 部分，或者 action 部分不是字典，就说明没做外部动作
+            return ""
+
+        # 检查是否为 "do_nothing"
+        if do_nothing_params := action_part.get("core", {}).get("do_nothing"):
+            motivation = do_nothing_params.get("motivation", "决定保持沉默")
+            return f'出于你刚才的想法，你决定不采取任何行动，因为："{motivation}"'
+
+        # 尝试解析第一个具体的动作
+        try:
+            # 遍历平台的key ('core', 'napcat_qq', etc.)
+            for platform_key, platform_actions in action_part.items():
+                if isinstance(platform_actions, dict) and platform_actions:
+                    # 找到第一个动作和它的参数
+                    action_name, action_params = next(iter(platform_actions.items()))
+                    motivation = action_params.get("motivation", "没有明确动机")
+                    # 构建描述并返回
+                    return f'出于你刚才的想法，你做了：{platform_key}.{action_name}\n因为："{motivation}"'
+        except (StopIteration, AttributeError, TypeError) as e:
+            logger.warning(f"解析动作描述时遇到非预期结构，将回退。错误: {e}, Payload: {action_part}")
+            # Fallback for unexpected structures
+
+        # 如果遍历完所有平台都没有找到有效动作，或者解析失败，提供一个无害的回退
+        return "出于你刚才的想法，你执行了一个未被详细记录的动作。"
+
+    def _build_control_desc(self, control_payload: dict | None, is_context_switch: bool, session: Optional["ChatSession"]) -> str:
+        """构建【注意力控制】描述。"""
+        if not control_payload or not is_context_switch:
+            # 只有在上下文切换时才显示此块
+            return ""
+
+        try:
+            command, params = next(iter(control_payload.items()))
+            motivation = params.get("motivation", "没有明确动机")
+
+            arrival_target = "这个地方"
+            if session:
+                arrival_target = f"这个会话({session.conversation_name or session.conversation_id})"
+            elif self.prompt_builder: # 尝试从 prompt builder 获取平台名
+                path_parts = self.prompt_builder.current_focus_path.split('.')
+                if len(path_parts) == 1:
+                    arrival_target = f"这个平台({path_parts[0]})"
+
+            return f'出于你刚才的想法，你刚刚来到{arrival_target}。\n因为："{motivation}"'
+        except (StopIteration, AttributeError):
+            return ""
+
+    def _build_action_response_desc(self, latest_thought: dict, handover_result: dict | None) -> str:
+        """构建【动作结果】描述。"""
+        action_result = latest_thought.get("action_result")
+        action_name_from_thought = None
+
+        # 优先使用交接来的结果
+        if handover_result:
+            action_result = handover_result.get("result_text")
+            action_name_from_thought = handover_result.get("action_name")
+
+        # 如果思想点本身有结果，也用它
+        elif action_result:
+            try:
+                # 尝试从思想点的 action_payload 中找到动作名称
+                action_payload = latest_thought.get("action_payload", {})
+                platform, actions = next(iter(action_payload.items()))
+                action_name_from_thought, _ = next(iter(actions.items()))
+            except (StopIteration, AttributeError):
+                action_name_from_thought = "某个动作"
+
+        if not action_result or not action_name_from_thought:
+            return ""
+
+        return (
+            f'<action_response>\n'
+            f'你刚才的行动 "{action_name_from_thought}" 成功了，返回了以下信息：\n'
+            f'{action_result}\n'
+            f'</action_response>'
+        )
 
     async def _build_interruption_report(self, session: "ChatSession") -> str:
         """根据中断记忆，构建符合您预期的、详细的被打断报告."""

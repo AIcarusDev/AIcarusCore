@@ -162,6 +162,7 @@ class ChatSession:
         """在本轮中，已经成功发送了的消息数量。"""
 
         # --- 上下文与记忆属性 ---
+        self.pending_handover_result: dict | None = None
         self.is_first_turn_for_session: bool = True
         self.initial_core_think: str | None = None
         self.initial_core_mood: str | None = None

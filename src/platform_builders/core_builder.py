@@ -133,8 +133,7 @@ class CoreBuilder(BasePlatformBuilder):
             )
         elif level == "platform":
             descs.append(
-                "    - `focus(conversation_id, motivation)`: "
-                "深入到本平台下一个具体的会话，需要提供目标会话的ID。"
+                "    - `focus(conversation_id, motivation)`: 深入到本平台下一个具体的会话，需要提供目标会话的ID。"
             )
             descs.append(self._CONSCIOUSNESS_CONTROLS_DESCRIPTIONS["return_from_platform"])
         elif level == "cellular":

@@ -4,6 +4,7 @@ import time
 import uuid
 from typing import TYPE_CHECKING, Any
 
+from src.prompt_templates.web_search import WEB_SEARCH_USER_PROMPT, WEB_SEARCH_SYSTEM_PROMPT
 from src.action.components.pending_action_manager import PendingActionManager
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
@@ -153,7 +154,10 @@ class ActionHandler:
             # 注意：当前设计依然是一次思考只执行一个平台或核心的第一个动作
             platform_actions = action_json.get("napcat_qq", {})
             core_actions = action_json.get("core", {})
-            actions_to_process = platform_actions or core_actions
+            if "web_search" in core_actions:
+                # 如果除了 web_search 还有其他核心动作，可以考虑在这里处理，但目前设计中没有
+                pass # 显式跳过
+            actions_to_process = platform_actions or {k: v for k, v in core_actions.items() if k != "web_search"}
             platform_id = "napcat_qq" if platform_actions else "core"
 
             if not actions_to_process:
@@ -166,10 +170,7 @@ class ActionHandler:
             action_name, params = next(iter(actions_to_process.items()))
 
             # 3. 根据动作类型分发执行
-            if platform_id == "core" and action_name == "web_search":
-                await self._execute_core_web_search(doc_key_for_updates, params)
-
-            elif platform_id == "napcat_qq" and action_name == "send_message":
+            if platform_id == "napcat_qq" and action_name == "send_message":
                 await self._execute_send_message_flow(doc_key_for_updates, params)
 
             else:  # 其他所有平台动作
@@ -217,30 +218,29 @@ class ActionHandler:
 
         logger.info(f"[{session.conversation_id}] 消息发送流程已提交到后台执行。")
 
-    async def _execute_core_web_search(self, doc_key_for_updates: str, params: dict) -> None:
-        """执行核心的网页搜索动作，并保存结果."""
-        await self.initialize_llm_clients()  # 确保客户端已初始化
+    async def _execute_core_web_search(self, params: dict) -> str:
+        """【已重构】执行核心的网页搜索动作，并直接返回结果字符串。"""
+        await self.initialize_llm_clients()
         query = params.get("query")
         motivation = params.get("motivation", "没有明确动机")
 
         if not query or not self.web_search_agent_client:
             result_text = "动作执行失败：LLM想搜索但没提供关键词，或者搜索代理客户端未初始化。"
             logger.warning(result_text)
-        else:
-            logger.info(f"正在调用搜索代理LLM，查询: '{query}'")
-            search_prompt = f"""请根据以下意图，使用谷歌搜索并总结最相关的信息：
-意图：{query}
-动机：{motivation}"""
-            response = await self.web_search_agent_client.make_llm_request(
-                prompt=search_prompt, is_stream=False, use_google_search=True
-            )
-            result_text = response.get("text", "搜索失败或未返回任何信息。")
+            return result_text
 
-        # 将结果保存回思想点
-        if self.thought_storage_service:
-            await self.thought_storage_service.save_action_result_to_thought(
-                thought_key=doc_key_for_updates, result_text=result_text
-            )
+        logger.info(f"正在调用搜索代理LLM，查询: '{query}'")
+
+        system_prompt = WEB_SEARCH_SYSTEM_PROMPT.format(bot_name=config.persona.bot_name)
+        user_prompt = WEB_SEARCH_USER_PROMPT.format(query=query, motivation=motivation)
+
+        response = await self.web_search_agent_client.make_llm_request(
+            prompt=user_prompt,
+            system_prompt=system_prompt,
+            is_stream=False,
+            use_google_search=True
+        )
+        return response.get("text", "搜索失败或未返回任何信息。")
 
     async def _execute_platform_action_flow(
         self,
@@ -284,12 +284,12 @@ class ActionHandler:
         )
 
     async def execute_simple_action(
-    self,
-    platform_id: str,
-    action_name: str,
-    params: dict,
-    bot_id: str,
-    description: str
+        self,
+        platform_id: str,
+        action_name: str,
+        params: dict,
+        bot_id: str,
+        description: str
     ) -> tuple[bool, Any]:
         """一个更简单的动作执行入口，用于内部系统调用，如专注模式."""
         builder = platform_builder_registry.get_builder(platform_id)

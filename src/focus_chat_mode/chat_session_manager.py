@@ -229,6 +229,10 @@ class ChatSessionManager:
         command, params = next(iter(control_json.items()))
         motivation = params.get("motivation", "没有明确动机")
 
+        handover_result = params.pop("_handover_action_result", None)
+        if handover_result:
+            logger.info(f"在注意力控制指令中发现了交接的动作结果: {handover_result['action_name']}")
+
         if command == "focus":
             target_id = params.get("platform_id") or params.get("conversation_id")
             if not target_id:

@@ -234,17 +234,58 @@ class QQBuilder(BasePlatformBuilder):
                 "properties": {
                     "steps": {
                         "type": "array",
+                        "description": "构建消息的指令序列",
                         "items": {
-                            "type": "object",
-                            "properties": {
-                                "command": {
-                                    "type": "string",
-                                    "enum": ["text", "at", "reply", "send_and_break"],
+                            "oneOf": [
+                                {
+                                    "type": "object",
+                                    "title": "TextStep",
+                                    "properties": {
+                                        "command": {"const": "text", "description": "发送纯文本"},
+                                        "params": {
+                                            "type": "object",
+                                            "properties": {"text": {"type": "string"}},
+                                            "required": ["text"]
+                                        }
+                                    },
+                                    "required": ["command", "params"]
                                 },
-                                "params": {"type": "object"},
-                            },
-                            "required": ["command"],
-                        },
+                                {
+                                    "type": "object",
+                                    "title": "AtStep",
+                                    "properties": {
+                                        "command": {"const": "at", "description": "@某人"},
+                                        "params": {
+                                            "type": "object",
+                                            "properties": {"at": {"type": "string", "description": "对方的ID"}},
+                                            "required": ["at"]
+                                        }
+                                    },
+                                    "required": ["command", "params"]
+                                },
+                                {
+                                    "type": "object",
+                                    "title": "ReplyStep",
+                                    "properties": {
+                                        "command": {"const": "reply", "description": "回复某条消息"},
+                                        "params": {
+                                            "type": "object",
+                                            "properties": {"reply": {"type": "string", "description": "被回复消息的ID"}},
+                                            "required": ["reply"]
+                                        }
+                                    },
+                                    "required": ["command", "params"]
+                                },
+                                {
+                                    "type": "object",
+                                    "title": "SendAndBreakStep",
+                                    "properties": {
+                                        "command": {"const": "send_and_break", "description": "发送当前内容"}
+                                    },
+                                    "required": ["command"]
+                                }
+                            ]
+                        }
                     },
                     "motivation": {"type": "string"},
                 },
