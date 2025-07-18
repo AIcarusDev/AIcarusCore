@@ -49,18 +49,20 @@ async def process_llm_decision(
     action_payload = decision_json.get("action")
     control_payload = decision_json.get("consciousness_control")
 
-    # --- 识别动作类型 ---
     action_category = "none"
     action_details = {}
 
-    if action_payload:
-        if action_payload.get("core", {}).get("web_search"):
+    if action_payload and isinstance(action_payload, dict):
+        # 检查泛用有结果类 (如web_search)
+        if web_search_params := action_payload.get("core", {}).get("web_search"):
             action_category = "generic_with_result"
-            action_details = {"name": "web_search", "params": action_payload["core"]["web_search"]}
-        elif action_payload.get("napcat_qq", {}).get("get_list"):
+            action_details = {"name": "web_search", "params": web_search_params}
+        # 检查层级限定有结果类 (如get_list)
+        elif get_list_params := action_payload.get("napcat_qq", {}).get("get_list"):
             action_category = "level_restricted_with_result"
-            action_details = {"name": "get_list", "params": action_payload["napcat_qq"]["get_list"]}
-        elif action_payload: # 其他所有动作（如 send_message, do_nothing）都归为此类
+            action_details = {"name": "get_list", "params": get_list_params}
+        # 其他所有情况都归为即做即走类
+        elif action_payload:
             action_category = "do_and_go"
 
     # --- 根据动作类型和意识控制的存在，执行不同策略 ---
@@ -68,17 +70,11 @@ async def process_llm_decision(
     # 策略 1: 处理【泛用有结果类】动作 (如 web_search)
     if action_category == "generic_with_result":
         logger.info("检测到 [泛用有结果类] 动作 (web_search)，执行'先取结果'策略。")
-
-        # 1a. 先执行动作，拿到结果
         search_result_text = await action_handler._execute_core_web_search(action_details["params"])
-
-        # 1b. 将结果保存到原始思想点
         await action_handler.thought_storage_service.save_action_result_to_thought(
             thought_key=source_thought_key,
             result_text=search_result_text
         )
-
-        # 1c. 如果同时有意识控制，将结果作为“行李”传递
         if control_payload:
             logger.info("检测到意识控制，将携带搜索结果进行注意力转移。")
             command, params = next(iter(control_payload.items()))
@@ -88,7 +84,6 @@ async def process_llm_decision(
             }
             await focus_manager.handle_consciousness_control(control_payload)
         else:
-            # 如果没有意识控制，就地触发思考
             if action_handler.thought_trigger:
                 action_handler.thought_trigger.set()
 
@@ -109,13 +104,11 @@ async def process_llm_decision(
     # 策略 3: 处理【即做即走类】动作 (如 send_message)
     elif action_category == "do_and_go":
         logger.info("检测到 [即做即走类] 动作。")
-        # 3a. 先把动作丢给 ActionHandler，它内部会用 create_task 非阻塞执行
         await action_handler.process_action_flow(
             action_id=source_action_id,
             doc_key_for_updates=source_thought_key,
             action_json=action_payload,
         )
-        # 3b. 然后，如果存在意识控制，立即执行
         if control_payload:
             logger.info("在执行'即做即走'动作后，立即执行意识控制。")
             await focus_manager.handle_consciousness_control(control_payload)

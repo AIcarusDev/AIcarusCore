@@ -150,16 +150,23 @@ class CoreLogic:
                     if self.chat_session_manager
                     else None
                 )
+                # 更新 internal_info_builder 中的路径
+                if self.prompt_builder and self.prompt_builder.internal_info_builder:
+                    self.prompt_builder.internal_info_builder.current_focus_path = focus_path
+
                 current_level, _, current_conv_id = self._parse_focus_path(focus_path)
 
+                # 根据解析出的路径，提前获取 session 实例
+                if current_level == "cellular" and current_conv_id:
+                    session = self.chat_session_manager.sessions.get(current_conv_id)
+                else:
+                    session = None
+
+                # 现在可以安全地检查 pending_handover_result 了
                 handover_result_to_process = None
                 if session and session.pending_handover_result:
                     handover_result_to_process = session.pending_handover_result
-                    session.pending_handover_result = None # 用完即焚
-
-                # 如果在底层，先获取session实例
-                if current_level == "cellular" and current_conv_id:
-                    session = self.chat_session_manager.sessions.get(current_conv_id)
+                    session.pending_handover_result = None  # 用完即焚
 
                 # 2. 构建思考所需的所有材料
                 # 注意：如果在底层会话中，prompt_builder 会自动处理会话上下文

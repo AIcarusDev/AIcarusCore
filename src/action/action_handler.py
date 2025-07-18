@@ -154,19 +154,14 @@ class ActionHandler:
             # 注意：当前设计依然是一次思考只执行一个平台或核心的第一个动作
             platform_actions = action_json.get("napcat_qq", {})
             core_actions = action_json.get("core", {})
-            if "web_search" in core_actions:
-                # 如果除了 web_search 还有其他核心动作，可以考虑在这里处理，但目前设计中没有
-                pass # 显式跳过
             actions_to_process = platform_actions or {k: v for k, v in core_actions.items() if k != "web_search"}
-            platform_id = "napcat_qq" if platform_actions else "core"
 
+            # 如果没有动作需要处理，直接返回
             if not actions_to_process:
                 logger.info("AI决策的动作对象为空，无需执行。")
-                await self.thought_storage_service.save_action_result_to_thought(
-                    thought_key=doc_key_for_updates, result_text="决策中未包含任何行动指令。"
-                )
                 return
-
+            # 如果有多个动作，取第一个动作作为主要动作
+            platform_id = "napcat_qq" if platform_actions else "core"
             action_name, params = next(iter(actions_to_process.items()))
 
             # 3. 根据动作类型分发执行
@@ -175,11 +170,14 @@ class ActionHandler:
 
             else:  # 其他所有平台动作
                 await self._execute_platform_action_flow(
-                    platform_id, action_name, params, doc_key_for_updates
+                    platform_id,
+                    action_name,
+                    params,
+                    doc_key_for_updates
                 )
 
         finally:
-            # 4. 无论发生什么，最后都触发一次思考循环
+            # 4. 处理完所有动作后，触发思考
             if self.thought_trigger:
                 logger.info(f"行动流程处理完毕 (Action ID: {action_id})，触发思考。")
                 self.thought_trigger.set()
