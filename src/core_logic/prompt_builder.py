@@ -2,6 +2,7 @@ import time
 import json
 from typing import TYPE_CHECKING, Any, Optional
 
+from src.common.utils import parse_focus_path
 from src.common.custom_logging.logging_config import get_logger
 from src.common.focus_chat_history_builder.chat_history_formatter import format_chat_history_for_llm
 from src.common.time_utils import get_formatted_time_for_llm
@@ -58,7 +59,7 @@ class ThoughtPromptBuilder:
 
         返回一个 PromptComponents 数据容器对象.
         """
-        current_level, current_platform_id, current_conv_id = self._parse_focus_path(focus_path)
+        current_level, current_platform_id, current_conv_id = parse_focus_path(focus_path)
 
         builder = platform_builder_registry.get_builder(current_platform_id)
         core_builder = platform_builder_registry.get_builder("core")
@@ -256,24 +257,8 @@ class ThoughtPromptBuilder:
         )
         return history_components.last_valid_text_message
 
-    def _parse_focus_path(self, focus_path: str | None) -> tuple[str, str, str | None]:
-        """解析焦点路径，返回层级、平台ID和会话ID."""
-        if focus_path and focus_path != "core":
-            path_parts = focus_path.split(".")
-            current_platform_id = path_parts[0]
-            if len(path_parts) >= 2:
-                current_level = "cellular"
-                current_conv_id = ".".join(path_parts[1:])
-            else:
-                current_level = "platform"
-                current_conv_id = None
-        else:
-            current_level = "core"
-            current_platform_id = "core"
-            current_conv_id = None
-        return current_level, current_platform_id, current_conv_id
-
     def _get_persona_block(self) -> str:
+        """获取当前机器人的人格化描述信息."""
         return (
             f'你是"{config.persona.bot_name}"；\n'
             f"{config.persona.description}\n"
@@ -285,7 +270,10 @@ class ThoughtPromptBuilder:
         return await self.core_ws_server.get_connected_platforms_info()
 
     async def _get_current_state_block(
-        self, level: str, platform_id: str, conv_id: str | None
+        self,
+        level: str,
+        platform_id: str,
+        conv_id: str | None
     ) -> str:
         """获取当前状态的描述信息."""
         if level == "core":

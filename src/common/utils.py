@@ -600,3 +600,32 @@ def format_messages_for_llm_context(
             return "格式化聊天记录为YAML时出错。", []
 
     return "错误的格式化风格参数。", []
+
+def parse_focus_path(focus_path: str | None) -> tuple[str, str, str | None]:
+    """
+    一个可复用的工具函数，用于解析焦点路径字符串。
+
+    Args:
+        focus_path: 当前的焦点路径，例如 "core", "napcat_qq", "napcat_qq.123456"。
+
+    Returns:
+        一个包含 (层级, 平台ID, 会话ID) 的元组。
+        - 层级: 'core', 'platform', 或 'cellular'。
+        - 平台ID: 例如 'core', 'napcat_qq'。
+        - 会话ID: 如果在底层，则为会话ID字符串；否则为 None。
+    """
+    if focus_path and focus_path != "core":
+        path_parts = focus_path.split(".")
+        current_platform_id = path_parts[0]
+        if len(path_parts) >= 2:
+            current_level = "cellular"
+            # 修复：会话ID可能是由多个部分组成的，例如 "private.123456"
+            current_conv_id = ".".join(path_parts[1:])
+        else:
+            current_level = "platform"
+            current_conv_id = None
+    else:
+        current_level = "core"
+        current_platform_id = "core"
+        current_conv_id = None
+    return current_level, current_platform_id, current_conv_id

@@ -20,7 +20,7 @@ class InternalInfoBuilder:
     """
 
     TEMPLATE = """
-你当前的目标是：【{goal}】
+你当前的目标是："{goal}"
 你刚才的心情是："{mood}"
 你刚才的内心想法是："{think}"
 {from_think_action}
@@ -139,7 +139,7 @@ class InternalInfoBuilder:
         return "\n".join(lines)
 
     def _format_planned_action(self, thought_doc: dict) -> str:
-        """【新增辅助方法】专门格式化【计划中】的动作描述，用于中断报告。"""
+        """【已升级】专门格式化【计划中】的动作描述，能精确复述计划的发言内容。"""
         action_payload = thought_doc.get("action_payload", {})
         action_part = action_payload.get("action")
         control_part = action_payload.get("consciousness_control")
@@ -154,12 +154,25 @@ class InternalInfoBuilder:
                     for platform_key, platform_actions in action_part.items():
                         if isinstance(platform_actions, dict) and platform_actions:
                             action_name, action_params = next(iter(platform_actions.items()))
+
                             if platform_key == "napcat_qq" and action_name == "send_message":
-                                planned_count = thought_doc.get("messages_planned", 0)
                                 steps = action_params.get("steps", [])
-                                texts = [s["params"]["text"] for s in steps if s.get("command") == "text" and s.get("params", {}).get("text")]
-                                text_preview = "、".join(f'“{t}”' for t in texts)
-                                descriptions.append(f"你本来想发言（计划发送 {planned_count} 条消息，内容大概是：{text_preview}）。")
+                                texts = []
+                                if isinstance(steps, list):
+                                    for s in steps:
+                                        if (isinstance(s, dict)
+                                            and s.get("command") == "text"
+                                            and (text := s.get("params", {}).get("text"))
+                                            and isinstance(text, str)):
+                                            texts.append(text)
+
+                                if not texts:
+                                    descriptions.append("你本来想发送一条非文本消息。")
+                                elif len(texts) == 1:
+                                    descriptions.append(f'你本来想做：发言（发言内容为：“{texts[0]}”）')
+                                else:
+                                    formatted_texts = "、".join(f'“{t}”' for t in texts)
+                                    descriptions.append(f'你本来想做：发言（发言内容依次为：{formatted_texts}）')
                             else:
                                 descriptions.append(f"你本来想做：{platform_key}.{action_name}。")
                 except (StopIteration, AttributeError, TypeError):
@@ -195,26 +208,42 @@ class InternalInfoBuilder:
 
         # 尝试解析第一个具体的动作
         try:
-            # 遍历平台的key ('core', 'napcat_qq', etc.)
+            # 只处理第一个平台的第一个动作
             for platform_key, platform_actions in action_part.items():
                 if isinstance(platform_actions, dict) and platform_actions:
-                    # 找到第一个动作和它的参数
                     action_name, action_params = next(iter(platform_actions.items()))
-                    # 【关键修复】确保 action_params 是字典
-                    if isinstance(action_params, dict):
-                        motivation = action_params.get("motivation", "没有明确动机")
-                        return f'出于你刚才的想法，你做了：{platform_key}.{action_name}\n因为："{motivation}"'
-                    else:
-                        # 这种情况不应该发生，但作为保护
-                        logger.warning(f"解析动作参数时发现非字典类型: {action_params}")
+
+                    if not isinstance(action_params, dict):
                         return f'出于你刚才的想法，你做了：{platform_key}.{action_name}（参数格式异常）。'
+
+                    motivation = action_params.get("motivation", "没有明确动机")
+
+                    # 特殊处理 send_message
+                    if platform_key == "napcat_qq" and action_name == "send_message":
+                        steps = action_params.get("steps", [])
+                        texts = []
+                        if isinstance(steps, list):
+                            for step in steps:
+                                if (isinstance(step, dict)
+                                    and step.get("command") == "text"
+                                    and (text := step.get("params", {}).get("text"))
+                                    and isinstance(text, str)):
+                                    texts.append(text)
+
+                        if not texts:
+                            return f'出于你刚才的想法，你发送了一条非文本消息\n因为："{motivation}"'
+                        elif len(texts) == 1:
+                            return f'出于你刚才的想法，你做了：发言（发言内容为：“{texts[0]}”）\n因为："{motivation}"'
+                        else:
+                            formatted_texts = "、".join(f'“{t}”' for t in texts)
+                            return f'出于你刚才的想法，你做了：发言（发言内容依次为：{formatted_texts}）\n因为："{motivation}"'
+
+                    return f'出于你刚才的想法，你做了：{platform_key}.{action_name}\n因为："{motivation}"'
 
         except (StopIteration, AttributeError, TypeError) as e:
             logger.warning(f"解析动作描述时遇到非预期结构，将回退。错误: {e}, Payload: {action_part}")
 
-        # 如果遍历完所有平台都没有找到有效动作，或者解析失败，提供一个无害的回退
         return "出于你刚才的想法，你执行了一个未被详细记录的动作。"
-
     def _build_control_desc(self, control_payload: dict | None, is_context_switch: bool, session: Optional["ChatSession"]) -> str:
         """构建【注意力控制】描述。"""
         if not control_payload or not is_context_switch:
@@ -270,22 +299,3 @@ class InternalInfoBuilder:
                 f'你刚才的行动 "{action_name}" 成功了，返回了以下信息：\n'
                 f'{action_result_text}\n'
                 f'</action_response>')
-
-    def _format_previous_action(self, thought_doc: dict) -> str:
-        """格式化【已完成】的动作描述."""
-        action_payload = thought_doc.get("action_payload")
-        if not action_payload or not action_payload.get("napcat_qq"):  # 简化，只处理QQ平台的
-            return "出于这个想法，你决定不采取任何行动。"
-
-        action_data = action_payload.get("napcat_qq")
-        action_name = next(iter(action_data))
-
-        if action_name == "send_message":
-            sent_count = thought_doc.get("messages_sent", 0)
-            if sent_count > 0:
-                # 未来可以做得更精细，把发送内容也记录下来
-                return f"出于这个想法，你做了：发言（并且发送了 {sent_count} 条消息）"
-            else:
-                return "出于这个想法，你最终决定不发言。"
-        else:
-            return f"出于这个想法，你做了：{action_name}"

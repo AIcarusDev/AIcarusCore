@@ -130,6 +130,10 @@ class ChatSession:
         self.conversation_type: str = conversation_type
         self.conversation_name: str | None = None
         self.core_logic = core_logic
+        self.interrupt_signal = asyncio.Event()
+        """一个专属于此会话的中断信号旗。当被设置时，表示一个高优先级中断已发生。"""
+        self._interrupt_checker_task: asyncio.Task | None = None
+        """存储常驻的后台中断检查任务。"""
         self.chat_session_manager = chat_session_manager
         self.conversation_service = conversation_service
         self.summarization_service = summarization_service
@@ -146,6 +150,10 @@ class ChatSession:
         self.last_processed_timestamp: float = 0.0
         self.processing_lock = asyncio.Lock()
         self.background_tasks: set[asyncio.Task] = set()
+        self._echo_events: dict[str, asyncio.Event] = {}
+        """存储正在等待回声的动作ID及其对应的唤醒事件。"""
+        self._echo_lock = asyncio.Lock()
+        """用于保护对 _echo_events 字典的并发访问。"""
 
         # --- 行为计数器 ---
         self.no_action_count: int = 0
@@ -196,6 +204,7 @@ class ChatSession:
                 f"no_action_count 增加为: {self.no_action_count}"
             )
 
+
     async def update_counters_on_new_events(self) -> None:
         """根据新消息重置计数器."""
         new_events = await self.event_storage.get_message_events_after_timestamp(
@@ -228,6 +237,32 @@ class ChatSession:
                     f"重置 no_action_count (之前是 {self.no_action_count})。"
                 )
                 self.no_action_count = 0
+
+    async def wait_for_echo(self, action_id: str, timeout: float = 20.0) -> bool:
+        """为指定的 action_id 等待一个回声。"""
+        wake_up_event = asyncio.Event()
+        async with self._echo_lock:
+            self._echo_events[action_id] = wake_up_event
+
+        logger.info(f"[{self.conversation_id}] 动作 '{action_id}' 已进入回声等待室，等待适配器回音...")
+
+        try:
+            await asyncio.wait_for(wake_up_event.wait(), timeout=timeout)
+            logger.success(f"[{self.conversation_id}] 动作 '{action_id}' 已收到回声！")
+            return True
+        except asyncio.TimeoutError:
+            logger.warning(f"[{self.conversation_id}] 等待动作 '{action_id}' 的回声超时！")
+            return False
+        finally:
+            async with self._echo_lock:
+                self._echo_events.pop(action_id, None)
+
+    async def signal_echo_received(self, action_id: str) -> None:
+        """由 MessageProcessor 调用，通知一个回声已经到达。"""
+        async with self._echo_lock:
+            if event_to_wake := self._echo_events.get(action_id):
+                event_to_wake.set()
+                logger.debug(f"[{self.conversation_id}] 已为动作 '{action_id}' 发出唤醒信号。")
 
     async def get_bot_profile(self) -> dict[str, Any]:
         """智能获取祂的档案，优先使用缓存，再查数据库."""
@@ -279,3 +314,42 @@ class ChatSession:
             return details
 
         return self.conversation_details_cache or {}
+
+    def start_interrupt_checker(self) -> None:
+        """启动常驻的后台中断检查任务。"""
+        if self._interrupt_checker_task and not self._interrupt_checker_task.done():
+            logger.warning(f"[{self.conversation_id}] 尝试启动中断检查器，但它已在运行。")
+            return
+
+        logger.info(f"[{self.conversation_id}] 启动常驻后台中断检查哨兵...")
+        # 我们将 core_logic 中的 _check_for_interruptions 逻辑绑定到这个会话实例上
+        # 注意：这里我们直接把 self (ChatSession 实例) 传给了检查器
+        self._interrupt_checker_task = asyncio.create_task(
+            self.core_logic._check_for_interruptions_task(self)
+        )
+        # 添加一个回调，以便在任务意外结束时记录日志
+        self._interrupt_checker_task.add_done_callback(self._on_interrupt_checker_done)
+
+    async def stop_interrupt_checker(self) -> None:
+        """停止常驻的后台中断检查任务。"""
+        if self._interrupt_checker_task and not self._interrupt_checker_task.done():
+            logger.info(f"[{self.conversation_id}] 停止常驻后台中断检查哨兵...")
+            self._interrupt_checker_task.cancel()
+            try:
+                await self._interrupt_checker_task
+            except asyncio.CancelledError:
+                pass # 正常取消
+            logger.info(f"[{self.conversation_id}] 中断检查哨兵已停止。")
+        self._interrupt_checker_task = None
+
+    def _on_interrupt_checker_done(self, task: asyncio.Task) -> None:
+        """中断检查任务结束时的回调。"""
+        try:
+            task.result() # 检查是否有异常
+        except asyncio.CancelledError:
+            pass # 正常取消，无需记录
+        except Exception as e:
+            logger.error(
+                f"[{self.conversation_id}] 后台中断检查任务意外终止: {e}",
+                exc_info=e
+            )

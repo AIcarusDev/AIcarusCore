@@ -7,6 +7,7 @@ import time
 import uuid
 from typing import TYPE_CHECKING, Optional
 
+from src.common.utils import parse_focus_path
 from aicarus_protocols import Event, Seg, extract_text_from_content
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logging_config import get_logger
@@ -151,10 +152,7 @@ class CoreLogic:
                     else None
                 )
                 # 更新 internal_info_builder 中的路径
-                if self.prompt_builder and self.prompt_builder.internal_info_builder:
-                    self.prompt_builder.internal_info_builder.current_focus_path = focus_path
-
-                current_level, _, current_conv_id = self._parse_focus_path(focus_path)
+                current_level, _, current_conv_id = parse_focus_path(focus_path)
 
                 # 根据解析出的路径，提前获取 session 实例
                 if current_level == "cellular" and current_conv_id:
@@ -167,6 +165,9 @@ class CoreLogic:
                 if session and session.pending_handover_result:
                     handover_result_to_process = session.pending_handover_result
                     session.pending_handover_result = None  # 用完即焚
+
+                if session and not session._interrupt_checker_task:
+                    session.start_interrupt_checker()
 
                 # 2. 构建思考所需的所有材料
                 # 注意：如果在底层会话中，prompt_builder 会自动处理会话上下文
@@ -183,43 +184,33 @@ class CoreLogic:
 
                 # 3. 如果在底层会话中，启动中断检查器
                 # 注意：这个检查器是非阻塞的，它会在后台持续运行，
-                if session:  # session存在，说明在底层
-                    logger.info(f"[{session.conversation_id}] 将受到中断检查。")
+                if session:
+                    logger.info(f"[{session.conversation_id}] 思考将受到中断信号监控。")
+
+                    # 清除旧的信号，准备监听新的
+                    session.interrupt_signal.clear()
 
                     llm_task = asyncio.create_task(
-                        self.thought_generator.generate_thought(
-                            system_prompt=system_prompt,
-                            user_prompt=user_prompt,
-                            image_inputs=prompt_components.image_references,
-                            response_schema=response_schema,
-                        )
+                        self.thought_generator.generate_thought(...)
                     )
 
-                    interrupt_checker_task = asyncio.create_task(
-                        self._check_for_interruptions(
-                            session, prompt_components.last_valid_text_message
-                        )
-                    )
+                    # 监听中断信号，而不是临时任务
+                    interrupt_listener_task = asyncio.create_task(session.interrupt_signal.wait())
 
                     done, pending = await asyncio.wait(
-                        [llm_task, interrupt_checker_task], return_when=asyncio.FIRST_COMPLETED
+                        [llm_task, interrupt_listener_task], return_when=asyncio.FIRST_COMPLETED
                     )
 
-                    if interrupt_checker_task in done:
+                    if interrupt_listener_task in done:
                         llm_task.cancel()
-                        interrupting_event = await interrupt_checker_task
-                        if interrupting_event:
-                            session.interruption_context = {
-                                "was_interrupted_while_thinking": True,
-                                "interrupting_event_doc": interrupting_event,
-                            }
-                        logger.info(
-                            f"[{session.conversation_id}] 思考被中断，将立即进入下一轮循环。"
-                        )
-                        continue
+                        # 从会话的 context 中获取中断事件
+                        if session.interruption_context:
+                            session.interruption_context["was_interrupted_while_thinking"] = True
+                        logger.info(f"[{session.conversation_id}] 思考被中断，立即进入下一轮。")
+                        continue # 直接进入下一轮循环
 
                     if llm_task in done:
-                        interrupt_checker_task.cancel()
+                        interrupt_listener_task.cancel() # 取消监听器
                         generated_thought_json = await llm_task
                 else:
                     # 不在底层，正常思考
@@ -257,32 +248,17 @@ class CoreLogic:
 
         logger.info(f"--- {config.persona.bot_name} 的统一意识流已停止 ---")
 
-    def _parse_focus_path(self, focus_path: str | None) -> tuple[str, str, str | None]:
-        """解析焦点路径，返回层级、平台ID和会话ID."""
-        if focus_path and focus_path != "core":
-            path_parts = focus_path.split(".")
-            current_platform_id = path_parts[0]
-            if len(path_parts) >= 2:
-                current_level = "cellular"
-                current_conv_id = ".".join(path_parts[1:])  # 修复：会话ID可能也包含点
-            else:
-                current_level = "platform"
-                current_conv_id = None
-        else:
-            current_level = "core"
-            current_platform_id = "core"
-            current_conv_id = None
-        return current_level, current_platform_id, current_conv_id
 
-    async def _check_for_interruptions(
-        self,
-        session: "ChatSession",
-        context_text: str | None
-    ) -> dict | None:
-        """一个独立的、非阻塞的中断检查器。它会快速检查是否有高优先级的新消息."""
-        while True:  # 它会一直检查，直到被外部取消
-            try:
-                # 只检查最近的、未读的消息
+    async def _check_for_interruptions_task(self, session: "ChatSession") -> None:
+        """
+        中断检查任务.
+        这个任务会持续运行，直到 stop_event 被设置或会话被关闭。
+        它会检查新消息是否满足中断条件，并在满足条件时设置中断信号。
+        """
+        logger.info(f"[{session.conversation_id}] 将受到中断检查。")
+        # 这个任务会持续运行，直到 stop_event 被设置或会话被关闭
+        try:
+            while not self.stop_event.is_set():
                 new_events = await session.event_storage.get_message_events_after_timestamp(
                     session.conversation_id,
                     session.last_processed_timestamp,
@@ -290,59 +266,46 @@ class CoreLogic:
                     status="unread",
                 )
                 if not new_events:
-                    await asyncio.sleep(0.5)  # 没有新消息就稍微休息一下
+                    await asyncio.sleep(0.5)
                     continue
 
                 bot_profile = await session.get_bot_profile()
                 current_bot_id = str(bot_profile.get("user_id") or session.bot_id)
+                context_text = await self.prompt_builder.get_last_valid_text_message(session.conversation_id)
 
                 for event_doc in new_events:
                     sender_id = event_doc.get("user_info", {}).get("user_id")
                     if sender_id and str(sender_id) == current_bot_id:
-                        continue  # 忽略自己发的消息
-
-                    # 格式化消息以供IIS判断
+                        continue
+                    # 只处理文本内容
                     text_content = extract_text_from_content(
                         [Seg.from_dict(c) for c in event_doc.get("content", [])]
                     )
-
                     message_to_check = {"speaker_id": str(sender_id), "text": text_content}
 
-                    if not message_to_check.get("text"):
-                        continue
+                    if not message_to_check.get("text"): continue
 
                     if session.intelligent_interrupter.should_interrupt(
                         new_message=message_to_check,
                         context_message_text=context_text,
                     ):
-                        logger.info(
-                            f"[{session.conversation_id}] IIS决策：中断！"
-                            f"元凶ID: {event_doc.get('_key')}"
-                        )
+                        logger.info(f"[{session.conversation_id}] IIS决策：中断！元凶ID: {event_doc.get('_key')}")
+                        session.interruption_context = {
+                            "interrupting_event_doc": event_doc
+                        }
+                        # 设置中断信号
+                        session.interrupt_signal.set()
+                        # 如果会话有专属的中断检查任务，取消它
+                        return
 
-                        # 关键：将中断事件标记为已读，并更新时间戳，避免下次还把它当新的
-                        await session.event_storage.update_events_status(
-                            [event_doc.get("_key")], "read"
-                        )
-                        session.last_processed_timestamp = event_doc.get(
-                            "timestamp", time.time() * 1000
-                        )
-
-                        return event_doc  # 找到元凶，返回它的档案，任务完成
-
-                # 如果检查了一轮没发现需要中断的，就更新时间戳，只看比最新消息还新的
-                session.last_processed_timestamp = new_events[-1].get(
-                    "timestamp", time.time() * 1000
-                )
+                session.last_processed_timestamp = new_events[-1].get("timestamp", time.time() * 1000)
                 await asyncio.sleep(0.5)
-
-            except asyncio.CancelledError:
-                return None  # 被取消时，安静地退出
-            except Exception as e:
-                logger.error(
-                    f"[{session.conversation_id}] 中断检查器内部发生错误: {e}", exc_info=True
-                )
-                await asyncio.sleep(2)
+        except asyncio.CancelledError:
+            pass # 正常取消
+        except Exception as e:
+            logger.error(f"[{session.conversation_id}] 中断检查发生错误: {e}", exc_info=True)
+        finally:
+            logger.info(f"[{session.conversation_id}] 中断检查任务结束。")
 
     async def _process_and_dispatch_thought(
         self, thought_json: dict, focus_path: str | None, session: Optional["ChatSession"]

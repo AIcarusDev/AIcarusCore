@@ -15,5 +15,5 @@ WEB_SEARCH_USER_PROMPT = """
 {query}
 
 **搜索动机:**
-{motivation}s
+{motivation}
 """

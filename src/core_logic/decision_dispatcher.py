@@ -1,8 +1,9 @@
-# D:\Aic\AIcarusCore\src\core_logic\decision_dispatcher.py
-
+# src\core_logic\decision_dispatcher.py
+import asyncio
 from typing import TYPE_CHECKING
 
 from src.common.custom_logging.logging_config import get_logger
+from src.action.components.message_builder import MessageBuilder
 
 if TYPE_CHECKING:
     from src.action.action_handler import ActionHandler
@@ -61,6 +62,10 @@ async def process_llm_decision(
         elif get_list_params := action_payload.get("napcat_qq", {}).get("get_list"):
             action_category = "level_restricted_with_result"
             action_details = {"name": "get_list", "params": get_list_params}
+        # 检查回声类 (如send_message)
+        elif send_message_params := action_payload.get("napcat_qq", {}).get("send_message"):
+            action_category = "echoic"
+            action_details = {"name": "send_message", "params": send_message_params}
         # 其他所有情况都归为即做即走类
         elif action_payload:
             action_category = "do_and_go"
@@ -101,7 +106,7 @@ async def process_llm_decision(
             action_json=action_payload,
         )
 
-    # 策略 3: 处理【即做即走类】动作 (如 send_message)
+    # 策略 3: 处理【即做即走类】动作 (如 poke)
     elif action_category == "do_and_go":
         logger.info("检测到 [即做即走类] 动作。")
         await action_handler.process_action_flow(
@@ -112,6 +117,44 @@ async def process_llm_decision(
         if control_payload:
             logger.info("在执行'即做即走'动作后，立即执行意识控制。")
             await focus_manager.handle_consciousness_control(control_payload)
+
+    elif action_category == "echoic":
+        logger.info("检测到 [回声类] 动作 (send_message)，将等待回声后触发思考。")
+
+        # a. 确认我们在底层会话中
+        path_parts = focus_manager.current_focus_path.split('.')
+        if len(path_parts) < 2:
+            logger.error("回声类动作只能在底层会话中执行！")
+            return
+        conv_id = path_parts[-1]
+        session = focus_manager.sessions.get(conv_id)
+        if not session:
+            logger.error(f"找不到会话 {conv_id}，无法执行 send_message。")
+            return
+
+        # b. 如果同时有意识控制，这是矛盾行为，优先执行回声动作
+        if control_payload:
+            logger.warning(
+                f"检测到 [回声类动作({action_details['name']})] 与 [意识控制] 冲突。"
+                "将优先执行动作并等待回声，忽略意识控制指令。"
+            )
+
+        # c. 直接调用 MessageBuilder，让它在后台发送消息并返回 action_ids
+        message_builder = MessageBuilder(session, motivation=action_details["params"].get("motivation"))
+        sent_action_ids = await message_builder.process_steps(action_details["params"].get("steps", []))
+
+        # d. 等待所有消息的回声
+        if sent_action_ids:
+            wait_tasks = [session.wait_for_echo(action_id) for action_id in sent_action_ids]
+            results = await asyncio.gather(*wait_tasks)
+            if all(results):
+                logger.success(f"所有 {len(sent_action_ids)} 条消息的回声均已收到。")
+            else:
+                logger.warning(f"{results.count(False)} / {len(sent_action_ids)} 条消息的回声等待超时。")
+
+        # e. 无论是否超时，都触发下一轮思考
+        if action_handler.thought_trigger:
+            action_handler.thought_trigger.set()
 
     # 策略 4: 只存在意识控制，没有动作
     elif control_payload:

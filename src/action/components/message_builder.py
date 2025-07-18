@@ -79,11 +79,12 @@ class MessageBuilder:
                 if self.session.interruption_context:
                     logger.info("MessageBuilder 在发送消息前检测到中断信号，取消本次发送。")
                     break
-                success = await self._send_current_message()
-                if success:
+                success, sent_action_id = await self._send_current_message()
+                if success and sent_action_id:
                     any_message_sent = True
                     # 只有发送成功了，才增加消息计数
                     self.session.messages_sent_this_turn += 1
+                    sent_action_id.append(sent_action_id)
                     logger.debug(
                         f"[{self.session.conversation_id}] "
                         f"成功发送第 {self.session.messages_sent_this_turn} 条消息。"
@@ -271,6 +272,8 @@ class MessageBuilder:
             description="由MessageBuilder拼接并发送",
         )
 
+        action_id = payload.get("action_id") if isinstance(payload, dict) else None
+
         if success:
             logger.info(f"消息发送成功，回执: {payload}")
 
@@ -287,4 +290,4 @@ class MessageBuilder:
         else:
             logger.error(f"消息发送失败，原因: {payload}")
 
-        return success
+        return success, action_id

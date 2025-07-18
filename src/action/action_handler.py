@@ -182,6 +182,19 @@ class ActionHandler:
                 logger.info(f"行动流程处理完毕 (Action ID: {action_id})，触发思考。")
                 self.thought_trigger.set()
 
+    def _handle_background_task_completion(self, task: asyncio.Task) -> None:
+        """
+        一个通用的回调函数，用于处理所有后台任务的完成事件。
+        它会从管理集合中移除任务，并检查任务是否发生了异常。
+        """
+        self._background_tasks.discard(task)
+        if task.exception():
+            # 如果任务在执行过程中抛出了异常，我们在这里捕获并记录它
+            logger.error(
+                f"一个后台任务（名称: '{task.get_name()}'）执行时发生异常: {task.exception()}",
+                exc_info=task.exception()
+            )
+
     async def _execute_send_message_flow(self, doc_key_for_updates: str, params: dict) -> None:
         """专门处理 send_message 流程."""
         from src.action.components.message_builder import MessageBuilder
@@ -204,15 +217,13 @@ class ActionHandler:
         message_builder = MessageBuilder(session, motivation=params.get("motivation"))
 
         # 3. 直接、纯粹地执行发送任务。
-        #    MessageBuilder.process_steps 内部处理了所有发送逻辑。
-        #    我们不再 await 它，而是创建一个后台任务，这样 ActionHandler 可以立即返回，
-        #    让 CoreLogic 继续执行竞速逻辑。
         send_task = asyncio.create_task(
-            message_builder.process_steps(params.get("steps", []))
+            message_builder.process_steps(params.get("steps", [])),
+            name=f"SendMessage-{session.conversation_id}"
         )
         # 将任务添加到后台任务集合中，以便管理和清理
         self._background_tasks.add(send_task)
-        send_task.add_done_callback(self._background_tasks.discard)
+        send_task.add_done_callback(self._handle_background_task_completion)
 
         logger.info(f"[{session.conversation_id}] 消息发送流程已提交到后台执行。")
 
@@ -299,11 +310,17 @@ class ActionHandler:
         if not action_event:
             return False, {"error": f"平台 '{platform_id}' 的翻译官不会翻译动作 '{action_name}'。"}
 
-        return await self._execute_platform_action(
+        success, message_payload = await self._execute_platform_action(
             action_to_send=action_event.to_dict(),
             thought_doc_key=None,
             original_action_description=description,
         )
+
+        # 把 action_id 注入到返回的 payload 中
+        if isinstance(message_payload, dict):
+            message_payload["action_id"] = action_event.event_id
+
+        return success, message_payload
 
     async def _execute_platform_action(
         self,
@@ -340,7 +357,7 @@ class ActionHandler:
             ),
             content=action_to_send.get("content", []),
         )
-
+        # 记录动作日志
         try:
             send_success = await self.action_sender.send_action_to_adapter_by_id(
                 platform, action_to_send
@@ -351,15 +368,22 @@ class ActionHandler:
             return False, {"error": f"发送平台动作时发生意外异常: {e}"}
 
         # 这个方法会阻塞直到收到响应或超时，并处理结果的回写
-        return await self.pending_action_manager.add_and_wait_for_action(
+        success, result_payload = await self.pending_action_manager.add_and_wait_for_action(
             action_id=core_action_id,
             thought_doc_key=thought_doc_key,
             original_action_description=original_action_description,
             action_to_send=action_to_send,
         )
 
+        # 将 action_id 注入
+        if isinstance(result_payload, dict):
+            result_payload["action_id"] = core_action_id
+
+        return success, result_payload
+
     async def system_get_bot_profile(self, adapter_id: str) -> None:
         """系统触发获取祂档案的动作，适用于平台适配器."""
+
         logger.info(f"系统触发为适配器 '{adapter_id}' 获取祂的档案。")
         builder = platform_builder_registry.get_builder(adapter_id)
         if not builder:
@@ -381,7 +405,8 @@ class ActionHandler:
                 action_to_send=action_event.to_dict(),
                 thought_doc_key=None,
                 original_action_description="系统：上线安检",
-            )
+            ),
+            name=f"BotProfileInspection-{adapter_id}"
         )
 
         self._background_tasks.add(task)

@@ -169,13 +169,19 @@ class ChatSessionManager:
             return self.sessions[conversation_id]
 
     async def deactivate_session(
-        self, conversation_id: str, handover_context: dict | None = None
+        self,
+        conversation_id: str,
+        handover_context: dict | None = None
     ) -> None:
         """处理会话停用。现在它负责触发最终总结并从管理器中移除会话档案."""
         async with self.lock:
             session = self.sessions.pop(conversation_id, None)
             if session:
                 logger.info(f"[SessionManager] 会话 '{conversation_id}' 的档案正在被移除。")
+
+                # 停止会话的中断检查器
+                await session.stop_interrupt_checker()
+
                 # 调用其内部的总结管理器来执行最终总结
                 shift_motivation = handover_context.get("motivation") if handover_context else None
                 target_id = handover_context.get("target_id") if handover_context else None
