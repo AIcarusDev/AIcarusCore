@@ -62,12 +62,14 @@ JSON 对象包含三个顶级键: `"internal_state"`, `"consciousness_control"`,
 """  # noqa: E501
 
 
+
 # ============================= 核心循环用户提示 =============================
 """
 {external_info_block} 是外部信息块的内容
 {meta_info_block} 是元信息块的内容
 {internal_info_block} 是内部信息块的内容
 """
+
 
 CORE_CYCLE_USER_PROMPT = """
 <external_info>
@@ -78,6 +80,7 @@ CORE_CYCLE_USER_PROMPT = """
 {meta_info_block}
 </meta_info>
 
+
 <internal_info>
 {internal_info_block}
 </internal_info>
@@ -85,4 +88,4 @@ CORE_CYCLE_USER_PROMPT = """
 <output_format>
 请结合以上所有信息，输出你现在的心情，内心想法,行动等内容。
 </output_format>
-"""
+"""  # noqa: E501

@@ -341,6 +341,7 @@ class DefaultMessageProcessor:
             current_focus_path = focus_manager.current_focus_path if focus_manager else None
 
             if not current_focus_path or current_focus_path == "core":
+
                 logger.info(
                     f"事件 '{proto_event.event_id}' 到达，但祂正在发呆/内心思考。不立即唤醒。"
                 )
