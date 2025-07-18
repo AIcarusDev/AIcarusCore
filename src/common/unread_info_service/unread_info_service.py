@@ -264,19 +264,28 @@ class UnreadInfoService:
         )
 
         if not unread_convs_with_events:
-            return "所有其他会话均无未读消息。"
+            return (
+                f"<conversation_list>\n"
+                f"  <!-- 在平台 '{platform_id}' 下，没有发现任何其他会话有未读消息。 -->\n"
+                f"</conversation_list>"
+            )
 
         # 只处理指定平台的会话
         platform_convs = []
-        for conv_doc, events, _ in unread_convs_with_events:
+        for conv_doc, events, has_high_priority in unread_convs_with_events: # 使用三元组
             if conv_doc.get("platform") == platform_id:
-                platform_convs.append((conv_doc, events))
+                platform_convs.append((conv_doc, events, has_high_priority)) # 保存高优标志
 
         if not platform_convs:
-            return f"平台 '{platform_id}' 下所有会话均无未读消息。"
+            return (
+                f"<conversation_list>\n"
+                f"  <!-- 在平台 '{platform_id}' 下，没有发现任何其他会话有未读消息。 -->\n"
+                f"</conversation_list>"
+            )
 
         summary_parts = ["<conversation_list>"]
         # 这部分逻辑和 generate_unread_summary_text 很像，但是不包含 <from_platform> 标签
+        platform_convs.sort(key=lambda item: item[2], reverse=True)
         group_chats = [c for c in platform_convs if c[0].get("type") == "group"]
         private_chats = [c for c in platform_convs if c[0].get("type") == "private"]
 
@@ -291,6 +300,7 @@ class UnreadInfoService:
                 time_str = datetime.fromtimestamp(timestamp / 1000.0).strftime("%H:%M")
                 sender_display_name = self._get_sender_display_name(latest_event, "group")
                 message_preview = self._create_message_preview(latest_event, sender_display_name)
+                # 在预览字符串中直接体现高优状态
                 summary_parts.append(f"- [群名称]：{conv_name}")
                 summary_parts.append(f"  - [ID]：{conv_id}")
                 summary_parts.append(f"  - [最新消息]：{message_preview}")
@@ -300,7 +310,7 @@ class UnreadInfoService:
 
         if private_chats:
             summary_parts.append("<from_private>")
-            for conv_doc, events in private_chats:
+            for conv_doc, events, _ in private_chats:
                 conv_id = conv_doc.get("conversation_id", "unknown_id")
                 latest_event = events[-1]
                 unread_count = len(events)

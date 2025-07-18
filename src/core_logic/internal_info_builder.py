@@ -211,23 +211,27 @@ class InternalInfoBuilder:
             # 只处理第一个平台的第一个动作
             for platform_key, platform_actions in action_part.items():
                 if isinstance(platform_actions, dict) and platform_actions:
+                    # 找到了第一个有动作的平台，现在处理它的第一个动作
                     action_name, action_params = next(iter(platform_actions.items()))
 
                     if not isinstance(action_params, dict):
+                        # 如果参数不是字典，这确实是格式异常
                         return f'出于你刚才的想法，你做了：{platform_key}.{action_name}（参数格式异常）。'
 
                     motivation = action_params.get("motivation", "没有明确动机")
 
-                    # 特殊处理 send_message
+                    # 特殊处理 send_message，提供更自然的描述
                     if platform_key == "napcat_qq" and action_name == "send_message":
                         steps = action_params.get("steps", [])
                         texts = []
                         if isinstance(steps, list):
                             for step in steps:
-                                if (isinstance(step, dict)
+                                if (
+                                    isinstance(step, dict)
                                     and step.get("command") == "text"
                                     and (text := step.get("params", {}).get("text"))
-                                    and isinstance(text, str)):
+                                    and isinstance(text, str)
+                                ):
                                     texts.append(text)
 
                         if not texts:
@@ -238,12 +242,17 @@ class InternalInfoBuilder:
                             formatted_texts = "、".join(f'“{t}”' for t in texts)
                             return f'出于你刚才的想法，你做了：发言（发言内容依次为：{formatted_texts}）\n因为："{motivation}"'
 
+                    # 对于其他所有动作，使用通用描述
                     return f'出于你刚才的想法，你做了：{platform_key}.{action_name}\n因为："{motivation}"'
 
-        except (StopIteration, AttributeError, TypeError) as e:
+        except (StopIteration,
+                AttributeError,
+                TypeError
+        ) as e:
             logger.warning(f"解析动作描述时遇到非预期结构，将回退。错误: {e}, Payload: {action_part}")
 
         return "出于你刚才的想法，你执行了一个未被详细记录的动作。"
+
     def _build_control_desc(self, control_payload: dict | None, is_context_switch: bool, session: Optional["ChatSession"]) -> str:
         """构建【注意力控制】描述。"""
         if not control_payload or not is_context_switch:

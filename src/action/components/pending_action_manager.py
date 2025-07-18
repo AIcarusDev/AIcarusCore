@@ -107,8 +107,12 @@ class PendingActionManager:
             logger.info(f"收到来自适配器 '{details.get('platform')}' 的档案同步报告，开始处理...")
             # 把处理报告这个脏活累活，单独丢给一个新方法去做！
             await self._process_bot_profile_report(details)
-        _final_result = self._create_final_result_message(
-            description, successful, error_msg, details
+
+        _final_result_message = self._create_final_result_message( # <--- 变量名修改了一下
+            description,
+            successful,
+            error_msg,
+            details
         )
         response_timestamp = int(time.time() * 1000)
         response_time_ms = response_timestamp - sent_dict.get("timestamp", response_timestamp)
@@ -122,6 +126,12 @@ class PendingActionManager:
             error_info=None if successful else error_msg,
             result_details=details,
         )
+
+        # 如果有 thought_doc_key，保存结果到思考文档
+        if thought_doc_key:
+            await self.thought_storage_service.save_action_result_to_thought(
+                thought_key=thought_doc_key, result_text=_final_result_message
+            )
 
         # 设置Future结果
         if not pending_future.done():

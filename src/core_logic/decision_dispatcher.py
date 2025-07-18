@@ -3,6 +3,7 @@ import asyncio
 from typing import TYPE_CHECKING
 
 from src.common.custom_logging.logging_config import get_logger
+from src.common.utils import parse_focus_path
 from src.action.components.message_builder import MessageBuilder
 
 if TYPE_CHECKING:
@@ -16,9 +17,9 @@ async def process_llm_decision(
     decision_json: dict,
     focus_manager: "ChatSessionManager",
     action_handler: "ActionHandler",
-    # 我们还需要知道这个决策来自哪里，以便更新对应的思考文档
     source_thought_key: str | None = None,
     source_action_id: str | None = None,
+    current_focus_path: str | None = None,
 ) -> None:
     """一个统一的LLM决策分发器.
 
@@ -53,22 +54,43 @@ async def process_llm_decision(
     action_category = "none"
     action_details = {}
 
+    # 1. 解析当前上下文
+    current_level, current_platform_id, _ = parse_focus_path(current_focus_path)
+
     if action_payload and isinstance(action_payload, dict):
-        # 检查泛用有结果类 (如web_search)
-        if web_search_params := action_payload.get("core", {}).get("web_search"):
+        # 2. 优先检查核心动作，它们是无上下文的
+        if web_search_params := action_payload.get("web_search"):
             action_category = "generic_with_result"
             action_details = {"name": "web_search", "params": web_search_params}
-        # 检查层级限定有结果类 (如get_list)
-        elif get_list_params := action_payload.get("napcat_qq", {}).get("get_list"):
-            action_category = "level_restricted_with_result"
-            action_details = {"name": "get_list", "params": get_list_params}
-        # 检查回声类 (如send_message)
-        elif send_message_params := action_payload.get("napcat_qq", {}).get("send_message"):
-            action_category = "echoic"
-            action_details = {"name": "send_message", "params": send_message_params}
-        # 其他所有情况都归为即做即走类
-        elif action_payload:
+            # 帮 LLM 把动作修正为标准格式，以便下游处理
+            action_payload = {"core": {"web_search": web_search_params}}
+
+        # 3. 检查平台专属动作
+        elif current_platform_id != "core":
+            if get_list_params := action_payload.get("get_list"):
+                action_category = "level_restricted_with_result"
+                action_details = {"name": "get_list", "params": get_list_params}
+                # 帮 LLM 把动作修正为标准格式
+                action_payload = {current_platform_id: {"get_list": get_list_params}}
+
+            elif send_message_params := action_payload.get("send_message"):
+                action_category = "echoic"
+                action_details = {"name": "send_message", "params": send_message_params}
+                # 帮 LLM 把动作修正为标准格式
+                action_payload = {current_platform_id: {"send_message": send_message_params}}
+
+            # ... 未来其他平台动作的 elif 放在这里 ...
+
+        # 4. 如果以上都不是，才归为“即做即走”
+        if action_category == "none" and action_payload:
             action_category = "do_and_go"
+            # 对于即做即走类，也尝试帮它修正格式
+            if not action_payload.get("core") and not action_payload.get(current_platform_id):
+                first_action_name = next(iter(action_payload))
+                if current_platform_id != "core":
+                    action_payload = {current_platform_id: action_payload}
+                else: # 如果在 core 层，但不是已知的 core 动作，也归到 core 下
+                    action_payload = {"core": action_payload}
 
     # --- 根据动作类型和意识控制的存在，执行不同策略 ---
 

@@ -362,6 +362,7 @@ class CoreLogic:
                 action_handler=self.action_handler_instance,
                 source_thought_key=saved_key,
                 source_action_id=action_id,
+                current_focus_path=focus_path,
             )
         )
 
