@@ -17,7 +17,7 @@ class UnreadInfoService:
     Attributes:
         event_storage (EventStorageService): 事件存储服务，用于访问消息事件数据.
         conversation_storage (ConversationStorageService): 会话存储服务，用于访问会话数据.
-        bot_id (str): 祂的唯一标识符，默认为配置中的QQ ID，如果未设置则为 "unknown_bot_id".
+        self_bot_ids (dict[str, str]): 祂在不同平台上的ID映射.
     """
 
     def __init__(
@@ -37,80 +37,97 @@ class UnreadInfoService:
         self.self_bot_ids.update(new_bot_ids)
         logger.info(f"UnreadInfoService 已更新自身ID列表: {self.self_bot_ids}")
 
-    async def _get_unread_conversations_with_events(
+    async def _get_recently_active_conversations_with_details(
         self, exclude_conversation_id: str | None = None
-    ) -> list[tuple[dict[str, Any], list[dict[str, Any]], bool]]:
-        """获取所有活跃会话中有新消息的会话列表，排除指定的会话ID.
+    ) -> list[dict[str, Any]]:
+        """
+        【全新核心方法】获取所有最近活跃的会话及其详细信息。
+
+        这个方法使用单个高效的AQL查询来获取：
+        1. 所有活跃的会话文档。
+        2. 每个会话的最新一条消息事件。
+        3. 每个会话的未读消息数量。
+        4. 每个会话是否有高优先级未读消息 (@我 或 回复我)。
+        5. 按最新消息时间戳降序排序。
 
         Args:
-            exclude_conversation_id (str | None): 要排除的会话ID，默认为 None.
+            exclude_conversation_id: 要从结果中排除的会话ID。
 
         Returns:
-            list[tuple[dict[str, Any], list[dict[str, Any]]]]: 有新消息的会话及其
-                对应的新消息事件列表.
+            一个字典列表，每个字典代表一个会话，包含 'conv_doc', 'latest_event',
+            'unread_count', 'has_high_priority'。
         """
-        logger.debug(f"开始检查所有活跃会话的新消息... (将排除: {exclude_conversation_id})")
+        logger.debug(f"开始获取所有最近活跃会话的详细信息... (将排除: {exclude_conversation_id})")
+
+        query = """
+        LET conversations = (
+            FOR conv IN @@conv_collection
+                FILTER conv.conversation_id != @exclude_conv_id AND conv.conversation_id != "system_events"
+                RETURN conv
+        )
+
+        FOR conv IN conversations
+            LET events_in_conv = (
+                FOR event IN @@event_collection
+                    FILTER event.conversation_id_extracted == conv.conversation_id
+                    AND event.event_type LIKE 'message.%'
+                    SORT event.timestamp DESC
+                    RETURN event
+            )
+
+            LET latest_event = FIRST(events_in_conv)
+
+            FILTER latest_event != null
+
+            LET unread_events = (
+                FOR event IN events_in_conv
+                    FILTER event.timestamp > conv.last_processed_timestamp
+                    RETURN event
+            )
+
+            LET unread_count = COUNT(unread_events)
+
+            LET has_high_priority = (
+                FOR event IN unread_events
+                    LET is_at_me = (
+                        FOR seg IN event.content
+                            FILTER seg.type == 'at' AND seg.data.user_id == conv.bot_id
+                            LIMIT 1
+                            RETURN true
+                    )[0]
+                    LET is_reply_to_me = (
+                        FOR seg IN event.content
+                            FILTER seg.type == 'quote' AND seg.data.user_id == conv.bot_id
+                            LIMIT 1
+                            RETURN true
+                    )[0]
+                    FILTER is_at_me OR is_reply_to_me
+                    LIMIT 1
+                    RETURN true
+            )[0] OR false
+
+            SORT latest_event.timestamp DESC
+
+            RETURN {
+                conv_doc: conv,
+                latest_event: latest_event,
+                unread_count: unread_count,
+                has_high_priority: has_high_priority
+            }
+        """
+        bind_vars = {
+            "@conv_collection": self.conversation_storage.COLLECTION_NAME,
+            "@event_collection": self.event_storage.COLLECTION_NAME,
+            "exclude_conv_id": exclude_conversation_id,
+        }
+
         try:
-            all_conversations = await self.conversation_storage.get_all_active_conversations()
-            if not all_conversations:
-                logger.info("没有找到任何活跃的会话。")
-                return []
+            results = await self.conn_manager.execute_query(query, bind_vars)
+            logger.info(f"成功获取到 {len(results) if results else 0} 个最近活跃的会话详情。")
+            return results if results is not None else []
         except Exception as e:
-            logger.error(f"获取所有活跃会话失败: {e}", exc_info=True)
+            logger.error(f"获取最近活跃会话详情失败: {e}", exc_info=True)
             return []
-
-        unread_conversations_with_events = []
-        for conv_doc in all_conversations:
-            conv_id = conv_doc.get("conversation_id")
-            if not conv_id or conv_id == "system_events":  # 别把系统事件也当成未读消息
-                continue
-
-            if conv_id == exclude_conversation_id:
-                logger.trace(f"已根据 exclude_conversation_id 排除会话: {conv_id}")
-                continue
-
-            last_processed_ts = conv_doc.get("last_processed_timestamp") or 0
-            try:
-                # 只获取状态为'unread'的事件
-                new_events = await self.event_storage.get_message_events_after_timestamp(
-                    conversation_id=conv_id, timestamp=last_processed_ts, status="unread"
-                )
-
-                if new_events:
-                    # --- 新增的高优事件检测逻辑 ---
-                    has_high_priority = False
-                    platform = conv_doc.get("platform")
-                    bot_id_on_this_platform = self.self_bot_ids.get(platform)
-
-                    if bot_id_on_this_platform:
-                        for event in new_events:
-                            for seg in event.get("content", []):
-                                if (
-                                    seg.get("type") == "at"
-                                    and str(seg.get("data", {}).get("user_id"))
-                                    == bot_id_on_this_platform
-                                ) or (
-                                    seg.get("type") == "quote"
-                                    and str(seg.get("data", {}).get("user_id"))
-                                    == bot_id_on_this_platform
-                                ):
-                                    has_high_priority = True
-                                    break
-                            if has_high_priority:
-                                break
-                    # --- 检测逻辑结束 ---
-
-                    logger.info(
-                        f"会话 '{conv_id}' 发现 {len(new_events)} 条新未读消息 "
-                        f"(高优: {has_high_priority})。"
-                    )
-                    unread_conversations_with_events.append(
-                        (conv_doc, new_events, has_high_priority)
-                    )  # <--- 返回三元组
-
-            except Exception as e:
-                logger.error(f"为会话 '{conv_id}' 检查新消息时出错: {e}", exc_info=True)
-        return unread_conversations_with_events
 
     def _get_sender_display_name(self, event: dict, conversation_type: str) -> str:
         """获取发送者的显示名称，优先使用群名片或昵称.
@@ -259,22 +276,21 @@ class UnreadInfoService:
         logger.debug(
             f"开始为平台 '{platform_id}' 生成会话列表摘要... (将排除: {exclude_conversation_id})"
         )
-        unread_convs_with_events = await self._get_unread_conversations_with_events(
-            exclude_conversation_id
-        )
 
-        if not unread_convs_with_events:
+        # 1. 调用新的核心方法获取数据
+        all_active_convs = await self._get_recently_active_conversations_with_details(exclude_conversation_id)
+
+        if not all_active_convs:
             return (
                 f"<conversation_list>\n"
                 f"  <!-- 在平台 '{platform_id}' 下，没有发现任何其他会话有未读消息。 -->\n"
                 f"</conversation_list>"
             )
 
-        # 只处理指定平台的会话
-        platform_convs = []
-        for conv_doc, events, has_high_priority in unread_convs_with_events: # 使用三元组
-            if conv_doc.get("platform") == platform_id:
-                platform_convs.append((conv_doc, events, has_high_priority)) # 保存高优标志
+        # 2. 筛选出属于当前平台的会话，并取前10条
+        platform_convs = [
+            c for c in all_active_convs if c.get("conv_doc", {}).get("platform") == platform_id
+        ][:10]
 
         if not platform_convs:
             return (
@@ -284,193 +300,129 @@ class UnreadInfoService:
             )
 
         summary_parts = ["<conversation_list>"]
-        # 这部分逻辑和 generate_unread_summary_text 很像，但是不包含 <from_platform> 标签
-        platform_convs.sort(key=lambda item: item[2], reverse=True)
-        group_chats = [c for c in platform_convs if c[0].get("type") == "group"]
-        private_chats = [c for c in platform_convs if c[0].get("type") == "private"]
 
-        if group_chats:
-            summary_parts.append("<from_group>")
-            for conv_doc, events in group_chats:
-                conv_id = conv_doc.get("conversation_id", "unknown_id")
-                conv_name = conv_doc.get("name") or "未知群聊"
-                latest_event = events[-1]
-                unread_count = len(events)
-                timestamp = latest_event.get("timestamp", 0)
-                time_str = datetime.fromtimestamp(timestamp / 1000.0).strftime("%H:%M")
-                sender_display_name = self._get_sender_display_name(latest_event, "group")
-                message_preview = self._create_message_preview(latest_event, sender_display_name)
-                # 在预览字符串中直接体现高优状态
+        # 3. 遍历排序好的会话，构建输出
+        for item in platform_convs:
+            conv_doc = item["conv_doc"]
+            latest_event = item["latest_event"]
+            unread_count = item["unread_count"]
+
+            conv_id = conv_doc.get("conversation_id", "unknown_id")
+            conv_type = conv_doc.get("type")
+
+            sender_display_name = self._get_sender_display_name(latest_event, conv_type)
+            conv_name = conv_doc.get("name") or sender_display_name
+
+            timestamp = latest_event.get("timestamp", 0)
+            time_str = datetime.fromtimestamp(timestamp / 1000.0).strftime("%H:%M")
+            message_preview = self._create_message_preview(latest_event, sender_display_name)
+
+            # 4. 根据 unread_count 决定状态文本
+            if unread_count > 0:
+                status_line = f"(时间：{time_str}/共 {unread_count} 条未读信息)"
+            else:
+                status_line = f"(时间：{time_str}/全部已读)"
+
+            if conv_type == "group":
                 summary_parts.append(f"- [群名称]：{conv_name}")
-                summary_parts.append(f"  - [ID]：{conv_id}")
-                summary_parts.append(f"  - [最新消息]：{message_preview}")
-                summary_parts.append(f"  - (时间：{time_str}/共 {unread_count} 条未读信息)")
-                summary_parts.append("")
-            summary_parts.append("</from_group>")
-
-        if private_chats:
-            summary_parts.append("<from_private>")
-            for conv_doc, events, _ in private_chats:
-                conv_id = conv_doc.get("conversation_id", "unknown_id")
-                latest_event = events[-1]
-                unread_count = len(events)
-                timestamp = latest_event.get("timestamp", 0)
-                time_str = datetime.fromtimestamp(timestamp / 1000.0).strftime("%H:%M")
-                sender_display_name = self._get_sender_display_name(latest_event, "private")
-                conv_name = conv_doc.get("name") or sender_display_name
-                message_preview = self._create_message_preview(latest_event, sender_display_name)
+            else: # private or other
                 summary_parts.append(f"- [用户名称]：{conv_name}")
-                summary_parts.append(f"  - [ID]：{conv_id}")
-                summary_parts.append(f"  - [最新消息]：{message_preview}")
-                summary_parts.append(f"  - (时间：{time_str}/共 {unread_count} 条未读信息)")
-                summary_parts.append("")
-            summary_parts.append("</from_private>")
+            summary_parts.append(f"  - [ID]：{conv_id}")
+            summary_parts.append(f"  - [最新消息]：{message_preview}")
+            summary_parts.append(f"  - {status_line}")
+            summary_parts.append("")
 
         summary_parts.append("</conversation_list>")
-
-        return (
-            "\n".join(line for line in summary_parts if line is not None)
-            .replace("\n\n\n", "\n\n")
-            .strip()
-        )
+        return "\n".join(summary_parts).strip()
 
     async def generate_unread_summary_text(self, exclude_conversation_id: str | None = None) -> str:
-        """生成最终的、符合你那变态要求的、带XML标签的未读消息摘要."""
+        """
+        生成顶层所需的、带XML标签的未读消息摘要。
+        现在它也使用新的核心数据获取方法。
+        """
         logger.debug(f"开始生成精装修版未读消息摘要... (将排除: {exclude_conversation_id})")
-        unread_convs_with_events = await self._get_unread_conversations_with_events(
-            exclude_conversation_id
-        )
+        # 只获取有未读消息的会话
+        unread_convs = [
+            item for item in await self._get_recently_active_conversations_with_details(exclude_conversation_id)
+            if item["unread_count"] > 0
+        ]
 
-        if not unread_convs_with_events:
+        if not unread_convs:
             return "所有其他会话均无未读消息。"
 
-        # 按平台分组
         grouped_by_platform = defaultdict(list)
-        for conv_doc, events, _ in unread_convs_with_events:
-            platform = conv_doc.get("platform", "unknown_platform")
-            grouped_by_platform[platform].append((conv_doc, events))
+        for item in unread_convs:
+            platform = item["conv_doc"].get("platform", "unknown_platform")
+            grouped_by_platform[platform].append(item)
 
         summary_parts = []
-        for platform, convs in grouped_by_platform.items():
+        for platform, items in grouped_by_platform.items():
             summary_parts.append(f"<from_{platform}>")
 
-            group_chats = [c for c in convs if c[0].get("type") == "group"]
-            private_chats = [c for c in convs if c[0].get("type") == "private"]
+            # 按高优排序
+            items.sort(key=lambda x: x["has_high_priority"], reverse=True)
+
+            group_chats = [c for c in items if c["conv_doc"].get("type") == "group"]
+            private_chats = [c for c in items if c["conv_doc"].get("type") == "private"]
 
             if group_chats:
                 summary_parts.append("<from_group>")
-                for conv_doc, events in group_chats:
-                    conv_id = conv_doc.get("conversation_id", "unknown_id")
-                    conv_name = conv_doc.get("name") or "未知群聊"
-                    latest_event = events[-1]
-                    unread_count = len(events)
-                    timestamp = latest_event.get("timestamp", 0)
-                    time_str = datetime.fromtimestamp(timestamp / 1000.0).strftime("%H:%M")
+                for item in group_chats:
+                    conv_doc,
+                    latest_event,
+                    unread_count = item["conv_doc"],
+                    item["latest_event"],
+                    item["unread_count"]
+                    sender_name = self._get_sender_display_name(latest_event, "group")
+                    time_str = datetime.fromtimestamp(latest_event.get("timestamp", 0) / 1000.0).strftime("%H:%M")
+                    preview = self._create_message_preview(latest_event, sender_name)
 
-                    sender_display_name = self._get_sender_display_name(latest_event, "group")
-                    message_preview = self._create_message_preview(
-                        latest_event, sender_display_name
-                    )
-
-                    summary_parts.append(f"- [群名称]：{conv_name}")
-                    summary_parts.append(f"  - [ID]：{conv_id}")
-                    summary_parts.append(f"  - [最新消息]：{message_preview}")
+                    summary_parts.append(f"- [群名称]：{conv_doc.get('name') or '未知群聊'}")
+                    summary_parts.append(f"  - [ID]：{conv_doc.get('conversation_id')}")
+                    summary_parts.append(f"  - [最新消息]：{preview}")
                     summary_parts.append(f"  - (时间：{time_str}/共 {unread_count} 条未读信息)")
-                    summary_parts.append("")  # 加个空行好看点
-            summary_parts.append("</from_group>")
+                    summary_parts.append("")
+                summary_parts.append("</from_group>")
 
             if private_chats:
                 summary_parts.append("<from_private>")
-                for conv_doc, events in private_chats:
-                    conv_id = conv_doc.get("conversation_id", "unknown_id")
-                    latest_event = events[-1]
-                    unread_count = len(events)
-                    timestamp = latest_event.get("timestamp", 0)
-                    time_str = datetime.fromtimestamp(timestamp / 1000.0).strftime("%H:%M")
-                    sender_display_name = self._get_sender_display_name(latest_event, "private")
-                    conv_name = conv_doc.get("name") or sender_display_name
-                    message_preview = self._create_message_preview(
-                        latest_event, sender_display_name
-                    )
-                    summary_parts.append(f"- [用户名称]：{conv_name}")
-                    summary_parts.append(f"  - [ID]：{conv_id}")
-                    summary_parts.append(f"  - [最新消息]：{message_preview}")
+                for item in private_chats:
+                    conv_doc,latest_event, unread_count = item["conv_doc"], item["latest_event"], item["unread_count"]
+                    sender_name = self._get_sender_display_name(latest_event, "private")
+                    time_str = datetime.fromtimestamp(latest_event.get("timestamp", 0) / 1000.0).strftime("%H:%M")
+                    preview = self._create_message_preview(latest_event, sender_name)
+
+                    summary_parts.append(f"- [用户名称]：{conv_doc.get('name') or sender_name}")
+                    summary_parts.append(f"  - [ID]：{conv_doc.get('conversation_id')}")
+                    summary_parts.append(f"  - [最新消息]：{preview}")
                     summary_parts.append(f"  - (时间：{time_str}/共 {unread_count} 条未读信息)")
                     summary_parts.append("")
                 summary_parts.append("</from_private>")
 
             summary_parts.append(f"</from_{platform}>")
 
-        return (
-            "\n".join(line for line in summary_parts if line is not None)
-            .replace("\n\n\n", "\n\n")
-            .strip()
-        )
+        return "\n".join(summary_parts).strip()
 
-    async def get_structured_unread_conversations(
-        self, exclude_conversation_id: str | None = None
-    ) -> list[dict[str, Any]]:
-        """获取结构化的未读会话列表，排除指定的会话ID.
-
-        Args:
-            exclude_conversation_id (str | None): 要排除的会话ID，默认为 None.
-
-        Returns:
-            list[dict[str, Any]]: 结构化的未读会话列表.
-        """
-        logger.debug(f"正在获取结构化的未读会话列表... (将排除: {exclude_conversation_id})")
-        unread_convs_with_events = await self._get_unread_conversations_with_events(
-            exclude_conversation_id
-        )
-
-        if not unread_convs_with_events:
-            return []
-
-        structured_list = []
-        for conv_doc, events, _ in unread_convs_with_events:
-            latest_event = events[-1]
-            sender_name = self._get_sender_display_name(
-                latest_event, conv_doc.get("type", "unknown")
-            )
-
-            structured_list.append(
-                {
-                    "conversation_id": conv_doc.get("conversation_id"),
-                    "platform": conv_doc.get("platform"),
-                    "type": conv_doc.get("type"),
-                    "name": conv_doc.get("name") or sender_name,  # 优先用数据库里的名字
-                    "unread_count": len(events),
-                    "latest_message_preview": self._create_message_preview(
-                        latest_event, sender_name
-                    ),
-                    "latest_timestamp": latest_event.get("timestamp", 0),
-                }
-            )
-
-        # 按时间倒序排，最新的在最前面，方便 CoreLogic 偷窥
-        return sorted(structured_list, key=lambda x: x["latest_timestamp"], reverse=True)
 
     async def get_platform_summary(self) -> str:
         """生成顶层所需的平台级摘要，能感知高优事件."""
         logger.debug("开始生成平台级摘要...")
-        unread_convs_with_events = await self._get_unread_conversations_with_events()
+        unread_convs = [
+            item for item in await self._get_recently_active_conversations_with_details()
+            if item["unread_count"] > 0
+        ]
 
-        if not unread_convs_with_events:
+        if not unread_convs:
             return "所有平台均无新消息。"
 
-        # --- 核心修复点 ---
-        platforms_with_news = defaultdict(
-            lambda: {"has_high_priority": False, "has_any_news": False}
-        )
-        for conv_doc, _, has_high_priority in unread_convs_with_events:
-            platform = conv_doc.get("platform")
+        platforms_with_news = defaultdict(lambda: {"has_high_priority": False})
+        for item in unread_convs:
+            platform = item["conv_doc"].get("platform")
             if platform:
-                # 只要有任何新闻，就标记
-                platforms_with_news[platform]["has_any_news"] = True
-                if has_high_priority:
-                    # 如果是高优新闻，再额外标记
+                if item["has_high_priority"]:
                     platforms_with_news[platform]["has_high_priority"] = True
-        # --- 修复结束 ---
+                # 只要有未读，就标记一下，方便后续统一处理
+                platforms_with_news[platform]["has_any_news"] = True
 
         if not platforms_with_news:
             return "所有平台均无新消息。"
@@ -482,7 +434,4 @@ class UnreadInfoService:
             elif info["has_any_news"]:  # 现在这个判断才会生效
                 summary_lines.append(f"你的 '{platform}' 上似乎有新消息。")
 
-        if not summary_lines:
-            return "所有平台均无新消息。"
-
-        return "\n".join(summary_lines)
+        return "\n".join(summary_lines) or "所有平台均无新消息。"
