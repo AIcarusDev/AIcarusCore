@@ -165,7 +165,7 @@ class PendingActionManager:
 
         logger.info(f"正在处理祂(ID: {bot_id})的 {len(groups_info)} 个群聊档案更新...")
 
-        update_tasks = []
+        tasks_with_context = {}
         for group_id, group_profile in groups_info.items():
             if not isinstance(group_profile, dict):
                 continue
@@ -192,22 +192,36 @@ class PendingActionManager:
                 "bot_profile_in_this_conversation": bot_profile_in_conv,
             }
 
-            # 最后，调用那个万能的 upsert 方法！
             # 它会自己判断是该插入还是更新，完美！
             task = self.conversation_service.upsert_conversation_document(
                 conversation_doc_to_upsert
             )
-            update_tasks.append(task)
+            tasks_with_context[group_id] = task
 
-        if update_tasks:
-            results = await asyncio.gather(*update_tasks, return_exceptions=True)
-            success_count = sum(
-                bool(r is not None and not isinstance(r, Exception)) for r in results
-            )
+        if tasks_with_context:
+            results = await asyncio.gather(*tasks_with_context.values(), return_exceptions=True)
+
+            success_count = 0
+            failure_details = []
+
+            # 遍历结果，现在我们可以知道哪个群出错了
+            # 使用 zip 的 strict=True (Python 3.10+) 来确保长度匹配，更安全
+            for (group_id, _), result in zip(tasks_with_context.items(), results, strict=True):
+                if isinstance(result, Exception):
+                    failure_details.append(f"  - 群聊 {group_id}: {result!r}")
+                else:
+                    success_count += 1
+
             failure_count = len(results) - success_count
-            logger.info(
-                f"祂的档案同步完成。成功 upsert {success_count} 个会话，失败 {failure_count} 个。"
-            )
+
+            log_message = f"祂的档案同步完成。成功 upsert {success_count} 个会话，失败 {failure_count} 个。"
+            if failure_details:
+                log_message += "\n失败详情:\n" + "\n".join(failure_details)
+
+            if failure_count > 0:
+                logger.warning(log_message)
+            else:
+                logger.info(log_message)
         else:
             logger.info("祂的档案报告中没有需要更新的群聊信息。")
 

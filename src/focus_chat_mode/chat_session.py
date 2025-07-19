@@ -169,6 +169,9 @@ class ChatSession:
         self.messages_sent_this_turn: int = 0
         """在本轮中，已经成功发送了的消息数量。"""
 
+        self.sent_action_ids_this_turn: list[str] = []
+        """在本轮中，所有成功发送的 send_message 动作的ID列表。"""
+
         # --- 上下文与记忆属性 ---
         self.pending_handover_result: dict | None = None
         self.is_first_turn_for_session: bool = True

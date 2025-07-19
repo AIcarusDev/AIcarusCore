@@ -84,7 +84,7 @@ class MessageBuilder:
                     any_message_sent = True
                     # 只有发送成功了，才增加消息计数
                     self.session.messages_sent_this_turn += 1
-                    sent_action_id.append(sent_action_id)
+                    self.session.sent_action_ids_this_turn.append(sent_action_id)
                     logger.debug(
                         f"[{self.session.conversation_id}] "
                         f"成功发送第 {self.session.messages_sent_this_turn} 条消息。"
