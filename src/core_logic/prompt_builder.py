@@ -154,19 +154,24 @@ class ThoughtPromptBuilder:
         else:
             available_actions_desc = core_act_desc
 
+        # --- 构建 System Prompt 的信息块 ---
         system_prompt_blocks = {
-            "aicarus_rule_block": AICARUS_RULE,
-            "current_time": get_formatted_time_for_llm(),
-            "persona_block": self._get_persona_block(),
-            "available_platforms_block": await self._get_available_platforms_block(),
+            "aicarus_rule_block": AICARUS_RULE, # AIcarus 的规则（静态文本）
+            "current_time": get_formatted_time_for_llm(), # 当前时间（动态文本）
+            "persona_block": self._get_persona_block(), # 机器人的人格化描述（静态文本）
+            "available_platforms_block": await self._get_available_platforms_block(), # 可用平台信息（动态文本）
+            # 当前层级的状态描述（动态文本）
             "current_state_block": await self._get_current_state_block(
-                current_level, current_platform_id, current_conv_id
+                current_level,
+                current_platform_id,
+                current_conv_id
             ),
-            "behavior_guidelines_block": self._get_behavior_guidelines_block(current_level),
-            "input_XML_block_description": self._get_input_xml_block_description(current_level),
-            "available_consciousness_controls": available_controls_desc
+            "behavior_guidelines_block": self._get_behavior_guidelines_block(current_level), # 行为准则（动态文本）
+            "internal_info_block": internal_info_block, # 内部信息块（动态文本）
+            "input_XML_block_description": self._get_input_xml_block_description(current_level), # 输入XML描述（动态文本）
+            "available_consciousness_controls": available_controls_desc # 可用的意识控制指令描述（动态文本）
             or "你当前没有可用的导航指令。",
-            "available_actions": available_actions_desc or "你当前没有可用的外部行动。",
+            "available_actions": available_actions_desc or "你当前没有可用的外部行动。", # 可用的外部行动描述（动态文本）
         }
 
         # --- 4. 构建 User Prompt 的组件 ---
@@ -176,10 +181,11 @@ class ThoughtPromptBuilder:
             handover_result=handover_result
         )
 
+        # 未来我们在user_prompt中只保留外部信息块
+        # 目前元信息暂时也放在这里
         user_prompt_blocks = {
-            "external_info_block": external_info_block,
             "meta_info_block": meta_info_block,
-            "internal_info_block": internal_info_block,
+            "external_info_block": external_info_block
         }
 
         # 5. 组装并返回 PromptComponents 数据容器
