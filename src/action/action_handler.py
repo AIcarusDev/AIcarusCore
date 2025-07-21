@@ -83,6 +83,7 @@ class ActionHandler:
             action_sender: 动作发送器实例.
             chat_session_manager: 聊天会话管理器实例.
             core_logic: 核心逻辑处理器实例.
+            person_service: 人物存储服务实例，用于获取祂的ID.
         """
         self.thought_storage_service = thought_service
         self.action_log_service = action_log_service
@@ -182,8 +183,9 @@ class ActionHandler:
                 self.thought_trigger.set()
 
     def _handle_background_task_completion(self, task: asyncio.Task) -> None:
-        """一个通用的回调函数，用于处理所有后台任务的完成事件。
-        它会从管理集合中移除任务，并检查任务是否发生了异常。
+        """一个通用的回调函数，用于处理所有后台任务的完成事件.
+
+        它会从管理集合中移除任务，并检查任务是否发生了异常.
         """
         self._background_tasks.discard(task)
         if task.exception():
@@ -226,7 +228,7 @@ class ActionHandler:
         logger.info(f"[{session.conversation_id}] 消息发送流程已提交到后台执行。")
 
     async def _execute_core_web_search(self, params: dict) -> str:
-        """【已重构】执行核心的网页搜索动作，并直接返回结果字符串。"""
+        """【已重构】执行核心的网页搜索动作，并直接返回结果字符串."""
         await self.initialize_llm_clients()
         query = params.get("query")
         motivation = params.get("motivation", "没有明确动机")

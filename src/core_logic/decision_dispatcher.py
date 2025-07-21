@@ -34,6 +34,7 @@ async def process_llm_decision(
         action_handler: ActionHandler的实例，用于处理外部行动指令.
         source_thought_key: (可选) 产生这个决策的思考文档的_key.
         source_action_id: (可选) 产生这个决策的思考文档关联的action_id.
+        current_focus_path: (可选) 当前的焦点路径，用于解析上下文.
 
     Returns:
         None
@@ -86,7 +87,7 @@ async def process_llm_decision(
             action_category = "do_and_go"
             # 对于即做即走类，也尝试帮它修正格式
             if not action_payload.get("core") and not action_payload.get(current_platform_id):
-                first_action_name = next(iter(action_payload))
+                _first_action_name = next(iter(action_payload))
                 if current_platform_id != "core":
                     action_payload = {current_platform_id: action_payload}
                 else:  # 如果在 core 层，但不是已知的 core 动作，也归到 core 下

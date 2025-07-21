@@ -432,14 +432,15 @@ class PersonStorageService:
             return []
 
     async def get_self_account_for_platform(self, platform_id: str) -> dict[str, Any] | None:
-        """根据平台ID，获取祂自身在该平台上的账户信息。
+        """根据平台ID，获取祂自身在该平台上的账户信息.
 
         Args:
-            platform_id: 目标平台的ID, 例如 "napcat_qq"。
+            platform_id: 目标平台的ID, 例如 "napcat_qq".
 
         Returns:
-            一个包含账户信息的字典 (例如 {'platform': '...', 'platform_id': '...', 'nickname': '...'}),
-            如果未找到则返回 None。
+            一个包含账户信息的字典
+                (例如 {'platform': '...', 'platform_id': '...', 'nickname': '...'}),
+                如果未找到则返回 None.
         """
         if not platform_id:
             return None

@@ -35,15 +35,15 @@ class BasePlatformBuilder(ABC):
     def build_action_event(
         self, action_name: str, params: dict[str, Any], bot_id: str
     ) -> Event | None:
-        """根据动作名称和参数，构建一个平台专属的、可执行的 Event 对象。
+        """根据动作名称和参数，构建一个平台专属的、可执行的 Event 对象.
 
         Args:
-            action_name (str): 动作的名称。
-            params (dict[str, Any]): 动作所需的参数。
-            bot_id (str): 执行此动作的自身的平台ID。
+            action_name (str): 动作的名称.
+            params (dict[str, Any]): 动作所需的参数.
+            bot_id (str): 执行此动作的自身的平台ID.
 
         Returns:
-            一个封装好的 Event 对象，如果无法构建则返回 None。
+            一个封装好的 Event 对象，如果无法构建则返回 None.
         """
         pass
 

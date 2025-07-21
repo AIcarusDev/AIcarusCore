@@ -83,7 +83,7 @@ class ThoughtPromptBuilder:
             # 从注册中心获取所有已注册的平台构建器的ID
             # 我们要排除 'core' 本身，因为它不是一个可以 focus 的外部平台
             all_platform_ids = [
-                pid for pid in platform_builder_registry.get_all_builders().keys() if pid != "core"
+                pid for pid in platform_builder_registry.get_all_builders() if pid != "core"
             ]
 
             if all_platform_ids:
@@ -166,7 +166,8 @@ class ThoughtPromptBuilder:
             "aicarus_rule_block": AICARUS_RULE,  # AIcarus 的规则（静态文本）
             "current_time": get_formatted_time_for_llm(),  # 当前时间（动态文本）
             "persona_block": self._get_persona_block(),  # 机器人的人格化描述（静态文本）
-            "available_platforms_block": await self._get_available_platforms_block(),  # 可用平台信息（动态文本）
+            # 可用平台信息（动态文本）
+            "available_platforms_block": await self._get_available_platforms_block(),
             # 当前层级的状态描述（动态文本）
             "current_state_block": await self._get_current_state_block(
                 current_level, current_platform_id, current_conv_id
@@ -178,8 +179,8 @@ class ThoughtPromptBuilder:
             "input_XML_block_description": self._get_input_xml_block_description(
                 current_level
             ),  # 输入XML描述（动态文本）
-            "available_consciousness_controls": available_controls_desc  # 可用的意识控制指令描述（动态文本）
-            or "你当前没有可用的导航指令。",
+            "available_consciousness_controls": available_controls_desc
+            or "你当前没有可用的导航指令。",  # 可用的意识控制指令描述（动态文本）
             "available_actions": available_actions_desc
             or "你当前没有可用的外部行动。",  # 可用的外部行动描述（动态文本）
         }
@@ -204,7 +205,8 @@ class ThoughtPromptBuilder:
 
     def finalize_prompts(self, components: PromptComponents) -> tuple[str, str, dict[str, Any]]:
         """第二步：使用准备好的组件，最终组装系统和用户提示.
-        返回系统提示、用户提示和响应Schema的元组。
+
+        返回系统提示、用户提示和响应Schema的元组.
         """
         system_prompt = prompt_templates.CORE_CYCLE_SYSTEM_PROMPT.format(
             **components.system_prompt_blocks
@@ -237,8 +239,9 @@ class ThoughtPromptBuilder:
 
     # --- 私有辅助方法 ---
     async def get_last_valid_text_message(self, conversation_id: str) -> str | None:
-        """一个专门的方法，只为获取指定会话的最后一条有效文本消息。
-        这在中断检查时非常有用。
+        """一个专门的方法，只为获取指定会话的最后一条有效文本消息.
+
+        这在中断检查时非常有用.
         """
         if not conversation_id or not self.chat_session_manager:
             return None
@@ -366,7 +369,8 @@ class ThoughtPromptBuilder:
                 f"<Conversation_Info>\n{history_components.conversation_info_block}\n</Conversation_Info>\n\n"
                 f"<user_logs>\n{history_components.user_list_block}\n</user_logs>\n\n"
                 f"<chat_history>\n{history_components.chat_history_log_block}\n</chat_history>\n\n"
-                f"<unread_summary>\n{unread_summary_str or '所有其他会话均无未读消息。'}\n</unread_summary>"
+                f"<unread_summary>\n{unread_summary_str or '所有其他会话均无未读消息。'}\n"
+                f"</unread_summary>"
             )
 
             guidance_generator = BehavioralGuidanceGenerator(session)

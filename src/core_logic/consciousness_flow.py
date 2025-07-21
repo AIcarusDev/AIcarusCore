@@ -132,6 +132,7 @@ class CoreLogic:
 
     async def _core_thinking_loop(self) -> None:
         """主思考循环，负责持续思考和处理动作.
+
         这个方法会持续运行，直到 stop_event 被设置为 True.
         它会定期检查当前的思考焦点，并根据焦点生成新的思考内容。
         如果在底层会话中，它还会启动一个中断检查器来处理可能的高优先级消息。
@@ -246,6 +247,7 @@ class CoreLogic:
 
     async def _check_for_interruptions_task(self, session: "ChatSession") -> None:
         """中断检查任务.
+
         这个任务会持续运行，直到 stop_event 被设置或会话被关闭。
         它会检查新消息是否满足中断条件，并在满足条件时设置中断信号。
         """
@@ -287,7 +289,8 @@ class CoreLogic:
                         context_message_text=context_text,
                     ):
                         logger.info(
-                            f"[{session.conversation_id}] IIS决策：中断！元凶ID: {event_doc.get('_key')}"
+                            f"[{session.conversation_id}] IIS决策：中断！元凶ID: "
+                            f"{event_doc.get('_key')}"
                         )
                         session.interruption_context = {"interrupting_event_doc": event_doc}
                         # 设置中断信号
@@ -309,7 +312,7 @@ class CoreLogic:
     async def _process_and_dispatch_thought(
         self, thought_json: dict, focus_path: str | None, session: Optional["ChatSession"]
     ) -> None:
-        """封装保存和分发思考的逻辑，现在它还负责动作执行的中断检查。"""
+        """封装保存和分发思考的逻辑，现在它还负责动作执行的中断检查."""
         # --- 步骤 1: 更新内部状态和创建思想点 ---
         if new_state := thought_json.get("internal_state"):
             self.last_known_internal_state = new_state

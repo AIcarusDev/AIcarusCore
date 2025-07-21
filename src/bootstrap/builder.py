@@ -45,9 +45,11 @@ logger = get_logger(__name__)
 
 @runtime_checkable
 class Initializable(Protocol):
-    """定义一个“可初始化”服务的合同。"""
+    """定义一个“可初始化”服务的合同."""
 
-    async def initialize_infrastructure(self) -> None: ...
+    async def initialize_infrastructure(self) -> None:
+        """初始化服务的基础设施."""
+        ...
 
 
 class ServiceBuilder:
@@ -218,7 +220,8 @@ class ServiceBuilder:
                     args["abandoned_keys_config"] = resolved_abandoned_keys
                 client = ProcessorClient(**{k: v for k, v in args.items() if v is not None})
                 logger.info(
-                    f"为用途 '{purpose}' 创建 ProcessorClient 成功 (模型: {client.llm_client.model_name})。"
+                    f"为用途 '{purpose}' 创建 ProcessorClient 成功 "
+                    f"(模型: {client.llm_client.model_name})。"
                 )
                 return client
             except Exception as e:
@@ -293,11 +296,13 @@ class ServiceBuilder:
         logger.info("所有核心数据存储服务均已初始化。")
         return initialized_services
 
-    async def _initialize_interrupt_model(self, event_storage_service):
+    async def _initialize_interrupt_model(
+        self, event_storage_service: EventStorageService
+    ) -> IntelligentInterrupter:
         logger.info("=== 开始初始化中断判断模型（小色猫）... ===")
         iis_builder_instance = IISBuilder(event_storage=event_storage_service)
         semantic_markov_model = await iis_builder_instance.get_or_create_model()
-        semantic_model_instance = SemanticModel()
+        _semantic_model_instance = SemanticModel()
         interrupt_config = config.interrupt_model
         speaker_weights_dict = {
             entry.id: entry.weight for entry in interrupt_config.speaker_weights
@@ -316,7 +321,9 @@ class ServiceBuilder:
         logger.info("=== 中断判断模型（小色猫·无状态版）已成功初始化！ ===")
         return interrupt_model_instance
 
-    async def _get_semantic_model(self, event_storage_service):
+    async def _get_semantic_model(
+        self, event_storage_service: EventStorageService
+    ) -> SemanticModel:
         """复用逻辑获取 SemanticModel."""
         iis_builder_instance = IISBuilder(event_storage=event_storage_service)
         await iis_builder_instance.get_or_create_model()  # 确保模型已训练

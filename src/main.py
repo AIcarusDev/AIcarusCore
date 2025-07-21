@@ -8,7 +8,7 @@ from src.common.custom_logging.logging_config import get_logger
 logger = get_logger(__name__)
 
 
-async def start_core_system():
+async def start_core_system() -> None:
     """启动 AIcarus Core 系统的全新、优雅的入口."""
     container = None
     try:
@@ -34,7 +34,12 @@ async def start_core_system():
 
         # 4. 在后台处理动态依赖的连接 (ChatSessionManager)
         # 这不会阻塞主服务运行
-        asyncio.create_task(wire_dynamic_dependencies(container), name="DynamicWiring")
+        background_tasks = set()
+        dynamic_wiring_task = asyncio.create_task(
+            wire_dynamic_dependencies(container), name="DynamicWiring"
+        )
+        background_tasks.add(dynamic_wiring_task)
+        dynamic_wiring_task.add_done_callback(background_tasks.discard)
 
         # 5. 等待核心任务结束
         done, pending = await asyncio.wait(
@@ -61,7 +66,8 @@ async def start_core_system():
         logger.info("AIcarus Core 系统关闭流程执行完毕。")
 
 
-async def main():
+async def main() -> None:
+    """AIcarus Core 的主入口函数."""
     try:
         await start_core_system()
     except KeyboardInterrupt:

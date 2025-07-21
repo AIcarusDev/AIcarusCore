@@ -42,7 +42,7 @@ class InternalInfoBuilder:
         session: Optional["ChatSession"] = None,
         handover_result: dict | None = None,
     ) -> str:
-        """构建内部信息块。这是所有内心活动报告的唯一出口。"""
+        """构建内部信息块。这是所有内心活动报告的唯一出口."""
         logger.debug(f"开始构建内部信息块... (上下文切换: {is_context_switch})")
 
         try:
@@ -103,7 +103,7 @@ class InternalInfoBuilder:
     async def _build_interruption_report(
         self, session: "ChatSession", latest_thought_doc: dict
     ) -> str:
-        """【已重构】只生成中断部分的叙事文本，不再重复构建整个块。"""
+        """【已重构】只生成中断部分的叙事文本，不再重复构建整个块."""
         context = session.interruption_context
         interrupting_event_doc = context.get("interrupting_event_doc", {})
 
@@ -123,7 +123,8 @@ class InternalInfoBuilder:
             history_components = await self.prompt_builder._get_external_and_meta_info_blocks(
                 "cellular", session.platform, session.conversation_id
             )
-            # aicarus_protocols v1.7.0 后，uid_str_to_platform_id_map 移动到了 history_components[2] (PromptComponents)
+            # aicarus_protocols v1.7.0 后，
+            # uid_str_to_platform_id_map 移动到了 history_components[2] (PromptComponents)
             if (
                 history_components
                 and history_components[2]
@@ -156,7 +157,7 @@ class InternalInfoBuilder:
         return "\n".join(lines)
 
     def _format_planned_action(self, thought_doc: dict) -> str:
-        """【已升级】专门格式化【计划中】的动作描述，能精确复述计划的发言内容。"""
+        """【已升级】专门格式化【计划中】的动作描述，能精确复述计划的发言内容."""
         action_payload = thought_doc.get("action_payload", {})
         action_part = action_payload.get("action")
         control_part = action_payload.get("consciousness_control")
@@ -217,7 +218,7 @@ class InternalInfoBuilder:
         return " ".join(descriptions)
 
     def _build_action_desc(self, action_payload: dict | None) -> str:
-        """构建【基于想法的动作】描述。"""
+        """构建【基于想法的动作】描述."""
         if not action_payload:
             return ""  # 无动作，返回空
 
@@ -241,7 +242,10 @@ class InternalInfoBuilder:
 
                     if not isinstance(action_params, dict):
                         # 如果参数不是字典，这确实是格式异常
-                        return f"出于你刚才的想法，你做了：{platform_key}.{action_name}（参数格式异常）。"
+                        return (
+                            f"出于你刚才的想法，你做了：{platform_key}.{action_name}"
+                            f"（参数格式异常）。"
+                        )
 
                     motivation = action_params.get("motivation", "没有明确动机")
 
@@ -262,13 +266,23 @@ class InternalInfoBuilder:
                         if not texts:
                             return f'出于你刚才的想法，你发送了一条非文本消息\n因为："{motivation}"'
                         elif len(texts) == 1:
-                            return f'出于你刚才的想法，你做了：发言（发言内容为：“{texts[0]}”）\n因为："{motivation}"'
+                            return (
+                                f"出于你刚才的想法，你做了：发言（发言内容为：“{texts[0]}”）\n"
+                                f'因为："{motivation}"'
+                            )
+
                         else:
                             formatted_texts = "、".join(f"“{t}”" for t in texts)
-                            return f'出于你刚才的想法，你做了：发言（发言内容依次为：{formatted_texts}）\n因为："{motivation}"'
+                            return (
+                                f"出于你刚才的想法，你做了：发言（发言内容依次为：{formatted_texts}）\n"
+                                f'因为："{motivation}"'
+                            )
 
                     # 对于其他所有动作，使用通用描述
-                    return f'出于你刚才的想法，你做了：{platform_key}.{action_name}\n因为："{motivation}"'
+                    return (
+                        f"出于你刚才的想法，你做了：{platform_key}.{action_name}\n"
+                        f'因为："{motivation}"'
+                    )
 
         except (StopIteration, AttributeError, TypeError) as e:
             logger.warning(
@@ -283,7 +297,7 @@ class InternalInfoBuilder:
         is_context_switch: bool,
         session: Optional["ChatSession"],
     ) -> str:
-        """构建【注意力控制】描述。"""
+        """构建【注意力控制】描述."""
         if not control_payload or not is_context_switch:
             # 只有在上下文切换时才显示此块
             return ""
@@ -307,7 +321,7 @@ class InternalInfoBuilder:
     def _build_action_response_desc(
         self, latest_thought: dict, handover_result: dict | None
     ) -> str:
-        """构建【动作结果】描述。"""
+        """构建【动作结果】描述."""
         action_result_text = None
         action_name = None
 

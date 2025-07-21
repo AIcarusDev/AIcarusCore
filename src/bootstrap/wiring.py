@@ -4,7 +4,7 @@ from src.config import config
 from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 
 
-def wire_dependencies(container: ServiceContainer):
+def wire_dependencies(container: ServiceContainer) -> None:
     """将容器中所有服务的依赖关系连接起来."""
     # 获取 ActionSender 实例，它在 CoreWebsocketServer 内部
     action_sender = container.core_comm_layer.action_sender
@@ -32,7 +32,7 @@ def wire_dependencies(container: ServiceContainer):
     # ... 其他需要后期注入的简单依赖
 
 
-async def wire_dynamic_dependencies(container: ServiceContainer):
+async def wire_dynamic_dependencies(container: ServiceContainer) -> None:
     """处理动态依赖，特指 ChatSessionManager，它需要在安检后创建.
 
     这个函数会在系统启动后被调用。

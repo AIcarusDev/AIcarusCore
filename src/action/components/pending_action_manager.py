@@ -65,7 +65,8 @@ class PendingActionManager:
 
     async def _handle_action_timeout(self, action_id: str) -> None:
         """处理动作超时的情况.
-        如果动作在指定时间内没有响应，将记录超时并设置相应的 Future。
+
+        如果动作在指定时间内没有响应，将记录超时并设置相应的 Future.
         """
         if action_id not in self._pending_actions:
             return
@@ -225,7 +226,8 @@ class PendingActionManager:
 
     def _get_original_id_from_response(self, data: dict[str, Any]) -> str | None:
         """从响应事件中解析出 original_event_id.
-        如果无法解析，将返回 None。
+
+        如果无法解析，将返回 None.
         """
         content = data.get("content", [])
         if content and isinstance(content, list) and len(content) > 0:
@@ -257,8 +259,9 @@ class PendingActionManager:
         self, desc: str, succ: bool, err: str, det: dict | None
     ) -> str:
         """创建最终的结果消息.
-        根据动作的成功与否，构建一个清晰的结果消息。
-        如果有详细信息，则附加到消息末尾。
+
+        根据动作的成功与否，构建一个清晰的结果消息.
+        如果有详细信息，则附加到消息末尾.
         """
         if succ:
             msg = f"动作 '{desc}' 已成功执行。"
@@ -271,7 +274,8 @@ class PendingActionManager:
         self, action_id: str, sent_dict: dict[str, Any], resp_data: dict[str, Any]
     ) -> None:
         """保存成功的动作作为事件到数据库中.
-        这将确保动作的结果被记录下来，以便后续查询和分析。
+
+        这将确保动作的结果被记录下来，以便后续查询和分析.
         """
         event_to_save = sent_dict.copy()
         event_to_save["event_id"] = action_id
@@ -292,7 +296,8 @@ class PendingActionManager:
 
     async def _get_sent_message_id_safe(self, event_data: dict[str, Any]) -> str:
         """安全地从事件数据中提取 sent_message_id.
-        如果无法提取，将返回一个默认值。
+
+        如果无法提取，将返回一个默认值.
         """
         default_id = "unknow_message_id"
         if not isinstance(event_data, dict):

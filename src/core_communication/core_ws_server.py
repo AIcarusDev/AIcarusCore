@@ -188,8 +188,9 @@ class CoreWebsocketServer:
                 f"在为适配器 '{adapter_id}' 举行后台安检仪式时发生严重错误: {e}", exc_info=True
             )
 
-    async def wait_for_all_inspections(self):
-        """等待所有正在进行的安检任务完成。
+    async def wait_for_all_inspections(self) -> None:
+        """等待所有正在进行的安检任务完成.
+
         这个方法提供了一个阻塞点，确保在继续执行依赖安检结果的逻辑前，
         所有平台的身份信息都已获取。
         """

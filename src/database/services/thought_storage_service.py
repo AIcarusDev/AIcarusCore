@@ -207,7 +207,7 @@ class ThoughtStorageService:
             return None
 
     async def get_document_by_key(self, thought_key: str) -> dict | None:
-        """根据 key 获取思想点文档。"""
+        """根据 key 获取思想点文档."""
         if not thought_key:
             return None
         try:
@@ -239,13 +239,13 @@ class ThoughtStorageService:
         return results if results is not None else []
 
     async def get_thought_document_by_key(self, thought_key: str) -> dict | None:
-        """根据 _key 获取单个思想点文档。
+        """根据 _key 获取单个思想点文档.
 
         Args:
-            thought_key: 思想点文档的唯一 _key。
+            thought_key: 思想点文档的唯一 _key.
 
         Returns:
-            包含思想点信息的字典，如果未找到则返回 None。
+            包含思想点信息的字典，如果未找到则返回 None.
         """
         if not thought_key:
             return None
