@@ -4,7 +4,7 @@ import os
 import traceback
 
 # 导入新的主启动函数
-from src.main import main # <--- 新的导入
+from src.main import main  # <--- 新的导入
 
 if __name__ == "__main__":
     print("AIcarus Core 正在通过 run_core_logic.py 启动...")
@@ -15,7 +15,7 @@ if __name__ == "__main__":
             loop.set_debug(True)
             loop.slow_callback_duration = 0.5
 
-        asyncio.run(main()) # <--- 新的调用
+        asyncio.run(main())  # <--- 新的调用
 
     except KeyboardInterrupt:
         print("\nAIcarus Core (run_core_logic.py): 收到 KeyboardInterrupt 信号，程序正在退出...")

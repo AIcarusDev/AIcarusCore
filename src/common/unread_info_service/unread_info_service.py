@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
-from src.database import ConversationStorageService, EventStorageService
+from src.database import ArangoDBConnectionManager, ConversationStorageService, EventStorageService
 
 logger = get_logger(__name__)
 
@@ -40,15 +40,10 @@ class UnreadInfoService:
     async def _get_recently_active_conversations_with_details(
         self, exclude_conversation_id: str | None = None
     ) -> list[dict[str, Any]]:
-        """
-        【全新核心方法】获取所有最近活跃的会话及其详细信息。
+        """【全新核心方法】获取所有最近活跃的会话及其详细信息.
 
-        这个方法使用单个高效的AQL查询来获取：
-        1. 所有活跃的会话文档。
-        2. 每个会话的最新一条消息事件。
-        3. 每个会话的未读消息数量。
-        4. 每个会话是否有高优先级未读消息 (@我 或 回复我)。
-        5. 按最新消息时间戳降序排序。
+        这个方法现在通过调用 ConversationStorageService 来获取数据，
+        以保持职责分离。
 
         Args:
             exclude_conversation_id: 要从结果中排除的会话ID。
@@ -57,77 +52,9 @@ class UnreadInfoService:
             一个字典列表，每个字典代表一个会话，包含 'conv_doc', 'latest_event',
             'unread_count', 'has_high_priority'。
         """
-        logger.debug(f"开始获取所有最近活跃会话的详细信息... (将排除: {exclude_conversation_id})")
-
-        query = """
-        LET conversations = (
-            FOR conv IN @@conv_collection
-                FILTER conv.conversation_id != @exclude_conv_id AND conv.conversation_id != "system_events"
-                RETURN conv
+        return await self.conversation_storage.get_recently_active_conversations_with_details(
+            exclude_conversation_id
         )
-
-        FOR conv IN conversations
-            LET events_in_conv = (
-                FOR event IN @@event_collection
-                    FILTER event.conversation_id_extracted == conv.conversation_id
-                    AND event.event_type LIKE 'message.%'
-                    SORT event.timestamp DESC
-                    RETURN event
-            )
-
-            LET latest_event = FIRST(events_in_conv)
-
-            FILTER latest_event != null
-
-            LET unread_events = (
-                FOR event IN events_in_conv
-                    FILTER event.timestamp > conv.last_processed_timestamp
-                    RETURN event
-            )
-
-            LET unread_count = COUNT(unread_events)
-
-            LET has_high_priority = (
-                FOR event IN unread_events
-                    LET is_at_me = (
-                        FOR seg IN event.content
-                            FILTER seg.type == 'at' AND seg.data.user_id == conv.bot_id
-                            LIMIT 1
-                            RETURN true
-                    )[0]
-                    LET is_reply_to_me = (
-                        FOR seg IN event.content
-                            FILTER seg.type == 'quote' AND seg.data.user_id == conv.bot_id
-                            LIMIT 1
-                            RETURN true
-                    )[0]
-                    FILTER is_at_me OR is_reply_to_me
-                    LIMIT 1
-                    RETURN true
-            )[0] OR false
-
-            SORT latest_event.timestamp DESC
-
-            RETURN {
-                conv_doc: conv,
-                latest_event: latest_event,
-                unread_count: unread_count,
-                has_high_priority: has_high_priority
-            }
-        """
-        bind_vars = {
-            "@conv_collection": self.conversation_storage.COLLECTION_NAME,
-            "@event_collection": self.event_storage.COLLECTION_NAME,
-            "exclude_conv_id": exclude_conversation_id,
-        }
-
-        try:
-            results = await self.conn_manager.execute_query(query, bind_vars)
-            logger.info(f"成功获取到 {len(results) if results else 0} 个最近活跃的会话详情。")
-            return results if results is not None else []
-        except Exception as e:
-            logger.error(f"获取最近活跃会话详情失败: {e}", exc_info=True)
-            return []
 
     def _get_sender_display_name(self, event: dict, conversation_type: str) -> str:
         """获取发送者的显示名称，优先使用群名片或昵称.
@@ -278,7 +205,9 @@ class UnreadInfoService:
         )
 
         # 1. 调用新的核心方法获取数据
-        all_active_convs = await self._get_recently_active_conversations_with_details(exclude_conversation_id)
+        all_active_convs = await self._get_recently_active_conversations_with_details(
+            exclude_conversation_id
+        )
 
         if not all_active_convs:
             return (
@@ -325,7 +254,7 @@ class UnreadInfoService:
 
             if conv_type == "group":
                 summary_parts.append(f"- [群名称]：{conv_name}")
-            else: # private or other
+            else:  # private or other
                 summary_parts.append(f"- [用户名称]：{conv_name}")
             summary_parts.append(f"  - [ID]：{conv_id}")
             summary_parts.append(f"  - [最新消息]：{message_preview}")
@@ -336,14 +265,17 @@ class UnreadInfoService:
         return "\n".join(summary_parts).strip()
 
     async def generate_unread_summary_text(self, exclude_conversation_id: str | None = None) -> str:
-        """
-        生成顶层所需的、带XML标签的未读消息摘要。
+        """生成顶层所需的、带XML标签的未读消息摘要.
+
         现在它也使用新的核心数据获取方法。
         """
         logger.debug(f"开始生成精装修版未读消息摘要... (将排除: {exclude_conversation_id})")
         # 只获取有未读消息的会话
         unread_convs = [
-            item for item in await self._get_recently_active_conversations_with_details(exclude_conversation_id)
+            item
+            for item in await self._get_recently_active_conversations_with_details(
+                exclude_conversation_id
+            )
             if item["unread_count"] > 0
         ]
 
@@ -368,13 +300,15 @@ class UnreadInfoService:
             if group_chats:
                 summary_parts.append("<from_group>")
                 for item in group_chats:
-                    conv_doc,
-                    latest_event,
-                    unread_count = item["conv_doc"],
-                    item["latest_event"],
-                    item["unread_count"]
+                    conv_doc, latest_event, unread_count = (
+                        item["conv_doc"],
+                        item["latest_event"],
+                        item["unread_count"],
+                    )
                     sender_name = self._get_sender_display_name(latest_event, "group")
-                    time_str = datetime.fromtimestamp(latest_event.get("timestamp", 0) / 1000.0).strftime("%H:%M")
+                    time_str = datetime.fromtimestamp(
+                        latest_event.get("timestamp", 0) / 1000.0
+                    ).strftime("%H:%M")
                     preview = self._create_message_preview(latest_event, sender_name)
 
                     summary_parts.append(f"- [群名称]：{conv_doc.get('name') or '未知群聊'}")
@@ -387,9 +321,15 @@ class UnreadInfoService:
             if private_chats:
                 summary_parts.append("<from_private>")
                 for item in private_chats:
-                    conv_doc,latest_event, unread_count = item["conv_doc"], item["latest_event"], item["unread_count"]
+                    conv_doc, latest_event, unread_count = (
+                        item["conv_doc"],
+                        item["latest_event"],
+                        item["unread_count"],
+                    )
                     sender_name = self._get_sender_display_name(latest_event, "private")
-                    time_str = datetime.fromtimestamp(latest_event.get("timestamp", 0) / 1000.0).strftime("%H:%M")
+                    time_str = datetime.fromtimestamp(
+                        latest_event.get("timestamp", 0) / 1000.0
+                    ).strftime("%H:%M")
                     preview = self._create_message_preview(latest_event, sender_name)
 
                     summary_parts.append(f"- [用户名称]：{conv_doc.get('name') or sender_name}")
@@ -403,12 +343,12 @@ class UnreadInfoService:
 
         return "\n".join(summary_parts).strip()
 
-
     async def get_platform_summary(self) -> str:
         """生成顶层所需的平台级摘要，能感知高优事件."""
         logger.debug("开始生成平台级摘要...")
         unread_convs = [
-            item for item in await self._get_recently_active_conversations_with_details()
+            item
+            for item in await self._get_recently_active_conversations_with_details()
             if item["unread_count"] > 0
         ]
 

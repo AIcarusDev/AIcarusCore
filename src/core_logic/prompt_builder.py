@@ -1,11 +1,11 @@
-import time
 import json
+import time
 from typing import TYPE_CHECKING, Any, Optional
 
-from src.common.utils import parse_focus_path
 from src.common.custom_logging.logging_config import get_logger
 from src.common.focus_chat_history_builder.chat_history_formatter import format_chat_history_for_llm
 from src.common.time_utils import get_formatted_time_for_llm
+from src.common.utils import parse_focus_path
 from src.config import config
 from src.core_logic.internal_info_builder import InternalInfoBuilder
 from src.focus_chat_mode.behavioral_guidance_generator import BehavioralGuidanceGenerator
@@ -53,7 +53,7 @@ class ThoughtPromptBuilder:
         self,
         focus_path: str | None,
         session: Optional["ChatSession"] = None,
-        handover_result: dict | None = None
+        handover_result: dict | None = None,
     ) -> PromptComponents:
         """第一步：构建思考所需的所有组件，但不最终组装.
 
@@ -79,19 +79,19 @@ class ThoughtPromptBuilder:
         }
 
         # 如果当前在顶层，并且 focus 指令存在，我们动态注入 enum 约束
-        if current_level == 'core' and 'focus' in final_ctrl_schema_props:
+        if current_level == "core" and "focus" in final_ctrl_schema_props:
             # 从注册中心获取所有已注册的平台构建器的ID
             # 我们要排除 'core' 本身，因为它不是一个可以 focus 的外部平台
             all_platform_ids = [
-                pid for pid in platform_builder_registry.get_all_builders().keys() if pid != 'core'
+                pid for pid in platform_builder_registry.get_all_builders().keys() if pid != "core"
             ]
 
             if all_platform_ids:
                 logger.debug(f"动态生成 focus.platform_id 的 enum 列表: {all_platform_ids}")
                 # 找到 focus -> properties -> platform_id，然后注入 enum
-                focus_properties = final_ctrl_schema_props['focus'].get('properties', {})
-                if 'platform_id' in focus_properties:
-                    focus_properties['platform_id']['enum'] = all_platform_ids
+                focus_properties = final_ctrl_schema_props["focus"].get("properties", {})
+                if "platform_id" in focus_properties:
+                    focus_properties["platform_id"]["enum"] = all_platform_ids
 
         # --- 外部行动 Schema ---
         plat_act_schema, _ = (
@@ -154,38 +154,41 @@ class ThoughtPromptBuilder:
         else:
             available_actions_desc = core_act_desc
 
-        # --- 构建 System Prompt 的信息块 ---
-        system_prompt_blocks = {
-            "aicarus_rule_block": AICARUS_RULE, # AIcarus 的规则（静态文本）
-            "current_time": get_formatted_time_for_llm(), # 当前时间（动态文本）
-            "persona_block": self._get_persona_block(), # 机器人的人格化描述（静态文本）
-            "available_platforms_block": await self._get_available_platforms_block(), # 可用平台信息（动态文本）
-            # 当前层级的状态描述（动态文本）
-            "current_state_block": await self._get_current_state_block(
-                current_level,
-                current_platform_id,
-                current_conv_id
-            ),
-            "behavior_guidelines_block": self._get_behavior_guidelines_block(current_level), # 行为准则（动态文本）
-            "internal_info_block": internal_info_block, # 内部信息块（动态文本）
-            "input_XML_block_description": self._get_input_xml_block_description(current_level), # 输入XML描述（动态文本）
-            "available_consciousness_controls": available_controls_desc # 可用的意识控制指令描述（动态文本）
-            or "你当前没有可用的导航指令。",
-            "available_actions": available_actions_desc or "你当前没有可用的外部行动。", # 可用的外部行动描述（动态文本）
-        }
-
         # --- 4. 构建 User Prompt 的组件 ---
         internal_info_block = await self.internal_info_builder.build_internal_info_block(
             is_context_switch=self.is_context_switch_flag,
             session=session,
-            handover_result=handover_result
+            handover_result=handover_result,
         )
+
+        # --- 构建 System Prompt 的信息块 ---
+        system_prompt_blocks = {
+            "aicarus_rule_block": AICARUS_RULE,  # AIcarus 的规则（静态文本）
+            "current_time": get_formatted_time_for_llm(),  # 当前时间（动态文本）
+            "persona_block": self._get_persona_block(),  # 机器人的人格化描述（静态文本）
+            "available_platforms_block": await self._get_available_platforms_block(),  # 可用平台信息（动态文本）
+            # 当前层级的状态描述（动态文本）
+            "current_state_block": await self._get_current_state_block(
+                current_level, current_platform_id, current_conv_id
+            ),
+            "behavior_guidelines_block": self._get_behavior_guidelines_block(
+                current_level
+            ),  # 行为准则（动态文本）
+            "internal_info_block": internal_info_block,  # 内部信息块（动态文本）
+            "input_XML_block_description": self._get_input_xml_block_description(
+                current_level
+            ),  # 输入XML描述（动态文本）
+            "available_consciousness_controls": available_controls_desc  # 可用的意识控制指令描述（动态文本）
+            or "你当前没有可用的导航指令。",
+            "available_actions": available_actions_desc
+            or "你当前没有可用的外部行动。",  # 可用的外部行动描述（动态文本）
+        }
 
         # 未来我们在user_prompt中只保留外部信息块
         # 目前元信息暂时也放在这里
         user_prompt_blocks = {
             "meta_info_block": meta_info_block,
-            "external_info_block": external_info_block
+            "external_info_block": external_info_block,
         }
 
         # 5. 组装并返回 PromptComponents 数据容器
@@ -211,11 +214,7 @@ class ThoughtPromptBuilder:
         )
 
         try:
-            schema_json_str = json.dumps(
-                components.response_schema,
-                ensure_ascii=False,
-                indent=2
-            )
+            schema_json_str = json.dumps(components.response_schema, ensure_ascii=False, indent=2)
             logger.debug(
                 f"为本次思考生成的 JSON Schema 如下：\n"
                 f"==================== RESPONSE SCHEMA ====================\n"
@@ -238,8 +237,7 @@ class ThoughtPromptBuilder:
 
     # --- 私有辅助方法 ---
     async def get_last_valid_text_message(self, conversation_id: str) -> str | None:
-        """
-        一个专门的方法，只为获取指定会话的最后一条有效文本消息。
+        """一个专门的方法，只为获取指定会话的最后一条有效文本消息。
         这在中断检查时非常有用。
         """
         if not conversation_id or not self.chat_session_manager:
@@ -259,7 +257,7 @@ class ThoughtPromptBuilder:
             conversation_type=session.conversation_type,
             conversation_name=session.conversation_name,
             last_processed_timestamp=session.last_processed_timestamp,
-            is_first_turn=False, # 不需要切换上下文标志
+            is_first_turn=False,  # 不需要切换上下文标志
         )
         return history_components.last_valid_text_message
 
@@ -276,10 +274,7 @@ class ThoughtPromptBuilder:
         return await self.core_ws_server.get_connected_platforms_info()
 
     async def _get_current_state_block(
-        self,
-        level: str,
-        platform_id: str,
-        conv_id: str | None
+        self, level: str, platform_id: str, conv_id: str | None
     ) -> str:
         """获取当前状态的描述信息."""
         if level == "core":

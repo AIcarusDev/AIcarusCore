@@ -1,10 +1,12 @@
 # src/main.py
 import asyncio
-from src.common.custom_logging.logging_config import get_logger
+
 from src.bootstrap.builder import ServiceBuilder
 from src.bootstrap.wiring import wire_dependencies, wire_dynamic_dependencies
+from src.common.custom_logging.logging_config import get_logger
 
 logger = get_logger(__name__)
+
 
 async def start_core_system():
     """启动 AIcarus Core 系统的全新、优雅的入口."""
@@ -42,7 +44,7 @@ async def start_core_system():
         for task in done:
             if exc := task.exception():
                 logger.critical(f"核心任务 '{task.get_name()}' 异常终止: {exc!r}", exc_info=exc)
-                raise exc # 重新抛出异常以触发关闭
+                raise exc  # 重新抛出异常以触发关闭
 
     except Exception as e:
         logger.critical(f"AIcarus Core 系统启动或运行遭遇致命错误: {e}", exc_info=True)
@@ -66,6 +68,7 @@ async def main():
         logger.info("AIcarus Core: 用户中断，正在退出...")
     except Exception as main_exc:
         logger.critical(f"AIcarus Core: 顶层执行异常: {main_exc}", exc_info=True)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

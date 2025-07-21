@@ -1,11 +1,11 @@
 # src/bootstrap/wiring.py
 from src.bootstrap.container import ServiceContainer
-from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 from src.config import config
+from src.focus_chat_mode.chat_session_manager import ChatSessionManager
+
 
 def wire_dependencies(container: ServiceContainer):
     """将容器中所有服务的依赖关系连接起来."""
-
     # 获取 ActionSender 实例，它在 CoreWebsocketServer 内部
     action_sender = container.core_comm_layer.action_sender
 
@@ -16,7 +16,7 @@ def wire_dependencies(container: ServiceContainer):
         action_log_service=container.action_log_service,
         conversation_service=container.conversation_storage_service,
         action_sender=action_sender,
-        chat_session_manager=container.chat_session_manager, # 此时还是 None
+        chat_session_manager=container.chat_session_manager,  # 此时还是 None
         core_logic=container.core_logic,
         person_service=container.person_storage_service,
     )
@@ -31,9 +31,10 @@ def wire_dependencies(container: ServiceContainer):
 
     # ... 其他需要后期注入的简单依赖
 
+
 async def wire_dynamic_dependencies(container: ServiceContainer):
-    """
-    处理动态依赖，特指 ChatSessionManager，它需要在安检后创建。
+    """处理动态依赖，特指 ChatSessionManager，它需要在安检后创建.
+
     这个函数会在系统启动后被调用。
     """
     # 1. 等待安检完成
@@ -41,7 +42,11 @@ async def wire_dynamic_dependencies(container: ServiceContainer):
 
     # 2. 获取安检后的 bot_ids
     all_self_accounts = await container.person_storage_service.get_all_self_accounts()
-    bot_ids_map = {acc["platform"]: acc["platform_id"] for acc in all_self_accounts} if all_self_accounts else {}
+    bot_ids_map = (
+        {acc["platform"]: acc["platform_id"] for acc in all_self_accounts}
+        if all_self_accounts
+        else {}
+    )
 
     # 3. 创建并注入 ChatSessionManager
     if config.focus_chat_mode.enabled:
@@ -57,7 +62,7 @@ async def wire_dynamic_dependencies(container: ServiceContainer):
             intelligent_interrupter=container.intelligent_interrupter,
             thought_storage_service=container.thought_storage_service,
             internal_info_builder=container.internal_info_builder,
-            core_logic=container.core_logic
+            core_logic=container.core_logic,
         )
         container.chat_session_manager = chat_session_manager
 

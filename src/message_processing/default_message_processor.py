@@ -61,14 +61,8 @@ class DefaultMessageProcessor:
         self.semantic_model: SemanticModel = semantic_model
         self.core_comm_layer: CoreWebsocketServer | None = core_websocket_server
         self.qq_chat_session_manager = qq_chat_session_manager
-        self.core_logic: "CoreLogicFlow" | None = None
+        self.core_logic: CoreLogicFlow | None = None
         logger.info("DefaultMessageProcessor 初始化完成，已配备PersonStorageService服务。")
-        if self.core_comm_layer:
-            logger.info("DefaultMessageProcessor 已获得 CoreWebsocketServer 实例的引用。")
-        else:
-            logger.warning(
-                "DefaultMessageProcessor 未获得 CoreWebsocketServer 实例的引用，无法主动发送动作。"
-            )
 
     async def process_event(
         self,
@@ -163,7 +157,6 @@ class DefaultMessageProcessor:
 
             # b. 如果是我自己发的消息，并且是 message 类型，那它就是一个“回声”
             if is_self_message and proto_event.event_type.startswith(f"message.{platform_id}"):
-
                 # c. 从回声事件的元数据中提取原始动作的 ID
                 #    我们假设适配器会在回声事件的 content[0].data 中返回 original_action_id
                 original_action_id = proto_event.get_message_id(is_self_echo=True)
@@ -173,7 +166,9 @@ class DefaultMessageProcessor:
 
                     # d. 找到对应的会话，并去“等待室”敲门
                     if session := self.qq_chat_session_manager.sessions.get(conv_id):
-                        logger.debug(f"检测到动作 '{original_action_id}' 的回声事件，正在发送唤醒信号...")
+                        logger.debug(
+                            f"检测到动作 '{original_action_id}' 的回声事件，正在发送唤醒信号..."
+                        )
                         await session.signal_echo_received(original_action_id)
 
                         # e. 【重要】回声事件的主要任务是唤醒等待者，处理完毕后即可返回，
@@ -254,8 +249,7 @@ class DefaultMessageProcessor:
                 return
 
             logger.info(
-                f"收到会话 '{conversation_id}' 中祂的档案更新通知: "
-                f"'{update_type}' -> '{new_value}'"
+                f"收到会话 '{conversation_id}' 中祂的档案更新通知: '{update_type}' -> '{new_value}'"
             )
 
             # 检查这个会话当前是否在专注聊天模式下是活跃的
@@ -267,9 +261,7 @@ class DefaultMessageProcessor:
 
             if session and session.is_active:
                 # 如果会话活跃，直接更新它的短期记忆（内存缓存）
-                logger.info(
-                    f"会话 '{conversation_id}' 处于激活状态，正在实时更新其祂的档案缓存。"
-                )
+                logger.info(f"会话 '{conversation_id}' 处于激活状态，正在实时更新其祂的档案缓存。")
                 if update_type == "card_change":
                     session.bot_profile_cache["card"] = new_value
                 # 可以在这里添加对其他更新类型的处理，比如头衔 'title'
@@ -321,12 +313,10 @@ class DefaultMessageProcessor:
             logger.error(f"处理祂的档案更新通知时出错: {e}", exc_info=True)
 
     async def _handle_message_event(
-        self,
-        proto_event: ProtocolEvent,
-        websocket: WebSocketServerProtocol
+        self, proto_event: ProtocolEvent, websocket: WebSocketServerProtocol
     ) -> bool:
-        """
-        处理所有消息类事件的核心方法.
+        """处理所有消息类事件的核心方法.
+
         这个方法会根据当前祂的注意力状态决定是否处理消息。
         它会检查当前的注意力路径，并根据路径决定是否唤醒祂或者忽略消息。
         返回 True 表示消息已被处理或忽略，False 表示处理失败。
@@ -341,14 +331,17 @@ class DefaultMessageProcessor:
             current_focus_path = focus_manager.current_focus_path if focus_manager else None
 
             if not current_focus_path or current_focus_path == "core":
-
                 logger.info(
                     f"事件 '{proto_event.event_id}' 到达，但祂正在发呆/内心思考。不立即唤醒。"
                 )
                 return True
 
             event_platform = proto_event.get_platform()
-            event_conv_id = proto_event.conversation_info.conversation_id if proto_event.conversation_info else None
+            event_conv_id = (
+                proto_event.conversation_info.conversation_id
+                if proto_event.conversation_info
+                else None
+            )
 
             if current_focus_path.startswith(f"{event_platform}.{event_conv_id}"):
                 logger.info(
@@ -366,9 +359,11 @@ class DefaultMessageProcessor:
                     is_high_priority = False
                     for seg in proto_event.content:
                         if (
-                            seg.type == "at" and str(seg.data.get("user_id")) == bot_id_on_this_platform
+                            seg.type == "at"
+                            and str(seg.data.get("user_id")) == bot_id_on_this_platform
                         ) or (
-                            seg.type == "quote" and str(seg.data.get("user_id")) == bot_id_on_this_platform
+                            seg.type == "quote"
+                            and str(seg.data.get("user_id")) == bot_id_on_this_platform
                         ):
                             is_high_priority = True
                             break
@@ -404,9 +399,7 @@ class DefaultMessageProcessor:
             return False
 
     async def _handle_request_event(
-        self,
-        proto_event: ProtocolEvent,
-        websocket: WebSocketServerProtocol
+        self, proto_event: ProtocolEvent, websocket: WebSocketServerProtocol
     ) -> None:
         """处理请求类事件（如好友请求、加群请求）."""
         try:
@@ -415,64 +408,8 @@ class DefaultMessageProcessor:
                 sender_id_log = str(proto_event.user_info.user_id)
             logger.info(f"收到请求事件: {proto_event.event_type} 来自用户 {sender_id_log}")
 
-            # 示例：自动同意好友请求
-            if proto_event.event_type.endswith("friend.add"):  # 使用 endswith 更健壮
-                logger.info(f"检测到好友添加请求事件，来自 {sender_id_log}。准备自动同意。")
-                if not self.core_comm_layer:
-                    logger.error(
-                        "核心通信层 (CoreWebsocketServer) 实例未设置，无法自动同意好友请求。"
-                    )
-                    return
-
-                if (
-                    not proto_event.content
-                    or not isinstance(proto_event.content[0], Seg)
-                    or not proto_event.content[0].data
-                ):
-                    logger.error(
-                        "好友请求事件的内容格式不正确或为空，无法获取请求参数 (如 request_flag)。"
-                    )
-                    return
-
-                request_params_data: dict = proto_event.content[0].data
-                request_flag = request_params_data.get("request_flag")
-
-                if not request_flag:
-                    logger.error("好友请求事件的内容中缺少 'request_flag'，无法自动同意。")
-                    return
-
-                # 构造动作事件时，也需要使用新的命名空间
-                platform_id = proto_event.get_platform()
-                approve_action_event_type = f"action.{platform_id}.handle_friend_request"
-
-                approve_action_seg = Seg(
-                    type="action_params",  # 这里用 action_params，让 builder 去解析
-                    data={
-                        "request_flag": request_flag,
-                        "approve": True,
-                        "remark": "AIcarus Core 自动通过了您的好友请求！",
-                    },
-                )
-
-                approve_action_event = ProtocolEvent(
-                    event_id=f"action_approve_friend_{uuid.uuid4()}",
-                    event_type=approve_action_event_type,
-                    time=int(time.time() * 1000.0),
-                    bot_id=proto_event.bot_id,
-                    content=[approve_action_seg],
-                )
-                logger.debug(f"准备自动同意好友请求的动作事件: {approve_action_event.to_dict()}")
-
-                # ActionSender 现在会从 event_type 解析平台ID
-                send_success = (
-                    await self.core_comm_layer.action_sender.send_action_to_adapter_by_id(
-                        platform_id, approve_action_event.to_dict()
-                    )
-                )
-                if send_success:
-                    logger.info(f"自动同意来自 {sender_id_log} 的好友请求的动作已发送。")
-                else:
-                    logger.error(f"自动同意来自 {sender_id_log} 的好友请求的动作发送失败。")
+            # 这里可以添加对请求事件的具体处理逻辑
+            # 例如，好友申请请求, 加群请求等request类事件
         except Exception as e:
             logger.error(
                 f"处理请求事件 (ID: {proto_event.event_id}) 时发生错误: {e}", exc_info=True

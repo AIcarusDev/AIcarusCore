@@ -169,9 +169,7 @@ class ChatSessionManager:
             return self.sessions[conversation_id]
 
     async def deactivate_session(
-        self,
-        conversation_id: str,
-        handover_context: dict | None = None
+        self, conversation_id: str, handover_context: dict | None = None
     ) -> None:
         """处理会话停用。现在它负责触发最终总结并从管理器中移除会话档案."""
         async with self.lock:

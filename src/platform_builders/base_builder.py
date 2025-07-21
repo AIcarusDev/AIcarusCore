@@ -4,6 +4,7 @@ from typing import Any
 
 from aicarus_protocols import Event
 
+
 class BasePlatformBuilder(ABC):
     """平台构建器的基类，定义了所有平台构建器的通用接口和属性.
 
@@ -31,9 +32,10 @@ class BasePlatformBuilder(ABC):
         pass
 
     @abstractmethod
-    def build_action_event(self, action_name: str, params: dict[str, Any], bot_id: str) -> Event | None:
-        """
-        根据动作名称和参数，构建一个平台专属的、可执行的 Event 对象。
+    def build_action_event(
+        self, action_name: str, params: dict[str, Any], bot_id: str
+    ) -> Event | None:
+        """根据动作名称和参数，构建一个平台专属的、可执行的 Event 对象。
 
         Args:
             action_name (str): 动作的名称。

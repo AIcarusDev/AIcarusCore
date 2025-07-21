@@ -1,12 +1,15 @@
 # src/bootstrap/container.py
 from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 # 避免在类型提示时出现循环导入问题
 if TYPE_CHECKING:
     from src.action.action_handler import ActionHandler
-    from src.common.intelligent_interrupt_system.intelligent_interrupter import IntelligentInterrupter
+    from src.common.intelligent_interrupt_system.intelligent_interrupter import (
+        IntelligentInterrupter,
+    )
     from src.common.summarization_observation.summarization_service import SummarizationService
     from src.common.unread_info_service.unread_info_service import UnreadInfoService
     from src.core_communication.core_ws_server import CoreWebsocketServer
@@ -17,26 +20,24 @@ if TYPE_CHECKING:
     from src.core_logic.state_manager import AIStateManager
     from src.core_logic.thought_generator import ThoughtGenerator
     from src.core_logic.thought_persistor import ThoughtPersistor
-    from src.database.core.connection_manager import ArangoDBConnectionManager
-    from src.database.services.action_log_storage_service import ActionLogStorageService
-    from src.database.services.conversation_storage_service import ConversationStorageService
+    from src.database import (
+        ActionLogStorageService,
+        ArangoDBConnectionManager,
+        ConversationStorageService,
+        PersonStorageService,
+        ThoughtStorageService,
+    )
     from src.database.services.event_storage_service import EventStorageService
-    from src.database.services.person_storage_service import PersonStorageService
     from src.database.services.summary_storage_service import SummaryStorageService
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
     from src.llmrequest.llm_processor import Client as ProcessorClient
     from src.message_processing.default_message_processor import DefaultMessageProcessor
-    from src.database import (
-    ActionLogStorageService,
-    ArangoDBConnectionManager,
-    ConversationStorageService,
-    PersonStorageService,
-    ThoughtStorageService,
-    )
+
 
 @dataclass
 class ServiceContainer:
     """一个存放所有核心服务实例的容器."""
+
     # LLM 客户端
     main_consciousness_llm_client: ProcessorClient
     summary_llm_client: ProcessorClient

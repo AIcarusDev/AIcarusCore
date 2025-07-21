@@ -5,7 +5,6 @@ from typing import Any
 
 from aicarus_protocols import ConversationInfo, Event, Seg
 from src.common.custom_logging.logging_config import get_logger
-from src.config import config
 from src.platform_builders.base_builder import BasePlatformBuilder
 
 logger = get_logger(__name__)
@@ -67,7 +66,9 @@ class QQBuilder(BasePlatformBuilder):
         """返回平台ID，唯一标识一个平台，这个ID必须和Adapter的core_platform_id完全一致."""
         return "napcat_qq"
 
-    def build_action_event(self, action_name: str, params: dict[str, Any], bot_id: str) -> Event | None:
+    def build_action_event(
+        self, action_name: str, params: dict[str, Any], bot_id: str
+    ) -> Event | None:
         """这个方法负责将平台特有的动作转换成标准的Event格式，它会根据动作名称和参数来决定如何构建Event对象.
 
         Args:
@@ -108,11 +109,7 @@ class QQBuilder(BasePlatformBuilder):
                 if conv_id:
                     conv_info = ConversationInfo(conversation_id=str(conv_id), type="group")
 
-            return self._build_generic_event(
-                action_name,
-                params, bot_id,
-                conv_info
-            )
+            return self._build_generic_event(action_name, params, bot_id, conv_info)
 
         # 3. 如果哪个都不沾，那就真的不认识了
         logger.warning(f"QQBuilder 的白名单和特殊名单里都没有这个动作: {action_name}")
@@ -125,7 +122,7 @@ class QQBuilder(BasePlatformBuilder):
         action_name: str,
         params: dict[str, Any],
         bot_id: str,
-        conv_info: ConversationInfo | None = None
+        conv_info: ConversationInfo | None = None,
     ) -> Event:
         """一个通用的翻译模板，这个方法会根据动作名称和参数来构建一个标准的Event对象.
 
@@ -245,10 +242,10 @@ class QQBuilder(BasePlatformBuilder):
                                         "params": {
                                             "type": "object",
                                             "properties": {"text": {"type": "string"}},
-                                            "required": ["text"]
-                                        }
+                                            "required": ["text"],
+                                        },
                                     },
-                                    "required": ["command", "params"]
+                                    "required": ["command", "params"],
                                 },
                                 {
                                     "type": "object",
@@ -257,35 +254,48 @@ class QQBuilder(BasePlatformBuilder):
                                         "command": {"const": "at", "description": "@某人"},
                                         "params": {
                                             "type": "object",
-                                            "properties": {"at": {"type": "string", "description": "对方的ID"}},
-                                            "required": ["at"]
-                                        }
+                                            "properties": {
+                                                "at": {"type": "string", "description": "对方的ID"}
+                                            },
+                                            "required": ["at"],
+                                        },
                                     },
-                                    "required": ["command", "params"]
+                                    "required": ["command", "params"],
                                 },
                                 {
                                     "type": "object",
                                     "title": "ReplyStep",
                                     "properties": {
-                                        "command": {"const": "reply", "description": "回复某条消息"},
+                                        "command": {
+                                            "const": "reply",
+                                            "description": "回复某条消息",
+                                        },
                                         "params": {
                                             "type": "object",
-                                            "properties": {"reply": {"type": "string", "description": "被回复消息的ID"}},
-                                            "required": ["reply"]
-                                        }
+                                            "properties": {
+                                                "reply": {
+                                                    "type": "string",
+                                                    "description": "被回复消息的ID",
+                                                }
+                                            },
+                                            "required": ["reply"],
+                                        },
                                     },
-                                    "required": ["command", "params"]
+                                    "required": ["command", "params"],
                                 },
                                 {
                                     "type": "object",
                                     "title": "SendAndBreakStep",
                                     "properties": {
-                                        "command": {"const": "send_and_break", "description": "发送当前内容"}
+                                        "command": {
+                                            "const": "send_and_break",
+                                            "description": "发送当前内容",
+                                        }
                                     },
-                                    "required": ["command"]
-                                }
+                                    "required": ["command"],
+                                },
                             ]
-                        }
+                        },
                     },
                     "motivation": {"type": "string"},
                 },

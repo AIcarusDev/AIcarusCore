@@ -213,8 +213,7 @@ class PersonStorageService:
         try:
             await self.conn_manager.execute_query(query, bind_vars)
             logger.debug(
-                f"成功更新祂的成员关系: Account '{account_uid}' "
-                f"in Conversation '{conversation_id}'"
+                f"成功更新祂的成员关系: Account '{account_uid}' in Conversation '{conversation_id}'"
             )
             return True
         except Exception as e:
@@ -433,8 +432,7 @@ class PersonStorageService:
             return []
 
     async def get_self_account_for_platform(self, platform_id: str) -> dict[str, Any] | None:
-        """
-        根据平台ID，获取祂自身在该平台上的账户信息。
+        """根据平台ID，获取祂自身在该平台上的账户信息。
 
         Args:
             platform_id: 目标平台的ID, 例如 "napcat_qq"。

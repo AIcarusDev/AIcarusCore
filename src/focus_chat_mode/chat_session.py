@@ -4,9 +4,9 @@ import asyncio
 import time
 from typing import TYPE_CHECKING, Any
 
-from src.config import config
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logging_config import get_logger
+from src.config import config
 from src.database import ConversationStorageService
 from src.database.services.event_storage_service import EventStorageService
 from src.database.services.thought_storage_service import ThoughtStorageService
@@ -207,7 +207,6 @@ class ChatSession:
                 f"no_action_count 增加为: {self.no_action_count}"
             )
 
-
     async def update_counters_on_new_events(self) -> None:
         """根据新消息重置计数器."""
         new_events = await self.event_storage.get_message_events_after_timestamp(
@@ -247,13 +246,15 @@ class ChatSession:
         async with self._echo_lock:
             self._echo_events[action_id] = wake_up_event
 
-        logger.info(f"[{self.conversation_id}] 动作 '{action_id}' 已进入回声等待室，等待适配器回音...")
+        logger.info(
+            f"[{self.conversation_id}] 动作 '{action_id}' 已进入回声等待室，等待适配器回音..."
+        )
 
         try:
             await asyncio.wait_for(wake_up_event.wait(), timeout=timeout)
             logger.success(f"[{self.conversation_id}] 动作 '{action_id}' 已收到回声！")
             return True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(f"[{self.conversation_id}] 等待动作 '{action_id}' 的回声超时！")
             return False
         finally:
@@ -287,7 +288,11 @@ class ChatSession:
             f"[{self.conversation_id}] 缓存和数据库中均未找到祂有效的档案。"
             f"将使用初始化时提供的 ID '{self.bot_id}' 构建一个临时的基础档案。"
         )
-        return {"user_id": self.bot_id, "nickname": config.persona.bot_name, "card": config.persona.bot_name}
+        return {
+            "user_id": self.bot_id,
+            "nickname": config.persona.bot_name,
+            "card": config.persona.bot_name,
+        }
 
     async def get_conversation_details(self) -> dict[str, Any]:
         """智能获取会话的详细信息，比如成员数（带缓存）."""
@@ -341,18 +346,15 @@ class ChatSession:
             try:
                 await self._interrupt_checker_task
             except asyncio.CancelledError:
-                pass # 正常取消
+                pass  # 正常取消
             logger.info(f"[{self.conversation_id}] 中断检查哨兵已停止。")
         self._interrupt_checker_task = None
 
     def _on_interrupt_checker_done(self, task: asyncio.Task) -> None:
         """中断检查任务结束时的回调。"""
         try:
-            task.result() # 检查是否有异常
+            task.result()  # 检查是否有异常
         except asyncio.CancelledError:
-            pass # 正常取消，无需记录
+            pass  # 正常取消，无需记录
         except Exception as e:
-            logger.error(
-                f"[{self.conversation_id}] 后台中断检查任务意外终止: {e}",
-                exc_info=e
-            )
+            logger.error(f"[{self.conversation_id}] 后台中断检查任务意外终止: {e}", exc_info=e)

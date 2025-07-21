@@ -34,11 +34,11 @@ class InternalInfoBuilder:
         self.thought_storage_service = thought_storage_service
         # 我们需要一个对 prompt_builder 的引用来获取UID映射，这个需要在 main.py 里注入
         self.prompt_builder: ThoughtPromptBuilder | None = None
-        self.current_focus_path: str | None = "core" # 初始化
+        self.current_focus_path: str | None = "core"  # 初始化
 
     async def build_internal_info_block(
         self,
-        is_context_switch: bool, # 注意：is_context_switch 现在主要用于控制 control 块的措辞
+        is_context_switch: bool,  # 注意：is_context_switch 现在主要用于控制 control 块的措辞
         session: Optional["ChatSession"] = None,
         handover_result: dict | None = None,
     ) -> str:
@@ -64,8 +64,10 @@ class InternalInfoBuilder:
 
             if session and session.interruption_context:
                 # 如果有中断，只填充中断报告，常规动作描述留空
-                template_vars["if_interruptions"] = await self._build_interruption_report(session, latest_thought)
-                session.interruption_context = None # 用完即焚
+                template_vars["if_interruptions"] = await self._build_interruption_report(
+                    session, latest_thought
+                )
+                session.interruption_context = None  # 用完即焚
             else:
                 # 如果没有中断，正常填充常规动作描述
                 action_payload = latest_thought.get("action_payload", {})
@@ -76,7 +78,10 @@ class InternalInfoBuilder:
                     control_payload, is_context_switch, session
                 )
 
-                if template_vars["from_think_action"] and template_vars["from_think_consciousness_controls"]:
+                if (
+                    template_vars["from_think_action"]
+                    and template_vars["from_think_consciousness_controls"]
+                ):
                     template_vars["and_separator"] = "并且，"
 
             # 动作结果的填充逻辑保持不变，因为它与中断无关
@@ -85,7 +90,9 @@ class InternalInfoBuilder:
             )
 
             rendered_string = self.TEMPLATE.format(**template_vars)
-            non_empty_lines = [line.strip() for line in rendered_string.splitlines() if line.strip()]
+            non_empty_lines = [
+                line.strip() for line in rendered_string.splitlines() if line.strip()
+            ]
 
             return "\n".join(non_empty_lines)
 
@@ -93,7 +100,9 @@ class InternalInfoBuilder:
             logger.error(f"构建内部信息块时发生严重错误: {e}", exc_info=True)
             return "<!-- 内部信息构建失败 -->"
 
-    async def _build_interruption_report(self, session: "ChatSession", latest_thought_doc: dict) -> str:
+    async def _build_interruption_report(
+        self, session: "ChatSession", latest_thought_doc: dict
+    ) -> str:
         """【已重构】只生成中断部分的叙事文本，不再重复构建整个块。"""
         context = session.interruption_context
         interrupting_event_doc = context.get("interrupting_event_doc", {})
@@ -104,7 +113,9 @@ class InternalInfoBuilder:
         # a. 提取打断事件的关键信息
         interrupting_event = Event.from_dict(interrupting_event_doc)
         interrupt_text = interrupting_event.get_text_content() or "[非文本消息]"
-        interrupt_sender_id = (interrupting_event.user_info.user_id if interrupting_event.user_info else "未知用户")
+        interrupt_sender_id = (
+            interrupting_event.user_info.user_id if interrupting_event.user_info else "未知用户"
+        )
 
         # b. 获取打断者的UID
         interrupt_sender_uid = "未知UID"
@@ -113,10 +124,16 @@ class InternalInfoBuilder:
                 "cellular", session.platform, session.conversation_id
             )
             # aicarus_protocols v1.7.0 后，uid_str_to_platform_id_map 移动到了 history_components[2] (PromptComponents)
-            if history_components and history_components[2] and history_components[2].uid_str_to_platform_id_map:
+            if (
+                history_components
+                and history_components[2]
+                and history_components[2].uid_str_to_platform_id_map
+            ):
                 uid_map = history_components[2].uid_str_to_platform_id_map
                 pid_to_uid_map = {pid: uid for uid, pid in uid_map.items()}
-                interrupt_sender_uid = pid_to_uid_map.get(interrupt_sender_id, f"未知用户({interrupt_sender_id[:4]})")
+                interrupt_sender_uid = pid_to_uid_map.get(
+                    interrupt_sender_id, f"未知用户({interrupt_sender_id[:4]})"
+                )
 
         # c. 生成“本来想做什么”的描述
         planned_action_desc = self._format_planned_action(latest_thought_doc)
@@ -160,19 +177,25 @@ class InternalInfoBuilder:
                                 texts = []
                                 if isinstance(steps, list):
                                     for s in steps:
-                                        if (isinstance(s, dict)
+                                        if (
+                                            isinstance(s, dict)
                                             and s.get("command") == "text"
                                             and (text := s.get("params", {}).get("text"))
-                                            and isinstance(text, str)):
+                                            and isinstance(text, str)
+                                        ):
                                             texts.append(text)
 
                                 if not texts:
                                     descriptions.append("你本来想发送一条非文本消息。")
                                 elif len(texts) == 1:
-                                    descriptions.append(f'你本来想做：发言（发言内容为：“{texts[0]}”）')
+                                    descriptions.append(
+                                        f"你本来想做：发言（发言内容为：“{texts[0]}”）"
+                                    )
                                 else:
-                                    formatted_texts = "、".join(f'“{t}”' for t in texts)
-                                    descriptions.append(f'你本来想做：发言（发言内容依次为：{formatted_texts}）')
+                                    formatted_texts = "、".join(f"“{t}”" for t in texts)
+                                    descriptions.append(
+                                        f"你本来想做：发言（发言内容依次为：{formatted_texts}）"
+                                    )
                             else:
                                 descriptions.append(f"你本来想做：{platform_key}.{action_name}。")
                 except (StopIteration, AttributeError, TypeError):
@@ -182,7 +205,9 @@ class InternalInfoBuilder:
             try:
                 command, params = next(iter(control_part.items()))
                 motivation = params.get("motivation", "没有明确动机")
-                descriptions.append(f"你本来想转移注意力（指令: {command}），因为：“{motivation}”。")
+                descriptions.append(
+                    f"你本来想转移注意力（指令: {command}），因为：“{motivation}”。"
+                )
             except (StopIteration, AttributeError, TypeError):
                 descriptions.append("你本来想转移注意力。")
 
@@ -194,7 +219,7 @@ class InternalInfoBuilder:
     def _build_action_desc(self, action_payload: dict | None) -> str:
         """构建【基于想法的动作】描述。"""
         if not action_payload:
-            return "" # 无动作，返回空
+            return ""  # 无动作，返回空
 
         # 我们只关心 "action" 键，忽略 "consciousness_control"
         action_part = action_payload.get("action")
@@ -216,7 +241,7 @@ class InternalInfoBuilder:
 
                     if not isinstance(action_params, dict):
                         # 如果参数不是字典，这确实是格式异常
-                        return f'出于你刚才的想法，你做了：{platform_key}.{action_name}（参数格式异常）。'
+                        return f"出于你刚才的想法，你做了：{platform_key}.{action_name}（参数格式异常）。"
 
                     motivation = action_params.get("motivation", "没有明确动机")
 
@@ -239,21 +264,25 @@ class InternalInfoBuilder:
                         elif len(texts) == 1:
                             return f'出于你刚才的想法，你做了：发言（发言内容为：“{texts[0]}”）\n因为："{motivation}"'
                         else:
-                            formatted_texts = "、".join(f'“{t}”' for t in texts)
+                            formatted_texts = "、".join(f"“{t}”" for t in texts)
                             return f'出于你刚才的想法，你做了：发言（发言内容依次为：{formatted_texts}）\n因为："{motivation}"'
 
                     # 对于其他所有动作，使用通用描述
                     return f'出于你刚才的想法，你做了：{platform_key}.{action_name}\n因为："{motivation}"'
 
-        except (StopIteration,
-                AttributeError,
-                TypeError
-        ) as e:
-            logger.warning(f"解析动作描述时遇到非预期结构，将回退。错误: {e}, Payload: {action_part}")
+        except (StopIteration, AttributeError, TypeError) as e:
+            logger.warning(
+                f"解析动作描述时遇到非预期结构，将回退。错误: {e}, Payload: {action_part}"
+            )
 
         return "出于你刚才的想法，你执行了一个未被详细记录的动作。"
 
-    def _build_control_desc(self, control_payload: dict | None, is_context_switch: bool, session: Optional["ChatSession"]) -> str:
+    def _build_control_desc(
+        self,
+        control_payload: dict | None,
+        is_context_switch: bool,
+        session: Optional["ChatSession"],
+    ) -> str:
         """构建【注意力控制】描述。"""
         if not control_payload or not is_context_switch:
             # 只有在上下文切换时才显示此块
@@ -267,7 +296,7 @@ class InternalInfoBuilder:
             if session:
                 arrival_target = f"这个会话({session.conversation_name or session.conversation_id})"
             elif self.current_focus_path and self.current_focus_path != "core":
-                path_parts = self.current_focus_path.split('.')
+                path_parts = self.current_focus_path.split(".")
                 if len(path_parts) == 1:
                     arrival_target = f"这个平台({path_parts[0]})"
 
@@ -275,7 +304,9 @@ class InternalInfoBuilder:
         except (StopIteration, AttributeError):
             return ""
 
-    def _build_action_response_desc(self, latest_thought: dict, handover_result: dict | None) -> str:
+    def _build_action_response_desc(
+        self, latest_thought: dict, handover_result: dict | None
+    ) -> str:
         """构建【动作结果】描述。"""
         action_result_text = None
         action_name = None
@@ -304,7 +335,9 @@ class InternalInfoBuilder:
         if "决策中未包含任何行动指令" in action_result_text:
             return ""
 
-        return (f'<action_response>\n'
-                f'你刚才的行动 "{action_name}" 成功了，返回了以下信息：\n'
-                f'{action_result_text}\n'
-                f'</action_response>')
+        return (
+            f"<action_response>\n"
+            f'你刚才的行动 "{action_name}" 成功了，返回了以下信息：\n'
+            f"{action_result_text}\n"
+            f"</action_response>"
+        )

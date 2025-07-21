@@ -189,8 +189,7 @@ class CoreWebsocketServer:
             )
 
     async def wait_for_all_inspections(self):
-        """
-        等待所有正在进行的安检任务完成。
+        """等待所有正在进行的安检任务完成。
         这个方法提供了一个阻塞点，确保在继续执行依赖安检结果的逻辑前，
         所有平台的身份信息都已获取。
         """
@@ -201,7 +200,6 @@ class CoreWebsocketServer:
         logger.info(f"正在等待 {len(self.active_inspection_tasks)} 个平台的安检仪式完成...")
         await asyncio.gather(*self.active_inspection_tasks)
         logger.success("所有待处理的安检仪式均已完成。")
-
 
     async def _unregister_adapter(
         self, websocket: WebSocketServerProtocol, reason: str = "连接关闭"
@@ -471,12 +469,14 @@ class CoreWebsocketServer:
         # 遍历所有平台，生成结构化描述
         for platform_id in sorted(all_platform_ids):
             # 尝试从在线适配器中获取显示名称，如果没有，就用平台ID自身
-            display_name = connected_platforms_info.get(platform_id, {}).get("display_name", platform_id)
+            display_name = connected_platforms_info.get(platform_id, {}).get(
+                "display_name", platform_id
+            )
 
             # 构造每个平台的描述块
             platform_block = [
                 f"- 平台名称: {display_name}",
-                f"  - 平台ID: {platform_id}"  # 关键：明确提供机器可读的ID
+                f"  - 平台ID: {platform_id}",  # 关键：明确提供机器可读的ID
             ]
 
             # 情况 1 & 2: 平台当前在线
@@ -487,7 +487,7 @@ class CoreWebsocketServer:
                 if profile and isinstance(profile, dict):  # 安检通过，有身份了！
                     bot_id = profile.get("user_id", "读取失败")
                     bot_name = profile.get("nickname", "读取失败")
-                    platform_block.append(f"  - 状态: 在线")
+                    platform_block.append("  - 状态: 在线")
                     platform_block.append(f"  - 你的{platform_id}号是：{bot_id}")
                     platform_block.append(f"  - 你的{platform_id}名称是：{bot_name}")
                 else:  # 正在安检
@@ -513,7 +513,9 @@ class CoreWebsocketServer:
 
         if offline_parts:
             if not online_parts:
-                final_parts.append("你暂时没有可用平台，可能是与平台连接断开或程序刚刚启动，请稍等。")
+                final_parts.append(
+                    "你暂时没有可用平台，可能是与平台连接断开或程序刚刚启动，请稍等。"
+                )
             else:
                 final_parts.append("\n你当前离线的平台(可能断开了)：")
             final_parts.extend(offline_parts)

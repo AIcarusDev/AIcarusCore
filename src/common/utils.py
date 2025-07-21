@@ -601,9 +601,9 @@ def format_messages_for_llm_context(
 
     return "错误的格式化风格参数。", []
 
+
 def parse_focus_path(focus_path: str | None) -> tuple[str, str, str | None]:
-    """
-    一个可复用的工具函数，用于解析焦点路径字符串。
+    """一个可复用的工具函数，用于解析焦点路径字符串。
 
     Args:
         focus_path: 当前的焦点路径，例如 "core", "napcat_qq", "napcat_qq.123456"。

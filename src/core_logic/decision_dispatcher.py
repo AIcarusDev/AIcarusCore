@@ -2,9 +2,9 @@
 import asyncio
 from typing import TYPE_CHECKING
 
+from src.action.components.message_builder import MessageBuilder
 from src.common.custom_logging.logging_config import get_logger
 from src.common.utils import parse_focus_path
-from src.action.components.message_builder import MessageBuilder
 
 if TYPE_CHECKING:
     from src.action.action_handler import ActionHandler
@@ -89,7 +89,7 @@ async def process_llm_decision(
                 first_action_name = next(iter(action_payload))
                 if current_platform_id != "core":
                     action_payload = {current_platform_id: action_payload}
-                else: # 如果在 core 层，但不是已知的 core 动作，也归到 core 下
+                else:  # 如果在 core 层，但不是已知的 core 动作，也归到 core 下
                     action_payload = {"core": action_payload}
 
     # --- 根据动作类型和意识控制的存在，执行不同策略 ---
@@ -99,15 +99,14 @@ async def process_llm_decision(
         logger.info("检测到 [泛用有结果类] 动作 (web_search)，执行'先取结果'策略。")
         search_result_text = await action_handler._execute_core_web_search(action_details["params"])
         await action_handler.thought_storage_service.save_action_result_to_thought(
-            thought_key=source_thought_key,
-            result_text=search_result_text
+            thought_key=source_thought_key, result_text=search_result_text
         )
         if control_payload:
             logger.info("检测到意识控制，将携带搜索结果进行注意力转移。")
             command, params = next(iter(control_payload.items()))
             params["_handover_action_result"] = {
                 "action_name": "web_search",
-                "result_text": search_result_text
+                "result_text": search_result_text,
             }
             await focus_manager.handle_consciousness_control(control_payload)
         else:
@@ -144,7 +143,7 @@ async def process_llm_decision(
         logger.info("检测到 [回声类] 动作 (send_message)，将等待回声后触发思考。")
 
         # a. 确认我们在底层会话中
-        path_parts = focus_manager.current_focus_path.split('.')
+        path_parts = focus_manager.current_focus_path.split(".")
         if len(path_parts) < 2:
             logger.error("回声类动作只能在底层会话中执行！")
             return
@@ -162,8 +161,12 @@ async def process_llm_decision(
             )
 
         # c. 直接调用 MessageBuilder，让它在后台发送消息并返回 action_ids
-        message_builder = MessageBuilder(session, motivation=action_details["params"].get("motivation"))
-        sent_action_ids = await message_builder.process_steps(action_details["params"].get("steps", []))
+        message_builder = MessageBuilder(
+            session, motivation=action_details["params"].get("motivation")
+        )
+        sent_action_ids = await message_builder.process_steps(
+            action_details["params"].get("steps", [])
+        )
 
         # d. 等待所有消息的回声
         if sent_action_ids:
@@ -172,7 +175,9 @@ async def process_llm_decision(
             if all(results):
                 logger.success(f"所有 {len(sent_action_ids)} 条消息的回声均已收到。")
             else:
-                logger.warning(f"{results.count(False)} / {len(sent_action_ids)} 条消息的回声等待超时。")
+                logger.warning(
+                    f"{results.count(False)} / {len(sent_action_ids)} 条消息的回声等待超时。"
+                )
 
         # e. 无论是否超时，都触发下一轮思考
         if action_handler.thought_trigger:

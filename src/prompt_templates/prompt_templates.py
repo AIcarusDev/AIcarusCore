@@ -12,6 +12,7 @@
 {available_actions}: 可用动作说明
 {input_XML_block_description}： 输入 XML 块的描述
 """
+
 CORE_CYCLE_SYSTEM_PROMPT = """
 <system_rule>
 {aicarus_rule_block}
@@ -65,7 +66,6 @@ JSON 对象包含三个顶级键: `"internal_state"`, `"consciousness_control"`,
 """  # noqa: E501
 
 
-
 # ============================= 核心循环用户提示 =============================
 """
 {external_info_block} 是外部信息块的内容
@@ -83,4 +83,4 @@ CORE_CYCLE_USER_PROMPT = """
 <output_format>
 请结合所有信息，输出你现在的心情，内心想法,行动等内容。
 </output_format>
-"""  # noqa: E501
+"""

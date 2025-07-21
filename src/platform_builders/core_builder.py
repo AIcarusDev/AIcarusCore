@@ -18,33 +18,22 @@ class CoreBuilder(BasePlatformBuilder):
     _CONSCIOUSNESS_CONTROLS_DEFINITIONS: ClassVar = {
         "focus": {
             "type": "object",
-            "properties": {
-                "conversation_id": {"type": "string"},
-                "motivation": {"type": "string"}
-            },
+            "properties": {"conversation_id": {"type": "string"}, "motivation": {"type": "string"}},
             "required": ["conversation_id", "motivation"],
         },
         "return": {
             "type": "object",
-            "properties": {
-                "motivation": {"type": "string"}
-            },
+            "properties": {"motivation": {"type": "string"}},
             "required": ["motivation"],
         },
         "shift": {
             "type": "object",
-            "properties": {
-                "conversation_id": {"type": "string"},
-                "motivation": {"type": "string"}
-            },
+            "properties": {"conversation_id": {"type": "string"}, "motivation": {"type": "string"}},
             "required": ["conversation_id", "motivation"],
         },
         "peek": {
             "type": "object",
-            "properties": {
-                "conversation_id": {"type": "string"},
-                "motivation": {"type": "string"}
-            },
+            "properties": {"conversation_id": {"type": "string"}, "motivation": {"type": "string"}},
             "required": ["conversation_id", "motivation"],
         },
     }
@@ -53,7 +42,7 @@ class CoreBuilder(BasePlatformBuilder):
         "focus_platform": "- `focus`: 深入到一个具体的平台，需要提供目标平台的ID。",
         "focus_conversation": "- `focus`: 深入到当前平台下一个具体的会话，需要提供目标会话的ID。",
         "shift": "- `shift`: 在当前层级进行横向移动，例如从一个会话切换到另一个会话。",
-        "peek": "- `peek`: “窥视”另一个会话或平台的信息，但保持当前的主要注意力焦点不变。",  # noqa: E501
+        "peek": "- `peek`: “窥视”另一个会话或平台的信息，但保持当前的主要注意力焦点不变。",
         "shift": "- `shift`: 将注意力从当前会话，直接转移到本平台内的另一个会话，需要提供目标会话的ID。",  # noqa: E501
         "return_from_cellular": "- `return(motivation)`: 暂时退出当前会话，返回到平台。",
         "return_from_platform": "- `return(motivation)`: 暂时退出当前平台。",
@@ -62,10 +51,7 @@ class CoreBuilder(BasePlatformBuilder):
     _ACTIONS_DEFINITIONS: ClassVar = {
         "web_search": {
             "type": "object",
-            "properties": {
-                "query": {"type": "string"},
-                "motivation": {"type": "string"}
-            },
+            "properties": {"query": {"type": "string"}, "motivation": {"type": "string"}},
             "required": ["query", "motivation"],
         }
     }
@@ -79,9 +65,10 @@ class CoreBuilder(BasePlatformBuilder):
         """返回平台ID."""
         return "core"
 
-    def build_action_event(self, action_name: str, params: dict[str, Any], bot_id: str) -> Event | None:
-        """
-        核心构建器不负责构建发送给外部适配器的Event。
+    def build_action_event(
+        self, action_name: str, params: dict[str, Any], bot_id: str
+    ) -> Event | None:
+        """核心构建器不负责构建发送给外部适配器的Event。
         核心动作（如web_search）由ActionHandler内部直接处理。
         这个方法只是为了满足抽象基类的接口要求。
         """
@@ -101,10 +88,7 @@ class CoreBuilder(BasePlatformBuilder):
         if level == "core":
             props["focus"] = {  # 顶层用 platform_id
                 "type": "object",
-                "properties": {
-                    "platform_id": {"type": "string"},
-                    "motivation": {"type": "string"}
-                },
+                "properties": {"platform_id": {"type": "string"}, "motivation": {"type": "string"}},
                 "required": ["platform_id", "motivation"],
             }
         elif level == "platform":

@@ -4,7 +4,6 @@ import time
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from src.prompt_templates.web_search import WEB_SEARCH_USER_PROMPT, WEB_SEARCH_SYSTEM_PROMPT
 from src.action.components.pending_action_manager import PendingActionManager
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
@@ -13,11 +12,12 @@ from src.database import (
     ActionLogStorageService,
     ConversationStorageService,
     EventStorageService,
-    ThoughtStorageService,
     PersonStorageService,
+    ThoughtStorageService,
 )
 from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.platform_builders.registry import platform_builder_registry
+from src.prompt_templates.web_search import WEB_SEARCH_SYSTEM_PROMPT, WEB_SEARCH_USER_PROMPT
 
 if TYPE_CHECKING:
     from src.core_logic.consciousness_flow import CoreLogic
@@ -154,7 +154,9 @@ class ActionHandler:
             # 注意：当前设计依然是一次思考只执行一个平台或核心的第一个动作
             platform_actions = action_json.get("napcat_qq", {})
             core_actions = action_json.get("core", {})
-            actions_to_process = platform_actions or {k: v for k, v in core_actions.items() if k != "web_search"}
+            actions_to_process = platform_actions or {
+                k: v for k, v in core_actions.items() if k != "web_search"
+            }
 
             # 如果没有动作需要处理，直接返回
             if not actions_to_process:
@@ -170,10 +172,7 @@ class ActionHandler:
 
             else:  # 其他所有平台动作
                 await self._execute_platform_action_flow(
-                    platform_id,
-                    action_name,
-                    params,
-                    doc_key_for_updates
+                    platform_id, action_name, params, doc_key_for_updates
                 )
 
         finally:
@@ -183,8 +182,7 @@ class ActionHandler:
                 self.thought_trigger.set()
 
     def _handle_background_task_completion(self, task: asyncio.Task) -> None:
-        """
-        一个通用的回调函数，用于处理所有后台任务的完成事件。
+        """一个通用的回调函数，用于处理所有后台任务的完成事件。
         它会从管理集合中移除任务，并检查任务是否发生了异常。
         """
         self._background_tasks.discard(task)
@@ -192,7 +190,7 @@ class ActionHandler:
             # 如果任务在执行过程中抛出了异常，我们在这里捕获并记录它
             logger.error(
                 f"一个后台任务（名称: '{task.get_name()}'）执行时发生异常: {task.exception()}",
-                exc_info=task.exception()
+                exc_info=task.exception(),
             )
 
     async def _execute_send_message_flow(self, doc_key_for_updates: str, params: dict) -> None:
@@ -219,7 +217,7 @@ class ActionHandler:
         # 3. 直接、纯粹地执行发送任务。
         send_task = asyncio.create_task(
             message_builder.process_steps(params.get("steps", [])),
-            name=f"SendMessage-{session.conversation_id}"
+            name=f"SendMessage-{session.conversation_id}",
         )
         # 将任务添加到后台任务集合中，以便管理和清理
         self._background_tasks.add(send_task)
@@ -244,19 +242,12 @@ class ActionHandler:
         user_prompt = WEB_SEARCH_USER_PROMPT.format(query=query, motivation=motivation)
 
         response = await self.web_search_agent_client.make_llm_request(
-            prompt=user_prompt,
-            system_prompt=system_prompt,
-            is_stream=False,
-            use_google_search=True
+            prompt=user_prompt, system_prompt=system_prompt, is_stream=False, use_google_search=True
         )
         return response.get("text", "搜索失败或未返回任何信息。")
 
     async def _execute_platform_action_flow(
-        self,
-        platform_id: str,
-        action_name: str,
-        params: dict,
-        doc_key_for_updates: str
+        self, platform_id: str, action_name: str, params: dict, doc_key_for_updates: str
     ) -> None:
         """执行一个平台动作的完整流程：构建->发送->等待响应."""
         builder = platform_builder_registry.get_builder(platform_id)
@@ -274,7 +265,7 @@ class ActionHandler:
             # 可以在这里保存一个失败结果到思想点
             await self.thought_storage_service.save_action_result_to_thought(
                 thought_key=doc_key_for_updates,
-                result_text=f"动作执行失败：我找不到自己在这个平台({platform_id})上的身份信息。"
+                result_text=f"动作执行失败：我找不到自己在这个平台({platform_id})上的身份信息。",
             )
             return
 
@@ -293,12 +284,7 @@ class ActionHandler:
         )
 
     async def execute_simple_action(
-        self,
-        platform_id: str,
-        action_name: str,
-        params: dict,
-        bot_id: str,
-        description: str
+        self, platform_id: str, action_name: str, params: dict, bot_id: str, description: str
     ) -> tuple[bool, Any]:
         """一个更简单的动作执行入口，用于内部系统调用，如专注模式."""
         builder = platform_builder_registry.get_builder(platform_id)
@@ -343,8 +329,10 @@ class ActionHandler:
 
         if not bot_id_for_log:
             # 如果真的没有，这是一个严重错误，我们必须记录下来
-            logger.error(f"严重逻辑错误：动作事件中缺少 bot_id！无法记录日志。事件: {action_to_send}")
-            bot_id_for_log = "error_missing_bot_id" # 在日志中明确记录错误
+            logger.error(
+                f"严重逻辑错误：动作事件中缺少 bot_id！无法记录日志。事件: {action_to_send}"
+            )
+            bot_id_for_log = "error_missing_bot_id"  # 在日志中明确记录错误
 
         await self.action_log_service.save_action_attempt(
             action_id=core_action_id,
@@ -383,7 +371,6 @@ class ActionHandler:
 
     async def system_get_bot_profile(self, adapter_id: str) -> None:
         """系统触发获取祂档案的动作，适用于平台适配器."""
-
         logger.info(f"系统触发为适配器 '{adapter_id}' 获取祂的档案。")
         builder = platform_builder_registry.get_builder(adapter_id)
         if not builder:
@@ -393,7 +380,7 @@ class ActionHandler:
         action_event = builder.build_action_event(
             action_name="get_bot_profile",
             params={},
-            bot_id="pending_inspection" # 这里用一个特殊的标识表示待安检状态
+            bot_id="pending_inspection",  # 这里用一个特殊的标识表示待安检状态
         )
 
         if not action_event:
@@ -406,7 +393,7 @@ class ActionHandler:
                 thought_doc_key=None,
                 original_action_description="系统：上线安检",
             ),
-            name=f"BotProfileInspection-{adapter_id}"
+            name=f"BotProfileInspection-{adapter_id}",
         )
 
         self._background_tasks.add(task)

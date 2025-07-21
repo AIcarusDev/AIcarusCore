@@ -7,10 +7,10 @@ import time
 import uuid
 from typing import TYPE_CHECKING, Optional
 
-from src.common.utils import parse_focus_path
-from aicarus_protocols import Event, Seg, extract_text_from_content
+from aicarus_protocols import Seg, extract_text_from_content
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logging_config import get_logger
+from src.common.utils import parse_focus_path
 from src.config import config
 from src.core_communication.core_ws_server import CoreWebsocketServer
 from src.core_logic.decision_dispatcher import process_llm_decision
@@ -131,8 +131,7 @@ class CoreLogic:
         return False
 
     async def _core_thinking_loop(self) -> None:
-        """
-        主思考循环，负责持续思考和处理动作.
+        """主思考循环，负责持续思考和处理动作.
         这个方法会持续运行，直到 stop_event 被设置为 True.
         它会定期检查当前的思考焦点，并根据焦点生成新的思考内容。
         如果在底层会话中，它还会启动一个中断检查器来处理可能的高优先级消息。
@@ -174,13 +173,12 @@ class CoreLogic:
                 prompt_components = await self.prompt_builder.build_prompts_components(
                     focus_path=focus_path,
                     session=session,
-                    handover_result=handover_result_to_process
+                    handover_result=handover_result_to_process,
                 )
                 system_prompt, user_prompt, response_schema = self.prompt_builder.finalize_prompts(
                     prompt_components
                 )
                 self.prompt_builder.is_context_switch_flag = False
-
 
                 # 3. 如果在底层会话中，启动中断检查器
                 # 注意：这个检查器是非阻塞的，它会在后台持续运行，
@@ -190,9 +188,7 @@ class CoreLogic:
                     # 清除旧的信号，准备监听新的
                     session.interrupt_signal.clear()
 
-                    llm_task = asyncio.create_task(
-                        self.thought_generator.generate_thought(...)
-                    )
+                    llm_task = asyncio.create_task(self.thought_generator.generate_thought(...))
 
                     # 监听中断信号，而不是临时任务
                     interrupt_listener_task = asyncio.create_task(session.interrupt_signal.wait())
@@ -207,10 +203,10 @@ class CoreLogic:
                         if session.interruption_context:
                             session.interruption_context["was_interrupted_while_thinking"] = True
                         logger.info(f"[{session.conversation_id}] 思考被中断，立即进入下一轮。")
-                        continue # 直接进入下一轮循环
+                        continue  # 直接进入下一轮循环
 
                     if llm_task in done:
-                        interrupt_listener_task.cancel() # 取消监听器
+                        interrupt_listener_task.cancel()  # 取消监听器
                         generated_thought_json = await llm_task
                 else:
                     # 不在底层，正常思考
@@ -248,10 +244,8 @@ class CoreLogic:
 
         logger.info(f"--- {config.persona.bot_name} 的统一意识流已停止 ---")
 
-
     async def _check_for_interruptions_task(self, session: "ChatSession") -> None:
-        """
-        中断检查任务.
+        """中断检查任务.
         这个任务会持续运行，直到 stop_event 被设置或会话被关闭。
         它会检查新消息是否满足中断条件，并在满足条件时设置中断信号。
         """
@@ -271,7 +265,9 @@ class CoreLogic:
 
                 bot_profile = await session.get_bot_profile()
                 current_bot_id = str(bot_profile.get("user_id") or session.bot_id)
-                context_text = await self.prompt_builder.get_last_valid_text_message(session.conversation_id)
+                context_text = await self.prompt_builder.get_last_valid_text_message(
+                    session.conversation_id
+                )
 
                 for event_doc in new_events:
                     sender_id = event_doc.get("user_info", {}).get("user_id")
@@ -283,25 +279,28 @@ class CoreLogic:
                     )
                     message_to_check = {"speaker_id": str(sender_id), "text": text_content}
 
-                    if not message_to_check.get("text"): continue
+                    if not message_to_check.get("text"):
+                        continue
 
                     if session.intelligent_interrupter.should_interrupt(
                         new_message=message_to_check,
                         context_message_text=context_text,
                     ):
-                        logger.info(f"[{session.conversation_id}] IIS决策：中断！元凶ID: {event_doc.get('_key')}")
-                        session.interruption_context = {
-                            "interrupting_event_doc": event_doc
-                        }
+                        logger.info(
+                            f"[{session.conversation_id}] IIS决策：中断！元凶ID: {event_doc.get('_key')}"
+                        )
+                        session.interruption_context = {"interrupting_event_doc": event_doc}
                         # 设置中断信号
                         session.interrupt_signal.set()
                         # 如果会话有专属的中断检查任务，取消它
                         return
 
-                session.last_processed_timestamp = new_events[-1].get("timestamp", time.time() * 1000)
+                session.last_processed_timestamp = new_events[-1].get(
+                    "timestamp", time.time() * 1000
+                )
                 await asyncio.sleep(0.5)
         except asyncio.CancelledError:
-            pass # 正常取消
+            pass  # 正常取消
         except Exception as e:
             logger.error(f"[{session.conversation_id}] 中断检查发生错误: {e}", exc_info=True)
         finally:
@@ -371,12 +370,12 @@ class CoreLogic:
             logger.info(f"[{session.conversation_id}] 动作执行将受到中断检查。")
 
             # 使用我们刚刚在 PromptBuilder 中创建的新方法获取上下文
-            context_text = await self.prompt_builder.get_last_valid_text_message(session.conversation_id)
+            context_text = await self.prompt_builder.get_last_valid_text_message(
+                session.conversation_id
+            )
 
             interrupt_checker_task = asyncio.create_task(
-                self._check_for_interruptions(
-                    session, context_text
-                )
+                self._check_for_interruptions(session, context_text)
             )
 
             # --- 竞速开始！ ---
@@ -402,7 +401,7 @@ class CoreLogic:
             if decision_task in done:
                 # 决策任务先完成，说明动作已成功分派或执行
                 logger.info(f"[{session.conversation_id}] 决策任务正常完成，取消中断检查。")
-                interrupt_checker_task.cancel() # 取消不再需要的中断检查
+                interrupt_checker_task.cancel()  # 取消不再需要的中断检查
 
         # --- 步骤 3: 最终确保决策任务完成 ---
         # 确保决策任务完成，无论是正常结束还是被取消
