@@ -82,5 +82,4 @@ FOCUS_INPUT_XML_DESCRIPTION = """输入 XML 块介绍：
     - <chat_history>: 详细的聊天记录。
     - <unread_summary>: (可选) 其它你没在看的会话的未读消息摘要。
 - <meta_info>: 这个块里有系统根据当前聊天情况给你的动态行为建议，内容可能很重要，请留意。如果为空，就不用管。
-- <internal_info>: 这个块非常重要，它记录了你上一轮的完整内心活动，是你本次思考的关键依据。
-    - <action_response>: (可选) 如果你上一轮的行动有返回结果（比如联网搜索），结果会在这里面。"""  # noqa: E501
+"""  # noqa: E501

@@ -72,13 +72,13 @@ JSON 对象包含三个顶级键: `"internal_state"`, `"consciousness_control"`,
 {meta_info_block} 是元信息块的内容
 """
 CORE_CYCLE_USER_PROMPT = """
-<meta_info>
-{meta_info_block}
-</meta_info>
-
 <external_info>
 {external_info_block}
 </external_info>
+
+<meta_info>
+{meta_info_block}
+</meta_info>
 
 <output_format>
 请结合所有信息，输出你现在的心情，内心想法,行动等内容。
