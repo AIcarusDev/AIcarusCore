@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
-from src.database import ArangoDBConnectionManager, ConversationStorageService, EventStorageService
+from src.database import ConversationStorageService, EventStorageService
 
 logger = get_logger(__name__)
 

@@ -74,6 +74,7 @@ class QQBuilder(BasePlatformBuilder):
         Args:
             action_name (str): 动作名称，标识要执行的具体动作.
             params (dict[str, Any]): 动作参数，包含执行这个动作所需的所有信息.
+            bot_id (str): 处理此动作的机器人的唯一标识符.
 
         Returns:
             Event | None: 返回一个Event对象，表示这个动作的执行结果.
@@ -130,6 +131,7 @@ class QQBuilder(BasePlatformBuilder):
             action_name (str): 动作名称，标识要执行的具体动作.
             params (dict[str, Any]): 动作参数，包含执行这个动作所需的所有信息.
             conv_info (ConversationInfo | None): 可选的会话信息，如果有的话.
+            bot_id (str): 处理此动作的机器人的唯一标识符.
 
         Returns:
             Event: 返回一个Event对象，表示这个动作的执行结果.
@@ -150,6 +152,7 @@ class QQBuilder(BasePlatformBuilder):
 
         Args:
             params (dict[str, Any]): 包含发送消息所需的所有参数.
+            bot_id (str): 机器人ID.
 
         Returns:
             Event | None: 返回一个Event对象，表示发送消息的动作.
@@ -183,6 +186,7 @@ class QQBuilder(BasePlatformBuilder):
 
         Args:
             params (dict[str, Any]): 包含转发消息所需的所有参数.
+            bot_id (str): 机器人ID.
 
         Returns:
             Event | None: 返回一个Event对象，表示转发消息的动作.
