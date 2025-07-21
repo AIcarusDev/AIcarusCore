@@ -189,7 +189,14 @@ class CoreLogic:
                     # 清除旧的信号，准备监听新的
                     session.interrupt_signal.clear()
 
-                    llm_task = asyncio.create_task(self.thought_generator.generate_thought(...))
+                    llm_task = asyncio.create_task(
+                        self.thought_generator.generate_thought(
+                            system_prompt=system_prompt,
+                            user_prompt=user_prompt,
+                            image_inputs=prompt_components.image_references,
+                            response_schema=response_schema,
+                        )
+                    )
 
                     # 监听中断信号，而不是临时任务
                     interrupt_listener_task = asyncio.create_task(session.interrupt_signal.wait())
