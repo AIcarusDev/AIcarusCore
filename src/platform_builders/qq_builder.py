@@ -242,7 +242,11 @@ class QQBuilder(BasePlatformBuilder):
                                     "type": "object",
                                     "title": "TextStep",
                                     "properties": {
-                                        "command": {"type": "string", "enum": ["text"], "description": "发送纯文本"},
+                                        "command": {
+                                            "type": "string",
+                                            "enum": ["text"],
+                                            "description": "发送纯文本",
+                                        },
                                         "params": {
                                             "type": "object",
                                             "properties": {"text": {"type": "string"}},
@@ -255,7 +259,11 @@ class QQBuilder(BasePlatformBuilder):
                                     "type": "object",
                                     "title": "AtStep",
                                     "properties": {
-                                        "command": {"type": "string", "enum": ["at"], "description": "@某人"},
+                                        "command": {
+                                            "type": "string",
+                                            "enum": ["at"],
+                                            "description": "@某人",
+                                        },
                                         "params": {
                                             "type": "object",
                                             "properties": {
@@ -270,11 +278,18 @@ class QQBuilder(BasePlatformBuilder):
                                     "type": "object",
                                     "title": "ReplyStep",
                                     "properties": {
-                                        "command": {"type": "string", "enum": ["reply"],"description": "引用/回复某条消息",},
+                                        "command": {
+                                            "type": "string",
+                                            "enum": ["reply"],
+                                            "description": "引用/回复某条消息",
+                                        },
                                         "params": {
                                             "type": "object",
                                             "properties": {
-                                                "reply": {"type": "string","description": "要引用/回复的消息的ID",}
+                                                "reply": {
+                                                    "type": "string",
+                                                    "description": "要引用/回复的消息的ID",
+                                                }
                                             },
                                             "required": ["reply"],
                                         },
@@ -285,7 +300,11 @@ class QQBuilder(BasePlatformBuilder):
                                     "type": "object",
                                     "title": "SendAndBreakStep",
                                     "properties": {
-                                        "command": {"type": "string", "enum": ["send_and_break"],"description": "发送当前内容",}
+                                        "command": {
+                                            "type": "string",
+                                            "enum": ["send_and_break"],
+                                            "description": "发送当前内容",
+                                        }
                                     },
                                     "required": ["command"],
                                 },
