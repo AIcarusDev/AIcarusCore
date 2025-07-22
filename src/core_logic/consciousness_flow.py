@@ -316,6 +316,64 @@ class CoreLogic:
         finally:
             logger.info(f"[{session.conversation_id}] 中断检查任务结束。")
 
+    async def _check_for_interruptions(
+        self, session: "ChatSession", context_text: str
+    ) -> Optional[dict]:
+        """
+        单次检查是否有中断事件。
+        这个方法会检查一次新消息，如果发现满足中断条件的消息，则立即返回该事件。
+        这用于在动作执行期间与决策任务进行“竞速”。
+
+        Args:
+            session: 当前的聊天会话。
+            context_text: 用于中断决策的上下文消息文本。
+
+        Returns:
+            如果发生中断，则返回中断事件的文档；否则返回 None。
+        """
+        # 这里的逻辑是从 _check_for_interruptions_task 中提取并改造的单次运行版本
+        new_events = await session.event_storage.get_message_events_after_timestamp(
+            session.conversation_id,
+            session.last_processed_timestamp,
+            limit=10,
+            status="unread",
+        )
+
+        if not new_events:
+            return None
+
+        bot_profile = await session.get_bot_profile()
+        current_bot_id = str(bot_profile.get("user_id") or session.bot_id)
+
+        for event_doc in new_events:
+            sender_id = event_doc.get("user_info", {}).get("user_id")
+            if sender_id and str(sender_id) == current_bot_id:
+                continue
+
+            text_content = extract_text_from_content(
+                [Seg.from_dict(c) for c in event_doc.get("content", [])]
+            )
+            message_to_check = {"speaker_id": str(sender_id), "text": text_content}
+
+            if not message_to_check.get("text"):
+                continue
+
+            if session.intelligent_interrupter.should_interrupt(
+                new_message=message_to_check,
+                context_message_text=context_text,
+            ):
+                logger.info(
+                    f"[{session.conversation_id}] IIS决策：中断！元凶ID: "
+                    f"{event_doc.get('_key')}"
+                )
+                return event_doc  # 返回中断事件
+
+        # 如果循环结束都没有中断，更新时间戳
+        session.last_processed_timestamp = new_events[-1].get(
+            "timestamp", time.time() * 1000
+        )
+        return None
+
     async def _process_and_dispatch_thought(
         self, thought_json: dict, focus_path: str | None, session: Optional["ChatSession"]
     ) -> None:
