@@ -435,7 +435,7 @@ class PersonStorageService:
         """根据平台ID，获取祂自身在该平台上的账户信息.
 
         Args:
-            platform_id: 目标平台的ID, 例如 "napcat_qq".
+            platform_id: 目标平台的ID, 例如 "qq".
 
         Returns:
             一个包含账户信息的字典

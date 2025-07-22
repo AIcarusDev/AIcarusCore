@@ -606,12 +606,12 @@ def parse_focus_path(focus_path: str | None) -> tuple[str, str, str | None]:
     """一个可复用的工具函数，用于解析焦点路径字符串.
 
     Args:
-        focus_path: 当前的焦点路径，例如 "core", "napcat_qq", "napcat_qq.123456".
+        focus_path: 当前的焦点路径，例如 "core", "qq", "qq.123456".
 
     Returns:
         一个包含 (层级, 平台ID, 会话ID) 的元组.
         - 层级: 'core', 'platform', 或 'cellular'.
-        - 平台ID: 例如 'core', 'napcat_qq'.
+        - 平台ID: 例如 'core', 'qq'.
         - 会话ID: 如果在底层，则为会话ID字符串；否则为 None.
     """
     if focus_path and focus_path != "core":

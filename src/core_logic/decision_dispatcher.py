@@ -168,7 +168,6 @@ async def process_llm_decision(
         sent_action_ids = await message_builder.process_steps(
             action_details["params"].get("steps", [])
         )
-
         # d. 等待所有消息的回声
         if sent_action_ids:
             wait_tasks = [session.wait_for_echo(action_id) for action_id in sent_action_ids]

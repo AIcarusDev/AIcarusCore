@@ -153,7 +153,7 @@ class ActionHandler:
 
             # 2. 解析出需要执行的动作
             # 注意：当前设计依然是一次思考只执行一个平台或核心的第一个动作
-            platform_actions = action_json.get("napcat_qq", {})
+            platform_actions = action_json.get("qq", {})
             core_actions = action_json.get("core", {})
             actions_to_process = platform_actions or {
                 k: v for k, v in core_actions.items() if k != "web_search"
@@ -164,11 +164,11 @@ class ActionHandler:
                 logger.info("AI决策的动作对象为空，无需执行。")
                 return
             # 如果有多个动作，取第一个动作作为主要动作
-            platform_id = "napcat_qq" if platform_actions else "core"
+            platform_id = "qq" if platform_actions else "core"
             action_name, params = next(iter(actions_to_process.items()))
 
             # 3. 根据动作类型分发执行
-            if platform_id == "napcat_qq" and action_name == "send_message":
+            if platform_id == "qq" and action_name == "send_message":
                 await self._execute_send_message_flow(doc_key_for_updates, params)
 
             else:  # 其他所有平台动作

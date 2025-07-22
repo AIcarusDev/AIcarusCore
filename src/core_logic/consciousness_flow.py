@@ -108,7 +108,7 @@ class CoreLogic:
         action_id = thought_pearl.action_id
         saved_thought_key = thought_pearl._key
 
-        focus_params = action_payload.get("napcat_qq", {}).get("focus")
+        focus_params = action_payload.get("qq", {}).get("focus")
 
         if focus_params and isinstance(focus_params, dict):
             # 既然是 focus，那就返回 True
