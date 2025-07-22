@@ -22,9 +22,9 @@ FOCUS_BEHAVIOR_GUIDELINES = """
       {"command": "at", "params": {"at": "对方的ID"}}
       ```
 
-    - **回复某条消息 (`reply`)**: (ID 从`<chat_history>`中获取)
+    - **引用或回复某条消息 (`reply`)**: (ID 从`<chat_history>`中获取)
       ```json
-      {"command": "reply", "params": {"reply": "被回复消息的ID"}}
+      {"command": "reply", "params": {"reply": "要引用或回复的消息的ID"}}
       ```
 
     - **发送并换行 (`send_and_break`)**: 这个指令非常重要，它会将当前已构建的所有内容作为一条消息发送出去，并清空工作台，准备下一条消息。它没有参数。
