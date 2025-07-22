@@ -47,6 +47,7 @@ FOCUS_BEHAVIOR_GUIDELINES = """
         _这样，你发送的消息就是：`@小明 你好`_
 
         - **分条发送多条消息**: `你想先说"等一下"，然后单独发第二条"我想想"`
+
         ```json
         "steps": [
         {"command": "text", "params": {"text": "等一下"}},
@@ -54,6 +55,7 @@ FOCUS_BEHAVIOR_GUIDELINES = """
         {"command": "text", "params": {"text": "我想想"}}
         ]
         ```
+
         _这样，你将会发送两条消息，依次是：`等一下`与`我想想`_
 
 **注意事项**：
