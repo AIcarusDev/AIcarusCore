@@ -12,19 +12,25 @@ FOCUS_BEHAVIOR_GUIDELINES = """
 
   - **可用指令 (`command`) 详解**:
 
-    - `"command": "text"`: 发送纯文本。
+    - **发送纯文本 (`text`)**:
+      ```json
+      {"command": "text", "params": {"text": "你想说的内容"}}
+      ```
 
-        - 参数: `{"params": {"text": "你想说的内容"}}`
+    - **@某人 (`at`)**: (ID 从`<user_logs>`中获取)
+      ```json
+      {"command": "at", "params": {"at": "对方的ID"}}
+      ```
 
-    - `"command": "at"`: @群聊中的某个人。
+    - **回复某条消息 (`reply`)**: (ID 从`<chat_history>`中获取)
+      ```json
+      {"command": "reply", "params": {"reply": "被回复消息的ID"}}
+      ```
 
-        - 参数: `{"params": {"at": "对方的ID"}}` (ID 从`<user_logs>`中获取)
-
-    - `"command": "reply"`: 引用并回复某条消息。
-
-        - 参数: `{"params": {"reply": "被回复消息的ID"}}` (ID 从`<chat_history>`中获取)
-
-    - `"command": "send_and_break"`: 发送并换行。这个指令非常重要，它会将当前已构建的所有内容（text, at, reply）作为一条消息发送出去，并清空工作台，准备下一条消息。它没有参数。
+    - **发送并换行 (`send_and_break`)**: 这个指令非常重要，它会将当前已构建的所有内容作为一条消息发送出去，并清空工作台，准备下一条消息。它没有参数。
+      ```json
+      {"command": "send_and_break"}
+      ```
 
     - **构建消息示例**:
 
