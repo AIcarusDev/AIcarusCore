@@ -64,11 +64,11 @@ class MessageBuilder:
             params = step.get("params", {})
 
             if command == "text":
-                self._add_text(params.get("text"))
+                self._add_text(params.get("content"))
             elif command == "at":
-                self._add_at(params.get("at"))
+                self._add_at(params.get("user_id"))
             elif command == "reply":
-                self._add_reply(params.get("reply"))
+                self._add_reply(params.get("message_id"))
             # 在这里为未来新的指令（如 image, face）预留 elif
             # elif command == "image":
             #     self._add_image(params.get("image"))

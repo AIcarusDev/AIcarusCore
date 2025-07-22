@@ -1,3 +1,4 @@
+# ruff: noqa: E501
 # src/platform_builders/qq_builder.py
 import time
 import uuid
@@ -235,81 +236,32 @@ class QQBuilder(BasePlatformBuilder):
                 "properties": {
                     "steps": {
                         "type": "array",
-                        "description": "构建消息的指令序列",
+                        "description": "构建消息的指令序列。",
                         "items": {
-                            "oneOf": [
-                                {
-                                    "type": "object",
-                                    "title": "TextStep",
-                                    "properties": {
-                                        "command": {
-                                            "type": "string",
-                                            "enum": ["text"],
-                                            "description": "发送纯文本",
-                                        },
-                                        "params": {
-                                            "type": "object",
-                                            "properties": {"text": {"type": "string"}},
-                                            "required": ["text"],
-                                        },
-                                    },
-                                    "required": ["command", "params"],
+                            "type": "object",
+                            "description": "一个操作步骤，由一个'command'和对应的'params'组成。",
+                            "properties": {
+                                "command": {
+                                    "type": "string",
+                                    "description": "要执行的指令名称。",
+                                    "enum": ["reply", "at", "text", "send_and_break"] # 你可以根据需要添加更多指令
                                 },
-                                {
+                                "params": {
                                     "type": "object",
-                                    "title": "AtStep",
+                                    "description": "与指令对应的参数包。根据'command'的值，只填写其中对应的字段。",
                                     "properties": {
-                                        "command": {
-                                            "type": "string",
-                                            "enum": ["at"],
-                                            "description": "@某人",
-                                        },
-                                        "params": {
-                                            "type": "object",
-                                            "properties": {
-                                                "at": {"type": "string", "description": "对方的ID"}
-                                            },
-                                            "required": ["at"],
-                                        },
-                                    },
-                                    "required": ["command", "params"],
-                                },
-                                {
-                                    "type": "object",
-                                    "title": "ReplyStep",
-                                    "properties": {
-                                        "command": {
-                                            "type": "string",
-                                            "enum": ["reply"],
-                                            "description": "引用/回复某条消息",
-                                        },
-                                        "params": {
-                                            "type": "object",
-                                            "properties": {
-                                                "reply": {
-                                                    "type": "string",
-                                                    "description": "要引用/回复的消息的ID",
-                                                }
-                                            },
-                                            "required": ["reply"],
-                                        },
-                                    },
-                                    "required": ["command", "params"],
-                                },
-                                {
-                                    "type": "object",
-                                    "title": "SendAndBreakStep",
-                                    "properties": {
-                                        "command": {
-                                            "type": "string",
-                                            "enum": ["send_and_break"],
-                                            "description": "发送当前内容",
-                                        }
-                                    },
-                                    "required": ["command"],
-                                },
-                            ]
-                        },
+                                        # 'reply' command 用的字段
+                                        "message_id": {"type": "string", "description": "要引用/回复的消息ID。"},
+                                        # 'at' command 用的字段
+                                        "user_id": {"type": "string", "description": "要@的用户的ID。"},
+                                        # 'text' command 用的字段
+                                        "content": {"type": "string", "description": "要发送的文本内容。"},
+                                    }
+                                    # 注意：这里没有 additionalProperties
+                                }
+                            },
+                            "required": ["command", "params"]
+                        }
                     },
                     "motivation": {"type": "string"},
                 },

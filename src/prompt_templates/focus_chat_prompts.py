@@ -8,55 +8,60 @@ FOCUS_BEHAVIOR_GUIDELINES = """
 
 你需要通过构建`"action"`中的`"send_message"`对象来完成。这需要遵循一个“链式指令”系统：
 
-- **指令序列 (`steps`)**: 你的发言内容由一个名为`"steps"`的数组构成。你将通过组合不同的指令（`command`）来精确构建你的消息。
+- **指令序列 (`steps`)**: 你的发言内容由一个名为`"steps"`的数组构成。数组中的每个对象都代表一个独立的操作步骤。
 
-  - **可用指令 (`command`) 详解**:
+  - **构建操作步骤**:
+    每个操作步骤都由一个 `"command"` 和一个 `"params"` 组成。
 
-    - **发送纯文本 (`text`)**:
+    - **`command`**: 从可用指令中选择一个，如 `"reply"`, `"at"`, `"text"`, `"send_and_break"`。
+    - **`params`**: 一个字典，根据你选择的 `command`，在其中填写【唯一对应】的参数。
+
+  - **【！！！最重要规则！！！】**
+    你必须严格、精确地按照 Schema 的结构和规则来生成 JSON。在 `"params"` 对象中，你【必须】且【只能】包含与当前 `"command"` 严格对应的【唯一】一个参数字段。
+
+    - **可用指令与对应参数详解**:
+
+      - **引用/回复**:
+        `{"command": "reply", "params": {"message_id": "要回复的消息ID"}}`
+        _当 command 是 "reply" 时, params 对象【只能】是 `{"message_id": "..."}`。_
+
+      - **@某人**: (ID 从`<user_logs>`中获取)
+        `{"command": "at", "params": {"user_id": "对方的用户ID"}}`
+        _当 command 是 "at" 时, params 对象【只能】是 `{"user_id": "..."}`。_
+
+      - **发送纯文本**:
+        `{"command": "text", "params": {"content": "你想说的内容"}}`
+        _当 command 是 "text" 时, params 对象【只能】是 `{"content": "..."}`。_
+
+      - **发送并换行**:
+        `{"command": "send_and_break", "params": {}}`
+        _当 command 是 "send_and_break" 时, params 对象【必须】是【空对象】 `{}`。_
+
+  - **【严禁】**
+    在 `params` 对象中添加任何额外的、不相关的字段。例如，当 command 是 "reply" 时，params 中绝不允许出现 "user_id" 或 "content" 字段。
+
+  - **构建消息示例**:
+
+      - **发送单条消息**: `你想@一位id为123123123，群名称为小明的用户，说"你好"`
+
       ```json
-      {"command": "text", "params": {"text": "你想说的内容"}}
+      "steps": [
+        {"command": "at", "params": {"user_id": "123123123"}},
+        {"command": "text", "params": {"content": " 你好"}}
+      ]
       ```
+      _这样，你发送的消息就是：`@小明 你好`_
 
-    - **@某人 (`at`)**: (ID 从`<user_logs>`中获取)
+      - **分条发送多条消息**: `你想先说"等一下"，然后单独发第二条"我想想"`
+
       ```json
-      {"command": "at", "params": {"at": "对方的ID"}}
+      "steps": [
+        {"command": "text", "params": {"content": "等一下"}},
+        {"command": "send_and_break", "params": {}},
+        {"command": "text", "params": {"content": "我想想"}}
+      ]
       ```
-
-    - **引用或回复某条消息 (`reply`)**: (ID 从`<chat_history>`中获取)
-      ```json
-      {"command": "reply", "params": {"reply": "要引用或回复的消息的ID"}}
-      ```
-
-    - **发送并换行 (`send_and_break`)**: 这个指令非常重要，它会将当前已构建的所有内容作为一条消息发送出去，并清空工作台，准备下一条消息。它没有参数。
-      ```json
-      {"command": "send_and_break"}
-      ```
-
-    - **构建消息示例**:
-
-        - **发送单条消息**: `你想@一位id为123123123，群名称为小明的用户，说"你好"`
-
-        ```json
-        "steps": [
-        {"command": "at", "params": {"at": "123123123"}},
-        {"command": "text", "params": {"text": " 你好"}},
-        ]
-        ```
-
-        _由于没有别的内容了，所以可以不用"send_and_break"_
-        _这样，你发送的消息就是：`@小明 你好`_
-
-        - **分条发送多条消息**: `你想先说"等一下"，然后单独发第二条"我想想"`
-
-        ```json
-        "steps": [
-        {"command": "text", "params": {"text": "等一下"}},
-        {"command": "send_and_break"},
-        {"command": "text", "params": {"text": "我想想"}}
-        ]
-        ```
-
-        _这样，你将会发送两条消息，依次是：`等一下`与`我想想`_
+      _这样，你将会发送两条消息，依次是：`等一下`与`我想想`_
 
 **注意事项**：
 
