@@ -165,19 +165,31 @@ async def process_llm_decision(
         message_builder = MessageBuilder(
             session, motivation=action_details["params"].get("motivation")
         )
-        sent_action_ids = await message_builder.process_steps(
+        # process_steps 会在后台发送消息，并将 action_id 存入 session.sent_action_ids_this_turn
+        await message_builder.process_steps(
             action_details["params"].get("steps", [])
         )
-        # d. 等待所有消息的回声
+        # [修复] 从 session 中获取本轮发送的 action_id 列表，而不是用 process_steps 的返回值
+        sent_action_ids = session.sent_action_ids_this_turn
+
+        # d. 等待所有消息的“回声”
         if sent_action_ids:
+            logger.debug(f"准备为 {len(sent_action_ids)} 个动作等待回声: {sent_action_ids}")
             wait_tasks = [session.wait_for_echo(action_id) for action_id in sent_action_ids]
             results = await asyncio.gather(*wait_tasks)
-            if all(results):
-                logger.success(f"所有 {len(sent_action_ids)} 条消息的回声均已收到。")
+            logger.debug(f"回声等待结束，收到的结果: {results}")
+
+            # [修复] 增加对 results 类型的检查，防止因意外返回值导致迭代错误
+            if isinstance(results, list):
+                success_count = results.count(True)
+                if success_count == len(sent_action_ids):
+                    logger.success(f"所有 {len(sent_action_ids)} 条消息的回声均已收到。")
+                else:
+                    logger.warning(
+                        f"{len(sent_action_ids) - success_count} / {len(sent_action_ids)} 条消息的回声等待超时。"
+                    )
             else:
-                logger.warning(
-                    f"{results.count(False)} / {len(sent_action_ids)} 条消息的回声等待超时。"
-                )
+                logger.error(f"wait_for_all_actions_echo 返回了非预期的类型: {type(results)}，内容: {results}")
 
         # e. 无论是否超时，都触发下一轮思考
         if action_handler.thought_trigger:

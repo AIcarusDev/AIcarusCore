@@ -331,6 +331,19 @@ class CoreLogic:
         Returns:
             如果发生中断，则返回中断事件的文档；否则返回 None。
         """
+        # [调试] 记录进入检查器
+        logger.debug(
+            f"[{session.conversation_id}] INTERRUPT_CHECK: "
+            f"进入中断检查，当前last_processed_timestamp: {session.last_processed_timestamp}"
+        )
+
+        # 提前更新时间戳，防止将触发本次思考的事件误判为中断源
+        session.last_processed_timestamp = time.time() * 1000
+        logger.debug(
+            f"[{session.conversation_id}] INTERRUPT_CHECK: "
+            f"时间戳立即更新为: {session.last_processed_timestamp}"
+        )
+
         # 这里的逻辑是从 _check_for_interruptions_task 中提取并改造的单次运行版本
         new_events = await session.event_storage.get_message_events_after_timestamp(
             session.conversation_id,
@@ -340,14 +353,34 @@ class CoreLogic:
         )
 
         if not new_events:
+            # [调试] 记录未发现新事件
+            logger.debug(f"[{session.conversation_id}] INTERRUPT_CHECK: 未发现新事件，检查通过。")
             return None
+
+        # [调试] 记录发现了新事件
+        logger.debug(
+            f"[{session.conversation_id}] INTERRUPT_CHECK: "
+            f"发现 {len(new_events)} 个新事件，将逐一评估。"
+        )
 
         bot_profile = await session.get_bot_profile()
         current_bot_id = str(bot_profile.get("user_id") or session.bot_id)
 
         for event_doc in new_events:
+            # [调试] 记录正在评估的事件
+            event_key = event_doc.get("_key")
+            event_ts = event_doc.get("timestamp")
+            logger.debug(
+                f"[{session.conversation_id}] INTERRUPT_CHECK: "
+                f"正在评估事件: key={event_key}, timestamp={event_ts}"
+            )
+
             sender_id = event_doc.get("user_info", {}).get("user_id")
             if sender_id and str(sender_id) == current_bot_id:
+                logger.debug(
+                    f"[{session.conversation_id}] INTERRUPT_CHECK: "
+                    f"事件 {event_key} 来自机器人自身，跳过。"
+                )
                 continue
 
             text_content = extract_text_from_content(
@@ -356,8 +389,16 @@ class CoreLogic:
             message_to_check = {"speaker_id": str(sender_id), "text": text_content}
 
             if not message_to_check.get("text"):
+                logger.debug(
+                    f"[{session.conversation_id}] INTERRUPT_CHECK: "
+                    f"事件 {event_key} 无文本内容，跳过。"
+                )
                 continue
 
+            logger.debug(
+                f"[{session.conversation_id}] INTERRUPT_CHECK: "
+                f"调用IIS评估: '{text_content[:30]}...'"
+            )
             if session.intelligent_interrupter.should_interrupt(
                 new_message=message_to_check,
                 context_message_text=context_text,
@@ -366,12 +407,19 @@ class CoreLogic:
                     f"[{session.conversation_id}] IIS决策：中断！元凶ID: "
                     f"{event_doc.get('_key')}"
                 )
+                # [调试] 明确记录中断决策
+                logger.warning(
+                    f"[{session.conversation_id}] INTERRUPT_CHECK: "
+                    f"事件 {event_key} 被判定为中断源！"
+                )
                 return event_doc  # 返回中断事件
 
-        # 如果循环结束都没有中断，更新时间戳
-        session.last_processed_timestamp = new_events[-1].get(
-            "timestamp", time.time() * 1000
+        # [调试] 记录所有事件都未触发中断
+        logger.debug(
+            f"[{session.conversation_id}] INTERRUPT_CHECK: "
+            "所有新事件均未触发中断，检查通过。"
         )
+        # 如果循环结束都没有中断，则无需任何操作
         return None
 
     async def _process_and_dispatch_thought(
@@ -452,19 +500,24 @@ class CoreLogic:
             )
 
             if interrupt_checker_task in done:
-                # 中断获胜！
-                logger.info(f"[{session.conversation_id}] 动作执行被中断！正在取消决策任务...")
-                decision_task.cancel()  # 取消决策分发和动作执行
-
-                # 处理中断现场
+                # 中断检查任务先完成，现在需要检查它是否真的发现了中断
                 interrupting_event = await interrupt_checker_task
                 if interrupting_event:
+                    # 中断获胜！
+                    logger.info(f"[{session.conversation_id}] 动作执行被中断！正在取消决策任务...")
+                    decision_task.cancel()  # 取消决策分发和动作执行
+
+                    # 处理中断现场
                     session.interruption_context = {
                         "was_interrupted_while_acting": True,
                         "interrupting_event_doc": interrupting_event,
                     }
-                # 直接返回，进入下一轮思考循环
-                return
+                    # 直接返回，进入下一轮思考循环
+                    return
+                else:
+                    # 中断检查通过，没有发现新事件。决策任务继续执行。
+                    logger.debug(f"[{session.conversation_id}] 中断检查通过，动作继续执行。")
+                    # 不需要取消 interrupt_checker_task，因为它已经自然结束了
 
             if decision_task in done:
                 # 决策任务先完成，说明动作已成功分派或执行

@@ -80,11 +80,11 @@ class MessageBuilder:
                     logger.info("MessageBuilder 在发送消息前检测到中断信号，取消本次发送。")
                     break
                 success, sent_action_id = await self._send_current_message()
-                if success and sent_action_id:
+                if success:
                     any_message_sent = True
                     # 只有发送成功了，才增加消息计数
-                    self.session.messages_sent_this_turn += 1
-                    self.session.sent_action_ids_this_turn.append(sent_action_id)
+                    if sent_action_id:
+                        self.session.sent_action_ids_this_turn.append(sent_action_id)
                     logger.debug(
                         f"[{self.session.conversation_id}] "
                         f"成功发送第 {self.session.messages_sent_this_turn} 条消息。"
@@ -231,11 +231,11 @@ class MessageBuilder:
         logger.debug("清空当前消息段列表。")
         self._current_segments = []
 
-    async def _send_current_message(self) -> bool:
+    async def _send_current_message(self) -> tuple[bool, str | None]:
         """将工作台上拼接好的所有消息段打包，通过老板（ActionHandler）发送出去."""
         if not self._current_segments:
             logger.debug("工作台是空的，无需发送。")
-            return False
+            return False, None
 
         # 1. 提取要发送的纯文本，用于计算延迟
         text_to_send = "".join(
