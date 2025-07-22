@@ -64,7 +64,7 @@ class QQBuilder(BasePlatformBuilder):
     @property
     def platform_id(self) -> str:
         """返回平台ID，唯一标识一个平台，这个ID必须和Adapter的core_platform_id完全一致."""
-        return "napcat_qq"
+        return "qq"
 
     def build_action_event(
         self, action_name: str, params: dict[str, Any], bot_id: str

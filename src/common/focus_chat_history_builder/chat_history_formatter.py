@@ -39,7 +39,7 @@ async def format_chat_history_for_llm(
         event_storage: 事件存储服务实例。
         conversation_id: 目标会话的ID。
         bot_id: 祂的ID。
-        platform: 平台名称，例如 'napcat_qq'。
+        platform: 平台名称，例如 'qq'。
         bot_profile: 祂在该会话中的用户信息。
         conversation_type: 会话类型（如 "group" 或 "private"）。
         conversation_name: 会话名称。

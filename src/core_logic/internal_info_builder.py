@@ -173,7 +173,7 @@ class InternalInfoBuilder:
                         if isinstance(platform_actions, dict) and platform_actions:
                             action_name, action_params = next(iter(platform_actions.items()))
 
-                            if platform_key == "napcat_qq" and action_name == "send_message":
+                            if platform_key == "qq" and action_name == "send_message":
                                 steps = action_params.get("steps", [])
                                 texts = []
                                 if isinstance(steps, list):
@@ -250,7 +250,7 @@ class InternalInfoBuilder:
                     motivation = action_params.get("motivation", "没有明确动机")
 
                     # 特殊处理 send_message，提供更自然的描述
-                    if platform_key == "napcat_qq" and action_name == "send_message":
+                    if platform_key == "qq" and action_name == "send_message":
                         steps = action_params.get("steps", [])
                         texts = []
                         if isinstance(steps, list):
