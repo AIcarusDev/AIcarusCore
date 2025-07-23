@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from src.action.components.message_builder import MessageBuilder
 from src.common.custom_logging.logging_config import get_logger
 from src.common.utils import parse_focus_path
+from src.platform_builders.registry import platform_builder_registry
 
 if TYPE_CHECKING:
     from src.action.action_handler import ActionHandler
@@ -12,6 +13,35 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+def normalize_action_payload(action_payload: dict, current_platform_id: str) -> dict:
+    """
+    一步到位地规范化LLM返回的action_payload。
+    它不依赖任何硬编码的动作列表，而是利用当前的平台上下文来确保动作被正确包裹。
+    """
+    if not action_payload or not isinstance(action_payload, dict):
+        # 如果输入为空或格式不正确，直接返回空字典
+        return {}
+
+    # 检查是否已经是带顶键格式，例如 {"qq": {...}} 或 {"core": {...}}
+    # 在当前逻辑下不可能是带顶键的格式，但是以防未来会用到
+    # 我们从 platform_builder_registry 获取所有已知的平台ID
+    all_platform_ids = platform_builder_registry.get_all_builders().keys()
+
+    # 如果顶级键已经是 'core' 或一个已知的平台ID，说明格式已经是正确的，直接返回
+    if any(key in all_platform_ids for key in action_payload) or "core" in action_payload:
+        logger.debug(f"Action payload 已经是标准格式，无需规范化: {action_payload}")
+        return action_payload
+
+    # 如果不是带顶键的格式，说明是一个扁平的动作负载
+    # 然后我们用当前的平台上下文 (current_platform_id) 来包裹它
+    logger.debug(f"检测到扁平的动作负载，将使用当前平台上下文 '{current_platform_id}' 进行规范化。")
+
+    # 示例:
+    # - current_platform_id = "qq", payload = {"send_message": ...}
+    #   返回: {"qq": {"send_message": ...}}
+    # - current_platform_id = "core", payload = {"web_search": ...}
+    #   返回: {"core": {"web_search": ...}}
+    return {current_platform_id: action_payload}
 
 async def process_llm_decision(
     decision_json: dict,
@@ -56,42 +86,33 @@ async def process_llm_decision(
     action_details = {}
 
     # 1. 解析当前上下文
-    current_level, current_platform_id, _ = parse_focus_path(current_focus_path)
+    _, current_platform_id, _ = parse_focus_path(current_focus_path)
+    action_payload = normalize_action_payload(decision_json.get("action"), current_platform_id)
+    control_payload = decision_json.get("consciousness_control")
+    action_category = "none"
+    action_details = {}
 
     if action_payload and isinstance(action_payload, dict):
-        # 2. 优先检查核心动作，它们是无上下文的
-        if web_search_params := action_payload.get("web_search"):
-            action_category = "generic_with_result"
-            action_details = {"name": "web_search", "params": web_search_params}
-            # 帮 LLM 把动作修正为标准格式，以便下游处理
-            action_payload = {"core": {"web_search": web_search_params}}
+        platform_key = next(iter(action_payload), None)
+        if platform_key and isinstance(action_payload[platform_key], dict):
+            action_name = next(iter(action_payload[platform_key]), None)
+            action_params = action_payload[platform_key].get(action_name) if action_name else None
 
-        # 3. 检查平台专属动作
-        elif current_platform_id != "core":
-            if get_list_params := action_payload.get("get_list"):
+            # TODO: 当动作变多时，if/elif 会变得很长
+            # 可以考虑将动作的“元数据”（比如它的类别）也注册到 PlatformBuilder 中
+            # 例如，在 qq_builder.py 的 get_level_actions_definitions 中，除了返回 Schema，还可以返回一个元数据字典，来定性动作的类别
+            # 现在暂时使用简单的 if/elif 来判断动作类型
+            if action_name == "web_search":
+                action_category = "generic_with_result"
+                action_details = {"name": "web_search", "params": action_params}
+            elif action_name == "get_list":
                 action_category = "level_restricted_with_result"
-                action_details = {"name": "get_list", "params": get_list_params}
-                # 帮 LLM 把动作修正为标准格式
-                action_payload = {current_platform_id: {"get_list": get_list_params}}
-
-            elif send_message_params := action_payload.get("send_message"):
+                action_details = {"name": "get_list", "params": action_params}
+            elif action_name == "send_message":
                 action_category = "echoic"
-                action_details = {"name": "send_message", "params": send_message_params}
-                # 帮 LLM 把动作修正为标准格式
-                action_payload = {current_platform_id: {"send_message": send_message_params}}
-
-            # ... 未来其他平台动作的 elif 放在这里 ...
-
-        # 4. 如果以上都不是，才归为“即做即走”
-        if action_category == "none" and action_payload:
-            action_category = "do_and_go"
-            # 对于即做即走类，也尝试帮它修正格式
-            if not action_payload.get("core") and not action_payload.get(current_platform_id):
-                _first_action_name = next(iter(action_payload))
-                if current_platform_id != "core":
-                    action_payload = {current_platform_id: action_payload}
-                else:  # 如果在 core 层，但不是已知的 core 动作，也归到 core 下
-                    action_payload = {"core": action_payload}
+                action_details = {"name": "send_message", "params": action_params}
+            else:
+                action_category = "do_and_go"
 
     # --- 根据动作类型和意识控制的存在，执行不同策略 ---
 
@@ -109,7 +130,8 @@ async def process_llm_decision(
                 "action_name": "web_search",
                 "result_text": search_result_text,
             }
-            await focus_manager.handle_consciousness_control(control_payload)
+            new_control_payload_with_handover = {command: params}
+            await focus_manager.handle_consciousness_control(new_control_payload_with_handover)
         else:
             if action_handler.thought_trigger:
                 action_handler.thought_trigger.set()
@@ -169,7 +191,7 @@ async def process_llm_decision(
         await message_builder.process_steps(
             action_details["params"].get("steps", [])
         )
-        # [修复] 从 session 中获取本轮发送的 action_id 列表，而不是用 process_steps 的返回值
+        # 从 session 中获取本轮发送的 action_id 列表，而不是用 process_steps 的返回值
         sent_action_ids = session.sent_action_ids_this_turn
 
         # d. 等待所有消息的“回声”
@@ -179,7 +201,7 @@ async def process_llm_decision(
             results = await asyncio.gather(*wait_tasks)
             logger.debug(f"回声等待结束，收到的结果: {results}")
 
-            # [修复] 增加对 results 类型的检查，防止因意外返回值导致迭代错误
+            # 增加对 results 类型的检查，防止因意外返回值导致迭代错误
             if isinstance(results, list):
                 success_count = results.count(True)
                 if success_count == len(sent_action_ids):

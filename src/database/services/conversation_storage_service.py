@@ -296,44 +296,68 @@ class ConversationStorageService:
         logger.debug(f"开始获取所有最近活跃会话的详细信息... (将排除: {exclude_conversation_id})")
 
         query = """
-        LET conversations = (
+        LET conversations_with_latest_event_time = (
             FOR conv IN @@conv_collection
                 FILTER conv.conversation_id != @exclude_conv_id AND conv.conversation_id != "system_events"
-                RETURN conv
+
+                LET latest_event_for_conv = FIRST(
+                    FOR event IN @@event_collection
+                        FILTER event.conversation_id_extracted == conv.conversation_id
+                        AND event.event_type LIKE 'message.%'
+                        SORT event.timestamp DESC
+                        LIMIT 1
+                        RETURN event
+                )
+
+                FILTER latest_event_for_conv != null
+
+                RETURN {
+                    conversation_id: conv.conversation_id,
+                    latest_timestamp: latest_event_for_conv.timestamp
+                }
         )
 
-        FOR conv IN conversations
-            LET events_in_conv = (
+        LET top_10_active_conv_ids = (
+            FOR item IN conversations_with_latest_event_time
+                SORT item.latest_timestamp DESC
+                LIMIT 10
+                RETURN item.conversation_id
+        )
+
+        FOR conv_id IN top_10_active_conv_ids
+
+            LET conv_doc = DOCUMENT(@@conv_collection, conv_id)
+
+
+            LET latest_event = FIRST(
                 FOR event IN @@event_collection
-                    FILTER event.conversation_id_extracted == conv.conversation_id
+                    FILTER event.conversation_id_extracted == conv_doc.conversation_id
                     AND event.event_type LIKE 'message.%'
                     SORT event.timestamp DESC
+                    LIMIT 1
                     RETURN event
             )
 
-            LET latest_event = FIRST(events_in_conv)
-
-            FILTER latest_event != null
-
-            LET unread_events = (
-                FOR event IN events_in_conv
-                    FILTER event.timestamp > conv.last_processed_timestamp
-                    RETURN event
+            LET unread_count = COUNT(
+                FOR event IN @@event_collection
+                    FILTER event.conversation_id_extracted == conv_doc.conversation_id
+                    AND event.status == 'unread'
+                    RETURN 1
             )
-
-            LET unread_count = COUNT(unread_events)
 
             LET has_high_priority = (
-                FOR event IN unread_events
+                FOR event IN @@event_collection
+                    FILTER event.conversation_id_extracted == conv_doc.conversation_id
+                    AND event.status == 'unread'
                     LET is_at_me = (
                         FOR seg IN event.content
-                            FILTER seg.type == 'at' AND seg.data.user_id == conv.bot_id
+                            FILTER seg.type == 'at' AND seg.data.user_id == conv_doc.bot_id
                             LIMIT 1
                             RETURN true
                     )[0]
                     LET is_reply_to_me = (
                         FOR seg IN event.content
-                            FILTER seg.type == 'quote' AND seg.data.user_id == conv.bot_id
+                            FILTER seg.type == 'quote' AND seg.data.user_id == conv_doc.bot_id
                             LIMIT 1
                             RETURN true
                     )[0]
@@ -345,7 +369,7 @@ class ConversationStorageService:
             SORT latest_event.timestamp DESC
 
             RETURN {
-                conv_doc: conv,
+                conv_doc: conv_doc,
                 latest_event: latest_event,
                 unread_count: unread_count,
                 has_high_priority: has_high_priority

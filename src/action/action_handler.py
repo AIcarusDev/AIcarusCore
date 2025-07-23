@@ -97,6 +97,8 @@ class ActionHandler:
             event_storage_service=event_service,
             conversation_service=conversation_service,
         )
+        if self.pending_action_manager:
+            self.pending_action_manager.chat_session_manager = chat_session_manager
         logger.info("ActionHandler 的依赖已成功设置。")
 
     def set_thought_trigger(self, trigger_event: asyncio.Event | None) -> None:
@@ -286,7 +288,13 @@ class ActionHandler:
         )
 
     async def execute_simple_action(
-        self, platform_id: str, action_name: str, params: dict, bot_id: str, description: str
+        self,
+        platform_id: str,
+        action_name: str,
+        params: dict,
+        bot_id: str,
+        description: str,
+        motivation: str | None = None
     ) -> tuple[bool, Any]:
         """一个更简单的动作执行入口，用于内部系统调用，如专注模式."""
         builder = platform_builder_registry.get_builder(platform_id)
@@ -302,6 +310,7 @@ class ActionHandler:
             action_to_send=action_event.to_dict(),
             thought_doc_key=None,
             original_action_description=description,
+            motivation=motivation
         )
 
         # 把 action_id 注入到返回的 payload 中
@@ -315,6 +324,7 @@ class ActionHandler:
         action_to_send: dict[str, Any],
         thought_doc_key: str | None,
         original_action_description: str,
+        motivation: str | None = None
     ) -> tuple[bool, Any]:
         """底层动作执行器：发送动作到适配器并等待响应."""
         if not self.action_sender or not self.action_log_service or not self.pending_action_manager:
@@ -363,6 +373,7 @@ class ActionHandler:
             thought_doc_key=thought_doc_key,
             original_action_description=original_action_description,
             action_to_send=action_to_send,
+            motivation=motivation,
         )
 
         # 将 action_id 注入

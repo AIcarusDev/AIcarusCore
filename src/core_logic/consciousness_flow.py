@@ -13,7 +13,7 @@ from src.common.custom_logging.logging_config import get_logger
 from src.common.utils import parse_focus_path
 from src.config import config
 from src.core_communication.core_ws_server import CoreWebsocketServer
-from src.core_logic.decision_dispatcher import process_llm_decision
+from src.core_logic.decision_dispatcher import process_llm_decision, normalize_action_payload
 from src.core_logic.intrusive_thoughts import IntrusiveThoughtsGenerator
 from src.core_logic.prompt_builder import ThoughtPromptBuilder
 from src.core_logic.state_manager import AIStateManager
@@ -433,8 +433,19 @@ class CoreLogic:
         logger.info(
             f"生成的思考内容: {thought_json.get('internal_state', {}).get('think', '无内容')}"
         )
-
+        # 如果有 focus_path，就解析它
+        _, current_platform_id, _ = parse_focus_path(focus_path)
         action_payload = thought_json.get("action")
+        # 如果有 action_payload，先进行格式化
+        if action_payload:
+            # 调用我们新加的辅助函数来修正格式
+            normalized_action_payload = normalize_action_payload(action_payload, current_platform_id)
+            # 用修正后的 payload 替换原始 thought_json 中的 action 部分
+            thought_json["action"] = normalized_action_payload
+            logger.debug(f"Action payload has been normalized before saving: {normalized_action_payload}")
+        else:
+            normalized_action_payload = None
+
         consciousness_control_payload = thought_json.get("consciousness_control")
         action_id = str(uuid.uuid4()) if (action_payload or consciousness_control_payload) else None
 

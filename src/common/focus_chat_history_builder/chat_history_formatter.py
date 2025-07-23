@@ -321,7 +321,7 @@ async def format_chat_history_for_llm(
                 f"{main_content_str} (id:{msg_id_for_display})"
             )
             if log_user_id_str == "U0" and (
-                motivation := getattr(event_data_log, "motivation", None)
+                motivation := event_data_log.get("motivation")
             ):
                 log_line += f"\n    - [MOTIVE]: {motivation}"
 

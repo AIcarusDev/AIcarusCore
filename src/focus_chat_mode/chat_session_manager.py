@@ -243,6 +243,18 @@ class ChatSessionManager:
                 logger.error("'focus' 指令缺少 'platform_id' 或 'conversation_id'。")
                 return
 
+            platform_to_check = target_id if not self.current_focus_path else self.current_focus_path.split('.')[0]
+
+            # 在尝试 focus 到一个平台或会话前，必须检查该平台的身份是否已确认
+            if platform_to_check not in self.self_bot_ids_map:
+                logger.warning(
+                    f"AI 尝试 [focus] 到平台 '{platform_to_check}' 或其下的会话 '{target_id}'，"
+                    f"但该平台的安检尚未完全完成（ID未登记）。本次 focus 动作被拒绝。"
+                )
+                # 动作失败，直接返回，不改变焦点，也不触发思考。
+                # 主循环会按正常间隔继续下一轮思考。
+                return
+
             # 构建新的焦点路径
             new_focus_path = ""
             if not self.current_focus_path:  # 从顶层进入中层

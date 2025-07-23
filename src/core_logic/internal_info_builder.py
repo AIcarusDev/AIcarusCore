@@ -1,6 +1,6 @@
 # 文件: src/core_logic/internal_info_builder.py
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Any
 
 from aicarus_protocols import Event
 from src.common.custom_logging.logging_config import get_logger
@@ -218,7 +218,10 @@ class InternalInfoBuilder:
         return " ".join(descriptions)
 
     def _build_action_desc(self, action_payload: dict | None) -> str:
-        """构建【基于想法的动作】描述."""
+        """
+        【严格版】构建【基于想法的动作】描述。
+        此版本假定所有 action_payload 都已是规范化后的标准格式。
+        """
         if not action_payload:
             return ""  # 无动作，返回空
 
@@ -234,62 +237,73 @@ class InternalInfoBuilder:
 
         # 尝试解析第一个具体的动作
         try:
-            # 只处理第一个平台的第一个动作
-            for platform_key, platform_actions in action_part.items():
+            # 严格按标准 `{"platform": {"action_name": {...}}}` 格式解析
+            platform_key = next((k for k in action_part if k in ["core", "qq"]), None)
+
+            if platform_key:
+                platform_actions = action_part.get(platform_key)
                 if isinstance(platform_actions, dict) and platform_actions:
-                    # 找到了第一个有动作的平台，现在处理它的第一个动作
+                    # 提取动作名和参数
                     action_name, action_params = next(iter(platform_actions.items()))
-
-                    if not isinstance(action_params, dict):
-                        # 如果参数不是字典，这确实是格式异常
-                        return (
-                            f"出于你刚才的想法，你做了：{platform_key}.{action_name}"
-                            f"（参数格式异常）。"
-                        )
-
-                    motivation = action_params.get("motivation", "没有明确动机")
-
-                    # 特殊处理 send_message，提供更自然的描述
-                    if platform_key == "qq" and action_name == "send_message":
-                        steps = action_params.get("steps", [])
-                        texts = []
-                        if isinstance(steps, list):
-                            for step in steps:
-                                if (
-                                    isinstance(step, dict)
-                                    and step.get("command") == "text"
-                                    and (text := step.get("params", {}).get("text"))
-                                    and isinstance(text, str)
-                                ):
-                                    texts.append(text)
-
-                        if not texts:
-                            return f'出于你刚才的想法，你发送了一条非文本消息\n因为："{motivation}"'
-                        elif len(texts) == 1:
-                            return (
-                                f"出于你刚才的想法，你做了：发言（发言内容为：“{texts[0]}”）\n"
-                                f'因为："{motivation}"'
-                            )
-
-                        else:
-                            formatted_texts = "、".join(f"“{t}”" for t in texts)
-                            return (
-                                f"出于你刚才的想法，你做了：发言（发言内容依次为：{formatted_texts}）\n"
-                                f'因为："{motivation}"'
-                            )
-
-                    # 对于其他所有动作，使用通用描述
-                    return (
-                        f"出于你刚才的想法，你做了：{platform_key}.{action_name}\n"
-                        f'因为："{motivation}"'
-                    )
+                    # 使用辅助函数格式化描述
+                    return self._format_action_description(platform_key, action_name, action_params)
 
         except (StopIteration, AttributeError, TypeError) as e:
-            logger.warning(
-                f"解析动作描述时遇到非预期结构，将回退。错误: {e}, Payload: {action_part}"
+            # 如果在严格模式下解析失败，说明数据格式严重错误
+            logger.error(
+                f"在严格模式下解析动作描述失败，这表明数据库中存在格式错误的 action_payload！"
+                f"错误: {e}, Payload: {action_part}",
+                exc_info=True
             )
 
+        # 如果没有找到有效的平台键或解析失败，返回一个通用的回退信息
         return "出于你刚才的想法，你执行了一个未被详细记录的动作。"
+
+
+    def _format_action_description(self, platform_key: str, action_name: str, action_params: Any) -> str:
+        """
+        【新增辅助函数】根据解析出的动作信息，格式化为自然语言描述。
+        这个函数将具体的格式化逻辑集中在一起，使主函数更清晰。
+        """
+        if not isinstance(action_params, dict):
+            # 这就是最终捕获到“参数格式异常”的地方，现在它提供了更清晰的上下文
+            return f"出于你刚才的想法，你做了：{platform_key}.{action_name}（参数格式异常，期望是字典但不是）。"
+
+        motivation = action_params.get("motivation", "没有明确动机")
+
+        # 特殊处理 send_message，以提供更自然的描述
+        if action_name == "send_message":
+            steps = action_params.get("steps", [])
+            texts = []
+            if isinstance(steps, list):
+                for step in steps:
+                    if (
+                        isinstance(step, dict)
+                        and step.get("command") == "text"
+                        and (text := step.get("params", {}).get("content"))
+                        and isinstance(text, str)
+                    ):
+                        texts.append(text)
+
+            if not texts:
+                return f'出于你刚才的想法，你发送了一条非文本消息\n因为："{motivation}"'
+            elif len(texts) == 1:
+                return (
+                    f"出于你刚才的想法，你做了：发言（发言内容为：“{texts[0]}”）\n"
+                    f'因为："{motivation}"'
+                )
+            else:
+                formatted_texts = "、".join(f"“{t}”" for t in texts)
+                return (
+                    f"出于你刚才的想法，你做了：发言（发言内容依次为：{formatted_texts}）\n"
+                    f'因为："{motivation}"'
+                )
+
+        # 其他所有动作的通用描述
+        return (
+            f"出于你刚才的想法，你做了：{action_name}\n"
+            f'因为："{motivation}"'
+        )
 
     def _build_control_desc(
         self,

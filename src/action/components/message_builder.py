@@ -265,11 +265,11 @@ class MessageBuilder:
             params={
                 "conversation_id": self.conversation_info.conversation_id,
                 "conversation_type": self.conversation_info.type,
-                # 把我们辛辛苦苦拼好的消息段列表变成字典列表
                 "content": [seg.to_dict() for seg in self._current_segments],
             },
             bot_id=correct_bot_id,
             description="由MessageBuilder拼接并发送",
+            motivation=self.motivation
         )
 
         action_id = payload.get("action_id") if isinstance(payload, dict) else None

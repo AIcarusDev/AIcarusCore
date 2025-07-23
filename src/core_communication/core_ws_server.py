@@ -166,27 +166,66 @@ class CoreWebsocketServer:
 
     async def _run_inspection_ceremony(self, adapter_id: str, display_name: str) -> None:
         """一个专门用来在后台运行安检的协程."""
-        try:
-            # 给一点点时间，确保连接完全稳定
-            await asyncio.sleep(0.5)
+        max_retries = 3  # 最多重试3次
+        initial_delay = 5  # 初始延迟5秒
+        backoff_factor = 2  # 每次重试延迟时间乘以2
 
-            success, profile_data = await inspect_and_initialize_self_profile(
-                person_service=self.person_service,
-                action_handler=self.action_handler_instance,
-                platform_id=adapter_id,
-            )
+        for attempt in range(max_retries + 1):
+            try:
+                if attempt > 0:
+                    delay = initial_delay * (backoff_factor ** (attempt - 1))
+                    logger.info(
+                        f"适配器 '{adapter_id}' 的安检将在 {delay} 秒后进行第 {attempt}/{max_retries} 次重试..."
+                    )
+                    await asyncio.sleep(delay)
 
-            if success and profile_data:
-                logger.success(f"安检成功，获取到适配器 '{adapter_id}' 中祂的档案。")
-                # 将获取到的档案缓存起来
-                if adapter_id in self.adapter_clients_info:
-                    self.adapter_clients_info[adapter_id]["bot_profile"] = profile_data
-            else:
-                logger.error(f"后台安检仪式失败！适配器 '{adapter_id}' 的相关功能可能受影响。")
-        except Exception as e:
-            logger.error(
-                f"在为适配器 '{adapter_id}' 举行后台安检仪式时发生严重错误: {e}", exc_info=True
-            )
+                logger.info(f"为适配器 '{adapter_id}' 举行欢迎仪式 (执行安检，尝试次数 {attempt + 1})...")
+
+                # 给一点点时间，确保连接完全稳定
+                await asyncio.sleep(0.5)
+
+                success, profile_data = await inspect_and_initialize_self_profile(
+                    person_service=self.person_service,
+                    action_handler=self.action_handler_instance,
+                    platform_id=adapter_id,
+                )
+
+                if success and profile_data:
+                    logger.success(
+                        f"安检成功 (尝试次数 {attempt + 1})，获取到适配器 '{adapter_id}' 中祂的档案。"
+                    )
+                    # 将获取到的档案缓存起来
+                    if adapter_id in self.adapter_clients_info:
+                        self.adapter_clients_info[adapter_id]["bot_profile"] = profile_data
+
+                    # 安检成功后，需要更新 ChatSessionManager 的 ID 地图
+                    if self.action_handler_instance.chat_session_manager:
+                        bot_id = profile_data.get("user_id")
+                        if bot_id:
+                            self.action_handler_instance.chat_session_manager.self_bot_ids_map[adapter_id] = str(bot_id)
+                            logger.info(f"ChatSessionManager 的 ID 地图已为平台 '{adapter_id}' 更新。")
+
+
+                    return  # 成功后直接退出函数
+
+                # 如果执行到这里，说明 success 为 False
+                logger.warning(
+                    f"安检尝试 {attempt + 1} 失败。返回结果: success={success}, "
+                    f"profile_data={str(profile_data)[:200]}"
+                )
+
+            except Exception as e:
+                logger.error(
+                    f"在为适配器 '{adapter_id}' 举行后台安检仪式 (尝试次数 {attempt + 1}) "
+                    f"时发生严重错误: {e}",
+                    exc_info=True
+                )
+
+        # 如果循环结束都没有成功
+        logger.critical(
+            f"后台安检仪式在经过 {max_retries + 1} 次尝试后彻底失败！"
+            f"适配器 '{adapter_id}' 的相关功能将严重受影响。"
+        )
 
     async def wait_for_all_inspections(self) -> None:
         """等待所有正在进行的安检任务完成.
