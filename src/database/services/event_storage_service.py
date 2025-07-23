@@ -185,7 +185,7 @@ class EventStorageService:
                 bind_vars["threshold_time"] = threshold_time_ms
 
             if not fetch_all_event_types:
-                filters.append("doc.event_type LIKE 'message.%'")
+                filters.append(" ( doc.event_type LIKE 'message.%' OR doc.event_type LIKE 'action.%.send_message' ) ")
 
             if conversation_id:
                 filters.append("doc.conversation_id_extracted == @conversation_id")
