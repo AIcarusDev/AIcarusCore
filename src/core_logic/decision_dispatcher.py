@@ -13,10 +13,11 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+
 def normalize_action_payload(action_payload: dict, current_platform_id: str) -> dict:
-    """
-    一步到位地规范化LLM返回的action_payload。
-    它不依赖任何硬编码的动作列表，而是利用当前的平台上下文来确保动作被正确包裹。
+    """一步到位地规范化LLM返回的action_payload.
+
+    它不依赖任何硬编码的动作列表，而是利用当前的平台上下文来确保动作被正确包裹.
     """
     if not action_payload or not isinstance(action_payload, dict):
         # 如果输入为空或格式不正确，直接返回空字典
@@ -42,6 +43,7 @@ def normalize_action_payload(action_payload: dict, current_platform_id: str) -> 
     # - current_platform_id = "core", payload = {"web_search": ...}
     #   返回: {"core": {"web_search": ...}}
     return {current_platform_id: action_payload}
+
 
 async def process_llm_decision(
     decision_json: dict,
@@ -100,7 +102,8 @@ async def process_llm_decision(
 
             # TODO: 当动作变多时，if/elif 会变得很长
             # 可以考虑将动作的“元数据”（比如它的类别）也注册到 PlatformBuilder 中
-            # 例如，在 qq_builder.py 的 get_level_actions_definitions 中，除了返回 Schema，还可以返回一个元数据字典，来定性动作的类别
+            # 例如，在 qq_builder.py 的 get_level_actions_definitions 中，除了返回 Schema，
+            # 还可以返回一个元数据字典，来定性动作的类别
             # 现在暂时使用简单的 if/elif 来判断动作类型
             if action_name == "web_search":
                 action_category = "generic_with_result"
@@ -191,9 +194,7 @@ async def process_llm_decision(
             session, motivation=action_details["params"].get("motivation")
         )
         # process_steps 会在后台发送消息，并将 action_id 存入 session.sent_action_ids_this_turn
-        await message_builder.process_steps(
-            action_details["params"].get("steps", [])
-        )
+        await message_builder.process_steps(action_details["params"].get("steps", []))
         # 从 session 中获取本轮发送的 action_id 列表，而不是用 process_steps 的返回值
         sent_action_ids = session.sent_action_ids_this_turn
 
@@ -211,10 +212,14 @@ async def process_llm_decision(
                     logger.success(f"所有 {len(sent_action_ids)} 条消息的回声均已收到。")
                 else:
                     logger.warning(
-                        f"{len(sent_action_ids) - success_count} / {len(sent_action_ids)} 条消息的回声等待超时。"
+                        f"{len(sent_action_ids) - success_count} "
+                        f"/ {len(sent_action_ids)} 条消息的回声等待超时。"
                     )
             else:
-                logger.error(f"wait_for_all_actions_echo 返回了非预期的类型: {type(results)}，内容: {results}")
+                logger.error(
+                    f"wait_for_all_actions_echo 返回了非预期的类型: "
+                    f"{type(results)}，内容: {results}"
+                )
 
         # e. 无论是否超时，都触发下一轮思考
         if action_handler.thought_trigger:

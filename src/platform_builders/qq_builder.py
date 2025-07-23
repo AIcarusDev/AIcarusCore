@@ -244,24 +244,38 @@ class QQBuilder(BasePlatformBuilder):
                                 "command": {
                                     "type": "string",
                                     "description": "要执行的指令名称。",
-                                    "enum": ["reply", "at", "text", "send_and_break"] # 你可以根据需要添加更多指令
+                                    "enum": [
+                                        "reply",
+                                        "at",
+                                        "text",
+                                        "send_and_break",
+                                    ],  # 你可以根据需要添加更多指令
                                 },
                                 "params": {
                                     "type": "object",
                                     "description": "与指令对应的参数包。根据'command'的值，只填写其中对应的字段。",
                                     "properties": {
                                         # 'reply' command 用的字段
-                                        "message_id": {"type": "string", "description": "要引用/回复的消息ID。"},
+                                        "message_id": {
+                                            "type": "string",
+                                            "description": "要引用/回复的消息ID。",
+                                        },
                                         # 'at' command 用的字段
-                                        "user_id": {"type": "string", "description": "要@的用户的ID。"},
+                                        "user_id": {
+                                            "type": "string",
+                                            "description": "要@的用户的ID。",
+                                        },
                                         # 'text' command 用的字段
-                                        "content": {"type": "string", "description": "要发送的文本内容。"},
-                                    }
+                                        "content": {
+                                            "type": "string",
+                                            "description": "要发送的文本内容。",
+                                        },
+                                    },
                                     # 注意：这里没有 additionalProperties
-                                }
+                                },
                             },
-                            "required": ["command", "params"]
-                        }
+                            "required": ["command", "params"],
+                        },
                     },
                     "motivation": {"type": "string"},
                 },

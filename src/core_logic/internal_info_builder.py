@@ -1,6 +1,6 @@
 # 文件: src/core_logic/internal_info_builder.py
 
-from typing import TYPE_CHECKING, Optional, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from aicarus_protocols import Event
 from src.common.custom_logging.logging_config import get_logger
@@ -218,9 +218,9 @@ class InternalInfoBuilder:
         return " ".join(descriptions)
 
     def _build_action_desc(self, action_payload: dict | None) -> str:
-        """
-        【严格版】构建【基于想法的动作】描述。
-        此版本假定所有 action_payload 都已是规范化后的标准格式。
+        """【严格版】构建【基于想法的动作】描述.
+
+        此版本假定所有 action_payload 都已是规范化后的标准格式.
         """
         if not action_payload:
             return ""  # 无动作，返回空
@@ -253,21 +253,25 @@ class InternalInfoBuilder:
             logger.error(
                 f"在严格模式下解析动作描述失败，这表明数据库中存在格式错误的 action_payload！"
                 f"错误: {e}, Payload: {action_part}",
-                exc_info=True
+                exc_info=True,
             )
 
         # 如果没有找到有效的平台键或解析失败，返回一个通用的回退信息
         return "出于你刚才的想法，你执行了一个未被详细记录的动作。"
 
+    def _format_action_description(
+        self, platform_key: str, action_name: str, action_params: Any
+    ) -> str:
+        """【新增辅助函数】根据解析出的动作信息，格式化为自然语言描述.
 
-    def _format_action_description(self, platform_key: str, action_name: str, action_params: Any) -> str:
-        """
-        【新增辅助函数】根据解析出的动作信息，格式化为自然语言描述。
-        这个函数将具体的格式化逻辑集中在一起，使主函数更清晰。
+        这个函数将具体的格式化逻辑集中在一起，使主函数更清晰.
         """
         if not isinstance(action_params, dict):
             # 这就是最终捕获到“参数格式异常”的地方，现在它提供了更清晰的上下文
-            return f"出于你刚才的想法，你做了：{platform_key}.{action_name}（参数格式异常，期望是字典但不是）。"
+            return (
+                f"出于你刚才的想法，你做了：{platform_key}.{action_name}"
+                f"（参数格式异常，期望是字典但不是）。"
+            )
 
         motivation = action_params.get("motivation", "没有明确动机")
 
@@ -300,10 +304,7 @@ class InternalInfoBuilder:
                 )
 
         # 其他所有动作的通用描述
-        return (
-            f"出于你刚才的想法，你做了：{action_name}\n"
-            f'因为："{motivation}"'
-        )
+        return f'出于你刚才的想法，你做了：{action_name}\n因为："{motivation}"'
 
     def _build_control_desc(
         self,

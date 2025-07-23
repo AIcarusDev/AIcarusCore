@@ -269,7 +269,7 @@ class MessageBuilder:
             },
             bot_id=correct_bot_id,
             description="由MessageBuilder拼接并发送",
-            motivation=self.motivation
+            motivation=self.motivation,
         )
 
         action_id = payload.get("action_id") if isinstance(payload, dict) else None

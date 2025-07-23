@@ -243,11 +243,13 @@ class ChatSession:
                 self.no_action_count = 0
 
     async def wait_for_echo(self, action_id: str, timeout: float = 20.0) -> bool:
-        """【改造后】的智能等待方法！"""
+        """智能等待方法!"""
         async with self._echo_lock:
             # 【DEBUG注入点 H】
-            logger.critical(f"【DEBUG-CS】'{action_id}' 进入等待室。当前暂存信号: {self._received_echo_ids}")
-            
+            logger.critical(
+                f"【DEBUG-CS】'{action_id}' 进入等待室。当前暂存信号: {self._received_echo_ids}"
+            )
+
             if action_id in self._received_echo_ids:
                 self._received_echo_ids.remove(action_id)
                 logger.success(f"【DEBUG-CS】'{action_id}' 在暂存器中命中！立即返回 True。")
@@ -261,7 +263,7 @@ class ChatSession:
             await asyncio.wait_for(wake_up_event.wait(), timeout=timeout)
             logger.success(f"【DEBUG-CS】'{action_id}' 在等待过程中被成功唤醒！")
             return True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(f"【DEBUG-CS】'{action_id}' 等待超时！")
             return False
         finally:
@@ -269,10 +271,13 @@ class ChatSession:
                 self._echo_wait_events.pop(action_id, None)
 
     async def signal_echo_received(self, action_id: str) -> None:
-        """【改造后】的智能信号处理方法！"""
+        """智能信号处理方法!"""
         async with self._echo_lock:
             # 【DEBUG注入点 I】
-            logger.critical(f"【DEBUG-CS】收到动作 '{action_id}' 的信号！当前等待列表: {list(self._echo_wait_events.keys())}")
+            logger.critical(
+                f"【DEBUG-CS】收到动作 '{action_id}' 的信号！"
+                f"当前等待列表: {list(self._echo_wait_events.keys())}"
+            )
 
             if event_to_wake := self._echo_wait_events.get(action_id):
                 event_to_wake.set()

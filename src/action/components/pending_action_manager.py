@@ -2,14 +2,12 @@
 import asyncio
 import json
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from src.common.custom_logging.logging_config import get_logger
 from src.database import ActionLogStorageService, ConversationStorageService, ThoughtStorageService
 from src.database.services.event_storage_service import EventStorageService
-from aicarus_protocols import find_seg_by_type
 
-from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from src.action.action_handler import ActionHandler
 
@@ -48,7 +46,7 @@ class PendingActionManager:
         thought_doc_key: str | None,
         original_action_description: str,
         action_to_send: dict[str, Any],
-        motivation: str | None = None
+        motivation: str | None = None,
     ) -> tuple[bool, Any]:
         """添加一个新的待处理动作，并等待其完成（或超时）.
 
@@ -61,7 +59,7 @@ class PendingActionManager:
             thought_doc_key,
             original_action_description,
             action_to_send,
-            motivation
+            motivation,
         )
         try:
             return await asyncio.wait_for(response_future, timeout=ACTION_RESPONSE_TIMEOUT_SECONDS)
@@ -103,8 +101,8 @@ class PendingActionManager:
             logger.warning(f"收到未知的或已处理/超时的 action_response，ID: {original_action_id}。")
             return
 
-        pending_future, thought_doc_key, description, sent_dict, motivation = self._pending_actions.pop(
-            original_action_id
+        pending_future, thought_doc_key, description, sent_dict, motivation = (
+            self._pending_actions.pop(original_action_id)
         )
         logger.info(f"已匹配到等待中的动作 '{original_action_id}' ({description})。")
 
@@ -117,7 +115,10 @@ class PendingActionManager:
         if not pending_future.done():
             result_payload = details if successful else {"error": error_msg}
             pending_future.set_result((successful, result_payload))
-            logger.debug(f"动作 '{original_action_id}' 的 Future 已被设置，阻塞的任务（如 MessageBuilder）已被唤醒。")
+            logger.debug(
+                f"动作 '{original_action_id}' 的 Future 已被设置，"
+                f"阻塞的任务（如 MessageBuilder）已被唤醒。"
+            )
 
         # 【DEBUG注入点 A】
         logger.info(f"【DEBUG-PAM】动作 '{original_action_id}' 匹配成功，准备处理其特殊含义。")
@@ -125,22 +126,31 @@ class PendingActionManager:
         # 检查是否是 send_message 动作
         if successful and original_action_type and original_action_type.endswith(".send_message"):
             conversation_info = sent_dict.get("conversation_info")
-            
+
             # 【DEBUG注入点 B】
-            logger.info(f"【DEBUG-PAM】检测到 send_message 动作，conversation_info: {conversation_info}")
+            logger.info(
+                f"【DEBUG-PAM】检测到 send_message 动作，conversation_info: {conversation_info}"
+            )
 
             if conversation_info and isinstance(conversation_info, dict):
                 conv_id = conversation_info.get("conversation_id")
-                
+
                 if conv_id and self.action_handler.chat_session_manager:
-                    if session := self.action_handler.chat_session_manager.sessions.get(str(conv_id)):
-                        logger.critical(f"【DEBUG-PAM】找到 session！即将为动作 '{original_action_id}' 调用 session.signal_echo_received()！")
+                    if session := self.action_handler.chat_session_manager.sessions.get(
+                        str(conv_id)
+                    ):
+                        logger.critical(
+                            f"【DEBUG-PAM】找到 session！即将为动作 '{original_action_id}' "
+                            f"调用 session.signal_echo_received()！"
+                        )
                         await session.signal_echo_received(original_action_id)
                     else:
-                        logger.warning(f"【DEBUG-PAM】有 conv_id 但找不到对应的 session！无法发送信号。")
+                        logger.warning(
+                            "【DEBUG-PAM】有 conv_id 但找不到对应的 session！无法发送信号。"
+                        )
                 else:
-                    logger.warning(f"【DEBUG-PAM】conv_id 为空或 manager 不存在，无法发送信号。")
-        
+                    logger.warning("【DEBUG-PAM】conv_id 为空或 manager 不存在，无法发送信号。")
+
         # 4. 最后，在后台完成所有收尾工作（写日志、更新思考等），这些不应该阻塞 MessageBuilder
         response_timestamp = int(time.time() * 1000)
         response_time_ms = response_timestamp - sent_dict.get("timestamp", response_timestamp)
@@ -179,8 +189,7 @@ class PendingActionManager:
         if successful:
             tasks_to_gather.append(
                 self._save_successful_action_as_event(
-                    original_action_id, sent_dict, response_event_data,
-                    motivation=motivation
+                    original_action_id, sent_dict, response_event_data, motivation=motivation
                 )
             )
 
@@ -322,7 +331,7 @@ class PendingActionManager:
         action_id: str,
         sent_dict: dict[str, Any],
         resp_data: dict[str, Any],
-        motivation: str | None = None
+        motivation: str | None = None,
     ) -> None:
         """保存成功的动作作为事件到数据库中.
 
@@ -348,17 +357,20 @@ class PendingActionManager:
         conv_info = event_to_save.get("conversation_info")
         if conv_info and isinstance(conv_info, dict):
             conv_id = conv_info.get("conversation_id")
-            if conv_id and self.action_handler.chat_session_manager:
-                if session := self.action_handler.chat_session_manager.sessions.get(str(conv_id)):
-                    # 从当前会话中获取机器人自己的档案
-                    bot_profile = await session.get_bot_profile()
-                    real_user_info = {
-                        "platform": session.platform,
-                        "user_id": bot_profile.get("user_id"),
-                        "user_nickname": bot_profile.get("nickname"),
-                        "user_cardname": bot_profile.get("card"),
-                        "role": bot_profile.get("role")
-                    }
+            if (
+                conv_id
+                and self.action_handler.chat_session_manager
+                and (session := self.action_handler.chat_session_manager.sessions.get(str(conv_id)))
+            ):
+                # 从当前会话中获取机器人自己的档案
+                bot_profile = await session.get_bot_profile()
+                real_user_info = {
+                    "platform": session.platform,
+                    "user_id": bot_profile.get("user_id"),
+                    "user_nickname": bot_profile.get("nickname"),
+                    "user_cardname": bot_profile.get("card"),
+                    "role": bot_profile.get("role"),
+                }
 
         # 如果成功获取到真实信息，就用它；否则，使用之前的伪造信息作为后备
         if real_user_info:

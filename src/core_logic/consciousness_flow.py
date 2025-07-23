@@ -13,7 +13,7 @@ from src.common.custom_logging.logging_config import get_logger
 from src.common.utils import parse_focus_path
 from src.config import config
 from src.core_communication.core_ws_server import CoreWebsocketServer
-from src.core_logic.decision_dispatcher import process_llm_decision, normalize_action_payload
+from src.core_logic.decision_dispatcher import normalize_action_payload, process_llm_decision
 from src.core_logic.intrusive_thoughts import IntrusiveThoughtsGenerator
 from src.core_logic.prompt_builder import ThoughtPromptBuilder
 from src.core_logic.state_manager import AIStateManager
@@ -318,18 +318,18 @@ class CoreLogic:
 
     async def _check_for_interruptions(
         self, session: "ChatSession", context_text: str
-    ) -> Optional[dict]:
-        """
-        单次检查是否有中断事件。
-        这个方法会检查一次新消息，如果发现满足中断条件的消息，则立即返回该事件。
-        这用于在动作执行期间与决策任务进行“竞速”。
+    ) -> dict | None:
+        """单次检查是否有中断事件.
+
+        这个方法会检查一次新消息，如果发现满足中断条件的消息，则立即返回该事件.
+        这用于在动作执行期间与决策任务进行“竞速”.
 
         Args:
-            session: 当前的聊天会话。
-            context_text: 用于中断决策的上下文消息文本。
+            session: 当前的聊天会话.
+            context_text: 用于中断决策的上下文消息文本.
 
         Returns:
-            如果发生中断，则返回中断事件的文档；否则返回 None。
+            如果发生中断，则返回中断事件的文档；否则返回 None.
         """
         # [调试] 记录进入检查器
         logger.debug(
@@ -404,8 +404,7 @@ class CoreLogic:
                 context_message_text=context_text,
             ):
                 logger.info(
-                    f"[{session.conversation_id}] IIS决策：中断！元凶ID: "
-                    f"{event_doc.get('_key')}"
+                    f"[{session.conversation_id}] IIS决策：中断！元凶ID: {event_doc.get('_key')}"
                 )
                 # [调试] 明确记录中断决策
                 logger.warning(
@@ -416,8 +415,7 @@ class CoreLogic:
 
         # [调试] 记录所有事件都未触发中断
         logger.debug(
-            f"[{session.conversation_id}] INTERRUPT_CHECK: "
-            "所有新事件均未触发中断，检查通过。"
+            f"[{session.conversation_id}] INTERRUPT_CHECK: 所有新事件均未触发中断，检查通过。"
         )
         # 如果循环结束都没有中断，则无需任何操作
         return None
@@ -439,10 +437,14 @@ class CoreLogic:
         # 如果有 action_payload，先进行格式化
         if action_payload:
             # 调用我们新加的辅助函数来修正格式
-            normalized_action_payload = normalize_action_payload(action_payload, current_platform_id)
+            normalized_action_payload = normalize_action_payload(
+                action_payload, current_platform_id
+            )
             # 用修正后的 payload 替换原始 thought_json 中的 action 部分
             thought_json["action"] = normalized_action_payload
-            logger.debug(f"Action payload has been normalized before saving: {normalized_action_payload}")
+            logger.debug(
+                f"Action payload has been normalized before saving: {normalized_action_payload}"
+            )
         else:
             normalized_action_payload = None
 

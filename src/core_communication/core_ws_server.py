@@ -175,11 +175,14 @@ class CoreWebsocketServer:
                 if attempt > 0:
                     delay = initial_delay * (backoff_factor ** (attempt - 1))
                     logger.info(
-                        f"适配器 '{adapter_id}' 的安检将在 {delay} 秒后进行第 {attempt}/{max_retries} 次重试..."
+                        f"适配器 '{adapter_id}' 的安检将在 {delay} 秒后进行"
+                        f"第 {attempt}/{max_retries} 次重试..."
                     )
                     await asyncio.sleep(delay)
 
-                logger.info(f"为适配器 '{adapter_id}' 举行欢迎仪式 (执行安检，尝试次数 {attempt + 1})...")
+                logger.info(
+                    f"为适配器 '{adapter_id}' 举行欢迎仪式 (执行安检，尝试次数 {attempt + 1})..."
+                )
 
                 # 给一点点时间，确保连接完全稳定
                 await asyncio.sleep(0.5)
@@ -192,7 +195,8 @@ class CoreWebsocketServer:
 
                 if success and profile_data:
                     logger.success(
-                        f"安检成功 (尝试次数 {attempt + 1})，获取到适配器 '{adapter_id}' 中祂的档案。"
+                        f"安检成功 (尝试次数 {attempt + 1})，"
+                        f"获取到适配器 '{adapter_id}' 中祂的档案。"
                     )
                     # 将获取到的档案缓存起来
                     if adapter_id in self.adapter_clients_info:
@@ -202,9 +206,12 @@ class CoreWebsocketServer:
                     if self.action_handler_instance.chat_session_manager:
                         bot_id = profile_data.get("user_id")
                         if bot_id:
-                            self.action_handler_instance.chat_session_manager.self_bot_ids_map[adapter_id] = str(bot_id)
-                            logger.info(f"ChatSessionManager 的 ID 地图已为平台 '{adapter_id}' 更新。")
-
+                            self.action_handler_instance.chat_session_manager.self_bot_ids_map[
+                                adapter_id
+                            ] = str(bot_id)
+                            logger.info(
+                                f"ChatSessionManager 的 ID 地图已为平台 '{adapter_id}' 更新。"
+                            )
 
                     return  # 成功后直接退出函数
 
@@ -218,7 +225,7 @@ class CoreWebsocketServer:
                 logger.error(
                     f"在为适配器 '{adapter_id}' 举行后台安检仪式 (尝试次数 {attempt + 1}) "
                     f"时发生严重错误: {e}",
-                    exc_info=True
+                    exc_info=True,
                 )
 
         # 如果循环结束都没有成功

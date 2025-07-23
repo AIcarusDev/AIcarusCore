@@ -243,7 +243,9 @@ class ChatSessionManager:
                 logger.error("'focus' 指令缺少 'platform_id' 或 'conversation_id'。")
                 return
 
-            platform_to_check = target_id if not self.current_focus_path else self.current_focus_path.split('.')[0]
+            platform_to_check = (
+                target_id if not self.current_focus_path else self.current_focus_path.split(".")[0]
+            )
 
             # 在尝试 focus 到一个平台或会话前，必须检查该平台的身份是否已确认
             if platform_to_check not in self.self_bot_ids_map:
