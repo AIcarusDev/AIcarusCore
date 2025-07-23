@@ -374,3 +374,13 @@ class ChatSession:
             pass  # 正常取消，无需记录
         except Exception as e:
             logger.error(f"[{self.conversation_id}] 后台中断检查任务意外终止: {e}", exc_info=e)
+
+    def reset_consecutive_bot_message_count(self) -> None:
+        """一个专门重置连续发言计数器的方法."""
+        if self.consecutive_bot_messages_count > 0:
+            logger.debug(
+                f"[{self.conversation_id}] 检测到他人发言，"
+                f"重置 consecutive_bot_messages_count "
+                f"(之前是 {self.consecutive_bot_messages_count})。"
+            )
+            self.consecutive_bot_messages_count = 0

@@ -169,6 +169,27 @@ class CoreLogic:
                 if session and not session._interrupt_checker_task:
                     session.start_interrupt_checker()
 
+                if session:
+                    new_events = await session.event_storage.get_message_events_after_timestamp(
+                        session.conversation_id,
+                        session.last_processed_timestamp,
+                        status="unread",  # 只关心未读的
+                    )
+
+                    if new_events:
+                        bot_profile = await session.get_bot_profile()
+                        bot_id = str(bot_profile.get("user_id", session.bot_id))
+
+                        other_user_spoke = any(
+                            event.get("user_info", {}).get("user_id")
+                            and str(event.get("user_info", {}).get("user_id")) != bot_id
+                            for event in new_events
+                        )
+
+                        if other_user_spoke:
+                            # 调用我们之前写好的重置方法！
+                            session.reset_consecutive_bot_message_count()
+
                 # 2. 构建思考所需的所有材料
                 # 注意：如果在底层会话中，prompt_builder 会自动处理会话上下文
                 prompt_components = await self.prompt_builder.build_prompts_components(
