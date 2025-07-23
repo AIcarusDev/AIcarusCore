@@ -183,6 +183,9 @@ async def process_llm_decision(
                 "将优先执行动作并等待回声，忽略意识控制指令。"
             )
 
+        session.sent_action_ids_this_turn.clear()
+        logger.debug(f"[{session.conversation_id}] 已清空上一轮的 sent_action_ids_this_turn 列表。")
+
         # c. 直接调用 MessageBuilder，让它在后台发送消息并返回 action_ids
         message_builder = MessageBuilder(
             session, motivation=action_details["params"].get("motivation")

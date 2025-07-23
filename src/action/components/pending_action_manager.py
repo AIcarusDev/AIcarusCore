@@ -11,7 +11,7 @@ from aicarus_protocols import find_seg_by_type
 
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from src.focus_chat_mode.chat_session_manager import ChatSessionManager
+    from src.action.action_handler import ActionHandler
 
 logger = get_logger(__name__)
 
@@ -30,6 +30,7 @@ class PendingActionManager:
         thought_storage_service: ThoughtStorageService,
         event_storage_service: EventStorageService,
         conversation_service: ConversationStorageService,
+        action_handler_instance: "ActionHandler",
     ) -> None:
         self._pending_actions: dict[
             str, tuple[asyncio.Future, str | None, str, dict[str, Any], str | None]
@@ -38,7 +39,7 @@ class PendingActionManager:
         self.thought_storage_service = thought_storage_service
         self.event_storage_service = event_storage_service
         self.conversation_service = conversation_service
-        self.chat_session_manager: "ChatSessionManager" | None = None
+        self.action_handler = action_handler_instance
         logger.info(f"{self.__class__.__name__} instance created.")
 
     async def add_and_wait_for_action(
@@ -118,20 +119,28 @@ class PendingActionManager:
             pending_future.set_result((successful, result_payload))
             logger.debug(f"动作 '{original_action_id}' 的 Future 已被设置，阻塞的任务（如 MessageBuilder）已被唤醒。")
 
-        # 3. 【然后】处理这个响应的特殊含义，比如作为回声信号
+        # 【DEBUG注入点 A】
+        logger.info(f"【DEBUG-PAM】动作 '{original_action_id}' 匹配成功，准备处理其特殊含义。")
+
+        # 检查是否是 send_message 动作
         if successful and original_action_type and original_action_type.endswith(".send_message"):
             conversation_info = sent_dict.get("conversation_info")
+            
+            # 【DEBUG注入点 B】
+            logger.info(f"【DEBUG-PAM】检测到 send_message 动作，conversation_info: {conversation_info}")
+
             if conversation_info and isinstance(conversation_info, dict):
                 conv_id = conversation_info.get("conversation_id")
-                if conv_id and self.chat_session_manager:
-                    if session := self.chat_session_manager.sessions.get(str(conv_id)):
-                        logger.info(
-                            f"检测到 send_message 动作的回声响应，"
-                            f"正在为会话 '{conv_id}' 的动作 '{original_action_id}' 发送唤醒信号。"
-                        )
-                        # 通知 decision_dispatcher 的等待任务
+                
+                if conv_id and self.action_handler.chat_session_manager:
+                    if session := self.action_handler.chat_session_manager.sessions.get(str(conv_id)):
+                        logger.critical(f"【DEBUG-PAM】找到 session！即将为动作 '{original_action_id}' 调用 session.signal_echo_received()！")
                         await session.signal_echo_received(original_action_id)
-
+                    else:
+                        logger.warning(f"【DEBUG-PAM】有 conv_id 但找不到对应的 session！无法发送信号。")
+                else:
+                    logger.warning(f"【DEBUG-PAM】conv_id 为空或 manager 不存在，无法发送信号。")
+        
         # 4. 最后，在后台完成所有收尾工作（写日志、更新思考等），这些不应该阻塞 MessageBuilder
         response_timestamp = int(time.time() * 1000)
         response_time_ms = response_timestamp - sent_dict.get("timestamp", response_timestamp)
@@ -339,8 +348,8 @@ class PendingActionManager:
         conv_info = event_to_save.get("conversation_info")
         if conv_info and isinstance(conv_info, dict):
             conv_id = conv_info.get("conversation_id")
-            if conv_id and self.chat_session_manager:
-                if session := self.chat_session_manager.sessions.get(str(conv_id)):
+            if conv_id and self.action_handler.chat_session_manager:
+                if session := self.action_handler.chat_session_manager.sessions.get(str(conv_id)):
                     # 从当前会话中获取机器人自己的档案
                     bot_profile = await session.get_bot_profile()
                     real_user_info = {

@@ -147,34 +147,6 @@ class DefaultMessageProcessor:
                     db_event_document.embedding = embedding_vector.tolist()
                     logger.debug(f"为事件 '{proto_event.event_id}' 生成并添加了句子向量。")
 
-                # a. 检查这是否是“我自己”发的消息
-                bot_id_on_platform = self.qq_chat_session_manager.self_bot_ids_map.get(platform_id)
-                is_self_message = (
-                    bot_id_on_platform
-                    and proto_event.user_info
-                    and str(proto_event.user_info.user_id) == str(bot_id_on_platform)
-                )
-
-                # b. 如果是我自己发的消息，并且是 message 类型，那它就是一个“回声”
-                if is_self_message and proto_event.event_type.startswith(f"message.{platform_id}"):
-                    # c. 从回声事件的元数据中提取原始动作的 ID
-                    #    我们假设适配器会在回声事件的 content[0].data 中返回 original_action_id
-                    original_action_id = proto_event.get_message_id(is_self_echo=True)
-
-                    if original_action_id and self.qq_chat_session_manager:
-                        conv_id = proto_event.conversation_info.conversation_id
-
-                        # d. 找到对应的会话，并去“等待室”敲门
-                        if session := self.qq_chat_session_manager.sessions.get(conv_id):
-                            logger.debug(
-                                f"检测到动作 '{original_action_id}' 的回声事件，正在发送唤醒信号..."
-                            )
-                            await session.signal_echo_received(original_action_id)
-
-                            # e. 【重要】回声事件的主要任务是唤醒等待者，处理完毕后即可返回，
-                            #    不再需要进入后续的常规消息处理流程（如中断检查等）。
-                            return
-
                 event_doc_to_save = db_event_document.to_dict()
                 await self.event_service.save_event_document(event_doc_to_save)
                 logger.debug(f"事件文档 '{proto_event.event_id}' 已保存，status='{event_status}'")

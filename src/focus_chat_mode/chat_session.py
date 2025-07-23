@@ -151,8 +151,9 @@ class ChatSession:
         self.last_processed_timestamp: float = 0.0
         self.processing_lock = asyncio.Lock()
         self.background_tasks: set[asyncio.Task] = set()
-        self._echo_events: dict[str, asyncio.Event] = {}
+        self._echo_wait_events: dict[str, asyncio.Event] = {}
         """存储正在等待回声的动作ID及其对应的唤醒事件。"""
+        self._received_echo_ids: set[str] = set()
         self._echo_lock = asyncio.Lock()
         """用于保护对 _echo_events 字典的并发访问。"""
 
@@ -242,32 +243,43 @@ class ChatSession:
                 self.no_action_count = 0
 
     async def wait_for_echo(self, action_id: str, timeout: float = 20.0) -> bool:
-        """为指定的 action_id 等待一个回声."""
-        wake_up_event = asyncio.Event()
+        """【改造后】的智能等待方法！"""
         async with self._echo_lock:
-            self._echo_events[action_id] = wake_up_event
+            # 【DEBUG注入点 H】
+            logger.critical(f"【DEBUG-CS】'{action_id}' 进入等待室。当前暂存信号: {self._received_echo_ids}")
+            
+            if action_id in self._received_echo_ids:
+                self._received_echo_ids.remove(action_id)
+                logger.success(f"【DEBUG-CS】'{action_id}' 在暂存器中命中！立即返回 True。")
+                return True
 
-        logger.info(
-            f"[{self.conversation_id}] 动作 '{action_id}' 已进入回声等待室，等待适配器回音..."
-        )
+            wake_up_event = asyncio.Event()
+            self._echo_wait_events[action_id] = wake_up_event
+            logger.info(f"【DEBUG-CS】'{action_id}' 未命中暂存器，开始正式等待...")
 
         try:
             await asyncio.wait_for(wake_up_event.wait(), timeout=timeout)
-            logger.success(f"[{self.conversation_id}] 动作 '{action_id}' 已收到回声！")
+            logger.success(f"【DEBUG-CS】'{action_id}' 在等待过程中被成功唤醒！")
             return True
-        except TimeoutError:
-            logger.warning(f"[{self.conversation_id}] 等待动作 '{action_id}' 的回声超时！")
+        except asyncio.TimeoutError:
+            logger.warning(f"【DEBUG-CS】'{action_id}' 等待超时！")
             return False
         finally:
             async with self._echo_lock:
-                self._echo_events.pop(action_id, None)
+                self._echo_wait_events.pop(action_id, None)
 
     async def signal_echo_received(self, action_id: str) -> None:
-        """由 MessageProcessor 调用，通知一个回声已经到达."""
+        """【改造后】的智能信号处理方法！"""
         async with self._echo_lock:
-            if event_to_wake := self._echo_events.get(action_id):
+            # 【DEBUG注入点 I】
+            logger.critical(f"【DEBUG-CS】收到动作 '{action_id}' 的信号！当前等待列表: {list(self._echo_wait_events.keys())}")
+
+            if event_to_wake := self._echo_wait_events.get(action_id):
                 event_to_wake.set()
-                logger.debug(f"[{self.conversation_id}] 已为动作 '{action_id}' 发出唤醒信号。")
+                logger.info(f"【DEBUG-CS】信号命中等待者，已设置 event for '{action_id}'。")
+            else:
+                self._received_echo_ids.add(action_id)
+                logger.warning(f"【DEBUG-CS】信号提前到达！已将 '{action_id}' 存入暂存器。")
 
     async def get_bot_profile(self) -> dict[str, Any]:
         """智能获取祂的档案，优先使用缓存，再查数据库."""

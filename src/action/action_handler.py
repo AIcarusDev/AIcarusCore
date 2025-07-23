@@ -96,9 +96,8 @@ class ActionHandler:
             thought_storage_service=thought_service,
             event_storage_service=event_service,
             conversation_service=conversation_service,
+            action_handler_instance=self,
         )
-        if self.pending_action_manager:
-            self.pending_action_manager.chat_session_manager = chat_session_manager
         logger.info("ActionHandler 的依赖已成功设置。")
 
     def set_thought_trigger(self, trigger_event: asyncio.Event | None) -> None:
