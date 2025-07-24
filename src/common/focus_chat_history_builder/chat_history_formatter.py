@@ -283,7 +283,7 @@ async def format_chat_history_for_llm(
                             mime_type = seg.data.get("mime_type", "image/jpeg")
                             data_uri = f"data:{mime_type};base64,{base64_data}"
                             image_references.append(data_uri)
-                            logger.info(f"图片的Data URI已准备好，直接注入！MIME: {mime_type}")
+                            # logger.info(f"图片的Data URI已准备好，直接注入！MIME: {mime_type}")
                         except Exception as e:
                             logger.error(f"处理图片Data URI时高潮失败: {e}", exc_info=True)
                             if url := seg.data.get("url"):
