@@ -9,14 +9,14 @@ from src.platform_builders.registry import platform_builder_registry
 
 if TYPE_CHECKING:
     from src.action.action_handler import ActionHandler
+    from src.core_logic.consciousness_flow import CoreLogic
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 
 logger = get_logger(__name__)
 
 
 def normalize_action_payload(action_payload: dict, current_platform_id: str) -> dict:
-    """
-    一步到位地规范化LLM返回的action_payload。
+    """一步到位地规范化LLM返回的action_payload。
     它不依赖任何硬编码的动作列表，而是利用当前的平台上下文来确保动作被正确包裹。
     """
     if not action_payload or not isinstance(action_payload, dict):
@@ -36,12 +36,12 @@ async def process_llm_decision(
     decision_json: dict,
     focus_manager: "ChatSessionManager",
     action_handler: "ActionHandler",
+    core_logic: "CoreLogic",
     source_thought_key: str | None = None,
     source_action_id: str | None = None,
     current_focus_path: str | None = None,
 ) -> None:
-    """
-    一个统一的LLM决策分发器 (竞速模式适配版)。
+    """一个统一的LLM决策分发器 (竞速模式适配版)。
     它负责解析并执行LLM的决策。对于需要等待结果的动作（如send_message），
     它会阻塞直到动作完全确认完成。
     """
@@ -76,11 +76,15 @@ async def process_llm_decision(
                 logger.error(f"找不到会话 {current_conv_id}，无法执行 send_message。")
                 return
 
-            logger.info(f"[{current_conv_id}] 检测到 [回声类] 动作 (send_message)，将等待回声后才算完成。")
+            logger.info(
+                f"[{current_conv_id}] 检测到 [回声类] 动作 (send_message)，将等待回声后才算完成。"
+            )
 
             # 清空上一轮可能残留的ID列表
             session.sent_action_ids_this_turn.clear()
-            logger.debug(f"[{session.conversation_id}] 已清空上一轮的 sent_action_ids_this_turn 列表。")
+            logger.debug(
+                f"[{session.conversation_id}] 已清空上一轮的 sent_action_ids_this_turn 列表。"
+            )
 
             # 使用 MessageBuilder 在后台发送消息，它会把 action_id 存入 session
             message_builder = MessageBuilder(session, motivation=action_params.get("motivation"))
@@ -89,19 +93,28 @@ async def process_llm_decision(
             # 从 session 中获取本轮发送的所有 action_id
             sent_action_ids = session.sent_action_ids_this_turn
             if sent_action_ids:
-                logger.debug(f"[{current_conv_id}] 准备为 {len(sent_action_ids)} 个动作等待回声: {sent_action_ids}")
-                
+                logger.debug(
+                    f"[{current_conv_id}] 准备为 {len(sent_action_ids)} 个动作等待回声: {sent_action_ids}"
+                )
+
                 # 创建等待所有回声的任务
                 wait_tasks = [session.wait_for_echo(action_id) for action_id in sent_action_ids]
-                results = await asyncio.gather(*wait_tasks) # 阻塞在这里，直到所有回声都收到或超时
-                
+                results = await asyncio.gather(*wait_tasks)  # 阻塞在这里，直到所有回声都收到或超时
+
                 logger.debug(f"[{current_conv_id}] 回声等待结束，收到的结果: {results}")
                 success_count = results.count(True)
                 if success_count == len(sent_action_ids):
-                    logger.success(f"[{current_conv_id}] 所有 {len(sent_action_ids)} 条消息的回声均已收到。")
+                    logger.success(
+                        f"[{current_conv_id}] 所有 {len(sent_action_ids)} 条消息的回声均已收到。"
+                    )
+                    # 触发下一轮思考
+                    logger.info(f"[{current_conv_id}] 消息已全部发送完毕，立即触发下一轮思考。")
+                    core_logic.trigger_immediate_thought_cycle()
                 else:
-                    logger.warning(f"[{current_conv_id}] {len(sent_action_ids) - success_count} / {len(sent_action_ids)} 条消息的回声等待超时。")
-            
+                    logger.warning(
+                        f"[{current_conv_id}] {len(sent_action_ids) - success_count} / {len(sent_action_ids)} 条消息的回声等待超时。"
+                    )
+
             # send_message 处理完毕，无论是否超时，都继续处理意识控制指令（如果有）
 
         # --- 策略B: 处理其他所有“即做即走”的动作 ---

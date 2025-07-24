@@ -14,8 +14,7 @@ logger = get_logger(__name__)
 
 
 class MessageBuilder:
-    """
-    一个专门为ChatSession设计的消息构建器 (竞速模式适配版)。
+    """一个专门为ChatSession设计的消息构建器 (竞速模式适配版)。
     它能读懂LLM用“链式指令”（steps数组）写的“操作步骤”，
     然后把这些步骤翻译成一条或多条可以发送给适配器的标准消息。
     它不再处理中断逻辑，因为中断由更高层的竞速机制处理。
@@ -32,8 +31,7 @@ class MessageBuilder:
         self._current_segments: list[Seg] = []
 
     async def process_steps(self, steps: list[dict]) -> bool:
-        """
-        核心工作方法。它会一步步阅读指令清单（steps），并执行翻译。
+        """核心工作方法。它会一步步阅读指令清单（steps），并执行翻译。
         在竞速模式下，它不再检查中断信号。
         """
         logger.info(
@@ -87,7 +85,9 @@ class MessageBuilder:
                     p_str = p_list[0][0]
                     for _ in p_str:
                         total_delay += random.uniform(key_delay_min, key_delay_max)
-                    total_delay += random.uniform(char_selection_delay_min, char_selection_delay_max)
+                    total_delay += random.uniform(
+                        char_selection_delay_min, char_selection_delay_max
+                    )
                 except IndexError:
                     total_delay += 0.2
             elif "a" <= char.lower() <= "z":
@@ -126,14 +126,15 @@ class MessageBuilder:
         self._current_segments = []
 
     async def _send_current_message(self) -> bool:
-        """
-        将工作台上拼接好的所有消息段打包发送。
+        """将工作台上拼接好的所有消息段打包发送。
         现在它会从返回结果中提取 action_id 并存入 session。
         """
         if not self._current_segments:
             return False
 
-        text_to_send = "".join(seg.data.get("text", "") for seg in self._current_segments if seg.type == "text").strip()
+        text_to_send = "".join(
+            seg.data.get("text", "") for seg in self._current_segments if seg.type == "text"
+        ).strip()
         if text_to_send:
             typing_delay = self._calculate_typing_delay(text_to_send)
             logger.debug(
@@ -167,9 +168,13 @@ class MessageBuilder:
             if action_id:
                 # 将 action_id 存入 session，供 decision_dispatcher 等待回声
                 self.session.sent_action_ids_this_turn.append(action_id)
-                logger.debug(f"[{self.session.conversation_id}] 动作ID '{action_id}' 已记录，等待回声。")
+                logger.debug(
+                    f"[{self.session.conversation_id}] 动作ID '{action_id}' 已记录，等待回声。"
+                )
             else:
-                logger.warning(f"[{self.session.conversation_id}] 消息发送成功，但未能从回执中获取到 action_id！")
+                logger.warning(
+                    f"[{self.session.conversation_id}] 消息发送成功，但未能从回执中获取到 action_id！"
+                )
 
             self.session.consecutive_bot_messages_count += 1
             await asyncio.sleep(random.uniform(0.5, 1.5))

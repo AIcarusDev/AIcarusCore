@@ -28,8 +28,7 @@ ACTION_RESPONSE_TIMEOUT_SECONDS = 30
 
 
 class ActionHandler:
-    """
-    处理所有与动作相关的逻辑 (竞速模式适配版)。
+    """处理所有与动作相关的逻辑 (竞速模式适配版)。
     它现在是一个纯粹的动作执行器，不再负责触发思考循环。
     """
 
@@ -69,7 +68,7 @@ class ActionHandler:
             thought_storage_service=thought_service,
             event_storage_service=event_service,
             conversation_service=conversation_service,
-            action_handler_instance=self, # 把自己传进去
+            action_handler_instance=self,  # 把自己传进去
         )
         logger.info("ActionHandler 的依赖已成功设置。")
 
@@ -106,8 +105,7 @@ class ActionHandler:
         doc_key_for_updates: str,
         action_json: dict[str, Any],
     ) -> None:
-        """
-        统一的行动处理流程 (竞速模式适配版)。
+        """统一的行动处理流程 (竞速模式适配版)。
         它现在不再触发思考，只负责执行动作并将结果写回思想点。
         """
         logger.info(f"--- [Action ID: {action_id}] 开始处理行动流程 ---")
@@ -132,20 +130,20 @@ class ActionHandler:
         if not actions_to_process:
             logger.info("AI决策的动作对象为空，无需执行。")
             return
-        
+
         platform_id = "qq" if platform_actions else "core"
         action_name, params = next(iter(actions_to_process.items()))
 
         # 3. 根据动作类型分发执行 (send_message 流程已移除)
         if platform_id == "core" and action_name == "web_search":
-             # web_search 是一个特例，它需要立即执行并返回结果给 decision_dispatcher
-             # 所以这里的逻辑主要是写回结果
-             pass # 实际上 web_search 的执行和结果写入在 decision_dispatcher 中处理
+            # web_search 是一个特例，它需要立即执行并返回结果给 decision_dispatcher
+            # 所以这里的逻辑主要是写回结果
+            pass  # 实际上 web_search 的执行和结果写入在 decision_dispatcher 中处理
         else:
             await self._execute_platform_action_flow(
                 platform_id, action_name, params, doc_key_for_updates
             )
-        
+
         # 4. 【移除】不再从此触发思考
         # if self.thought_trigger:
         #     logger.info(f"行动流程处理完毕 (Action ID: {action_id})，触发思考。")
@@ -213,8 +211,7 @@ class ActionHandler:
         description: str,
         motivation: str | None = None,
     ) -> tuple[bool, Any]:
-        """
-        一个更简单的动作执行入口，供 MessageBuilder 等内部系统调用。
+        """一个更简单的动作执行入口，供 MessageBuilder 等内部系统调用。
         它会返回执行结果和包含 action_id 的 payload。
         """
         builder = platform_builder_registry.get_builder(platform_id)
@@ -255,7 +252,9 @@ class ActionHandler:
         action_to_send["timestamp"] = timestamp
         bot_id_for_log = action_to_send.get("bot_id")
         if not bot_id_for_log:
-            logger.error(f"严重逻辑错误：动作事件中缺少 bot_id！无法记录日志。事件: {action_to_send}")
+            logger.error(
+                f"严重逻辑错误：动作事件中缺少 bot_id！无法记录日志。事件: {action_to_send}"
+            )
             bot_id_for_log = "error_missing_bot_id"
 
         await self.action_log_service.save_action_attempt(
@@ -264,11 +263,15 @@ class ActionHandler:
             timestamp=timestamp,
             bot_id=bot_id_for_log,
             platform=platform,
-            conversation_id=action_to_send.get("conversation_info", {}).get("conversation_id", "unknown_conv_id"),
+            conversation_id=action_to_send.get("conversation_info", {}).get(
+                "conversation_id", "unknown_conv_id"
+            ),
             content=action_to_send.get("content", []),
         )
         try:
-            send_success = await self.action_sender.send_action_to_adapter_by_id(platform, action_to_send)
+            send_success = await self.action_sender.send_action_to_adapter_by_id(
+                platform, action_to_send
+            )
             if not send_success:
                 return False, {"error": f"发送到适配器 '{platform}' 失败。"}
         except Exception as e:

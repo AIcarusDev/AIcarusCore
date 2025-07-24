@@ -1,9 +1,11 @@
-# 文件路径: src/core_logic/self_awareness_inspector.py
+# 文件路径: src/core_logic/self_awareness_inspector.py (修复版)
 import asyncio
+import time
 from typing import TYPE_CHECKING, Any
 
 from aicarus_protocols import UserInfo as ProtocolUserInfo
 from src.common.custom_logging.logging_config import get_logger
+from src.database.models import CoreDBCollections
 from src.database.services.person_storage_service import SELF_PERSON_ID
 
 if TYPE_CHECKING:
@@ -34,13 +36,10 @@ async def inspect_and_initialize_self_profile(
     if await persons_collection.has(SELF_PERSON_ID):
         logger.info(f"核心档案 '{SELF_PERSON_ID}' 已存在。将从数据库加载现有档案。")
 
-        # --- 关键修复点：从数据库加载档案，而不是返回一个无用的消息 ---
         all_accounts = await person_service.get_all_self_accounts()
-        target_account = None
-        for acc in all_accounts:
-            if acc.get("platform") == platform_id:
-                target_account = acc
-                break
+        target_account = next(
+            (acc for acc in all_accounts if acc.get("platform") == platform_id), None
+        )
 
         if target_account:
             logger.success(f"成功从数据库为平台 '{platform_id}' 加载到自身账户信息。")
@@ -105,23 +104,60 @@ async def inspect_and_initialize_self_profile(
         logger.info(f"--- 平台 '{platform_id}' 的自我检查完成（部分成功） ---")
         return True, profile_data
 
-    logger.info(f"获取到 {len(group_list_data)} 个群聊的档案，开始更新群名片信息...")
+    logger.info(f"获取到 {len(group_list_data)} 个群聊的档案，开始更新群名片及会话档案...")
     update_tasks = []
+
+    # <--- 新增/修改的代码从这里开始 --->
     for group_id, group_profile in group_list_data.items():
         if group_id and isinstance(group_profile, dict):
-            task = person_service.update_robot_membership_in_conversation(
+            # 构建一个完整的、将要存入会话文档的机器人档案
+            bot_profile_for_conv = {
+                "user_id": str(bot_qq_id),
+                "nickname": bot_nickname,
+                "card": group_profile.get("card"),
+                "role": group_profile.get("role"),
+                "platform": platform_id,
+                "updated_at": int(time.time() * 1000),
+            }
+
+            # 创建一个异步任务来处理单个群聊的所有更新
+            task = _update_single_group_info(
+                person_service,
                 account_uid=account_uid,
                 conversation_id=str(group_id),
                 platform=platform_id,
-                conversation_name=group_profile.get("group_name"),
-                card_name=group_profile.get("card"),
-                role=group_profile.get("role"),
+                group_profile=group_profile,
+                bot_profile_for_conv=bot_profile_for_conv,  # 将完整的档案传进去
             )
             update_tasks.append(task)
 
     if update_tasks:
         await asyncio.gather(*update_tasks)
 
-    logger.success("检查完成！所有群聊名片信息已更新。")
+    logger.success("检查完成！所有群聊名片信息及会话档案已更新。")
     logger.info(f"--- 在平台 '{platform_id}' 的自我客观信息检查圆满完成并记录 ---")
     return True, profile_data
+
+
+async def _update_single_group_info(
+    person_service: "PersonStorageService",
+    account_uid: str,
+    conversation_id: str,
+    platform: str,
+    group_profile: dict,
+    bot_profile_for_conv: dict,
+) -> None:
+    """一个辅助函数，用于原子化地更新单个群聊的信息"""
+    # 1. 更新成员关系边
+    await person_service.update_robot_membership_in_conversation(
+        account_uid=account_uid,
+        conversation_id=conversation_id,
+        platform=platform,
+        conversation_name=group_profile.get("group_name"),
+        card_name=group_profile.get("card"),
+        role=group_profile.get("role"),
+    )
+    # 2. 将机器人的档案直接更新到会话文档中
+    await person_service.conn_manager.db.collection(CoreDBCollections.CONVERSATIONS).update(
+        {"_key": conversation_id, "bot_profile_in_this_conversation": bot_profile_for_conv}
+    )

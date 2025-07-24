@@ -3,14 +3,12 @@ import asyncio
 import contextlib
 import datetime
 import threading
-import time
 import uuid
 from typing import TYPE_CHECKING, Optional
 
-from aicarus_protocols import Event, Seg, extract_text_from_content
+from aicarus_protocols import Seg, extract_text_from_content
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logging_config import get_logger
-from src.common.utils import parse_focus_path
 from src.config import config
 from src.core_communication.core_ws_server import CoreWebsocketServer
 from src.core_logic.decision_dispatcher import process_llm_decision
@@ -30,8 +28,7 @@ logger = get_logger(__name__)
 
 
 class CoreLogic:
-    """
-    核心逻辑处理类 (V2.3 - 最终完美版)。
+    """核心逻辑处理类 (V2.3 - 最终完美版)。
     修复了所有已知的中断和时间戳相关的竞态问题。
     """
 
@@ -68,9 +65,11 @@ class CoreLogic:
         self.immediate_thought_trigger.set()
 
     def _get_current_session(self) -> Optional["ChatSession"]:
-        if not self.chat_session_manager: return None
+        if not self.chat_session_manager:
+            return None
         focus_path = self.chat_session_manager.current_focus_path
-        if not focus_path or "." not in focus_path: return None
+        if not focus_path or "." not in focus_path:
+            return None
         conv_id = focus_path.split(".")[-1]
         return self.chat_session_manager.sessions.get(conv_id)
 
@@ -84,15 +83,17 @@ class CoreLogic:
 
             try:
                 session = self._get_current_session()
-                
+
                 main_task = asyncio.create_task(self._run_full_thought_cycle(session))
-                
+
                 tasks_to_race = {main_task}
                 if session:
                     sentry_task = asyncio.create_task(self._listen_for_interruptions(session))
                     tasks_to_race.add(sentry_task)
 
-                done, pending = await asyncio.wait(tasks_to_race, return_when=asyncio.FIRST_COMPLETED)
+                done, pending = await asyncio.wait(
+                    tasks_to_race, return_when=asyncio.FIRST_COMPLETED
+                )
 
                 for task in pending:
                     task.cancel()
@@ -102,7 +103,9 @@ class CoreLogic:
                 if sentry_task and sentry_task in done:
                     interrupting_event = await sentry_task
                     if interrupting_event and session:
-                        logger.warning(f"[{session.conversation_id}] 中断哨兵获胜！思考-行动主任务被中断。")
+                        logger.warning(
+                            f"[{session.conversation_id}] 中断哨兵获胜！思考-行动主任务被中断。"
+                        )
                         session.interruption_context = {
                             "was_interrupted": True,
                             "interrupting_event_doc": interrupting_event,
@@ -112,7 +115,9 @@ class CoreLogic:
                     last_processed_ts_from_task = await main_task
                     if session and last_processed_ts_from_task:
                         session.last_processed_timestamp = last_processed_ts_from_task
-                        logger.info(f"[{session.conversation_id}] 主任务正常完成，全局时间戳已更新至: {last_processed_ts_from_task}")
+                        logger.info(
+                            f"[{session.conversation_id}] 主任务正常完成，全局时间戳已更新至: {last_processed_ts_from_task}"
+                        )
                     if session:
                         session.interruption_context = None
 
@@ -125,46 +130,72 @@ class CoreLogic:
                 logger.error(f"统一意识流主循环发生严重错误: {e}", exc_info=True)
                 await asyncio.sleep(10)
             finally:
-                if main_task and not main_task.done(): main_task.cancel()
-                if sentry_task and not sentry_task.done(): sentry_task.cancel()
+                if main_task and not main_task.done():
+                    main_task.cancel()
+                if sentry_task and not sentry_task.done():
+                    sentry_task.cancel()
 
         logger.info(f"--- {config.persona.bot_name} 的统一意识流已停止 ---")
 
     async def _run_full_thought_cycle(self, session: Optional["ChatSession"]) -> float | None:
-        focus_path = self.chat_session_manager.current_focus_path if self.chat_session_manager else None
-        
-        prompt_components, processed_raw_events = await self.prompt_builder.build_prompts_components(
+        """执行完整的思考循环，包括生成思考、处理中断和执行动作.
+        """
+        focus_path = (
+            self.chat_session_manager.current_focus_path if self.chat_session_manager else None
+        )
+
+        (
+            prompt_components,
+            processed_raw_events,
+        ) = await self.prompt_builder.build_prompts_components(
             focus_path=focus_path,
             session=session,
             handover_result=session.pending_handover_result if session else None,
         )
-        if session: session.pending_handover_result = None
+        if session:
+            session.pending_handover_result = None
 
-        system_prompt, user_prompt, response_schema = self.prompt_builder.finalize_prompts(prompt_components)
+        system_prompt, user_prompt, response_schema = self.prompt_builder.finalize_prompts(
+            prompt_components
+        )
         self.prompt_builder.is_context_switch_flag = False
 
         generated_thought_json = await self.thought_generator.generate_thought(
-            system_prompt=system_prompt, user_prompt=user_prompt,
-            image_inputs=prompt_components.image_references, response_schema=response_schema,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            image_inputs=prompt_components.image_references,
+            response_schema=response_schema,
+            focus_path=focus_path,
         )
-        if not generated_thought_json: return None
+        if not generated_thought_json:
+            return None
 
         new_thought_pearl = ThoughtChainDocument(
-             _key=str(uuid.uuid4()), timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
-             mood=generated_thought_json.get("internal_state", {}).get("mood", "平静"),
-             think=generated_thought_json.get("internal_state", {}).get("think", "无"),
-             goal=generated_thought_json.get("internal_state", {}).get("goal"),
-             source_type="core_unified", source_id=focus_path,
-             action_id=str(uuid.uuid4()) if generated_thought_json.get("action") or generated_thought_json.get("consciousness_control") else None,
-             action_payload=generated_thought_json,
+            _key=str(uuid.uuid4()),
+            timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
+            mood=generated_thought_json.get("internal_state", {}).get("mood", "平静"),
+            think=generated_thought_json.get("internal_state", {}).get("think", "无"),
+            goal=generated_thought_json.get("internal_state", {}).get("goal"),
+            source_type="core_unified",
+            source_id=focus_path,
+            action_id=str(uuid.uuid4())
+            if generated_thought_json.get("action")
+            or generated_thought_json.get("consciousness_control")
+            else None,
+            action_payload=generated_thought_json,
         )
         saved_key = await self.thought_storage_service.save_thought_and_link(new_thought_pearl)
-        if not saved_key: return None
+        if not saved_key:
+            return None
 
         await process_llm_decision(
-            decision_json=generated_thought_json, focus_manager=self.chat_session_manager,
-            action_handler=self.action_handler_instance, source_thought_key=saved_key,
-            source_action_id=new_thought_pearl.action_id, current_focus_path=focus_path,
+            decision_json=generated_thought_json,
+            focus_manager=self.chat_session_manager,
+            action_handler=self.action_handler_instance,
+            core_logic=self,
+            source_thought_key=saved_key,
+            source_action_id=new_thought_pearl.action_id,
+            current_focus_path=focus_path,
         )
 
         if processed_raw_events:
@@ -180,22 +211,31 @@ class CoreLogic:
             _, processed_events = await self.prompt_builder.build_prompts_components(
                 focus_path=session.chat_session_manager.current_focus_path, session=session
             )
-            
+
             # 如果主任务处理了消息，就用最新的消息时间作为起点；否则，用 session 当前的时间戳。
-            start_listening_from_ts = max(event.time for event in processed_events) if processed_events else session.last_processed_timestamp
-            
-            context_text = await self.prompt_builder.get_last_valid_text_message(session.conversation_id) or "..."
-            
+            start_listening_from_ts = (
+                max(event.time for event in processed_events)
+                if processed_events
+                else session.last_processed_timestamp
+            )
+
+            context_text = (
+                await self.prompt_builder.get_last_valid_text_message(session.conversation_id)
+                or "..."
+            )
+
             while True:
-                interrupting_event, _ = await self._check_for_interruptions(session, context_text, start_listening_from_ts)
-                
+                interrupting_event, _ = await self._check_for_interruptions(
+                    session, context_text, start_listening_from_ts
+                )
+
                 if interrupting_event:
                     return interrupting_event
-                
+
                 # 更新哨兵自己的时间戳，避免重复检查
                 # （注意：这个逻辑现在移到 _check_for_interruptions 内部处理更佳，但为最小改动先放这）
                 # 更好的方式是在 check 函数返回最新时间戳
-                
+
                 await asyncio.sleep(0.5)
         except asyncio.CancelledError:
             return None
@@ -203,9 +243,14 @@ class CoreLogic:
             logger.error(f"[{session.conversation_id}] 中断哨兵任务异常: {e}", exc_info=True)
             return None
 
-    async def _check_for_interruptions(self, session: "ChatSession", context_text: str, since_timestamp: float) -> tuple[dict | None, float | None]:
+    async def _check_for_interruptions(
+        self, session: "ChatSession", context_text: str, since_timestamp: float
+    ) -> tuple[dict | None, float | None]:
         new_events = await session.event_storage.get_message_events_after_timestamp(
-            session.conversation_id, since_timestamp, limit=10, status="unread",
+            session.conversation_id,
+            since_timestamp,
+            limit=10,
+            status="unread",
         )
         if not new_events:
             return None, None
@@ -216,23 +261,30 @@ class CoreLogic:
 
         for event_doc in new_events:
             sender_id = event_doc.get("user_info", {}).get("user_id")
-            if sender_id and str(sender_id) == current_bot_id: continue
-            text_content = extract_text_from_content([Seg.from_dict(c) for c in event_doc.get("content", [])])
+            if sender_id and str(sender_id) == current_bot_id:
+                continue
+            text_content = extract_text_from_content(
+                [Seg.from_dict(c) for c in event_doc.get("content", [])]
+            )
             message_to_check = {"speaker_id": str(sender_id), "text": text_content}
-            if not message_to_check.get("text"): continue
+            if not message_to_check.get("text"):
+                continue
 
             if session.intelligent_interrupter.should_interrupt(
-                new_message=message_to_check, context_message_text=context_text,
+                new_message=message_to_check,
+                context_message_text=context_text,
             ):
-                logger.info(f"[{session.conversation_id}] IIS决策：中断！元凶ID: {event_doc.get('_key')}")
+                logger.info(
+                    f"[{session.conversation_id}] IIS决策：中断！元凶ID: {event_doc.get('_key')}"
+                )
                 return event_doc, latest_timestamp_in_this_batch
-        
+
         return None, latest_timestamp_in_this_batch
 
     async def _wait_for_next_cycle(self, interval: float) -> None:
         try:
             await asyncio.wait_for(self.immediate_thought_trigger.wait(), timeout=interval)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.info(f"思考间隔时间到达 ({interval}s)，开始新一轮思考。")
         else:
             logger.info("被动思考被触发，立即开始新一轮思考。")

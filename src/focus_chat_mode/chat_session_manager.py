@@ -177,8 +177,6 @@ class ChatSessionManager:
             if session:
                 logger.info(f"[SessionManager] 会话 '{conversation_id}' 的档案正在被移除。")
 
-                await session.stop_interrupt_checker()
-
                 final_timestamp = session.last_processed_timestamp
                 if final_timestamp > 0:
                     logger.info(
