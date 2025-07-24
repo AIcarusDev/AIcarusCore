@@ -45,7 +45,7 @@ class InternalInfoBuilder:
                 interruption_report = await self._build_interruption_report(session, latest_thought)
                 if interruption_report:
                     report_lines.append(interruption_report)
-                session.interruption_context = None
+
             else:
                 action_payload = latest_thought.get("action_payload", {})
                 action_desc = self._build_action_desc(action_payload.get("action"))
@@ -65,7 +65,7 @@ class InternalInfoBuilder:
             logger.error(f"构建内部信息块时发生严重错误: {e}", exc_info=True)
             return "<!-- 内部信息构建失败 -->"
 
-    # (_build_interruption_report, _format_planned_action, _build_action_desc, _format_action_description, _build_control_desc 方法保持不变)
+
     async def _build_interruption_report(
         self, session: "ChatSession", latest_thought_doc: dict
     ) -> str:

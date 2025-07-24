@@ -177,6 +177,7 @@ class ChatSessionManager:
             if session:
                 logger.info(f"[SessionManager] 会话 '{conversation_id}' 的档案正在被移除。")
 
+                # 在移除会话前，将会话内存中的“最后已读时间戳”持久化到数据库。
                 final_timestamp = session.last_processed_timestamp
                 if final_timestamp > 0:
                     logger.info(
