@@ -320,8 +320,18 @@ async def format_chat_history_for_llm(
                 f"[{time_str}] {log_user_id_str} [{display_tag}]: "
                 f"{main_content_str} (id:{msg_id_for_display})"
             )
-            if log_user_id_str == "U0" and (motivation := event_data_log.get("motivation")):
-                log_line += f"\n    - [MOTIVE]: {motivation}"
+            # 检查 Event 对象上是否存在 motivation 属性
+            if (
+                log_user_id_str == "U0"
+                and hasattr(event_data_log, "motivation")
+                and event_data_log.motivation
+            ):
+                # [FIX] 从 Event 对象上直接访问 motivation 属性，而不是使用 .get()
+                # [DEBUG] 添加日志，确认动机被正确读取
+                logger.debug(
+                    f"Event(id:{event_data_log.event_id}) 包含动机: '{event_data_log.motivation}'"
+                )
+                log_line += f"\n    - [MOTIVE]: {event_data_log.motivation}"
 
         elif event_data_log.event_type.startswith("notice."):
             main_content_parts = []  # 确保这里也初始化了
