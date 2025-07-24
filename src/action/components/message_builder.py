@@ -148,6 +148,11 @@ class MessageBuilder:
         bot_profile = await self.session.get_bot_profile()
         correct_bot_id = bot_profile.get("user_id", self.session.bot_id)
 
+        logger.debug(
+            f"[{self.conversation_info.conversation_id}] MessageBuilder 正在使用 bot_id "
+            f"'{correct_bot_id}' 来执行 send_message 动作。"
+        )
+
         success, payload = await self.action_handler.execute_simple_action(
             platform_id=self.platform_id,
             action_name="send_message",
