@@ -154,7 +154,10 @@ class ThoughtPromptBuilder:
             available_actions_desc = core_act_desc
 
         # --- 4. 构建 User Prompt 的组件 ---
-        internal_info_block, action_response_block = await self.internal_info_builder.build_internal_info_block(
+        (
+            internal_info_block,
+            action_response_block,
+        ) = await self.internal_info_builder.build_internal_info_block(
             is_context_switch=self.is_context_switch_flag,
             session=session,
             handover_result=handover_result,
