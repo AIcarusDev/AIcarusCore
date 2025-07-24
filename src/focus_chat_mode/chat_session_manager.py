@@ -177,10 +177,18 @@ class ChatSessionManager:
             if session:
                 logger.info(f"[SessionManager] 会话 '{conversation_id}' 的档案正在被移除。")
 
-                # 停止会话的中断检查器
                 await session.stop_interrupt_checker()
 
-                # 调用其内部的总结管理器来执行最终总结
+                final_timestamp = session.last_processed_timestamp
+                if final_timestamp > 0:
+                    logger.info(
+                        f"[{conversation_id}] 正在将会话的最终处理时间戳 "
+                        f"({final_timestamp}) 保存到数据库..."
+                    )
+                    await self.conversation_service.update_conversation_processed_timestamp(
+                        conversation_id, int(final_timestamp)
+                    )
+
                 shift_motivation = handover_context.get("motivation") if handover_context else None
                 target_id = handover_context.get("target_id") if handover_context else None
                 await session.summarization_manager.create_and_save_final_summary(

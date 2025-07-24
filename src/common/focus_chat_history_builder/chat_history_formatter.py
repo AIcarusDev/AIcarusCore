@@ -28,7 +28,7 @@ async def format_chat_history_for_llm(
     last_processed_timestamp: float,
     is_first_turn: bool,
     raw_events_from_caller: list[dict[str, Any]] | None = None,
-) -> PromptComponents:
+) -> tuple[PromptComponents, list[Event]]:
     """通用的聊天记录格式化工具.
 
     该函数会从数据库（或直接传入的事件列表）中获取事件，并将其格式化为适合大语言模型（LLM）处理的结构，
@@ -48,7 +48,9 @@ async def format_chat_history_for_llm(
         raw_events_from_caller: （可选）直接传入的事件列表，若不提供则从数据库获取。
 
     Returns:
-        一个填充好的 `PromptComponents` 对象，包含格式化后的聊天记录及相关信息。
+        一个元组，包含：
+        - 填充好的 `PromptComponents` 对象。
+        - 本次处理过的原始 `Event` 对象列表。
     """
     # 确保有一个地方可以临时存放图片数据
     temp_image_dir = config.runtime_environment.temp_file_directory
@@ -484,4 +486,4 @@ async def format_chat_history_for_llm(
         image_references=image_references,
         conversation_name=conversation_name_str,
         last_valid_text_message=last_valid_text_message,
-    )
+    ), raw_events

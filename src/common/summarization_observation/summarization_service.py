@@ -179,7 +179,7 @@ class SummarizationService:
             logger.info("没有新的事件，也没有转移意图，直接返回之前的摘要。")
             return previous_summary or "我刚才好像走神了，什么也没记住。"
 
-        prompt_components = await format_chat_history_for_llm(
+        prompt_components, _ = await format_chat_history_for_llm(
             event_storage=event_storage,
             conversation_id=conversation_info.get("id"),
             bot_id=bot_profile.get("user_id"),
@@ -187,10 +187,11 @@ class SummarizationService:
             bot_profile=bot_profile,
             conversation_type=conversation_info.get("type"),
             conversation_name=conversation_info.get("name"),
-            last_processed_timestamp=0,
+            last_processed_timestamp=0,  # 总结时我们看的是所有'read'事件，所以起点是0
             is_first_turn=True,
             raw_events_from_caller=recent_events,
         )
+        # ==========================================================
 
         # 如果没有新事件，聊天记录就是空的，这没关系
         if not recent_events:
@@ -199,6 +200,8 @@ class SummarizationService:
         extended_conv_info = conversation_info.copy()
         extended_conv_info["bot_id"] = bot_profile.get("user_id")
         extended_conv_info["bot_card"] = bot_profile.get("card")
+
+        # 现在 prompt_components 是纯净的，可以安全访问了！
         extended_conv_info["name"] = prompt_components.conversation_name or conversation_info.get(
             "name"
         )

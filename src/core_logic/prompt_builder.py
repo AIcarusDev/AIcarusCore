@@ -1,5 +1,4 @@
 import json
-import time
 from typing import TYPE_CHECKING, Any, Optional
 
 from src.common.custom_logging.logging_config import get_logger
@@ -251,7 +250,7 @@ class ThoughtPromptBuilder:
             return None
 
         # 复用 format_chat_history_for_llm 来获取我们想要的信息，但只取所需
-        history_components = await format_chat_history_for_llm(
+        prompt_components, _ = await format_chat_history_for_llm(
             event_storage=self.event_storage,
             conversation_id=session.conversation_id,
             bot_id=session.bot_id,
@@ -260,9 +259,11 @@ class ThoughtPromptBuilder:
             conversation_type=session.conversation_type,
             conversation_name=session.conversation_name,
             last_processed_timestamp=session.last_processed_timestamp,
-            is_first_turn=False,  # 不需要切换上下文标志
+            is_first_turn=False,
         )
-        return history_components.last_valid_text_message
+
+        # 现在 prompt_components 就是纯洁的 PromptComponents 对象了！
+        return prompt_components.last_valid_text_message
 
     def _get_persona_block(self) -> str:
         """获取当前机器人的人格化描述信息."""
@@ -288,6 +289,7 @@ class ThoughtPromptBuilder:
             session = self.chat_session_manager.sessions.get(conv_id)
             if not session:
                 return "错误：找不到当前会话的档案。"
+
             bot_profile = await session.get_bot_profile()
             if session.conversation_type == "group":
                 return (
@@ -334,7 +336,9 @@ class ThoughtPromptBuilder:
                 return "错误：找不到会话档案，无法构建上下文。", "", None
 
             bot_profile = await session.get_bot_profile()
-            history_components = await format_chat_history_for_llm(
+
+            # ✨ 修改点 1: 正确接收元组返回值
+            history_components, processed_raw_events = await format_chat_history_for_llm(
                 event_storage=self.event_storage,
                 conversation_id=session.conversation_id,
                 bot_id=session.bot_id,
@@ -345,19 +349,6 @@ class ThoughtPromptBuilder:
                 last_processed_timestamp=session.last_processed_timestamp,
                 is_first_turn=self.is_context_switch_flag,
             )
-
-            # 获取后立即更新时间戳
-            if history_components.processed_event_ids:
-                # 获取最后一个事件的时间戳
-                last_event = await self.event_storage.get_events_by_ids(
-                    [history_components.processed_event_ids[-1]]
-                )
-                if last_event:
-                    session.last_processed_timestamp = last_event[0].get(
-                        "timestamp", time.time() * 1000
-                    )
-            else:
-                session.last_processed_timestamp = time.time() * 1000
 
             if history_components.conversation_name:
                 session.conversation_name = history_components.conversation_name
