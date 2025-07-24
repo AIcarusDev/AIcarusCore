@@ -330,9 +330,9 @@ async def format_chat_history_for_llm(
             ):
                 # [FIX] 从 Event 对象上直接访问 motivation 属性，而不是使用 .get()
                 # [DEBUG] 添加日志，确认动机被正确读取
-                logger.debug(
-                    f"Event(id:{event_data_log.event_id}) 包含动机: '{event_data_log.motivation}'"
-                )
+                # logger.debug(
+                #     f"Event(id:{event_data_log.event_id}) 包含动机: '{event_data_log.motivation}'"
+                # )
                 log_line += f"\n    - [MOTIVE]: {event_data_log.motivation}"
 
         elif event_data_log.event_type.startswith("notice."):
