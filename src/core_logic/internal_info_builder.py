@@ -27,7 +27,6 @@ class InternalInfoBuilder:
 {and_separator}
 {from_think_consciousness_controls}
 {if_interruptions}
-{action_response}
     """.strip()
 
     def __init__(self, thought_storage_service: ThoughtStorageService) -> None:
@@ -41,14 +40,14 @@ class InternalInfoBuilder:
         is_context_switch: bool,  # 注意：is_context_switch 现在主要用于控制 control 块的措辞
         session: Optional["ChatSession"] = None,
         handover_result: dict | None = None,
-    ) -> str:
+    ) -> tuple[str, str]:
         """构建内部信息块。这是所有内心活动报告的唯一出口."""
         logger.debug(f"开始构建内部信息块... (上下文切换: {is_context_switch})")
 
         try:
             latest_thought = await self.thought_storage_service.get_latest_thought_document()
             if not latest_thought:
-                return "你刚刚开始思考，还没有任何内部状态历史。"
+                return "你刚刚开始思考，还没有任何内部状态历史。", ""
 
             # 1. 初始化所有模板变量
             template_vars = {
@@ -59,7 +58,6 @@ class InternalInfoBuilder:
                 "and_separator": "",
                 "from_think_consciousness_controls": "",
                 "if_interruptions": "",
-                "action_response": "",
             }
 
             if session and session.interruption_context:
@@ -85,7 +83,7 @@ class InternalInfoBuilder:
                     template_vars["and_separator"] = "并且，"
 
             # 动作结果的填充逻辑保持不变，因为它与中断无关
-            template_vars["action_response"] = self._build_action_response_desc(
+            action_response_block = self._build_action_response_desc(
                 latest_thought, handover_result
             )
 
@@ -94,11 +92,11 @@ class InternalInfoBuilder:
                 line.strip() for line in rendered_string.splitlines() if line.strip()
             ]
 
-            return "\n".join(non_empty_lines)
-
+            internal_info_block = "\n".join(non_empty_lines)
+            return internal_info_block, action_response_block
         except Exception as e:
             logger.error(f"构建内部信息块时发生严重错误: {e}", exc_info=True)
-            return "<!-- 内部信息构建失败 -->"
+            return "<!-- 内部信息构建失败 -->", "<!-- 动作响应构建失败 -->"
 
     async def _build_interruption_report(
         self, session: "ChatSession", latest_thought_doc: dict

@@ -372,6 +372,6 @@ class UnreadInfoService:
             if info["has_high_priority"]:
                 summary_lines.append(f"你的 '{platform}' 上似乎有人找你。")
             elif info["has_any_news"]:  # 现在这个判断才会生效
-                summary_lines.append(f"你的 '{platform}' 上似乎有新消息。")
+                summary_lines.append(f"你的 '{platform}' 上似乎有未读消息。")
 
         return "\n".join(summary_lines) or "所有平台均无新消息。"

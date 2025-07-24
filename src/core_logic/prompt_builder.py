@@ -154,7 +154,7 @@ class ThoughtPromptBuilder:
             available_actions_desc = core_act_desc
 
         # --- 4. 构建 User Prompt 的组件 ---
-        internal_info_block = await self.internal_info_builder.build_internal_info_block(
+        internal_info_block, action_response_block = await self.internal_info_builder.build_internal_info_block(
             is_context_switch=self.is_context_switch_flag,
             session=session,
             handover_result=handover_result,
@@ -184,9 +184,10 @@ class ThoughtPromptBuilder:
             or "你当前没有可用的外部行动。",  # 可用的外部行动描述（动态文本）
         }
 
-        # 未来我们在user_prompt中只保留外部信息块
+        # 未来我们在user_prompt中只保留外部信息
         # 目前元信息暂时也放在这里
         user_prompt_blocks = {
+            "action_response_block": action_response_block,
             "meta_info_block": meta_info_block,
             "external_info_block": external_info_block,
         }
