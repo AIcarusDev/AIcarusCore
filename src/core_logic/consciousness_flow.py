@@ -359,7 +359,6 @@ class CoreLogic:
         )
 
         # 提前更新时间戳，防止将触发本次思考的事件误判为中断源
-        session.last_processed_timestamp = time.time() * 1000
         logger.debug(
             f"[{session.conversation_id}] INTERRUPT_CHECK: "
             f"时间戳立即更新为: {session.last_processed_timestamp}"

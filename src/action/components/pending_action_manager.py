@@ -342,6 +342,23 @@ class PendingActionManager:
         event_to_save["timestamp"] = int(time.time() * 1000)
         event_to_save["status"] = "read"
 
+        # 检查这是一个不是send_message动作的成功回执
+        original_action_type = event_to_save.get("event_type", "")
+        if original_action_type.endswith(".send_message"):
+            # 如果是，我们需要把它“翻译”成一个标准的消息事件
+            platform = event_to_save.get("platform", "unknown")
+            conv_info = event_to_save.get("conversation_info")
+            if conv_info and isinstance(conv_info, dict):
+                conv_type = conv_info.get("type", "unknown")
+                # 构建正确的消息事件类型，例如："message.qq.group"
+                correct_event_type = f"message.{platform}.{conv_type}"
+                logger.debug(
+                    f"动作事件 '{action_id}' ({original_action_type}) "
+                    f"被识别为发消息动作，其事件类型将被修正为 '{correct_event_type}' 后存入数据库。"
+                )
+                # 用正确的消息类型覆盖掉原来的动作类型
+                event_to_save["event_type"] = correct_event_type
+
         # 检查我们收到的 motivation 是不是一个有效的字符串
         if motivation and isinstance(motivation, str) and motivation.strip():
             # 如果是，就把它加到我们要存入数据库的 event_to_save 字典里
