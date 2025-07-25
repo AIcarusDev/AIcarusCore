@@ -84,6 +84,7 @@ CORE_CYCLE_USER_PROMPT = """
 </meta_info>
 
 <output_format>
+现在请你严格遵守<behavior_guidelines>中的规则，不管content中有无提及，谨记“**不可**在输出中包含U1,U2等为内部标识符，包括思考、心情、发言动机和发言内容等”。
 请结合所有信息，输出你现在的心情，内心想法,行动等内容。
 </output_format>
 """
