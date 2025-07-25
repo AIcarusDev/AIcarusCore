@@ -145,7 +145,7 @@ class CoreLogic:
                         session.interruption_context = None
 
                     self._last_interrupt_context_text = None
-                    
+
                 await self._wait_for_next_cycle(thinking_interval_sec)
 
             except asyncio.CancelledError:
@@ -219,6 +219,10 @@ class CoreLogic:
             source_thought_key=saved_key,
             source_action_id=new_thought_pearl.action_id,
             current_focus_path=focus_path,
+            # =======================【 注入春药！】=======================
+            session=session,
+            processed_events_this_turn=processed_raw_events
+            # =============================================================
         )
 
         if processed_raw_events:

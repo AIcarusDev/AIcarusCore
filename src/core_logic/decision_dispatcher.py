@@ -1,16 +1,18 @@
 # src/core_logic/decision_dispatcher.py (竞速模式适配版 V1.0)
 import asyncio
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from src.action.components.message_builder import MessageBuilder
 from src.common.custom_logging.logging_config import get_logger
 from src.common.utils import parse_focus_path
 from src.platform_builders.registry import platform_builder_registry
+from aicarus_protocols import Event
 
 if TYPE_CHECKING:
     from src.action.action_handler import ActionHandler
     from src.core_logic.consciousness_flow import CoreLogic
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
+    from src.focus_chat_mode.chat_session import ChatSession
 
 logger = get_logger(__name__)
 
@@ -40,6 +42,8 @@ async def process_llm_decision(
     source_thought_key: str | None = None,
     source_action_id: str | None = None,
     current_focus_path: str | None = None,
+    session: Optional["ChatSession"] = None,
+    processed_events_this_turn: list[Event] | None = None,
 ) -> None:
     """一个统一的LLM决策分发器 (竞速模式适配版)。
     它负责解析并执行LLM的决策。对于需要等待结果的动作（如send_message），
@@ -75,6 +79,29 @@ async def process_llm_decision(
             if not session:
                 logger.error(f"找不到会话 {current_conv_id}，无法执行 send_message。")
                 return
+
+            # 1. 锁定时间戳
+            if processed_events_this_turn:
+                latest_ts = max(event.time for event in processed_events_this_turn)
+                if latest_ts > session.last_processed_timestamp:
+                    session.last_processed_timestamp = latest_ts
+                    # 【探针植入】
+                    logger.info(f"[{session.conversation_id}] 高潮锁定：时间戳已更新至 {latest_ts}")
+
+            # 2. 锁定记忆烙印
+            steps = action_params.get("steps", [])
+            # 提取所有要发送的文本内容
+            texts_to_send = [
+                s.get("params", {}).get("content", "")
+                for s in steps
+                if s.get("command") == "text"
+            ]
+            # 把它们拼接起来，作为最新的“上下文记忆”
+            new_context_text = " ".join(texts_to_send).strip()
+            if new_context_text:
+                core_logic._last_interrupt_context_text = new_context_text
+                # 【探针植入】
+                logger.info(f"[{session.conversation_id}] 高潮锁定：记忆烙印已更新为 -> '{new_context_text[:50]}...'")
 
             logger.info(
                 f"[{current_conv_id}] 检测到 [回声类] 动作 (send_message)，将等待回声后才算完成。"
