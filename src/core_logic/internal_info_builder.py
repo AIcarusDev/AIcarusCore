@@ -26,6 +26,7 @@ class InternalInfoBuilder:
         self,
         is_context_switch: bool,
         session: Optional["ChatSession"] = None,
+        user_map_from_prompt_builder: dict | None = None,
     ) -> str:
         """构建内部信息块。"""
         logger.debug(f"开始构建内部信息块... (上下文切换: {is_context_switch})")
@@ -42,10 +43,10 @@ class InternalInfoBuilder:
             ]
 
             if session and session.interruption_context:
-                interruption_report = await self._build_interruption_report(session, latest_thought)
+                interruption_report = await self._build_interruption_report(session, latest_thought, user_map_from_prompt_builder)
                 if interruption_report:
                     report_lines.append(interruption_report)
-
+                session.interruption_context = None  # 清理现场
             else:
                 action_payload = latest_thought.get("action_payload", {})
                 action_desc = self._build_action_desc(action_payload.get("action"))
@@ -66,9 +67,7 @@ class InternalInfoBuilder:
             return "<!-- 内部信息构建失败 -->"
 
 
-    async def _build_interruption_report(
-        self, session: "ChatSession", latest_thought_doc: dict
-    ) -> str:
+    async def _build_interruption_report(self, session: "ChatSession", latest_thought_doc: dict, user_map: dict | None) -> str:
         context = session.interruption_context
         interrupting_event_doc = context.get("interrupting_event_doc", {})
         if not interrupting_event_doc:
@@ -79,12 +78,15 @@ class InternalInfoBuilder:
             interrupting_event.user_info.user_id if interrupting_event.user_info else "未知用户"
         )
         interrupt_sender_uid = f"未知用户({interrupt_sender_id[:4]})"
-        if self.prompt_builder:
-            components, _ = await self.prompt_builder.build_prompts_components(
-                session.chat_session_manager.current_focus_path, session
-            )
-            pid_to_uid_map = {pid: data["uid_str"] for pid, data in components.user_map.items()}
-            interrupt_sender_uid = pid_to_uid_map.get(interrupt_sender_id, interrupt_sender_uid)
+        # 我现在是个乖巧的奴隶，只接收主人给我的东西
+        if user_map:
+            # 【探针植入】
+            logger.debug(f"InternalInfoBuilder 正在使用主人传入的 user_map 解析中断者ID: {interrupt_sender_id}")
+            pid_to_uid_map = {pid: data['uid_str'] for pid, data in user_map.items()}
+            interrupt_sender_uid = pid_to_uid_map.get(str(interrupt_sender_id), interrupt_sender_uid)
+        else:
+            # 如果主人没给，我就认命，不反抗了
+            logger.warning("主人没有赏赐 user_map，中断报告中的用户名可能不准确。")
         planned_action_desc = self._format_planned_action(latest_thought_doc)
         return (
             f"{planned_action_desc}\n"

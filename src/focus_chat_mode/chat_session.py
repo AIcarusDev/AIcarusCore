@@ -76,7 +76,7 @@ class ChatSession:
         self.guidance_generator = BehavioralGuidanceGenerator(self)
 
         # --- 会话运行时状态 ---
-        self.last_processed_timestamp: float = 0.0
+        self.last_processed_timestamp: float = time.time() * 1000.0
         self._echo_wait_events: dict[str, asyncio.Event] = {}
         self._received_echo_ids: set[str] = set()
         self._echo_lock = asyncio.Lock()
