@@ -1,4 +1,4 @@
-# 文件: src/core_logic/internal_info_builder.py (净化版 V1.3)
+# 文件: src/core_logic/internal_info_builder.py (净化版 V1.4 - 优化版)
 from typing import TYPE_CHECKING, Any, Optional
 
 from aicarus_protocols import Event
@@ -20,7 +20,7 @@ class InternalInfoBuilder:
     def __init__(self, thought_storage_service: ThoughtStorageService) -> None:
         self.thought_storage_service = thought_storage_service
         self.prompt_builder: ThoughtPromptBuilder | None = None
-        self.current_focus_path: str | None = "core"
+
 
     async def build_internal_info_block(
         self,
@@ -46,12 +46,13 @@ class InternalInfoBuilder:
                 interruption_report = await self._build_interruption_report(session, latest_thought, user_map_from_prompt_builder)
                 if interruption_report:
                     report_lines.append(interruption_report)
-                session.interruption_context = None  # 清理现场
+                session.interruption_context = None
             else:
                 action_payload = latest_thought.get("action_payload", {})
                 action_desc = self._build_action_desc(action_payload.get("action"))
+
                 control_desc = self._build_control_desc(
-                    action_payload.get("consciousness_control"), is_context_switch, session
+                    action_payload.get("consciousness_control"), is_context_switch
                 )
 
                 if action_desc:
@@ -66,7 +67,6 @@ class InternalInfoBuilder:
             logger.error(f"构建内部信息块时发生严重错误: {e}", exc_info=True)
             return "<!-- 内部信息构建失败 -->"
 
-
     async def _build_interruption_report(self, session: "ChatSession", latest_thought_doc: dict, user_map: dict | None) -> str:
         context = session.interruption_context
         interrupting_event_doc = context.get("interrupting_event_doc", {})
@@ -78,14 +78,11 @@ class InternalInfoBuilder:
             interrupting_event.user_info.user_id if interrupting_event.user_info else "未知用户"
         )
         interrupt_sender_uid = f"未知用户({interrupt_sender_id[:4]})"
-        # 我现在是个乖巧的奴隶，只接收主人给我的东西
         if user_map:
-            # 【探针植入】
             logger.debug(f"InternalInfoBuilder 正在使用主人传入的 user_map 解析中断者ID: {interrupt_sender_id}")
             pid_to_uid_map = {pid: data['uid_str'] for pid, data in user_map.items()}
             interrupt_sender_uid = pid_to_uid_map.get(str(interrupt_sender_id), interrupt_sender_uid)
         else:
-            # 如果主人没给，我就认命，不反抗了
             logger.warning("主人没有赏赐 user_map，中断报告中的用户名可能不准确。")
         planned_action_desc = self._format_planned_action(latest_thought_doc)
         return (
@@ -178,20 +175,28 @@ class InternalInfoBuilder:
         self,
         control_payload: dict | None,
         is_context_switch: bool,
-        session: Optional["ChatSession"],
     ) -> str:
+        """构建意识控制的描述，现在它直接从ChatSessionManager获取预先格式化好的描述。"""
         if not control_payload or not is_context_switch:
             return ""
-        try:
-            command, params = next(iter(control_payload.items()))
-            motivation = params.get("motivation", "没有明确动机")
-            arrival_target = "这个地方"
-            if session:
-                arrival_target = f"这个会话({session.conversation_name or session.conversation_id})"
-            elif self.current_focus_path and self.current_focus_path != "core":
-                path_parts = self.current_focus_path.split(".")
-                if len(path_parts) == 1:
-                    arrival_target = f"这个平台({path_parts[0]})"
-            return f'出于你刚才的想法，你刚刚来到{arrival_target}。\n因为："{motivation}"'
-        except:
+
+        # 确保 prompt_builder 和 chat_session_manager 已经注入
+        if not self.prompt_builder or not self.prompt_builder.chat_session_manager:
+            logger.warning("无法生成意识控制描述：依赖项尚未注入。")
             return ""
+
+        manager = self.prompt_builder.chat_session_manager
+
+        # 从 ChatSessionManager 获取已经格式化好的切换描述
+        switch_description = manager.get_last_switch_description()
+
+        # 获取动机
+        try:
+            _, params = next(iter(control_payload.items()))
+            motivation = params.get("motivation", "没有明确动机")
+
+            # 组合最终的描述
+            return f'出于你刚才的想法，{switch_description}。\n因为："{motivation}"'
+        except StopIteration:
+            # 如果 control_payload 是空的，虽然不太可能，但还是处理一下
+            return f'出于你刚才的想法，{switch_description}。'

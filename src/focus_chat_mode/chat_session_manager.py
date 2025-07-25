@@ -85,25 +85,12 @@ class ChatSessionManager:
 
         self.sessions: dict[str, ChatSession] = {}
         self.lock = asyncio.Lock()
+        self.previous_focus_path: str | None = None
+        self._last_switch_description: str = "你刚刚从发呆的状态中回过神来"
         self.current_focus_path: str | None = None
 
         logger.info("ChatSessionManager 初始化完成，并已注入智能打断系统。")
 
-    def set_core_logic(self, core_logic_instance: "CoreLogicFlow") -> None:
-        """延迟注入 CoreLogic 实例，解决循环依赖."""
-        self.core_logic = core_logic_instance
-        logger.info("CoreLogic 实例已成功注入到 ChatSessionManager。")
-
-        # 哼，顺便把那个唤醒主意识的事件也拿过来
-        if hasattr(core_logic_instance, "focus_session_inactive_event"):
-            self.focus_session_inactive_event = core_logic_instance.focus_session_inactive_event
-            logger.info("已从 CoreLogic 获取 focus_session_inactive_event。")
-        else:
-            logger.error(
-                "CoreLogic 实例中没有找到 focus_session_inactive_event！"
-                "这会导致主意识无法被正确唤醒！"
-            )
-            self.focus_session_inactive_event = None
 
     def _get_conversation_id(self, event: Event) -> str:
         # 从 Event 中提取唯一的会话ID (例如 group_id 或 user_id)
@@ -235,6 +222,49 @@ class ChatSessionManager:
 
         logger.info("[SessionManager] 所有活动会话的关闭流程已完成。")
 
+    async def _get_focus_description(self, focus_path: str | None) -> str:
+        """根据 focus_path 生成一个详细的、人类可读的位置描述。"""
+        if focus_path is None or focus_path == "core":
+            return "正在发呆/自我思考"
+
+        path_parts = focus_path.split(".")
+
+        # 平台层
+        if len(path_parts) == 1:
+            return f"平台'{path_parts[0]}'"
+
+        # 会话层 (cellular)
+        if len(path_parts) >= 2:
+            platform_id = path_parts[0]
+            conv_id = ".".join(path_parts[1:])
+
+            # 尝试从内存中的 session 获取信息
+            session = self.sessions.get(conv_id)
+            if session:
+                conv_type_str = "群会话" if session.conversation_type == "group" else "私聊会话"
+                return f"{conv_type_str}'{session.conversation_name or conv_id}'(ID: {conv_id})"
+
+            # 如果 session 不在内存，从数据库查
+            conv_doc = await self.conversation_service.get_conversation_document_by_id(conv_id)
+            if conv_doc:
+                conv_type = conv_doc.get("type", "unknown")
+                conv_name = conv_doc.get("name", conv_id)
+                conv_type_str = "群会话" if conv_type == "group" else "私聊会话"
+                return f"{conv_type_str}'{conv_name}'(ID: {conv_id})"
+
+            # 如果都找不到，提供一个保底描述
+            logger.warning(
+                f"无法获取会话 '{conv_id}' 的详细信息，可能是因为它不在内存中且数据库中也不存在。"
+            )
+            return f"一个位于平台'{platform_id}'下的未知会话(ID: {conv_id})"
+
+        return "一个未知的地方"
+
+    def get_last_switch_description(self) -> str:
+        """获取上次焦点切换的格式化描述。"""
+        return self._last_switch_description
+
+
     async def handle_consciousness_control(self, control_json: dict) -> None:
         """处理来自LLM决策的意识控制指令.
 
@@ -252,9 +282,9 @@ class ChatSessionManager:
         command, params = next(iter(control_json.items()))
         motivation = params.get("motivation", "没有明确动机")
 
-        handover_result = params.pop("_handover_action_result", None)
-        if handover_result:
-            logger.info(f"在注意力控制指令中发现了交接的动作结果: {handover_result['action_name']}")
+        # 在改变焦点前，记录当前位置
+        self.previous_focus_path = self.current_focus_path
+        new_focus_path: str | None = self.current_focus_path # 默认为当前路径
 
         if command == "focus":
             target_id = params.get("platform_id") or params.get("conversation_id")
@@ -263,10 +293,8 @@ class ChatSessionManager:
                 return
 
             platform_to_check = (
-                target_id if not self.current_focus_path else self.current_focus_path.split(".")[0]
+                target_id if self.previous_focus_path is None else self.previous_focus_path.split(".")[0]
             )
-
-            # 在尝试 focus 到一个平台或会话前，必须检查该平台的身份是否已确认
             if platform_to_check not in self.self_bot_ids_map:
                 logger.warning(
                     f"AI 尝试 [focus] 到平台 '{platform_to_check}' 或其下的会话 '{target_id}'，"
@@ -276,12 +304,10 @@ class ChatSessionManager:
                 # 主循环会按正常间隔继续下一轮思考。
                 return
 
-            # 构建新的焦点路径
-            new_focus_path = ""
-            if not self.current_focus_path:  # 从顶层进入中层
+            if self.previous_focus_path is None:
                 new_focus_path = target_id
-            else:  # 从中层进入底层
-                new_focus_path = f"{self.current_focus_path}.{target_id}"
+            else:
+                new_focus_path = f"{self.previous_focus_path}.{target_id}"
 
             # 如果是进入底层会话，需要预先创建会话档案
             if len(new_focus_path.split(".")) >= 2:
@@ -298,24 +324,21 @@ class ChatSessionManager:
                     conversation_type=conv_doc.get("type"),
                 )
 
-            self.current_focus_path = new_focus_path
             focus_switched = True
-            logger.info(f"AI 决定 [focus] 到: '{self.current_focus_path}' (动机: {motivation})")
 
         elif command == "return":
-            if not self.current_focus_path:
+            if self.previous_focus_path is None:
                 logger.warning("在顶层Core-Level尝试执行 'return'，这是一个无效操作，已忽略。")
                 return
 
-            path_parts = self.current_focus_path.split(".")
+            path_parts = self.previous_focus_path.split(".")
             if len(path_parts) > 1:  # 从底层返回中层
-                # 在返回前，需要处理刚刚离开的会话的最终总结
                 leaving_conv_id = path_parts[-1]
                 await self.deactivate_session(leaving_conv_id, {"motivation": motivation})
-                self.current_focus_path = ".".join(path_parts[:-1])
-            else:  # 从中层返回顶层
-                self.current_focus_path = None
-            # 触发主循环
+                new_focus_path = ".".join(path_parts[:-1])
+            else:
+                new_focus_path = None
+
             focus_switched = True
             logger.info(
                 f"AI 决定 [return] 到: '{self.current_focus_path or 'Core'}' (动机: {motivation})"
@@ -325,14 +348,14 @@ class ChatSessionManager:
             target_conv_id = params.get("conversation_id")
             if (
                 not target_conv_id
-                or not self.current_focus_path
-                or "." not in self.current_focus_path
+                or not self.previous_focus_path
+                or "." not in self.previous_focus_path
             ):
                 logger.error("'shift' 指令无效：缺少目标ID或当前不在底层会话中。")
                 return
 
-            leaving_conv_id = self.current_focus_path.split(".")[-1]
-            platform_path = ".".join(self.current_focus_path.split(".")[:-1])
+            leaving_conv_id = self.previous_focus_path.split(".")[-1]
+            platform_path = ".".join(self.previous_focus_path.split(".")[:-1])
 
             # 先处理离开的会话
             await self.deactivate_session(
@@ -345,19 +368,31 @@ class ChatSessionManager:
             )
             if not conv_doc:
                 logger.error(f"无法 'shift'，数据库中找不到目标会话 '{target_conv_id}'。")
-                self.current_focus_path = platform_path  # 退回到平台层
+                new_focus_path = platform_path  # 退回到平台层
             else:
                 await self.get_or_create_session(
                     conversation_id=target_conv_id,
                     platform=conv_doc.get("platform"),
                     conversation_type=conv_doc.get("type"),
                 )
-                self.current_focus_path = f"{platform_path}.{target_conv_id}"
+                new_focus_path = f"{platform_path}.{target_conv_id}"
 
             focus_switched = True
             logger.info(f"AI 决定 [shift] 到: '{self.current_focus_path}' (动机: {motivation})")
 
-        # 如果发生了任何焦点切换，就唤醒主循环并设置上下文切换标志
-        if focus_switched and self.core_logic and hasattr(self.core_logic, "prompt_builder"):
-            self.core_logic.prompt_builder.is_context_switch_flag = True
-            self.core_logic.trigger_immediate_thought_cycle()
+        # 如果发生了切换，更新状态并生成描述
+        if focus_switched:
+            # 1. 更新当前焦点
+            self.current_focus_path = new_focus_path
+
+            # 2. 生成描述
+            from_desc = await self._get_focus_description(self.previous_focus_path)
+            to_desc = await self._get_focus_description(self.current_focus_path)
+            self._last_switch_description = f"你刚刚从“{from_desc}”来到了“{to_desc}”"
+
+            logger.info(f"AI 决定 [{command}]，{self._last_switch_description} (动机: {motivation})")
+
+            # 3. 触发思考
+            if self.core_logic and hasattr(self.core_logic, "prompt_builder"):
+                self.core_logic.prompt_builder.is_context_switch_flag = True
+                self.core_logic.trigger_immediate_thought_cycle()
