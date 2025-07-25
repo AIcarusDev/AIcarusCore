@@ -52,6 +52,7 @@ class ChatSession:
         internal_info_builder: "InternalInfoBuilder",
         intelligent_interrupter: "IntelligentInterrupter",
         thought_storage_service: "ThoughtStorageService",
+        initial_last_processed_timestamp: float | None = None,
     ) -> None:
         # --- 模块化组件 ---
         self.conversation_id: str = conversation_id
@@ -76,7 +77,11 @@ class ChatSession:
         self.guidance_generator = BehavioralGuidanceGenerator(self)
 
         # --- 会话运行时状态 ---
-        self.last_processed_timestamp: float = time.time() * 1000.0
+        self.last_processed_timestamp: float = (
+            initial_last_processed_timestamp
+            if initial_last_processed_timestamp is not None
+            else time.time() * 1000.0
+        )
         self._echo_wait_events: dict[str, asyncio.Event] = {}
         self._received_echo_ids: set[str] = set()
         self._echo_lock = asyncio.Lock()

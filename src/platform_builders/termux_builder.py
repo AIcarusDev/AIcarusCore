@@ -53,10 +53,10 @@ class TermuxBuilder(BasePlatformBuilder):
         LLM会读取这个Schema，来学习如何正确地调用我们的功能。
         """
         props = {}
-        
+
         # 我们的Termux技能在任何层级（core, platform, cellular）都应该可用
         # 所以我们不需要判断 level
-        
+
         # 技能一：发送通知
         props["notification"] = {
             "type": "object",
@@ -118,6 +118,6 @@ class TermuxBuilder(BasePlatformBuilder):
             "    - `vibrate(duration_ms, motivation)`: 让手机振动。",
             "    - `toast(text, short, motivation)`: 在屏幕底部弹出提示。",
         ]
-        
+
         # 同样，这些技能在所有层级都可用
         return "\n".join(descs)

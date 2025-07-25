@@ -4,6 +4,7 @@ import json
 import time
 from typing import TYPE_CHECKING, Any
 
+from src.database import EnrichedConversationInfo
 from src.common.custom_logging.logging_config import get_logger
 from src.database import ActionLogStorageService, ConversationStorageService, ThoughtStorageService
 from src.database.services.event_storage_service import EventStorageService
@@ -14,6 +15,10 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 ACTION_RESPONSE_TIMEOUT_SECONDS = 30
+
+# 未来我们可以将并发数限制在一个合理的范围，比如50，以避免瞬间冲击数据库
+# 但目前先不设置这个限制，等实际运行中再观察是否需要
+# DB_UPSERT_CONCURRENCY_LIMIT = 50
 
 
 class PendingActionManager:
@@ -99,6 +104,9 @@ class PendingActionManager:
             pending_future.set_result((successful, result_payload))
 
         if successful and original_action_type and original_action_type.endswith(".send_message"):
+            # 如果是 send_message 动作，尝试从响应中提取会话信息
+            if original_action_type.endswith(".get_list"):
+                await self._proactively_create_conversation_docs_from_list(details, sent_dict)
             conversation_info = sent_dict.get("conversation_info")
             if conversation_info and isinstance(conversation_info, dict):
                 conv_id = conversation_info.get("conversation_id")
@@ -139,6 +147,58 @@ class PendingActionManager:
             )
         if tasks_to_gather:
             await asyncio.gather(*tasks_to_gather)
+
+    async def _proactively_create_conversation_docs_from_list(
+        self, details: dict | None, sent_dict: dict
+    ) -> None:
+        """
+        当 get_list 动作成功后，主动为列表中的每个项目创建或更新会话档案。
+        """
+        if not details or not isinstance(details, dict):
+            return
+
+        list_type = sent_dict.get("content", [{}])[0].get("data", {}).get("list_type")
+        platform_id = sent_dict.get("platform")
+        bot_id = sent_dict.get("bot_id")
+
+        if not list_type or not platform_id or not bot_id:
+            logger.warning("无法从 get_list 的原始请求中获取足够信息来创建会话档案。")
+            return
+
+        items = details.get("friends", []) if list_type == "friend" else details.get("groups", [])
+        if not items or not isinstance(items, list):
+            return
+
+        logger.info(f"收到 get_list({list_type}) 的成功响应，准备为 {len(items)} 个项目主动创建/更新会话档案。")
+
+        conversation_type = "private" if list_type == "friend" else "group"
+        # 准备批量更新会话档案的任务
+        # 这里我们使用 upsert 方法来确保不存在时创建，存在时更新
+        upsert_tasks = []
+        for item in items:
+            if not isinstance(item, dict): continue
+
+            conv_id = item.get("user_id") if list_type == "friend" else item.get("group_id")
+            conv_name = item.get("nickname") if list_type == "friend" else item.get("group_name")
+
+            if not conv_id: continue
+
+            new_conv_info = EnrichedConversationInfo(
+                conversation_id=str(conv_id),
+                platform=platform_id,
+                bot_id=bot_id,
+                type=conversation_type,
+                name=conv_name,
+            )
+            task = self.conversation_service.upsert_conversation_document(
+                new_conv_info.to_db_document()
+            )
+            upsert_tasks.append(task)
+
+        if upsert_tasks:
+            await asyncio.gather(*upsert_tasks)
+            logger.info(f"已完成对 {len(upsert_tasks)} 个项目的会话档案主动更新。")
+
 
     def _get_original_id_from_response(self, data: dict[str, Any]) -> str | None:
         content = data.get("content", [])

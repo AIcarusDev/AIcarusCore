@@ -148,6 +148,17 @@ class ChatSessionManager:
                         "因为在 ChatSessionManager 的 ID 地图中找不到祂对应的ID。"
                     )
 
+                # 在创建新会话前，先从数据库加载它的“记忆”
+                initial_timestamp = None
+                conv_doc = await self.conversation_service.get_conversation_document_by_id(
+                    conversation_id
+                )
+                if conv_doc and "last_processed_timestamp" in conv_doc:
+                    initial_timestamp = conv_doc["last_processed_timestamp"]
+                    logger.info(
+                        f"[{conversation_id}] 从数据库加载了上次的处理时间戳: {initial_timestamp}"
+                    )
+
                 self.sessions[conversation_id] = ChatSession(
                     conversation_id=conversation_id,
                     llm_client=self.llm_client,
@@ -164,6 +175,7 @@ class ChatSessionManager:
                     intelligent_interrupter=self.intelligent_interrupter,
                     thought_storage_service=self.thought_storage_service,
                     internal_info_builder=self.internal_info_builder,
+                    initial_last_processed_timestamp=initial_timestamp,
                 )
 
             return self.sessions[conversation_id]
@@ -279,6 +291,7 @@ class ChatSessionManager:
                 if not conv_doc:
                     logger.error(f"无法 'focus'，数据库中找不到会话 '{target_id}'。")
                     return
+
                 await self.get_or_create_session(
                     conversation_id=target_id,
                     platform=conv_doc.get("platform"),
