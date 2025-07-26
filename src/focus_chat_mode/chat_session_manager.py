@@ -316,7 +316,7 @@ class ChatSessionManager:
 
             # 1. 提取真正的会话ID (可能是路径的最后一部分)
             #    这能同时处理 "1041305886" 和 "qq/conversation/group/1041305886"
-            potential_conv_id = target_path_param.split('/')[-1]
+            potential_conv_id = target_path_param.split("/")[-1]
 
             # 2. 获取当前的平台上下文
             current_entry = self.current_focus_path
@@ -327,10 +327,16 @@ class ChatSessionManager:
             )
             # 如果当前在 core 层，平台上下文是未知的，这通常不应该发生
             # 但为了健壮性，我们假设它至少是在一个平台内
-            current_platform = current_path_str.split('.')[0] if current_path_str and '.' in current_path_str else 'qq'
-            if current_path_str == 'core': # 如果从core层直接下潜
+            current_platform = (
+                current_path_str.split(".")[0]
+                if current_path_str and "." in current_path_str
+                else "qq"
+            )
+            if current_path_str == "core":  # 如果从core层直接下潜
                 # 从目标路径中解析平台
-                current_platform = target_path_param.split('/')[0] if '/' in target_path_param else 'qq'
+                current_platform = (
+                    target_path_param.split("/")[0] if "/" in target_path_param else "qq"
+                )
 
             # 3. 构造标准的、干净的 `new_path` 和 `conv_id`
             new_path = f"{current_platform}.{potential_conv_id}"
@@ -339,10 +345,13 @@ class ChatSessionManager:
             self.focus_history.append(entry_to_push)
             logger.info(f"[堆栈 PUSH] 焦点下潜至: {new_path}")
 
-
-            conv_doc = await self.conversation_service.get_conversation_document_by_id(conv_id_to_check)
+            conv_doc = await self.conversation_service.get_conversation_document_by_id(
+                conv_id_to_check
+            )
             if not conv_doc:
-                logger.error(f"无法 'push_focus'，数据库中找不到会话 '{conv_id_to_check}'。回滚堆栈。")
+                logger.error(
+                    f"无法 'push_focus'，数据库中找不到会话 '{conv_id_to_check}'。回滚堆栈。"
+                )
                 self.focus_history.pop()
             else:
                 await self.get_or_create_session(
