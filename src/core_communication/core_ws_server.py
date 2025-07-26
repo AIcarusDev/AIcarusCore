@@ -126,16 +126,15 @@ class CoreWebsocketServer:
     async def _register_adapter(
         self, adapter_id: str, display_name: str, websocket: WebSocketServerProtocol
     ) -> None:
-        """注册一个新的适配器，并通知 ActionSender."""
+        """注册一个新的适配器，并根据其需求和类型决定处理流程."""
         current_timestamp = time.time()
         self._websocket_to_adapter_id[websocket] = adapter_id
         self.adapter_clients_info[adapter_id] = {
             "websocket": websocket,
             "last_heartbeat": current_timestamp,
             "display_name": display_name,
-            "bot_profile": None,  # 新增一个字段来缓存祂的档案
+            "bot_profile": None,
         }
-        # 通知 ActionSender
         self.action_sender.register_adapter(adapter_id, display_name, websocket)
         logger.info(
             f"适配器 '{display_name}({adapter_id})' 已连接: {websocket.remote_address}. "
@@ -145,29 +144,34 @@ class CoreWebsocketServer:
             adapter_id, display_name, "lifecycle.adapter_connected"
         )
 
-        # --- 核心改造逻辑 ---
-        # 1. 从注册中心获取该平台的 "Builder"
+        # --- 核心逻辑 ---
         builder = platform_builder_registry.get_builder(adapter_id)
 
-        # 2. 检查 "Builder" 是否存在以及它的 "安检开关"
         if builder and builder.needs_on_connect_inspection:
-            # 如果需要安检 (比如 QQ)
+            # 路径 A: 需要安检的平台 (e.g., QQ)
             logger.info(f"平台 '{display_name}({adapter_id})' 需要上线安检，启动安检仪式...")
+
+            # 1. 创建安检任务
             inspection_task = asyncio.create_task(
                 self._run_inspection_ceremony(adapter_id, display_name)
             )
             self.active_inspection_tasks.add(inspection_task)
-            inspection_task.add_done_callback(lambda t: self.active_inspection_tasks.discard(t))
+
+            # 2. 定义并绑定回调函数 (只在这里做，只做一次！)
+            def _done_callback(t: asyncio.Task) -> None:
+                """任务完成后的回调函数，用于清理和记录异常."""
+                self.active_inspection_tasks.discard(t)
+                if not t.cancelled() and t.exception():
+                    logger.error("安检仪式后台任务异常:", exc_info=t.exception())
+
+            inspection_task.add_done_callback(_done_callback)
+
         else:
-            # 如果不需要安检 (比如 Termux)
+            # 路径 B: 不需要安检的平台 (e.g., Termux)
             logger.info(f"平台 '{display_name}({adapter_id})' 无需上线安检，执行轻量化身份登记。")
-            # 新增的判断逻辑！
-            # 检查这个平台到底是不是“人”
-            # 这是最终的、正确的逻辑！
-            # 检查这个平台到底是不是“人”
+
             is_person = builder and builder.is_person_platform
 
-            # 只有当它是一个“人物平台”时，才执行数据库人物创建！
             if is_person:
                 logger.info(
                     f"平台 '{adapter_id}' 是一个人物平台，为其在数据库中登记固定的身份信息。"
@@ -177,7 +181,6 @@ class CoreWebsocketServer:
                     user_info=temp_user_info, platform=adapter_id, is_self=True
                 )
             else:
-                # 如果不是“人”，是个工具，就只打印日志，什么数据库操作都不做！
                 logger.info(f"平台 '{adapter_id}' 是一个工具平台，跳过创建人物档案的步骤。")
 
             # 无论是不是“人”，ID登记这种轻量级操作还是要做的
@@ -196,18 +199,6 @@ class CoreWebsocketServer:
                 )
                 unread_service.update_self_bot_ids({adapter_id: adapter_id})
                 logger.debug(f"UnreadInfoService 的 ID 地图已为平台 '{adapter_id}' 更新。")
-            #
-            logger.info(f"已为平台 '{adapter_id}' 在数据库中登记了固定的身份信息。")
-
-        # 为了确保任务完成后能清理掉
-        def _done_callback(t: asyncio.Task) -> None:
-            """任务完成后的回调函数，用于清理和记录异常."""
-            self.active_inspection_tasks.discard(t)
-            # 如果任务没有被取消且有异常，记录错误日志
-            if not t.cancelled() and t.exception():
-                logger.error("Exception in inspection_ceremony task:", exc_info=t.exception())
-
-        inspection_task.add_done_callback(_done_callback)
 
     async def _run_inspection_ceremony(self, adapter_id: str, display_name: str) -> None:
         """一个专门用来在后台运行安检的协程."""
