@@ -31,6 +31,12 @@ def normalize_action_payload(action_payload: dict, current_platform_id: str) -> 
         return action_payload
 
     logger.debug(f"检测到扁平的动作负载，将使用当前平台上下文 '{current_platform_id}' 进行规范化。")
+
+    # --- [探灯A] 在这里加上！---
+    normalized_payload = {current_platform_id: action_payload}
+    logger.info(f"[探灯A] 扁平动作已规范化为: {normalized_payload}")
+    # -------------------------
+
     return {current_platform_id: action_payload}
 
 
