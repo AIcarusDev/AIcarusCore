@@ -62,17 +62,35 @@ class CoreLogic:
         logger.info(f"{self.__class__.__name__} 已创建 (最终完美版 V1.3)")
 
     def trigger_immediate_thought_cycle(self) -> None:
+        """立即触发思考循环，唤醒主意识。"""
         logger.info("接收到立即思考触发信号，主意识将被唤醒。")
         self.immediate_thought_trigger.set()
 
     def _get_current_session(self) -> Optional["ChatSession"]:
+        """获取当前焦点会话，如果没有则返回None。"""
         if not self.chat_session_manager:
             return None
-        focus_path = self.chat_session_manager.current_focus_path
-        if not focus_path or "." not in focus_path:
+
+        # 1. 从历史记录中获取当前的焦点条目（它现在是一个字典）
+        focus_entry = self.chat_session_manager.current_focus_path
+
+        # 2. 健壮性检查：确保它是一个字典
+        if not isinstance(focus_entry, dict):
             return None
-        conv_id = focus_path.split(".")[-1]
-        return self.chat_session_manager.sessions.get(conv_id)
+
+        # 3. 从字典中提取出真正的路径字符串
+        focus_path_str = focus_entry.get("target_path")
+
+        # 4. 使用您项目中已有的工具函数来解析路径
+        from src.common.utils import parse_focus_path
+
+        level, _, conv_id = parse_focus_path(focus_path_str)
+
+        # 5. 只有在最底层的会话级别('cellular')且有conv_id时，才存在session
+        if level == "cellular" and conv_id:
+            return self.chat_session_manager.sessions.get(conv_id)
+        # 如果没有会话，返回None
+        return None
 
     async def _core_thinking_loop(self) -> None:
         thinking_interval_sec = config.core_logic_settings.thinking_interval_seconds
@@ -183,15 +201,23 @@ class CoreLogic:
 
     async def _run_full_thought_cycle(self, session: Optional["ChatSession"]) -> float | None:
         """执行完整的思考循环，包括生成思考、处理中断和执行动作."""
-        focus_path = (
+        focus_entry = (
             self.chat_session_manager.current_focus_path if self.chat_session_manager else None
         )
+
+        # 从字典条目中提取出真正的路径字符串
+        focus_path_str: str | None = None
+        if isinstance(focus_entry, dict):
+            focus_path_str = focus_entry.get("target_path")
+        elif isinstance(focus_entry, str):  # 兼容旧格式或可能的'core'字符串
+            focus_path_str = focus_entry
+        # 如果 focus_entry 是 None，则 focus_path_str 保持为 None
 
         (
             prompt_components,
             processed_raw_events,
         ) = await self.prompt_builder.build_prompts_components(
-            focus_path=focus_path,
+            focus_path=focus_path_str,
             session=session,
             handover_result=session.pending_handover_result if session else None,
         )
@@ -208,7 +234,7 @@ class CoreLogic:
             user_prompt=user_prompt,
             image_inputs=prompt_components.image_references,
             response_schema=response_schema,
-            focus_path=focus_path,
+            focus_path=focus_path_str,
         )
         if not generated_thought_json:
             return None
@@ -220,7 +246,7 @@ class CoreLogic:
             think=generated_thought_json.get("internal_state", {}).get("think", "无"),
             goal=generated_thought_json.get("internal_state", {}).get("goal"),
             source_type="core_unified",
-            source_id=focus_path,
+            source_id=focus_path_str,
             action_id=str(uuid.uuid4())
             if generated_thought_json.get("action")
             or generated_thought_json.get("consciousness_control")
@@ -238,11 +264,9 @@ class CoreLogic:
             core_logic=self,
             source_thought_key=saved_key,
             source_action_id=new_thought_pearl.action_id,
-            current_focus_path=focus_path,
-            # =======================【 注入春药！】=======================
+            current_focus_path=focus_path_str,
             session=session,
             processed_events_this_turn=processed_raw_events,
-            # =============================================================
         )
 
         if processed_raw_events:

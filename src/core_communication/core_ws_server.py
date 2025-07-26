@@ -14,6 +14,7 @@ from aicarus_protocols import ConversationInfo, SegBuilder
 from aicarus_protocols import Event as ProtocolEvent
 from aicarus_protocols import UserInfo as ProtocolUserInfo
 from src.common.custom_logging.logging_config import get_logger
+from src.common.unread_info_service.unread_info_service import UnreadInfoService
 from src.config import config
 from src.core_communication.action_sender import ActionSender
 from src.core_communication.event_receiver import EventReceiver
@@ -23,7 +24,6 @@ from src.database.services.event_storage_service import EventStorageService
 from src.platform_builders.registry import platform_builder_registry
 from websockets.exceptions import ConnectionClosed, ConnectionClosedError, ConnectionClosedOK
 from websockets.server import WebSocketServerProtocol
-from src.common.unread_info_service.unread_info_service import UnreadInfoService
 
 logger = get_logger(__name__)
 
