@@ -108,7 +108,6 @@ class ActionHandler:
         """统一的行动处理流程 (竞速模式适配版)。
         它现在不再触发思考，只负责执行动作并将结果写回思想点。
         """
-
         # --- [探灯B] 在这里加上！---
         logger.info(f"[探灯B] ActionHandler 收到的 action_json: {action_json}")
         # -------------------------
@@ -129,22 +128,20 @@ class ActionHandler:
         # 2. 动态解析出需要执行的动作
         # 我们不再写死平台名，而是动态地查找
         core_actions = action_json.get("core", {})
-        # 找到第一个不是'core'的键，作为平台动作
-        platform_actions = next(
-            (
-                {key: value}
-                for key, value in action_json.items()
-                if key != "core"
-            ),
-            {},
+        # 找到第一个不是'core'的键和值，作为平台动作
+        platform_actions_tuple = next(
+            ((key, value) for key, value in action_json.items() if key != "core"),
+            (None, None),
         )
+        platform_id_from_action, platform_actions = platform_actions_tuple
+
         actions_to_process = platform_actions or core_actions
 
         if not actions_to_process:
             logger.info("AI决策的动作对象为空，无需执行。")
             return
 
-        platform_id = "qq" if platform_actions else "core"
+        platform_id = platform_id_from_action if platform_actions else "core"
         action_name, params = next(iter(actions_to_process.items()))
 
         # 3. 根据动作类型分发执行 (send_message 流程已移除)
@@ -185,6 +182,16 @@ class ActionHandler:
         self, platform_id: str, action_name: str, params: dict, doc_key_for_updates: str
     ) -> None:
         """执行一个平台动作的完整流程：构建->发送->等待响应."""
+        if not self.action_sender or platform_id not in self.action_sender.connected_adapters:
+            error_msg = f"动作执行失败：平台 '{platform_id}' 理论上存在，但当前未连接。"
+            logger.error(error_msg)
+            if self.thought_storage_service:
+                await self.thought_storage_service.save_action_result_to_thought(
+                    thought_key=doc_key_for_updates,
+                    result_text=error_msg,
+                )
+            return
+
         builder = platform_builder_registry.get_builder(platform_id)
         if not builder:
             logger.error(f"找不到平台 '{platform_id}' 的翻译官。")
