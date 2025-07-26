@@ -194,7 +194,6 @@ class DefaultMessageProcessor:
 
                 # 如果新消息正好来自当前专注的会话
                 if event_conv_id and event_conv_id == current_conv_id:
-
                     # 就在这里！新消息来自当前专注的会话，我们需要检查发送者。
                     session = self.core_logic.chat_session_manager.sessions.get(current_conv_id)
                     if session:
