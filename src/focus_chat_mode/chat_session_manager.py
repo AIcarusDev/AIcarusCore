@@ -195,7 +195,10 @@ class ChatSessionManager:
                 logger.info(f"[SessionManager] 会话 '{conversation_id}' 的档案正在被移除。")
 
                 # 在移除会话前，将会话内存中的“最后已读时间戳”持久化到数据库。
-                final_timestamp = session.last_processed_timestamp
+                # 我们真正需要记录的是“AI离开这个会话的时刻”。
+                # 直接使用当前时间作为最终的处理时间戳。
+                # 这确保了任何在此之前发生的消息都被视为“已读”或“已知晓”。
+                final_timestamp = time.time() * 1000.0
                 if final_timestamp > 0:
                     logger.info(
                         f"[{conversation_id}] 正在将会话的最终处理时间戳 "

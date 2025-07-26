@@ -194,6 +194,24 @@ class DefaultMessageProcessor:
 
                 # 如果新消息正好来自当前专注的会话
                 if event_conv_id and event_conv_id == current_conv_id:
+
+                    # 就在这里！新消息来自当前专注的会话，我们需要检查发送者。
+                    session = self.core_logic.chat_session_manager.sessions.get(current_conv_id)
+                    if session:
+                        # 1. 获取机器人在这个会话里的确切ID
+                        bot_profile = await session.get_bot_profile()
+                        current_bot_id = str(bot_profile.get("user_id") or session.bot_id)
+
+                        # 2. 获取消息发送者的ID
+                        sender_id = None
+                        if proto_event.user_info and proto_event.user_info.user_id:
+                            sender_id = str(proto_event.user_info.user_id)
+
+                        # 3. 如果发送者不是机器人自己，就重置计数器
+                        if sender_id and sender_id != current_bot_id:
+                            session.reset_consecutive_bot_message_count()
+
+                    # 触发立即思考周期
                     logger.info(f"收到当前专注会话 '{current_conv_id}' 的新消息，触发立即思考。")
                     self.core_logic.trigger_immediate_thought_cycle()
 
