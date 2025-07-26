@@ -31,8 +31,9 @@ logger = get_logger(__name__)
 
 
 class ChatSession:
-    """管理单个专注聊天会话的状态和逻辑 (竞速模式适配版)。
-    这个类现在拥有一个更健壮的回声等待机制来处理异步消息确认。
+    """管理单个专注聊天会话的状态和逻辑.
+
+    这个类现在拥有一个更健壮的回声等待机制来处理异步消息确认.
     """
 
     def __init__(
@@ -106,13 +107,14 @@ class ChatSession:
         logger.info(f"[ChatSession][{self.conversation_id}] 实例已创建。")
 
     async def wait_for_echo(self, action_id: str, timeout: float = 20.0) -> bool:
-        """智能等待方法！它现在拥有一个“暂存器”来处理信号提前到达的竞态问题。"""
+        """智能等待方法！它现在拥有一个“暂存器”来处理信号提前到达的竞态问题."""
         async with self._echo_lock:
             # 检查信号是否已经提前到达并暂存在 _received_echo_ids 中
             if action_id in self._received_echo_ids:
                 self._received_echo_ids.remove(action_id)
                 logger.success(
-                    f"[{self.conversation_id}] 回声等待: 动作 '{action_id}' 在暂存器中命中！立即确认成功。"
+                    f"[{self.conversation_id}] 回声等待: 动作 '{action_id}' 在暂存器中命中！"
+                    f"立即确认成功。"
                 )
                 return True
 
@@ -120,7 +122,8 @@ class ChatSession:
             wake_up_event = asyncio.Event()
             self._echo_wait_events[action_id] = wake_up_event
             logger.info(
-                f"[{self.conversation_id}] 回声等待: 动作 '{action_id}' 未命中暂存器，开始正式等待..."
+                f"[{self.conversation_id}] 回声等待: 动作 '{action_id}' 未命中暂存器，"
+                f"开始正式等待..."
             )
 
         try:
@@ -139,7 +142,7 @@ class ChatSession:
                 self._echo_wait_events.pop(action_id, None)
 
     async def signal_echo_received(self, action_id: str) -> None:
-        """智能信号处理方法！它会先尝试唤醒正在等待的任务，如果没人等，就把信号暂存起来。"""
+        """智能信号处理方法！它会先尝试唤醒正在等待的任务，如果没人等，就把信号暂存起来."""
         async with self._echo_lock:
             # 检查是否有人正在等待这个信号
             if event_to_wake := self._echo_wait_events.get(action_id):
@@ -150,8 +153,9 @@ class ChatSession:
             else:
                 # 如果没人等，说明信号比等待请求先到，暂存起来
                 self._received_echo_ids.add(action_id)
-                logger.warning(
-                    f"[{self.conversation_id}] 回声信号: 信号提前到达！已将 '{action_id}' 存入暂存器。"
+                logger.info(
+                    f"[{self.conversation_id}] 回声信号: 信号提前到达！"
+                    f"已将 '{action_id}' 存入暂存器。"
                 )
 
     async def get_bot_profile(self) -> dict[str, Any]:
@@ -185,6 +189,7 @@ class ChatSession:
         if self.consecutive_bot_messages_count > 0:
             logger.debug(
                 f"[{self.conversation_id}] 检测到他人发言，"
-                f"重置 consecutive_bot_messages_count (之前是 {self.consecutive_bot_messages_count})。"
+                f"重置 consecutive_bot_messages_count "
+                f"(之前是 {self.consecutive_bot_messages_count})。"
             )
             self.consecutive_bot_messages_count = 0

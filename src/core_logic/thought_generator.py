@@ -45,6 +45,7 @@ class ThoughtGenerator:
             user_prompt (str): 用户提示，包含用户的输入或问题.
             image_inputs (list[str]): 可选的图像输入列表，用于多模态处理.
             response_schema (dict[str, Any] | None): 可选的响应模式定义，用于指导 LLM 的输出格式.
+            focus_path (str | None): 可选的焦点路径，用于指定当前思考的上下文.
 
         Returns:
             dict[str, Any] | None: 解析后的思考结果 JSON 对象，如果调用失败或解析错误则返回 None.

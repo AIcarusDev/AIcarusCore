@@ -45,11 +45,18 @@ logger = get_logger(__name__)
 
 @runtime_checkable
 class Initializable(Protocol):
-    async def initialize_infrastructure(self) -> None: ...
+    """一个协议，定义了初始化基础设施的方法."""
+
+    async def initialize_infrastructure(self) -> None:
+        """初始化基础设施的方法."""
+        ...
 
 
 class ServiceBuilder:
+    """服务构建器，用于创建和配置核心服务容器."""
+
     async def build_container(self) -> ServiceContainer:
+        """构建并返回一个服务容器，包含所有核心服务和组件."""
         platform_builder_registry.discover_and_register_builders(platform_builders)
         llm_clients = self._initialize_llm_clients()
         db_services = await self._initialize_database_and_services()
@@ -66,8 +73,6 @@ class ServiceBuilder:
         )
         internal_info_builder = InternalInfoBuilder(db_services["thought_storage_service"])
 
-        # =======================【 这 里 就 是 修 复 点 ！】=======================
-        # 用正确的参数数量和顺序来创建它！
         prompt_builder = ThoughtPromptBuilder(
             unread_info_service,
             internal_info_builder,
@@ -170,7 +175,6 @@ class ServiceBuilder:
             chat_session_manager=None,
         )
 
-    # (_initialize_llm_clients, _initialize_database_and_services, _initialize_interrupt_model, _get_semantic_model 方法保持不变)
     def _initialize_llm_clients(self) -> dict:
         logger.info("开始初始化LLM客户端...")
         general_llm_settings_obj = config.llm_client_settings
@@ -207,7 +211,8 @@ class ServiceBuilder:
                     args["abandoned_keys_config"] = resolved_abandoned_keys
                 client = ProcessorClient(**{k: v for k, v in args.items() if v is not None})
                 logger.info(
-                    f"为用途 '{purpose}' 创建 ProcessorClient 成功 (模型: {client.llm_client.model_name})。"
+                    f"为用途 '{purpose}' 创建 ProcessorClient 成功 "
+                    f"(模型: {client.llm_client.model_name})。"
                 )
                 return client
             except Exception as e:

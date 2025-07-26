@@ -61,6 +61,7 @@ class GenerationParams(TypedDict, total=False):
     encoding_format: str
     dimensions: int
 
+
 class LLMClientError(Exception):
     """表示与语言模型客户端相关的通用错误."""
 

@@ -94,12 +94,12 @@ class ChatSessionManager:
 
     @property
     def current_focus_path(self) -> str | None:
-        """属性：返回当前焦点路径（堆栈顶部）。"""
+        """属性：返回当前焦点路径（堆栈顶部）."""
         return self.focus_history[-1]
 
     @property
     def previous_focus_path(self) -> str | None:
-        """属性：返回上一个焦点路径（堆栈次顶部）。"""
+        """属性：返回上一个焦点路径（堆栈次顶部）."""
         if len(self.focus_history) > 1:
             return self.focus_history[-2]
         return None
@@ -235,9 +235,7 @@ class ChatSessionManager:
         logger.info("[SessionManager] 所有活动会话的关闭流程已完成。")
 
     async def _get_focus_description(self, focus_path_or_entry: str | dict | None) -> str:
-        """根据 focus_path 或历史条目 生成一个详细的、人类可读的位置描述。
-        [v2.0 改造版]: 能够处理字符串和字典两种输入。
-        """
+        """根据 focus_path 或历史条目 生成一个详细的、人类可读的位置描述."""
         # --- 步骤 1: 预处理，从输入中提取出纯粹的路径字符串 ---
         focus_path: str | None = None
         if isinstance(focus_path_or_entry, dict):
@@ -287,11 +285,11 @@ class ChatSessionManager:
         return "一个未知的地方"
 
     def get_last_switch_description(self) -> str:
-        """获取上次焦点切换的格式化描述。"""
+        """获取上次焦点切换的格式化描述."""
         return self._last_switch_description
 
     async def handle_consciousness_control(self, control_json: dict) -> None:
-        """处理来自LLM决策的意识控制指令 (v2.0 堆栈版 + 新API)。"""
+        """处理来自LLM决策的意识控制指令 (v2.0 堆栈版 + 新API)."""
         if not control_json or not isinstance(control_json, dict):
             return
 
@@ -414,7 +412,8 @@ class ChatSessionManager:
             )
             if not conv_doc:
                 logger.error(
-                    f"无法 'swap_focus'，数据库中找不到目标会话 '{target_conv_id}'。切换中止，停留在平台层。"
+                    f"无法 'swap_focus'，数据库中找不到目标会话 '{target_conv_id}'。切换中止，"
+                    f"停留在平台层。"
                 )
             else:
                 await self.get_or_create_session(

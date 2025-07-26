@@ -28,8 +28,9 @@ ACTION_RESPONSE_TIMEOUT_SECONDS = 30
 
 
 class ActionHandler:
-    """处理所有与动作相关的逻辑 (竞速模式适配版)。
-    它现在是一个纯粹的动作执行器，不再负责触发思考循环。
+    """处理所有与动作相关的逻辑.
+
+    它现在是一个纯粹的动作执行器，不再负责触发思考循环.
     """
 
     def __init__(self) -> None:
@@ -73,7 +74,7 @@ class ActionHandler:
         logger.info("ActionHandler 的依赖已成功设置。")
 
     def set_thought_trigger(self, trigger_event: asyncio.Event | None) -> None:
-        """设置主思维触发器 (在竞速模式下，此触发器主要由CoreLogic自身管理)。"""
+        """设置主思维触发器 (在竞速模式下，此触发器主要由CoreLogic自身管理)."""
         self.thought_trigger = trigger_event
         if trigger_event:
             logger.info("ActionHandler 的主思维触发器已成功设置。")
@@ -105,8 +106,9 @@ class ActionHandler:
         doc_key_for_updates: str,
         action_json: dict[str, Any],
     ) -> None:
-        """统一的行动处理流程 (竞速模式适配版)。
-        它现在不再触发思考，只负责执行动作并将结果写回思想点。
+        """统一的行动处理流程.
+
+        它现在不再触发思考，只负责执行动作并将结果写回思想点.
         """
         # --- [探灯B] 在这里加上！---
         logger.info(f"[探灯B] ActionHandler 收到的 action_json: {action_json}")
@@ -160,7 +162,7 @@ class ActionHandler:
         #     self.thought_trigger.set()
 
     async def _execute_core_web_search(self, params: dict) -> str:
-        """执行核心的网页搜索动作，并直接返回结果字符串。"""
+        """执行核心的网页搜索动作，并直接返回结果字符串."""
         await self.initialize_llm_clients()
         query = params.get("query")
         motivation = params.get("motivation", "没有明确动机")
@@ -231,8 +233,9 @@ class ActionHandler:
         description: str,
         motivation: str | None = None,
     ) -> tuple[bool, Any]:
-        """一个更简单的动作执行入口，供 MessageBuilder 等内部系统调用。
-        它会返回执行结果和包含 action_id 的 payload。
+        """一个更简单的动作执行入口，供 MessageBuilder 等内部系统调用.
+
+        它会返回执行结果和包含 action_id 的 payload.
         """
         builder = platform_builder_registry.get_builder(platform_id)
         if not builder:
@@ -261,7 +264,7 @@ class ActionHandler:
         original_action_description: str,
         motivation: str | None = None,
     ) -> tuple[bool, Any]:
-        """底层动作执行器：发送动作到适配器并等待响应。"""
+        """底层动作执行器：发送动作到适配器并等待响应."""
         if not self.action_sender or not self.action_log_service or not self.pending_action_manager:
             return False, {"error": "内部错误：核心服务不可用。"}
 

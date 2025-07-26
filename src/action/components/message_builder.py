@@ -14,10 +14,11 @@ logger = get_logger(__name__)
 
 
 class MessageBuilder:
-    """一个专门为ChatSession设计的消息构建器 (竞速模式适配版)。
-    它能读懂LLM用“链式指令”（steps数组）写的“操作步骤”，
-    然后把这些步骤翻译成一条或多条可以发送给适配器的标准消息。
-    它不再处理中断逻辑，因为中断由更高层的竞速机制处理。
+    """一个专门为ChatSession设计的消息构建器.
+
+    它能读懂LLM用“链式指令”（steps数组）写的“操作步骤”,
+    然后把这些步骤翻译成一条或多条可以发送给适配器的标准消息.
+    它不再处理中断逻辑，因为中断由更高层的竞速机制处理.
     """
 
     def __init__(self, session: "ChatSession", motivation: str | None) -> None:
@@ -31,8 +32,9 @@ class MessageBuilder:
         self._current_segments: list[Seg] = []
 
     async def process_steps(self, steps: list[dict]) -> bool:
-        """核心工作方法。它会一步步阅读指令清单（steps），并执行翻译。
-        在竞速模式下，它不再检查中断信号。
+        """核心工作方法。它会一步步阅读指令清单（steps），并执行翻译.
+
+        在竞速模式下，它不再检查中断信号.
         """
         logger.info(
             f"MessageBuilder 开始为会话 {self.conversation_info.conversation_id} "
@@ -61,7 +63,7 @@ class MessageBuilder:
         return any_message_sent
 
     def _calculate_typing_delay(self, text: str) -> float:
-        """计算模拟打字延迟 (逻辑保持不变)。"""
+        """计算模拟打字延迟 (逻辑保持不变)."""
         key_delay_min = 0.06
         key_delay_max = 0.18
         char_selection_delay_min = 0.1
@@ -126,8 +128,9 @@ class MessageBuilder:
         self._current_segments = []
 
     async def _send_current_message(self) -> bool:
-        """将工作台上拼接好的所有消息段打包发送。
-        现在它会从返回结果中提取 action_id 并存入 session。
+        """将工作台上拼接好的所有消息段打包发送.
+
+        现在它会从返回结果中提取 action_id 并存入 session.
         """
         if not self._current_segments:
             return False
@@ -178,7 +181,8 @@ class MessageBuilder:
                 )
             else:
                 logger.warning(
-                    f"[{self.session.conversation_id}] 消息发送成功，但未能从回执中获取到 action_id！"
+                    f"[{self.session.conversation_id}] 消息发送成功，"
+                    f"但未能从回执中获取到 action_id!"
                 )
 
             self.session.consecutive_bot_messages_count += 1

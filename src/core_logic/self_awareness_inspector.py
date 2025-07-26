@@ -147,7 +147,7 @@ async def _update_single_group_info(
     group_profile: dict,
     bot_profile_for_conv: dict,
 ) -> None:
-    """一个辅助函数，用于原子化地更新单个群聊的信息"""
+    """一个辅助函数，用于原子化地更新单个群聊的信息."""
     # 1. 更新成员关系边
     await person_service.update_robot_membership_in_conversation(
         account_uid=account_uid,

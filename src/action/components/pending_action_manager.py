@@ -26,8 +26,9 @@ ACTION_RESPONSE_TIMEOUT_SECONDS = 30
 
 
 class PendingActionManager:
-    """管理所有待处理的平台动作 (竞速模式适配版)。
-    它现在负责在收到 send_message 的回执时，通过 ActionHandler 向上通知 ChatSession。
+    """管理所有待处理的平台动作.
+
+    它现在负责在收到 send_message 的回执时，通过 ActionHandler 向上通知 ChatSession.
     """
 
     def __init__(
@@ -56,6 +57,19 @@ class PendingActionManager:
         action_to_send: dict[str, Any],
         motivation: str | None = None,
     ) -> tuple[bool, Any]:
+        """添加一个待处理的动作，并等待其响应.
+
+        Args:
+            action_id (str): 动作的唯一标识符.
+            thought_doc_key (str | None): 关联的思考文档键，如果有的话.
+            original_action_description (str): 原始动作描述，用于日志记录.
+            action_to_send (dict[str, Any]): 要发送的动作内容.
+            motivation (str | None): 动作的动机或目的，可选.
+
+        Returns:
+            tuple[bool, Any]: 返回一个元组，第一个元素是布尔值表示
+                动作是否成功，第二个元素是响应数据或错误信息.
+        """
         response_future = asyncio.Future()
         self._pending_actions[action_id] = (
             response_future,
@@ -88,6 +102,11 @@ class PendingActionManager:
         )
 
     async def handle_response(self, response_event_data: dict[str, Any]) -> None:
+        """处理收到的动作响应事件.
+
+        Args:
+            response_event_data (dict[str, Any]): 包含响应数据的字典，必须包含 'content' 键.
+        """
         original_action_id = self._get_original_id_from_response(response_event_data)
         if not original_action_id:
             return
@@ -118,7 +137,8 @@ class PendingActionManager:
                     session = self.action_handler.chat_session_manager.sessions.get(str(conv_id))
                     if session:
                         logger.info(
-                            f"检测到 send_message 动作的回声，正在为动作 '{original_action_id}' 调用 session.signal_echo_received()！"
+                            f"检测到 send_message 动作的回声，正在为动作 '{original_action_id}' "
+                            f"调用 session.signal_echo_received()！"
                         )
                         await session.signal_echo_received(original_action_id)
 
@@ -155,7 +175,7 @@ class PendingActionManager:
     async def _proactively_create_conversation_docs_from_list(
         self, details: dict | None, sent_dict: dict
     ) -> None:
-        """当 get_list 动作成功后，主动为列表中的每个项目创建或更新会话档案。"""
+        """当 get_list 动作成功后，主动为列表中的每个项目创建或更新会话档案."""
         if not details or not isinstance(details, dict):
             return
 
@@ -172,7 +192,8 @@ class PendingActionManager:
             return
 
         logger.info(
-            f"收到 get_list({list_type}) 的成功响应，准备为 {len(items)} 个项目主动创建/更新会话档案。"
+            f"收到 get_list({list_type}) 的成功响应，准备为 {len(items)} "
+            f"个项目主动创建/更新会话档案。"
         )
 
         conversation_type = "private" if list_type == "friend" else "group"
@@ -260,7 +281,7 @@ class PendingActionManager:
         if motivation and isinstance(motivation, str) and motivation.strip():
             event_to_save["motivation"] = motivation
         message_id = await self._get_sent_message_id_safe(resp_data)
-        event_to_save["content"] = [
+        event_to_save["content"] = [  # noqa: RUF005
             {"type": "message_metadata", "data": {"message_id": message_id}}
         ] + event_to_save.get("content", [])
         real_user_info = None

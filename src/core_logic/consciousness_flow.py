@@ -28,9 +28,7 @@ logger = get_logger(__name__)
 
 
 class CoreLogic:
-    """核心逻辑处理类 (V2.3 - 最终完美版)。
-    修复了所有已知的中断和时间戳相关的竞态问题。
-    """
+    """核心逻辑处理类."""
 
     def __init__(
         self,
@@ -62,12 +60,12 @@ class CoreLogic:
         logger.info(f"{self.__class__.__name__} 已创建 (最终完美版 V1.3)")
 
     def trigger_immediate_thought_cycle(self) -> None:
-        """立即触发思考循环，唤醒主意识。"""
+        """立即触发思考循环，唤醒主意识."""
         logger.info("接收到立即思考触发信号，主意识将被唤醒。")
         self.immediate_thought_trigger.set()
 
     def _get_current_session(self) -> Optional["ChatSession"]:
-        """获取当前焦点会话，如果没有则返回None。"""
+        """获取当前焦点会话，如果没有则返回None."""
         if not self.chat_session_manager:
             return None
 
@@ -109,7 +107,8 @@ class CoreLogic:
                         # 如果有中断烙印，就用它！
                         initial_context_text = self._last_interrupt_context_text
                         logger.info(
-                            f"[{session.conversation_id}] 使用了上一次中断的记忆烙印作为上下文: '{initial_context_text[:50]}...'"
+                            f"[{session.conversation_id}] 使用了上一次中断的记忆烙印作为上下文: "
+                            f"'{initial_context_text[:50]}...'"
                         )
                         # 用完就烧掉，避免重复使用
                         self._last_interrupt_context_text = None
@@ -154,17 +153,16 @@ class CoreLogic:
                         if interrupting_ts:
                             session.last_processed_timestamp = interrupting_ts
                             logger.info(
-                                f"[{session.conversation_id}] 任务被中断，全局时间戳被强制更新至中断事件的时间: {interrupting_ts}"
+                                f"[{session.conversation_id}] 任务被中断，"
+                                f"全局时间戳被强制更新至中断事件的时间: {interrupting_ts}"
                             )
 
-                        # =======================【 记忆写入·将刺激烙印在海马体！】=======================
-                        # 把中断消息的文本内容，直接写入我们的大脑皮层！
                         event_obj = Event.from_dict(interrupting_event_doc)
                         self._last_interrupt_context_text = event_obj.get_text_content()
                         logger.debug(
-                            f"[{session.conversation_id}] 已将中断消息文本 '{self._last_interrupt_context_text}' 烙印到短期记忆中。"
+                            f"[{session.conversation_id}] 已将中断消息文本 "
+                            f"'{self._last_interrupt_context_text}' 烙印到短期记忆中。"
                         )
-                        # ======================================================================
 
                 if main_task in done:
                     last_processed_ts_from_task = await main_task
@@ -172,11 +170,13 @@ class CoreLogic:
                         if last_processed_ts_from_task > session.last_processed_timestamp:
                             session.last_processed_timestamp = last_processed_ts_from_task
                             logger.info(
-                                f"[{session.conversation_id}] 主任务正常完成，全局时间戳已更新至: {last_processed_ts_from_task}"
+                                f"[{session.conversation_id}] 主任务正常完成，"
+                                f"全局时间戳已更新至: {last_processed_ts_from_task}"
                             )
                         else:
                             logger.debug(
-                                f"[{session.conversation_id}] 主任务完成，但返回的时间戳不新，不更新全局时间戳。"
+                                f"[{session.conversation_id}] 主任务完成，"
+                                f"但返回的时间戳不新，不更新全局时间戳。"
                             )
                     if session:
                         session.interruption_context = None
@@ -281,7 +281,7 @@ class CoreLogic:
     async def _listen_for_interruptions(
         self, session: "ChatSession", initial_context_text: str
     ) -> dict | None:
-        """纯粹的中断监听器（哨兵），它现在接收一个固定的初始上下文。"""
+        """纯粹的中断监听器（哨兵），它现在接收一个固定的初始上下文."""
         try:
             # 哨兵的“记忆”在它诞生时就被决定了，就是 initial_context_text！
             context_text = initial_context_text
@@ -356,11 +356,13 @@ class CoreLogic:
                 self.immediate_thought_trigger.clear()
 
     async def start_thinking_loop(self) -> asyncio.Task:
+        """启动核心逻辑的思考循环."""
         logger.info(f"=== {config.persona.bot_name} 的大脑准备开始持续思考 ===")
         self.thinking_loop_task = asyncio.create_task(self._core_thinking_loop())
         return self.thinking_loop_task
 
     async def stop(self) -> None:
+        """停止核心逻辑的思考循环."""
         logger.info(f"--- {config.persona.bot_name} 的意识流动正在停止 ---")
         self.stop_event.set()
         if self.thinking_loop_task and not self.thinking_loop_task.done():

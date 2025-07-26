@@ -18,8 +18,9 @@ logger = get_logger(__name__)
 
 
 def normalize_action_payload(action_payload: dict, current_platform_id: str) -> dict:
-    """一步到位地规范化LLM返回的action_payload。
-    它不依赖任何硬编码的动作列表，而是利用当前的平台上下文来确保动作被正确包裹。
+    """一步到位地规范化LLM返回的action_payload.
+
+    它不依赖任何硬编码的动作列表，而是利用当前的平台上下文来确保动作被正确包裹.
     """
     if not action_payload or not isinstance(action_payload, dict):
         return {}
@@ -51,9 +52,10 @@ async def process_llm_decision(
     session: Optional["ChatSession"] = None,
     processed_events_this_turn: list[Event] | None = None,
 ) -> None:
-    """一个统一的LLM决策分发器 (竞速模式适配版)。
-    它负责解析并执行LLM的决策。对于需要等待结果的动作（如send_message），
-    它会阻塞直到动作完全确认完成。
+    """一个统一的LLM决策分发器.
+
+    它负责解析并执行LLM的决策。对于需要等待结果的动作（如send_message）,
+    它会阻塞直到动作完全确认完成.
     """
     if not decision_json or not isinstance(decision_json, dict):
         logger.warning("收到的LLM决策为空或非字典格式，无法分发。")
@@ -104,10 +106,6 @@ async def process_llm_decision(
             new_context_text = " ".join(texts_to_send).strip()
             if new_context_text:
                 core_logic._last_interrupt_context_text = new_context_text
-                # 【探针植入】
-                logger.info(
-                    f"[{session.conversation_id}] 高潮锁定：记忆烙印已更新为 -> '{new_context_text[:50]}...'"
-                )
 
             logger.info(
                 f"[{current_conv_id}] 检测到 [回声类] 动作 (send_message)，将等待回声后才算完成。"
@@ -127,7 +125,8 @@ async def process_llm_decision(
             sent_action_ids = session.sent_action_ids_this_turn
             if sent_action_ids:
                 logger.debug(
-                    f"[{current_conv_id}] 准备为 {len(sent_action_ids)} 个动作等待回声: {sent_action_ids}"
+                    f"[{current_conv_id}] 准备为 {len(sent_action_ids)} 个动作等待回声: "
+                    f"{sent_action_ids}"
                 )
 
                 # 创建等待所有回声的任务
@@ -145,7 +144,8 @@ async def process_llm_decision(
                     core_logic.trigger_immediate_thought_cycle()
                 else:
                     logger.warning(
-                        f"[{current_conv_id}] {len(sent_action_ids) - success_count} / {len(sent_action_ids)} 条消息的回声等待超时。"
+                        f"[{current_conv_id}] {len(sent_action_ids) - success_count} "
+                        f"/ {len(sent_action_ids)} 条消息的回声等待超时。"
                     )
 
             # send_message 处理完毕，无论是否超时，都继续处理意识控制指令（如果有）
