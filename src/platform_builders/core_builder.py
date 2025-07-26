@@ -18,13 +18,13 @@ class CoreBuilder(BasePlatformBuilder):
             "type": "object",
             "description": "【下潜/聚焦】深入到下一层焦点。将 target_path 指定的目标压入注意力堆栈顶部。",
             "properties": {
-                "target_path": {
+                "target_id": {
                     "type": "string",
-                    "description": "要“潜入”的目标路径。可以是绝对路径(如`qq.123456`)或相对路径(如`123456`)。",
+                    "description": "要“潜入”的目标ID。例如平台ID 'qq' 或会话ID '123456'。",
                 },
                 "motivation": {"type": "string", "description": "你为什么要进入这一层？"},
             },
-            "required": ["target_path", "motivation"],
+            "required": ["target_id", "motivation"],
         },
         "pop_focus": {
             "type": "object",
@@ -38,13 +38,13 @@ class CoreBuilder(BasePlatformBuilder):
             "type": "object",
             "description": "【平级切换焦点】替换堆栈顶部的当前焦点为另一个同层级的目标，不改变堆栈深度。",
             "properties": {
-                "target_path": {
+                "target_id": {
                     "type": "string",
-                    "description": "要切换到的新会话ID或同层级路径。",
+                    "description": "要切换到的新会话ID。",
                 },
                 "motivation": {"type": "string", "description": "你为什么要切换到这个目标？"},
             },
-            "required": ["target_path", "motivation"],
+            "required": ["target_id", "motivation"],
         },
         "teleport_focus": {
             "type": "object",
@@ -52,7 +52,7 @@ class CoreBuilder(BasePlatformBuilder):
             "properties": {
                 "target_path": {
                     "type": "string",
-                    "description": "要传送到的绝对路径，例如`qq.group.88888888`。",
+                    "description": "要传送到的绝对路径，必须是使用'.'作为分隔符的完整路径，例如`qq.123456`。",
                 },
                 "motivation": {"type": "string", "description": "是什么情况让你必须使用此指令？"},
             },
@@ -130,26 +130,14 @@ class CoreBuilder(BasePlatformBuilder):
 
     def get_level_consciousness_controls_descriptions(self, level: str) -> str:
         """返回核心平台的意识控制描述."""
-        descs = []
-        # --- v2.0 全新指令集的自然语言描述 ---
-        descs.append(
-            "    - `push_focus(target_path, motivation)`: 深入到下一层焦点。将 `target_path` 指定的目标压入注意力堆栈顶部。"
-        )
-        descs.append(
-            "    - `pop_focus(motivation)`: 从当前焦点返回。从注意力堆栈顶部弹出现有焦点，返回到结构上的上一层。"
-        )
-        descs.append(
-            "    - `swap_focus(target_path, motivation)`: 平级切换焦点。替换堆栈顶部的当前焦点为另一个同层级的目标，不改变堆栈深度。"
-        )
-        descs.append(
-            "    - `teleport_focus(target_path, motivation)`: 强制跳转焦点。清空当前的整个注意力堆栈，然后将指定的目标路径作为新的唯一焦点。"
-        )
-        descs.append(
-            "    - `back(motivation)`: 回溯到上一个焦点。根据`<navigation_log>`，将焦点设置到历史记录中的前一个位置 (T-1)。"
-        )
-        descs.append(
-            "    - `jump_to_history(history_index, motivation)`: 跳转到指定的历史焦点。根据`<navigation_log>`，直接跳转到由`history_index`指定的历史焦点。"
-        )
+        descs = [
+            "    - `push_focus(target_id, motivation)`: 深入到下一层焦点。只需提供目标ID。",
+            "    - `pop_focus(motivation)`: 从当前焦点返回上一层。",
+            "    - `swap_focus(target_id, motivation)`: 平级切换到另一个会话，只需提供目标会话ID。",
+            "    - `teleport_focus(target_path, motivation)`: 强制跳转焦点。注意 `target_path` 必须是使用'.'分隔的完整路径！",
+            "    - `back(motivation)`: 回溯到上一个焦点 (T-1)。",
+            "    - `jump_to_history(history_index, motivation)`: 跳转到指定的历史焦点。",
+        ]
 
         return "\n".join(descs)
 
