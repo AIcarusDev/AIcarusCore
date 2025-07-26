@@ -291,11 +291,11 @@ class ChatSessionManager:
         return self._last_switch_description
 
     async def handle_consciousness_control(self, control_json: dict) -> None:
-        """处理来自LLM决策的意识控制指令 (v2.0 堆栈版 + 新API)。"""
+        """处理来自LLM决策的意识控制指令 (v2.1 全场景修复版)。"""
         if not control_json or not isinstance(control_json, dict):
             return
 
-        logger.info(f"焦点管理器(v2.0)收到意识控制指令: {control_json}")
+        logger.info(f"焦点管理器(v2.1)收到意识控制指令: {control_json}")
 
         focus_switched = False
         command, params = next(iter(control_json.items()))
@@ -309,50 +309,62 @@ class ChatSessionManager:
             "motivation": motivation,
         }
 
-        # --- 新指令处理逻辑 ---
+        # --- 新指令处理逻辑 (全场景修复版) ---
         if command == "push_focus":
             target_path_param = params.get("target_path")
             if not target_path_param:
                 logger.error("'push_focus' 指令缺少 'target_path'。")
                 return
 
-            # 1. 提取真正的会话ID (可能是路径的最后一部分)
-            #    这能同时处理 "1041305886" 和 "qq/conversation/group/1041305886"
-            potential_conv_id = target_path_param.split('/')[-1]
 
-            # 2. 获取当前的平台上下文
-            current_entry = self.current_focus_path
-            current_path_str = (
-                current_entry.get("target_path")
-                if isinstance(current_entry, dict)
-                else current_entry
-            )
-            # 如果当前在 core 层，平台上下文是未知的，这通常不应该发生
-            # 但为了健壮性，我们假设它至少是在一个平台内
-            current_platform = current_path_str.split('.')[0] if current_path_str and '.' in current_path_str else 'qq'
-            if current_path_str == 'core': # 如果从core层直接下潜
-                # 从目标路径中解析平台
-                current_platform = target_path_param.split('/')[0] if '/' in target_path_param else 'qq'
+            # 检查目标是否为一个纯粹的平台ID (例如 'qq', 'termux')
+            from src.platform_builders.registry import platform_builder_registry
+            all_platform_ids = platform_builder_registry.get_all_builders().keys()
 
-            # 3. 构造标准的、干净的 `new_path` 和 `conv_id`
-            new_path = f"{current_platform}.{potential_conv_id}"
-            conv_id_to_check = potential_conv_id
-            entry_to_push = {**history_entry_base, "target_path": new_path}
-            self.focus_history.append(entry_to_push)
-            logger.info(f"[堆栈 PUSH] 焦点下潜至: {new_path}")
-
-
-            conv_doc = await self.conversation_service.get_conversation_document_by_id(conv_id_to_check)
-            if not conv_doc:
-                logger.error(f"无法 'push_focus'，数据库中找不到会话 '{conv_id_to_check}'。回滚堆栈。")
-                self.focus_history.pop()
-            else:
-                await self.get_or_create_session(
-                    conversation_id=conv_id_to_check,
-                    platform=conv_doc.get("platform"),
-                    conversation_type=conv_doc.get("type"),
-                )
+            # 如果目标路径不含'/'且是已知的平台ID，则视为进入平台层
+            if '/' not in target_path_param and target_path_param in all_platform_ids:
+                # --- 路径 A: 进入平台层 ---
+                new_path = target_path_param
+                entry_to_push = {**history_entry_base, "target_path": new_path}
+                self.focus_history.append(entry_to_push)
+                logger.info(f"[堆栈 PUSH] 焦点下潜至平台: {new_path}")
                 focus_switched = True
+            else:
+                # --- 路径 B: 进入会话层 (使用我们之前的修复逻辑) ---
+                potential_conv_id = target_path_param.split('/')[-1]
+
+                current_entry = self.current_focus_path
+                current_path_str = (
+                    current_entry.get("target_path")
+                    if isinstance(current_entry, dict)
+                    else current_entry
+                )
+
+                # 确定当前平台上下文
+                current_platform = 'qq' # 默认值
+                if current_path_str and current_path_str != 'core':
+                    current_platform = current_path_str.split('.')[0]
+                elif '/' in target_path_param:
+                    current_platform = target_path_param.split('/')[0]
+
+                new_path = f"{current_platform}.{potential_conv_id}"
+                conv_id_to_check = potential_conv_id
+
+                # 检查数据库
+                conv_doc = await self.conversation_service.get_conversation_document_by_id(conv_id_to_check)
+                if not conv_doc:
+                    logger.error(f"无法 'push_focus'，数据库中找不到会话 '{conv_id_to_check}'。回滚堆栈。")
+                    # 不推入错误的路径
+                else:
+                    entry_to_push = {**history_entry_base, "target_path": new_path}
+                    self.focus_history.append(entry_to_push)
+                    logger.info(f"[堆栈 PUSH] 焦点下潜至会话: {new_path}")
+                    await self.get_or_create_session(
+                        conversation_id=conv_id_to_check,
+                        platform=conv_doc.get("platform"),
+                        conversation_type=conv_doc.get("type"),
+                    )
+                    focus_switched = True
 
         elif command == "pop_focus" or command == "back":
             if len(self.focus_history) <= 1:
@@ -360,12 +372,14 @@ class ChatSessionManager:
                 return
 
             leaving_entry = self.focus_history.pop()
-            leaving_path = leaving_entry.get("target_path")
+            leaving_path = leaving_entry.get("target_path") # 可能是 'qq.123' 或 'qq'
             logger.info(f"[堆栈 POP/BACK] 焦点从 '{leaving_path}' 上浮。")
 
+            # 只有当离开的是一个会话层时 (路径包含'.')，才需要停用Session
             if leaving_path and "." in leaving_path:
+                conv_id_to_deactivate = ".".join(leaving_path.split('.')[1:])
                 await self.deactivate_session(
-                    leaving_path.split(".")[-1], {"motivation": motivation}
+                    conv_id_to_deactivate, {"motivation": motivation}
                 )
 
             # 如果上浮后进入了底层会话，需要重新激活它
@@ -404,8 +418,9 @@ class ChatSessionManager:
             # SWAP = POP + PUSH
             leaving_entry = self.focus_history.pop()
             leaving_path = leaving_entry.get("target_path")
+            conv_id_to_deactivate = ".".join(leaving_path.split('.')[1:])
             await self.deactivate_session(
-                leaving_path.split(".")[-1], {"motivation": motivation, "target_id": target_conv_id}
+                conv_id_to_deactivate, {"motivation": motivation, "target_id": target_conv_id}
             )
 
             platform_path_entry = self.current_focus_path
@@ -449,18 +464,19 @@ class ChatSessionManager:
                 else current_entry
             )
             if current_path_str and "." in current_path_str:
+                conv_id_to_deactivate = ".".join(current_path_str.split('.')[1:])
                 await self.deactivate_session(
-                    current_path_str.split(".")[-1], {"motivation": f"传送到 {target_path}"}
+                    conv_id_to_deactivate, {"motivation": f"传送到 {target_path}"}
                 )
 
             # 清空历史并设置新路径
             self.focus_history.clear()
-            self.focus_history.append(None)  # 添加core层
+            self.focus_history.append({"target_path":"core"})  # 添加core层
             entry_to_push = {**history_entry_base, "target_path": target_path}
             self.focus_history.append(entry_to_push)
             logger.info(f"[堆栈 TELEPORT] 焦点已传送至: {target_path}")
 
-            # --- [优化点] 智能激活会话 ---
+            # 智能激活会话
             path_parts = target_path.split(".")
             if len(path_parts) >= 2:
                 conv_id = ".".join(path_parts[1:])
@@ -508,8 +524,9 @@ class ChatSessionManager:
                     else current_entry
                 )
                 if current_path_str and "." in current_path_str:
+                    conv_id_to_deactivate = ".".join(current_path_str.split('.')[1:])
                     await self.deactivate_session(
-                        current_path_str.split(".")[-1],
+                        conv_id_to_deactivate,
                         {"motivation": f"跳跃到历史焦点 {target_path}"},
                     )
 
@@ -556,3 +573,4 @@ class ChatSessionManager:
             if self.core_logic and hasattr(self.core_logic, "prompt_builder"):
                 self.core_logic.prompt_builder.is_context_switch_flag = True
                 self.core_logic.trigger_immediate_thought_cycle()
+
