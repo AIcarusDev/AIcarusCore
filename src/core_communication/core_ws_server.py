@@ -23,6 +23,7 @@ from src.database.services.event_storage_service import EventStorageService
 from src.platform_builders.registry import platform_builder_registry
 from websockets.exceptions import ConnectionClosed, ConnectionClosedError, ConnectionClosedOK
 from websockets.server import WebSocketServerProtocol
+from src.common.unread_info_service.unread_info_service import UnreadInfoService
 
 logger = get_logger(__name__)
 
@@ -64,6 +65,7 @@ class CoreWebsocketServer:
         event_storage_service: EventStorageService,
         action_handler_instance: "ActionHandler",
         person_service: "PersonStorageService",
+        unread_info_service: "UnreadInfoService",
     ) -> None:
         self.host: str = host
         self.port: int = port
@@ -73,6 +75,7 @@ class CoreWebsocketServer:
         self.action_sender = action_sender
         self.action_handler_instance = action_handler_instance
         self.person_service = person_service
+        self.unread_info_service = unread_info_service
         self.adapter_clients_info: dict[str, dict[str, Any]] = {}
         self._websocket_to_adapter_id: dict[WebSocketServerProtocol, str] = {}
         self._stop_event: asyncio.Event = asyncio.Event()

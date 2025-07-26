@@ -109,6 +109,7 @@ class ServiceBuilder:
             event_storage_service=db_services["event_storage_service"],
             action_handler_instance=action_handler,
             person_service=db_services["person_storage_service"],
+            unread_info_service=unread_info_service,
         )
         prompt_builder.core_ws_server = core_comm_layer
 
