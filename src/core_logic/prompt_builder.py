@@ -11,6 +11,8 @@ from src.core_logic.internal_info_builder import InternalInfoBuilder
 from src.database import ThoughtStorageService
 from src.focus_chat_mode.behavioral_guidance_generator import BehavioralGuidanceGenerator
 from src.focus_chat_mode.components import PromptComponents
+from src.platform_builders.base_builder import BasePlatformBuilder
+from src.platform_builders.core_builder import CoreBuilder
 from src.platform_builders.registry import platform_builder_registry
 from src.prompt_templates import prompt_templates
 from src.prompt_templates.aicarus_rule import AICARUS_RULE
@@ -40,11 +42,8 @@ class ThoughtPromptBuilder:
         internal_info_builder: "InternalInfoBuilder",
         event_storage_service: "EventStorageService",
         thought_storage_service: "ThoughtStorageService",
-        # =======================【 这 里 是 修 复 点 ！】=======================
-        # 这两个参数是在对象创建后才注入的，所以它们必须是可选的！
         chat_session_manager: Optional["ChatSessionManager"] = None,
         core_ws_server: Optional["CoreWebsocketServer"] = None,
-        # ======================================================================
     ) -> None:
         self.unread_info_service = unread_info_service
         self.internal_info_builder = internal_info_builder
@@ -239,7 +238,12 @@ class ThoughtPromptBuilder:
         return prompt_components_obj, processed_raw_events
 
     def finalize_prompts(self, components: PromptComponents) -> tuple[str, str, dict[str, Any]]:
-        # (此函数逻辑不变)
+        """将 PromptComponents 转换为最终的系统和用户提示字符串。
+        Args:
+            components (PromptComponents): 包含系统和用户提示块的组件对象。
+        Returns:
+            tuple: 包含系统提示字符串、用户提示字符串和响应模式的元组。
+        """
         system_prompt = prompt_templates.CORE_CYCLE_SYSTEM_PROMPT.format(
             **components.system_prompt_blocks
         )
@@ -320,8 +324,10 @@ class ThoughtPromptBuilder:
             return FOCUS_INPUT_XML_DESCRIPTION
         return ""
 
-    def _get_controls_descriptions(self, level, builder, core_builder) -> str:
-        # (此函数逻辑不变)
+    def _get_controls_descriptions(
+        self, level, builder: BasePlatformBuilder, core_builder: CoreBuilder
+    ) -> str:
+        """获取当前层级的意识控制描述。"""
         core_desc = core_builder.get_level_consciousness_controls_descriptions(level)
         plat_desc = (
             builder.get_level_consciousness_controls_descriptions(level)
@@ -330,8 +336,10 @@ class ThoughtPromptBuilder:
         )
         return "\n".join(filter(None, [core_desc, plat_desc])) or "你当前没有可用的导航指令。"
 
-    def _get_actions_descriptions(self, level, builder, core_builder) -> str:
-        # (此函数逻辑不变)
+    def _get_actions_descriptions(
+        self, level, builder: BasePlatformBuilder, core_builder: CoreBuilder
+    ) -> str:
+        """获取当前层级的行动描述。"""
         core_desc = core_builder.get_level_actions_descriptions(level)
         plat_desc = (
             builder.get_level_actions_descriptions(level) if level != "core" and builder else ""
@@ -341,7 +349,7 @@ class ThoughtPromptBuilder:
     async def _get_external_and_meta_info_blocks(
         self, level: str, platform_id: str, conv_id: str | None
     ) -> tuple[str, str, PromptComponents | None, list[Event] | None]:
-        # (此函数逻辑不变)
+        """获取外部信息和元信息块。"""
         external_info, meta_info, history_components, processed_raw_events = "", "", None, None
         if not self.chat_session_manager:
             return "会话管理器尚未准备就绪。", "", None, None
