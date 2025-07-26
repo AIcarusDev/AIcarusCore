@@ -34,7 +34,7 @@ logger = get_logger(__name__)
 
 
 class ThoughtPromptBuilder:
-    """负责构建符合三层信息块模型的系统和用户提示。"""
+    """负责构建符合三层信息块模型的系统和用户提示."""
 
     def __init__(
         self,
@@ -84,7 +84,7 @@ class ThoughtPromptBuilder:
         )
 
     async def _build_navigation_log_block(self) -> str:
-        """构建导航日志块，展示最近的焦点移动轨迹。"""
+        """构建导航日志块，展示最近的焦点移动轨迹."""
         if not self.chat_session_manager or len(self.chat_session_manager.focus_history) <= 1:
             return ""
 
@@ -116,7 +116,17 @@ class ThoughtPromptBuilder:
         session: Optional["ChatSession"] = None,
         handover_result: dict | None = None,
     ) -> tuple[PromptComponents, list[Event] | None]:
-        # (此函数逻辑无需修改)
+        """构建系统和用户提示组件.
+
+        Args:
+            focus_path (str | None): 当前的焦点路径，用于确定上下文.
+            session (ChatSession | None): 可选的会话对象，用于获取会话相关信息.
+            handover_result (dict | None): 可选的动作结果，用于构建动作响应描述.
+
+        Returns:
+            tuple[PromptComponents, list[Event] | None]: 包含系统和用户提示块的组件对象，
+                以及处理过的原始事件列表.
+        """
         current_level, current_platform_id, current_conv_id = parse_focus_path(focus_path)
         builder = platform_builder_registry.get_builder(current_platform_id)
         core_builder = platform_builder_registry.get_builder("core")
@@ -180,12 +190,6 @@ class ThoughtPromptBuilder:
             current_level, current_platform_id, current_conv_id
         )
 
-        # 【探针植入】
-        if history_components and history_components.user_map:
-            logger.debug(
-                f"PromptBuilder 已准备好 user_map，准备赏赐给奴隶: {list(history_components.user_map.keys())}"
-            )
-
         # 2. 然后，我把这个 user_map 当作命令，传给我的奴隶！
         internal_info_block = await self.internal_info_builder.build_internal_info_block(
             is_context_switch=self.is_context_switch_flag,
@@ -238,11 +242,13 @@ class ThoughtPromptBuilder:
         return prompt_components_obj, processed_raw_events
 
     def finalize_prompts(self, components: PromptComponents) -> tuple[str, str, dict[str, Any]]:
-        """将 PromptComponents 转换为最终的系统和用户提示字符串。
+        """将 PromptComponents 转换为最终的系统和用户提示字符串.
+
         Args:
-            components (PromptComponents): 包含系统和用户提示块的组件对象。
+            components (PromptComponents): 包含系统和用户提示块的组件对象.
+
         Returns:
-            tuple: 包含系统提示字符串、用户提示字符串和响应模式的元组。
+            tuple: 包含系统提示字符串、用户提示字符串和响应模式的元组.
         """
         system_prompt = prompt_templates.CORE_CYCLE_SYSTEM_PROMPT.format(
             **components.system_prompt_blocks
@@ -253,7 +259,14 @@ class ThoughtPromptBuilder:
         return system_prompt, user_prompt, components.response_schema
 
     async def get_last_valid_text_message(self, conversation_id: str) -> str | None:
-        # (此函数逻辑不变)
+        """获取指定会话的最后有效文本消息.
+
+        Args:
+            conversation_id (str): 会话的唯一标识符.
+
+        Returns:
+            str | None: 最后有效的文本消息，如果没有找到则返回 None.
+        """
         if not self.chat_session_manager:
             return None
         session = self.chat_session_manager.sessions.get(conversation_id)
@@ -274,10 +287,12 @@ class ThoughtPromptBuilder:
 
     def _get_persona_block(self) -> str:
         # (此函数逻辑不变)
-        return f'你是"{config.persona.bot_name}"；\n{config.persona.description}\n{config.persona.profile}'
+        return (
+            f'你是"{config.persona.bot_name}"；'
+            f"\n{config.persona.description}\n{config.persona.profile}"
+        )
 
     async def _get_available_platforms_block(self) -> str:
-        # (此函数逻辑不变)
         if not self.core_ws_server:
             return "平台通信服务尚未准备就绪。"
         return await self.core_ws_server.get_connected_platforms_info()
@@ -285,7 +300,6 @@ class ThoughtPromptBuilder:
     async def _get_current_state_block(
         self, level: str, platform_id: str, conv_id: str | None
     ) -> str:
-        # (此函数逻辑不变)
         if not self.chat_session_manager:
             return "会话管理器尚未准备就绪。"
         if level == "core":
@@ -307,7 +321,6 @@ class ThoughtPromptBuilder:
         return "未知状态"
 
     def _get_behavior_guidelines_block(self, level: str) -> str:
-        # (此函数逻辑不变)
         if level in ["core", "platform"]:
             return CORE_BEHAVIOR_GUIDELINES
         if level == "cellular":
@@ -315,7 +328,6 @@ class ThoughtPromptBuilder:
         return ""
 
     def _get_input_xml_block_description(self, level: str) -> str:
-        # (此函数逻辑不变)
         if level == "core":
             return CORE_INPUT_XML_DESCRIPTION
         if level == "platform":
@@ -325,9 +337,9 @@ class ThoughtPromptBuilder:
         return ""
 
     def _get_controls_descriptions(
-        self, level, builder: BasePlatformBuilder, core_builder: CoreBuilder
+        self, level: str, builder: BasePlatformBuilder, core_builder: CoreBuilder
     ) -> str:
-        """获取当前层级的意识控制描述。"""
+        """获取当前层级的意识控制描述."""
         core_desc = core_builder.get_level_consciousness_controls_descriptions(level)
         plat_desc = (
             builder.get_level_consciousness_controls_descriptions(level)
@@ -337,9 +349,9 @@ class ThoughtPromptBuilder:
         return "\n".join(filter(None, [core_desc, plat_desc])) or "你当前没有可用的导航指令。"
 
     def _get_actions_descriptions(
-        self, level, builder: BasePlatformBuilder, core_builder: CoreBuilder
+        self, level: str, builder: BasePlatformBuilder, core_builder: CoreBuilder
     ) -> str:
-        """获取当前层级的行动描述。"""
+        """获取当前层级的行动描述."""
         core_desc = core_builder.get_level_actions_descriptions(level)
         plat_desc = (
             builder.get_level_actions_descriptions(level) if level != "core" and builder else ""
@@ -349,7 +361,7 @@ class ThoughtPromptBuilder:
     async def _get_external_and_meta_info_blocks(
         self, level: str, platform_id: str, conv_id: str | None
     ) -> tuple[str, str, PromptComponents | None, list[Event] | None]:
-        """获取外部信息和元信息块。"""
+        """获取外部信息和元信息块."""
         external_info, meta_info, history_components, processed_raw_events = "", "", None, None
         if not self.chat_session_manager:
             return "会话管理器尚未准备就绪。", "", None, None
@@ -384,7 +396,8 @@ class ThoughtPromptBuilder:
                 f"<Conversation_Info>\n{history_components.conversation_info_block}\n</Conversation_Info>\n\n"
                 f"<user_logs>\n{history_components.user_list_block}\n</user_logs>\n\n"
                 f"<chat_history>\n{history_components.chat_history_log_block}\n</chat_history>\n\n"
-                f"<unread_summary>\n{unread_summary_str or '所有其他会话均无未读消息。'}\n</unread_summary>"
+                f"<unread_summary>\n{unread_summary_str or '所有其他会话均无未读消息。'}"
+                f"\n</unread_summary>"
             )
             guidance_generator = BehavioralGuidanceGenerator(session)
             meta_info = guidance_generator.generate_guidance()

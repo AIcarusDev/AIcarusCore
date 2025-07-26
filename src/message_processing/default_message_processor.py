@@ -25,8 +25,9 @@ logger = get_logger(__name__)
 
 
 class DefaultMessageProcessor:
-    """默认消息处理器 (竞速模式适配版)。
-    它现在拥有了识别“回声”事件并将其正确路由到 ChatSession 的关键能力。
+    """默认消息处理器.
+
+    它现在拥有了识别“回声”事件并将其正确路由到 ChatSession 的关键能力.
     """
 
     def __init__(
@@ -52,14 +53,14 @@ class DefaultMessageProcessor:
         logger.info("DefaultMessageProcessor 初始化完成 (竞速模式适配版)。")
 
     async def _is_self_echo_message(self, event: ProtocolEvent) -> tuple[bool, str | None]:
-        """检查一个消息事件是否是AI自身动作的回声。
+        """检查一个消息事件是否是AI自身动作的回声.
 
         Args:
-            event: 传入的消息事件。
+            event: 传入的消息事件.
 
         Returns:
-            一个元组 (is_echo, original_action_id)。
-            如果事件是回声，is_echo 为 True，且 original_action_id 是触发该回声的原始动作ID。
+            一个元组 (is_echo, original_action_id).
+                如果事件是回声，is_echo 为 True，且 original_action_id 是触发该回声的原始动作ID.
         """
         platform_message_id = event.get_message_id()
         if not platform_message_id:
@@ -84,7 +85,16 @@ class DefaultMessageProcessor:
         websocket: WebSocketServerProtocol,
         needs_persistence: bool = True,
     ) -> None:
-        """处理来自适配器的事件。"""
+        """处理来自适配器的事件.
+
+        Args:
+            proto_event: 传入的 ProtocolEvent 对象.
+            websocket: 连接的 WebSocket 协议对象.
+            needs_persistence: 是否需要将事件持久化到数据库.
+
+        Raises:
+            ValueError: 如果传入的事件不是 ProtocolEvent 类型.
+        """
         if not isinstance(proto_event, ProtocolEvent):
             logger.error(f"传入的事件不是 ProtocolEvent 类型，而是 {type(proto_event)}。跳过处理。")
             return

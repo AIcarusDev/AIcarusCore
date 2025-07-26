@@ -13,7 +13,7 @@ logger = get_logger(__name__)
 
 
 class ActionLogStorageService:
-    """服务类，负责处理动作日志的存储和管理。"""
+    """服务类，负责处理动作日志的存储和管理."""
 
     def __init__(self, conn_manager: ArangoDBConnectionManager) -> None:
         self.conn_manager = conn_manager
@@ -35,6 +35,7 @@ class ActionLogStorageService:
         original_event_id: str | None = None,
         target_user_id: str | None = None,
     ) -> bool:
+        """保存一个动作尝试到 ActionLog 中."""
         collection = await self._get_collection()
         action_log_doc = {
             "_key": action_id,
@@ -75,6 +76,7 @@ class ActionLogStorageService:
         error_info: str | None = None,
         result_details: dict[str, Any] | None = None,
     ) -> bool:
+        """更新动作日志的状态和响应信息."""
         collection = await self._get_collection()
         doc_fields_to_update = {
             "status": status,
@@ -105,6 +107,7 @@ class ActionLogStorageService:
             return False
 
     async def get_action_log(self, action_id: str) -> dict[str, Any] | None:
+        """根据动作ID获取对应的动作日志记录."""
         collection = await self._get_collection()
         try:
             return await collection.get(action_id)
@@ -114,8 +117,9 @@ class ActionLogStorageService:
 
     # =======================【 这 里 就 是 新 增 的 欲 望！】=======================
     async def get_action_log_by_platform_message_id(self, message_id: str) -> dict[str, Any] | None:
-        """根据平台返回的消息ID，查找对应的、成功的 send_message 动作日志。
-        这正是 DefaultMessageProcessor 识别“回声”所需要的关键方法！
+        """根据平台返回的消息ID，查找对应的、成功的 send_message 动作日志.
+
+        这正是 DefaultMessageProcessor 识别“回声”所需要的关键方法!
         """
         if not message_id:
             return None
@@ -142,9 +146,8 @@ class ActionLogStorageService:
             logger.error(f"通过平台消息ID '{message_id}' 查找动作日志失败: {e}", exc_info=True)
             return None
 
-    # ======================================================================
-
     async def get_recent_action_logs(self, limit: int = 10) -> list[dict[str, Any]]:
+        """获取最近的动作日志，按时间降序排列."""
         if limit <= 0:
             return []
         try:
@@ -153,7 +156,7 @@ class ActionLogStorageService:
                     SORT doc.timestamp DESC
                     LIMIT @limit
                     RETURN { timestamp: doc.timestamp, action_type: doc.action_type, status: doc.status, error_info: doc.error_info }
-            """
+            """  # noqa: E501
             bind_vars = {"@collection": self.collection_name, "limit": limit}
             results = await self.conn_manager.execute_query(query, bind_vars)
             return results if results is not None else []

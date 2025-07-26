@@ -13,7 +13,7 @@ logger = get_logger(__name__)
 
 
 class InternalInfoBuilder:
-    """负责构建AI纯粹的内部信息块 (v2.0 结构化快照版)。"""
+    """负责构建AI纯粹的内部信息块 (v2.0 结构化快照版)."""
 
     def __init__(self, thought_storage_service: ThoughtStorageService) -> None:
         self.thought_storage_service = thought_storage_service
@@ -25,11 +25,14 @@ class InternalInfoBuilder:
         session: Optional["ChatSession"] = None,
         user_map_from_prompt_builder: dict | None = None,
     ) -> str:
-        """构建结构化的 <internal_info> 块，包含意识快照。"""
+        """构建结构化的 <internal_info> 块，包含意识快照."""
         try:
             latest_thought = await self.thought_storage_service.get_latest_thought_document()
             if not latest_thought:
-                return "<internal_info>\n<!-- 你刚刚开始思考，还没有任何内部状态历史。 -->\n</internal_info>"
+                return (
+                    "<internal_info>\n<!-- 你刚刚开始思考，还没有任何内部状态历史。 -->\n"
+                    "</internal_info>"
+                )
 
             snapshot_lines = []
 
@@ -59,7 +62,7 @@ class InternalInfoBuilder:
             return "<internal_info>\n<!-- 内部信息构建失败 -->\n</internal_info>"
 
     def _format_thought_content(self, thought_doc: dict) -> list[str]:
-        """格式化思想内容（心情、想法、目标）。"""
+        """格式化思想内容（心情、想法、目标）."""
         lines = []
         lines.append(f"<mood>{thought_doc.get('mood', '平静')}</mood>")
         lines.append(f"<think>{thought_doc.get('think', '...')}</think>")
@@ -68,7 +71,7 @@ class InternalInfoBuilder:
         return lines
 
     def _format_planned_action(self, thought_doc: dict) -> str:
-        """完整地格式化被中断前计划执行的动作，复现提案逻辑。"""
+        """完整地格式化被中断前计划执行的动作，复现提案逻辑."""
         action_payload = thought_doc.get("action_payload", {})
         action_part = action_payload.get("action")
         control_part = action_payload.get("consciousness_control")
@@ -114,7 +117,7 @@ class InternalInfoBuilder:
         return f"<planned_action>{' 并且 '.join(descriptions)}</planned_action>"
 
     def _format_completed_action(self, thought_doc: dict) -> str:
-        """格式化已完成的动作及其结果。"""
+        """格式化已完成的动作及其结果."""
         action_result = thought_doc.get("action_result")
         if not action_result or "决策中未包含任何行动指令" in action_result:
             return "<completed_action>无</completed_action>"
@@ -124,7 +127,7 @@ class InternalInfoBuilder:
         return f"<completed_action>\n        {indented_result}\n    </completed_action>"
 
     async def _format_interruption(self, session: "ChatSession", user_map: dict | None) -> str:
-        """格式化中断信息。"""
+        """格式化中断信息."""
         context = session.interruption_context
         event_doc = context.get("interrupting_event_doc", {})
         if not event_doc:
@@ -153,7 +156,7 @@ class InternalInfoBuilder:
         return "\n        ".join(lines)
 
     def _escape_xml_text(self, text: str) -> str:
-        """对文本进行标准的XML转义，防止破坏结构。"""
+        """对文本进行标准的XML转义，防止破坏结构."""
         text = text.replace("&", "&")
         text = text.replace("<", "<")
         text = text.replace(">", ">")
