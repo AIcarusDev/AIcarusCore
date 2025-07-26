@@ -26,6 +26,11 @@ class QQBuilder(BasePlatformBuilder):
         """QQ平台需要在连接时进行“上线安检”."""
         return True
 
+    @property
+    def is_person_platform(self) -> bool:
+        """QQ平台具有身份内容, 返回 True."""
+        return True
+
     def __init__(self) -> None:
         super().__init__()
         # 把所有可以用通用模板处理的动作都放在这里。

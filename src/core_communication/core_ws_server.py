@@ -160,17 +160,29 @@ class CoreWebsocketServer:
         else:
             # 如果不需要安检 (比如 Termux)
             logger.info(f"平台 '{display_name}({adapter_id})' 无需上线安检，执行轻量化身份登记。")
-            # 对于这类平台，它的 platform_id 就是它的 bot_id
-            # 我们直接更新需要这个ID的服务
+            # 新增的判断逻辑！
+            # 检查这个平台到底是不是“人”
+            if builder and builder.is_person_platform:
+                # 是“人”，但不需要复杂安检，给它简单登记一下
+                logger.info(
+                    f"平台 '{adapter_id}' 是一个人物平台，为其在数据库中登记固定的身份信息。"
+                )
+                await self.person_service._create_new_person_with_account(
+                    user_info={"user_id": adapter_id, "user_nickname": display_name},
+                    platform=adapter_id,
+                    is_self=True,
+                )
+            else:
+                # 不是“人”，是个工具，那就完全跳过人物创建！
+                logger.info(f"平台 '{adapter_id}' 是一个工具平台，跳过创建人物档案的步骤。")
+
+            # 无论是不是“人”，ID登记还是要做的
             if self.action_handler_instance.chat_session_manager:
                 self.action_handler_instance.chat_session_manager.self_bot_ids_map[adapter_id] = (
                     adapter_id
                 )
                 logger.debug(f"ChatSessionManager 的 ID 地图已为平台 '{adapter_id}' 更新。")
 
-            # UnreadInfoService 也需要知道
-            # 注意：这里的 unread_info_service 是通过 core_logic.prompt_builder 访问的，
-            # 确保依赖已注入
             if (
                 self.action_handler_instance.core_logic
                 and self.action_handler_instance.core_logic.prompt_builder

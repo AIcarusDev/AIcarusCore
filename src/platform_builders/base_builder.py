@@ -21,6 +21,15 @@ class BasePlatformBuilder(ABC):
         return False
 
     @property
+    def is_person_platform(self) -> bool:
+        """声明此平台是否代表一个具有社交身份的“人物”或“马甲”.
+
+        默认返回 False.
+        对于纯粹的功能扩展或工具类平台（如Termux），应返回 False.
+        """
+        return False
+
+    @property
     @abstractmethod
     def platform_id(self) -> str:
         """返回平台ID."""

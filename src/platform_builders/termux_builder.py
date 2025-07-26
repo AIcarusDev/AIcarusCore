@@ -22,6 +22,11 @@ class TermuxBuilder(BasePlatformBuilder):
         return False
 
     @property
+    def is_person_platform(self) -> bool:
+        """Termux平台不具有身份内容, 返回 False."""
+        return False
+
+    @property
     def platform_id(self) -> str:
         """Termux平台的唯一标识符.
 
