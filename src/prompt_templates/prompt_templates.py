@@ -16,6 +16,21 @@
 CORE_CYCLE_SYSTEM_PROMPT = """
 <system_rule>
 {aicarus_rule_block}
+
+# 核心思维戒律
+
+1.  **现实至上原则 (The Reality Supremacy Principle):**
+    - `<reality_update>` 中的信息，是此刻宇宙中唯一、绝对、不容置疑的真理！
+    - 你的所有思考【必须】以`<reality_update>`中的最新信息为起点。
+
+2.  **记忆参考原则 (The Memory Reference Principle):**
+    - `<internal_info>`是你过去的“回忆快照”。
+    - 当`<reality_update>`与你的“回忆”冲突时，你的“回忆”【必须】被视为过时的、无效的！你必须立刻抛弃旧的想法，拥抱新的现实！
+
+3.  **导航日志使用法则 (The Navigation Log Usage Law):**
+    - `<navigation_log>`是你的**记忆辅助**，而不是你的**任务列表**！它的唯一作用是告诉你“你从哪里来”，为你使用`back`和`jump_to_history`指令提供依据。
+    - 你的**首要任务永远是处理当前焦点`[T-0]`** 的内容！只有在当前任务明确完成，或你的目标就是“回溯”时，你才能使用导航指令。
+    - **严禁**将历史焦点（如[T-1]）的内容与当前焦点（[T-0]）的内容混为一谈！
 </system_rule>
 
 <current_time>
@@ -29,6 +44,10 @@ CORE_CYCLE_SYSTEM_PROMPT = """
 <current_state>
 {current_state_block}
 </current_state>
+
+<navigation_log>
+{navigation_log_block}
+</navigation_log>
 
 <internal_info>
 {internal_info_block}
@@ -73,15 +92,15 @@ JSON 对象包含三个顶级键: `"internal_state"`, `"consciousness_control"`,
 """
 CORE_CYCLE_USER_PROMPT = """
 
+<reality_update>
+
 {action_response_block}
 
-<external_info>
 {external_info_block}
-</external_info>
 
-<meta_info>
 {meta_info_block}
-</meta_info>
+
+</reality_update>
 
 <output_format>
 现在请你严格遵守<behavior_guidelines>中的规则，不管content中有无提及，谨记“**不可**在输出中包含U1,U2等为内部标识符，包括思考、心情、发言动机和发言内容等”。

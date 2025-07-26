@@ -84,6 +84,35 @@ class ThoughtPromptBuilder:
             f"</action_response>"
         )
 
+
+    async def _build_navigation_log_block(self) -> str:
+        """构建导航日志块，展示最近的焦点移动轨迹。"""
+        if not self.chat_session_manager or len(self.chat_session_manager.focus_history) <= 1:
+            return ""
+
+        log_lines = ["<navigation_log>"]
+        log_lines.append("<!-- 这是你最近的意识焦点移动轨迹 -->")
+
+        history = list(self.chat_session_manager.focus_history) # 创建副本以安全迭代
+        history_len = len(history)
+
+        for i, entry in enumerate(reversed(history)):
+            if not isinstance(entry, dict):
+                continue
+
+            time_index = history_len - 1 - i
+            relative_index = time_index - (history_len - 1)
+            motivation = entry.get('motivation', '未知动机')
+
+            # [优化点] 调用异步方法获取丰富描述
+            desc = await self.chat_session_manager._get_focus_description(entry)
+
+            log_lines.append(f'[T{relative_index}] 聚焦于 {desc} (动机: {motivation})')
+
+        log_lines.append("</navigation_log>")
+        return "\n".join(log_lines)
+
+
     async def build_prompts_components(
         self,
         focus_path: str | None,
@@ -171,6 +200,7 @@ class ThoughtPromptBuilder:
         )
 
         action_response_block = await self._build_action_response_desc(handover_result)
+        navigation_log_block = await self._build_navigation_log_block()
 
         system_prompt_blocks = {
             "aicarus_rule_block": AICARUS_RULE,
@@ -180,6 +210,7 @@ class ThoughtPromptBuilder:
             "current_state_block": await self._get_current_state_block(
                 current_level, current_platform_id, current_conv_id
             ),
+            "navigation_log_block": navigation_log_block,
             "behavior_guidelines_block": self._get_behavior_guidelines_block(current_level),
             "internal_info_block": internal_info_block,
             "input_XML_block_description": self._get_input_xml_block_description(current_level),

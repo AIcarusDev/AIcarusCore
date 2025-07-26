@@ -1,6 +1,8 @@
 # src/focus_chat_mode/chat_session_manager.py
 # 聊天会话管理器模块，用于管理聊天会话的生命周期和相关操作。
+import time
 import asyncio
+from collections import deque
 from typing import TYPE_CHECKING, Optional
 
 from aicarus_protocols import Event
@@ -85,11 +87,22 @@ class ChatSessionManager:
 
         self.sessions: dict[str, ChatSession] = {}
         self.lock = asyncio.Lock()
-        self.previous_focus_path: str | None = None
+        self.focus_history = deque([None], maxlen=10)
         self._last_switch_description: str = "你刚刚从发呆的状态中回过神来"
-        self.current_focus_path: str | None = None
 
-        logger.info("ChatSessionManager 初始化完成，并已注入智能打断系统。")
+        logger.info("ChatSessionManager 初始化完成。")
+
+    @property
+    def current_focus_path(self) -> str | None:
+        """属性：返回当前焦点路径（堆栈顶部）。"""
+        return self.focus_history[-1]
+
+    @property
+    def previous_focus_path(self) -> str | None:
+        """属性：返回上一个焦点路径（堆栈次顶部）。"""
+        if len(self.focus_history) > 1:
+            return self.focus_history[-2]
+        return None
 
     def _get_conversation_id(self, event: Event) -> str:
         # 从 Event 中提取唯一的会话ID (例如 group_id 或 user_id)
@@ -221,8 +234,22 @@ class ChatSessionManager:
 
         logger.info("[SessionManager] 所有活动会话的关闭流程已完成。")
 
-    async def _get_focus_description(self, focus_path: str | None) -> str:
-        """根据 focus_path 生成一个详细的、人类可读的位置描述。"""
+    async def _get_focus_description(self, focus_path_or_entry: str | dict | None) -> str:
+        """
+        根据 focus_path 或历史条目 生成一个详细的、人类可读的位置描述。
+        [v2.0 改造版]: 能够处理字符串和字典两种输入。
+        """
+        # --- 步骤 1: 预处理，从输入中提取出纯粹的路径字符串 ---
+        focus_path: str | None = None
+        if isinstance(focus_path_or_entry, dict):
+            # 如果输入是我们的历史条目字典，就从中提取 'target_path'
+            focus_path = focus_path_or_entry.get("target_path")
+        elif isinstance(focus_path_or_entry, str):
+            # 如果输入直接就是字符串，就直接使用
+            focus_path = focus_path_or_entry
+        # 如果输入是 None 或者其他类型，focus_path 将保持为 None
+
+        # --- 步骤 2: 执行原有的描述生成逻辑 (这部分逻辑完全不用变) ---
         if focus_path is None or focus_path == "core":
             return "正在发呆/自我思考"
 
@@ -235,15 +262,16 @@ class ChatSessionManager:
         # 会话层 (cellular)
         if len(path_parts) >= 2:
             platform_id = path_parts[0]
+            # 修复：会话ID可能是由多个部分组成的，例如 "private.123456"
             conv_id = ".".join(path_parts[1:])
 
             # 尝试从内存中的 session 获取信息
             session = self.sessions.get(conv_id)
-            if session:
+            if session and session.conversation_name: # 优先使用内存中更新的会话名
                 conv_type_str = "群会话" if session.conversation_type == "group" else "私聊会话"
-                return f"{conv_type_str}'{session.conversation_name or conv_id}'(ID: {conv_id})"
+                return f"{conv_type_str}'{session.conversation_name}'(ID: {conv_id})"
 
-            # 如果 session 不在内存，从数据库查
+            # 如果 session 不在内存或没有名字，从数据库查
             conv_doc = await self.conversation_service.get_conversation_document_by_id(conv_id)
             if conv_doc:
                 conv_type = conv_doc.get("type", "unknown")
@@ -264,137 +292,218 @@ class ChatSessionManager:
         return self._last_switch_description
 
     async def handle_consciousness_control(self, control_json: dict) -> None:
-        """处理来自LLM决策的意识控制指令.
-
-        这是焦点管理的核心，负责根据指令更新 self.current_focus_path 并触发主循环.
-        """
+        """处理来自LLM决策的意识控制指令 (v2.0 堆栈版 + 新API)。"""
         if not control_json or not isinstance(control_json, dict):
             return
 
-        logger.info(f"焦点管理器收到意识控制指令: {control_json}")
+        logger.info(f"焦点管理器(v2.0)收到意识控制指令: {control_json}")
 
-        # 标志位，表示焦点是否发生了切换
         focus_switched = False
-
-        # 获取指令和动机
         command, params = next(iter(control_json.items()))
         motivation = params.get("motivation", "没有明确动机")
 
-        # 在改变焦点前，记录当前位置
-        self.previous_focus_path = self.current_focus_path
-        new_focus_path: str | None = self.current_focus_path  # 默认为当前路径
+        previous_path_for_desc = self.current_focus_path
 
-        if command == "focus":
-            target_id = params.get("platform_id") or params.get("conversation_id")
-            if not target_id:
-                logger.error("'focus' 指令缺少 'platform_id' 或 'conversation_id'。")
+        history_entry_base = {
+            "timestamp": int(time.time() * 1000),
+            "command": command,
+            "motivation": motivation
+        }
+
+        # --- 新指令处理逻辑 ---
+        if command == "push_focus":
+            target_path_param = params.get("target_path")
+            if not target_path_param:
+                logger.error("'push_focus' 指令缺少 'target_path'。")
                 return
 
-            platform_to_check = (
-                target_id
-                if self.previous_focus_path is None
-                else self.previous_focus_path.split(".")[0]
-            )
-            if platform_to_check not in self.self_bot_ids_map:
-                logger.warning(
-                    f"AI 尝试 [focus] 到平台 '{platform_to_check}' 或其下的会话 '{target_id}'，"
-                    f"但该平台的安检尚未完全完成（ID未登记）。本次 focus 动作被拒绝。"
-                )
-                # 动作失败，直接返回，不改变焦点，也不触发思考。
-                # 主循环会按正常间隔继续下一轮思考。
-                return
+            # 处理相对路径和绝对路径
+            current_path_str = previous_path_for_desc.get("target_path") if isinstance(previous_path_for_desc, dict) else previous_path_for_desc
+            new_path = target_path_param
+            if "." not in new_path and current_path_str is not None:
+                new_path = f"{current_path_str}.{new_path}"
 
-            if self.previous_focus_path is None:
-                new_focus_path = target_id
-            else:
-                new_focus_path = f"{self.previous_focus_path}.{target_id}"
+            entry_to_push = {**history_entry_base, "target_path": new_path}
+            self.focus_history.append(entry_to_push)
+            logger.info(f"[堆栈 PUSH] 焦点下潜至: {new_path}")
 
-            # 如果是进入底层会话，需要预先创建会话档案
-            if len(new_focus_path.split(".")) >= 2:
-                conv_doc = await self.conversation_service.get_conversation_document_by_id(
-                    target_id
-                )
+            path_parts = new_path.split(".")
+            if len(path_parts) >= 2:
+                conv_id = ".".join(path_parts[1:])
+                conv_doc = await self.conversation_service.get_conversation_document_by_id(conv_id)
                 if not conv_doc:
-                    logger.error(f"无法 'focus'，数据库中找不到会话 '{target_id}'。")
-                    return
+                    logger.error(f"无法 'push_focus'，数据库中找不到会话 '{conv_id}'。回滚堆栈。")
+                    self.focus_history.pop()
+                else:
+                    await self.get_or_create_session(
+                        conversation_id=conv_id,
+                        platform=conv_doc.get("platform"),
+                        conversation_type=conv_doc.get("type"),
+                    )
+                    focus_switched = True
+            else: # 进入平台层
+                focus_switched = True
 
-                await self.get_or_create_session(
-                    conversation_id=target_id,
-                    platform=conv_doc.get("platform"),
-                    conversation_type=conv_doc.get("type"),
-                )
+        elif command == "pop_focus" or command == "back":
+            if len(self.focus_history) <= 1:
+                logger.warning(f"在顶层Core-Level尝试执行 '{command}'，无效操作，已忽略。")
+                return
+
+            leaving_entry = self.focus_history.pop()
+            leaving_path = leaving_entry.get("target_path")
+            logger.info(f"[堆栈 POP/BACK] 焦点从 '{leaving_path}' 上浮。")
+
+            if leaving_path and "." in leaving_path:
+                await self.deactivate_session(leaving_path.split(".")[-1], {"motivation": motivation})
+
+            # 如果上浮后进入了底层会话，需要重新激活它
+            new_focus_entry = self.current_focus_path
+            new_path_str = new_focus_entry.get("target_path") if isinstance(new_focus_entry, dict) else new_focus_entry
+            if new_path_str and "." in new_path_str:
+                path_parts = new_path_str.split(".")
+                conv_id = ".".join(path_parts[1:])
+                conv_doc = await self.conversation_service.get_conversation_document_by_id(conv_id)
+                if conv_doc:
+                    await self.get_or_create_session(
+                        conversation_id=conv_id,
+                        platform=conv_doc.get("platform"),
+                        conversation_type=conv_doc.get("type"),
+                    )
 
             focus_switched = True
 
-        elif command == "return":
-            if self.previous_focus_path is None:
-                logger.warning("在顶层Core-Level尝试执行 'return'，这是一个无效操作，已忽略。")
+        elif command == "swap_focus":
+            target_conv_id = params.get("target_path")
+            current_entry = self.current_focus_path
+            current_path_str = current_entry.get("target_path") if isinstance(current_entry, dict) else current_entry
+
+            if not target_conv_id or not current_path_str or "." not in current_path_str:
+                logger.error("'swap_focus' 指令无效：缺少目标会话ID或当前不在底层会话中。")
                 return
 
-            path_parts = self.previous_focus_path.split(".")
-            if len(path_parts) > 1:  # 从底层返回中层
-                leaving_conv_id = path_parts[-1]
-                await self.deactivate_session(leaving_conv_id, {"motivation": motivation})
-                new_focus_path = ".".join(path_parts[:-1])
-            else:
-                new_focus_path = None
+            # SWAP = POP + PUSH
+            leaving_entry = self.focus_history.pop()
+            leaving_path = leaving_entry.get("target_path")
+            await self.deactivate_session(leaving_path.split(".")[-1], {"motivation": motivation, "target_id": target_conv_id})
 
-            focus_switched = True
-            logger.info(
-                f"AI 决定 [return] 到: '{self.current_focus_path or 'Core'}' (动机: {motivation})"
-            )
+            platform_path_entry = self.current_focus_path
+            platform_path_str = platform_path_entry.get("target_path") if isinstance(platform_path_entry, dict) else platform_path_entry
+            new_path = f"{platform_path_str}.{target_conv_id}"
 
-        elif command == "shift":
-            target_conv_id = params.get("conversation_id")
-            if (
-                not target_conv_id
-                or not self.previous_focus_path
-                or "." not in self.previous_focus_path
-            ):
-                logger.error("'shift' 指令无效：缺少目标ID或当前不在底层会话中。")
-                return
-
-            leaving_conv_id = self.previous_focus_path.split(".")[-1]
-            platform_path = ".".join(self.previous_focus_path.split(".")[:-1])
-
-            # 先处理离开的会话
-            await self.deactivate_session(
-                leaving_conv_id, {"motivation": motivation, "target_id": target_conv_id}
-            )
-
-            # 再处理进入新的会话
-            conv_doc = await self.conversation_service.get_conversation_document_by_id(
-                target_conv_id
-            )
+            conv_doc = await self.conversation_service.get_conversation_document_by_id(target_conv_id)
             if not conv_doc:
-                logger.error(f"无法 'shift'，数据库中找不到目标会话 '{target_conv_id}'。")
-                new_focus_path = platform_path  # 退回到平台层
+                logger.error(f"无法 'swap_focus'，数据库中找不到目标会话 '{target_conv_id}'。切换中止，停留在平台层。")
             else:
                 await self.get_or_create_session(
                     conversation_id=target_conv_id,
                     platform=conv_doc.get("platform"),
                     conversation_type=conv_doc.get("type"),
                 )
-                new_focus_path = f"{platform_path}.{target_conv_id}"
+                entry_to_push = {**history_entry_base, "target_path": new_path}
+                self.focus_history.append(entry_to_push)
+                logger.info(f"[堆栈 SWAP] 焦点切换至: {new_path}")
 
             focus_switched = True
-            logger.info(f"AI 决定 [shift] 到: '{self.current_focus_path}' (动机: {motivation})")
+
+        elif command == "teleport_focus":
+            target_path = params.get("target_path")
+            if not target_path:
+                logger.error("'teleport_focus' 指令缺少 'target_path'。")
+                return
+
+            # 停用当前可能存在的底层会话
+            current_entry = self.current_focus_path
+            current_path_str = current_entry.get("target_path") if isinstance(current_entry, dict) else current_entry
+            if current_path_str and "." in current_path_str:
+                await self.deactivate_session(current_path_str.split(".")[-1], {"motivation": f"传送到 {target_path}"})
+
+            # 清空历史并设置新路径
+            self.focus_history.clear()
+            self.focus_history.append(None) # 添加core层
+            entry_to_push = {**history_entry_base, "target_path": target_path}
+            self.focus_history.append(entry_to_push)
+            logger.info(f"[堆栈 TELEPORT] 焦点已传送至: {target_path}")
+
+            # --- [优化点] 智能激活会话 ---
+            path_parts = target_path.split(".")
+            if len(path_parts) >= 2:
+                conv_id = ".".join(path_parts[1:])
+                conv_doc = await self.conversation_service.get_conversation_document_by_id(conv_id)
+                if conv_doc:
+                    logger.info(f"传送着陆后，根据数据库记录激活会话: {conv_id}")
+                    await self.get_or_create_session(
+                        conversation_id=conv_id,
+                        platform=conv_doc.get("platform"),
+                        conversation_type=conv_doc.get("type"),
+                    )
+                else:
+                    logger.warning(f"传送目标 '{target_path}' 无法在数据库中找到对应会话，可能无法正常交互。")
+
+            focus_switched = True
+
+        elif command == "jump_to_history":
+            history_index = params.get("history_index")
+            if history_index is None:
+                logger.error("'jump_to_history' 指令缺少 'history_index'。")
+                return
+
+            try:
+                # 转换 T-index (如 -2) 为 deque 的正向索引
+                history_len = len(self.focus_history)
+                # T-0 is at index -1, T-1 at -2. So a jump to T-N corresponds to index -1-N
+                target_deque_index = -1 + history_index
+
+                if not (-history_len <= target_deque_index < 0):
+                    logger.error(f"历史索引 {history_index} 超出范围 (当前历史深度: {history_len-1})。")
+                    return
+
+                target_entry = self.focus_history[target_deque_index]
+                target_path = target_entry.get("target_path")
+
+                # 停用当前会话
+                current_entry = self.current_focus_path
+                current_path_str = current_entry.get("target_path") if isinstance(current_entry, dict) else current_entry
+                if current_path_str and "." in current_path_str:
+                    await self.deactivate_session(current_path_str.split(".")[-1], {"motivation": f"跳跃到历史焦点 {target_path}"})
+
+                # 从堆栈中移除目标之后的所有条目
+                num_to_pop = abs(target_deque_index) -1
+                for _ in range(num_to_pop):
+                    self.focus_history.pop()
+                # 将目标条目添加到堆栈顶部
+                logger.info(f"[堆栈 JUMP] 焦点已跳跃至历史记录: {target_path}")
+
+                # 重新激活目标会话
+                if target_path and "." in target_path:
+                    path_parts = target_path.split(".")
+                    conv_id = ".".join(path_parts[1:])
+                    conv_doc = await self.conversation_service.get_conversation_document_by_id(conv_id)
+                    if conv_doc:
+                        await self.get_or_create_session(
+                            conversation_id=conv_id,
+                            platform=conv_doc.get("platform"),
+                            conversation_type=conv_doc.get("type"),
+                        )
+                # 更新当前焦点路径
+                focus_switched = True
+
+            except (IndexError, TypeError) as e:
+                logger.error(f"处理 'jump_to_history' 时发生错误，索引: {history_index}, 错误: {e}")
+                return
 
         # 如果发生了切换，更新状态并生成描述
         if focus_switched:
-            # 1. 更新当前焦点
-            self.current_focus_path = new_focus_path
+            from_desc_entry = previous_path_for_desc
+            to_desc_entry = self.current_focus_path
 
-            # 2. 生成描述
-            from_desc = await self._get_focus_description(self.previous_focus_path)
-            to_desc = await self._get_focus_description(self.current_focus_path)
+            from_desc = await self._get_focus_description(from_desc_entry)
+            to_desc = await self._get_focus_description(to_desc_entry)
             self._last_switch_description = f"你刚刚从“{from_desc}”来到了“{to_desc}”"
 
-            logger.info(
-                f"AI 决定 [{command}]，{self._last_switch_description} (动机: {motivation})"
-            )
-
-            # 3. 触发思考
+            logger.info(f"AI 决定 [{command}]，{self._last_switch_description} (动机: {motivation})")
+            # 触发立即思考周期，更新内部状态
             if self.core_logic and hasattr(self.core_logic, "prompt_builder"):
                 self.core_logic.prompt_builder.is_context_switch_flag = True
                 self.core_logic.trigger_immediate_thought_cycle()
+
+

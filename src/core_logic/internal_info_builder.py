@@ -1,4 +1,4 @@
-# 文件: src/core_logic/internal_info_builder.py (净化版 V1.4 - 优化版)
+# src/core_logic/internal_info_builder.py (完整实现版 v2.0)
 from typing import TYPE_CHECKING, Any, Optional
 
 from aicarus_protocols import Event
@@ -13,9 +13,7 @@ logger = get_logger(__name__)
 
 
 class InternalInfoBuilder:
-    """负责构建AI纯粹的内部信息块。
-    它不再关心行动结果，只负责报告内心独白和中断情况。
-    """
+    """负责构建AI纯粹的内部信息块 (v2.0 结构化快照版)。"""
 
     def __init__(self, thought_storage_service: ThoughtStorageService) -> None:
         self.thought_storage_service = thought_storage_service
@@ -27,85 +25,56 @@ class InternalInfoBuilder:
         session: Optional["ChatSession"] = None,
         user_map_from_prompt_builder: dict | None = None,
     ) -> str:
-        """构建内部信息块。"""
-        logger.debug(f"开始构建内部信息块... (上下文切换: {is_context_switch})")
-
+        """构建结构化的 <internal_info> 块，包含意识快照。"""
         try:
             latest_thought = await self.thought_storage_service.get_latest_thought_document()
             if not latest_thought:
-                return "你刚刚开始思考，还没有任何内部状态历史。"
+                return "<internal_info>\n<!-- 你刚刚开始思考，还没有任何内部状态历史。 -->\n</internal_info>"
 
-            report_lines = [
-                f"你当前的目标是：【{latest_thought.get('goal') or '无'}】",
-                f"你刚才的心情是：{latest_thought.get('mood', '平静')}",
-                f"你刚才的内心想法是：{latest_thought.get('think', '...')}",
-            ]
+            snapshot_lines = []
 
+            # 检查中断状态
             if session and session.interruption_context:
-                interruption_report = await self._build_interruption_report(
-                    session, latest_thought, user_map_from_prompt_builder
-                )
-                if interruption_report:
-                    report_lines.append(interruption_report)
+                snapshot_lines.append('<snapshot time="T-1" status="INTERRUPTED">')
+                snapshot_lines.extend(self._format_thought_content(latest_thought))
+                snapshot_lines.append(self._format_planned_action(latest_thought))
+                snapshot_lines.append(await self._format_interruption(session, user_map_from_prompt_builder))
+                # 中断发生后，清理上下文，避免下次思考时重复报告
                 session.interruption_context = None
             else:
-                action_payload = latest_thought.get("action_payload", {})
-                action_desc = self._build_action_desc(action_payload.get("action"))
+                snapshot_lines.append('<snapshot time="T-1" status="COMPLETED">')
+                snapshot_lines.extend(self._format_thought_content(latest_thought))
+                snapshot_lines.append(self._format_completed_action(latest_thought))
 
-                control_desc = self._build_control_desc(
-                    action_payload.get("consciousness_control"), is_context_switch
-                )
+            snapshot_lines.append('</snapshot>')
 
-                if action_desc:
-                    report_lines.append(action_desc)
-                if control_desc:
-                    prefix = "并且，" if action_desc else ""
-                    report_lines.append(prefix + control_desc)
-
-            return "\n".join(report_lines)
+            # 使用缩进美化输出
+            indented_lines = "\n".join(f"    {line}" for line in snapshot_lines)
+            return f"<internal_info>\n{indented_lines}\n</internal_info>"
 
         except Exception as e:
             logger.error(f"构建内部信息块时发生严重错误: {e}", exc_info=True)
-            return "<!-- 内部信息构建失败 -->"
+            return "<internal_info>\n<!-- 内部信息构建失败 -->\n</internal_info>"
 
-    async def _build_interruption_report(
-        self, session: "ChatSession", latest_thought_doc: dict, user_map: dict | None
-    ) -> str:
-        context = session.interruption_context
-        interrupting_event_doc = context.get("interrupting_event_doc", {})
-        if not interrupting_event_doc:
-            return "你的行动被一个未知事件打断了。"
-        interrupting_event = Event.from_dict(interrupting_event_doc)
-        interrupt_text = interrupting_event.get_text_content() or "[非文本消息]"
-        interrupt_sender_id = (
-            interrupting_event.user_info.user_id if interrupting_event.user_info else "未知用户"
-        )
-        interrupt_sender_uid = f"未知用户({interrupt_sender_id[:4]})"
-        if user_map:
-            logger.debug(
-                f"InternalInfoBuilder 正在使用主人传入的 user_map 解析中断者ID: {interrupt_sender_id}"
-            )
-            pid_to_uid_map = {pid: data["uid_str"] for pid, data in user_map.items()}
-            interrupt_sender_uid = pid_to_uid_map.get(
-                str(interrupt_sender_id), interrupt_sender_uid
-            )
-        else:
-            logger.warning("主人没有赏赐 user_map，中断报告中的用户名可能不准确。")
-        planned_action_desc = self._format_planned_action(latest_thought_doc)
-        return (
-            f"{planned_action_desc}\n"
-            f"但是，在你正要行动时，{interrupt_sender_uid} 的新消息“{interrupt_text}”"
-            f"打断了你，所以你停下了动作。"
-        )
+    def _format_thought_content(self, thought_doc: dict) -> list[str]:
+        """格式化思想内容（心情、想法、目标）。"""
+        lines = []
+        lines.append(f"<mood>{thought_doc.get('mood', '平静')}</mood>")
+        lines.append(f"<think>{thought_doc.get('think', '...')}</think>")
+        if goal := thought_doc.get('goal'):
+            lines.append(f"<goal>{goal}</goal>")
+        return lines
 
     def _format_planned_action(self, thought_doc: dict) -> str:
+        """完整地格式化被中断前计划执行的动作，复现提案逻辑。"""
         action_payload = thought_doc.get("action_payload", {})
         action_part = action_payload.get("action")
         control_part = action_payload.get("consciousness_control")
         descriptions = []
+
         if action_part and isinstance(action_part, dict):
             if action_part.get("core", {}).get("do_nothing"):
-                descriptions.append("你本来决定不采取任何行动。")
+                descriptions.append("决定不采取任何行动")
             else:
                 try:
                     platform_key, platform_actions = next(iter(action_part.items()))
@@ -119,91 +88,73 @@ class InternalInfoBuilder:
                                 if s.get("command") == "text" and s.get("params", {}).get("content")
                             ]
                             if not texts:
-                                descriptions.append("你本来想发送一条非文本消息。")
-                            elif len(texts) == 1:
-                                descriptions.append(f"你本来想做：发言（发言内容为：“{texts[0]}”）")
+                                descriptions.append("发送一条非文本消息")
                             else:
-                                descriptions.append(
-                                    f"你本来想做：发言（发言内容依次为：{'、'.join(f'“{t}”' for t in texts)}）"
-                                )
+                                formatted_texts = '、'.join(f'“{t}”' for t in texts)
+                                descriptions.append(f"发言（内容：{formatted_texts}）")
                         else:
-                            descriptions.append(f"你本来想做：{platform_key}.{action_name}。")
-                except:
-                    descriptions.append("你本来想执行一个复杂的动作。")
+                            descriptions.append(f"执行 {platform_key}.{action_name}")
+                except Exception as e:
+                    logger.debug(f"解析 planned_action 失败: {e}")
+                    descriptions.append("执行一个复杂的动作")
+
         if control_part and isinstance(control_part, dict):
             try:
                 command, params = next(iter(control_part.items()))
-                motivation = params.get("motivation", "没有明确动机")
-                descriptions.append(
-                    f"你本来想转移注意力（指令: {command}），因为：“{motivation}”。"
-                )
-            except:
-                descriptions.append("你本来想转移注意力。")
+                motivation = params.get("motivation", "无")
+                descriptions.append(f"转移注意力（指令: {command}，动机: {motivation}）")
+            except Exception:
+                descriptions.append("转移注意力")
+
         if not descriptions:
-            return "你本来什么也不打算做。"
-        return " ".join(descriptions)
+            return "<planned_action>无</planned_action>"
 
-    def _build_action_desc(self, action_part: dict | None) -> str:
-        if not action_part or not isinstance(action_part, dict):
-            return ""
-        if do_nothing_params := action_part.get("core", {}).get("do_nothing"):
-            return f'出于你刚才的想法，你决定不采取任何行动，因为："{do_nothing_params.get("motivation", "决定保持沉默")}"'
-        try:
-            platform_key, platform_actions = next(iter(action_part.items()))
-            if isinstance(platform_actions, dict) and platform_actions:
-                action_name, action_params = next(iter(platform_actions.items()))
-                return self._format_action_description(platform_key, action_name, action_params)
-        except Exception as e:
-            logger.error(f"解析动作描述失败: {e}, Payload: {action_part}", exc_info=True)
-        return "出于你刚才的想法，你执行了一个未被详细记录的动作。"
+        return f"<planned_action>{' 并且 '.join(descriptions)}</planned_action>"
 
-    def _format_action_description(
-        self, platform_key: str, action_name: str, action_params: Any
-    ) -> str:
-        if not isinstance(action_params, dict):
-            return f"出于你刚才的想法，你做了：{platform_key}.{action_name}（参数格式异常）。"
-        motivation = action_params.get("motivation", "没有明确动机")
-        if action_name == "send_message":
-            steps = action_params.get("steps", [])
-            texts = [
-                s.get("params", {}).get("content")
-                for s in steps
-                if s.get("command") == "text" and s.get("params", {}).get("content")
-            ]
-            if not texts:
-                return f'出于你刚才的想法，你发送了一条非文本消息\n因为："{motivation}"'
-            elif len(texts) == 1:
-                return f'出于你刚才的想法，你做了：发言（发言内容为：“{texts[0]}”）\n因为："{motivation}"'
-            else:
-                return f'出于你刚才的想法，你做了：发言（发言内容依次为：{"、".join(f"“{t}”" for t in texts)}）\n因为："{motivation}"'
-        return f'出于你刚才的想法，你做了：{action_name}\n因为："{motivation}"'
+    def _format_completed_action(self, thought_doc: dict) -> str:
+        """格式化已完成的动作及其结果。"""
+        action_result = thought_doc.get('action_result')
+        if not action_result or "决策中未包含任何行动指令" in action_result:
+            return "<completed_action>无</completed_action>"
 
-    def _build_control_desc(
-        self,
-        control_payload: dict | None,
-        is_context_switch: bool,
-    ) -> str:
-        """构建意识控制的描述，现在它直接从ChatSessionManager获取预先格式化好的描述。"""
-        if not control_payload or not is_context_switch:
-            return ""
+        # 为了XML格式的整洁，对结果进行缩进处理
+        indented_result = "\n        ".join(action_result.split('\n'))
+        return f"<completed_action>\n        {indented_result}\n    </completed_action>"
 
-        # 确保 prompt_builder 和 chat_session_manager 已经注入
-        if not self.prompt_builder or not self.prompt_builder.chat_session_manager:
-            logger.warning("无法生成意识控制描述：依赖项尚未注入。")
-            return ""
+    async def _format_interruption(self, session: "ChatSession", user_map: dict | None) -> str:
+        """格式化中断信息。"""
+        context = session.interruption_context
+        event_doc = context.get("interrupting_event_doc", {})
+        if not event_doc:
+            return "<interruption>未知</interruption>"
+        # 解析事件文档，提取必要信息
+        event = Event.from_dict(event_doc)
+        text = self._escape_xml_text(event.get_text_content() or "[非文本消息]")
+        sender_id = event.user_info.user_id if event.user_info else "未知"
 
-        manager = self.prompt_builder.chat_session_manager
+        sender_uid = f"未知用户({sender_id[:4]})"
+        if user_map and sender_id != "未知":
+            # 遍历 user_map 找到对应的 uid_str
+            for p_id, data in user_map.items():
+                if str(p_id) == str(sender_id):
+                    sender_uid = data.get('uid_str', sender_uid)
+                    break
 
-        # 从 ChatSessionManager 获取已经格式化好的切换描述
-        switch_description = manager.get_last_switch_description()
+        lines = [
+            "<interruption>",
+            f"    <source>user {sender_uid}</source>",
+            f"    <content>{text}</content>",
+            "</interruption>"
+        ]
 
-        # 获取动机
-        try:
-            _, params = next(iter(control_payload.items()))
-            motivation = params.get("motivation", "没有明确动机")
+        # 使用缩进连接字符串
+        return "\n        ".join(lines)
 
-            # 组合最终的描述
-            return f'出于你刚才的想法，{switch_description}。\n因为："{motivation}"'
-        except StopIteration:
-            # 如果 control_payload 是空的，虽然不太可能，但还是处理一下
-            return f"出于你刚才的想法，{switch_description}。"
+    def _escape_xml_text(self, text: str) -> str:
+        """对文本进行标准的XML转义，防止破坏结构。"""
+        text = text.replace("&", "&")
+        text = text.replace("<", "<")
+        text = text.replace(">", ">")
+        text = text.replace("\"", "&quot;")
+        text = text.replace("'", "&apos;")
+        return text
