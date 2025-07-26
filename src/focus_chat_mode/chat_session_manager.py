@@ -314,35 +314,42 @@ class ChatSessionManager:
                 logger.error("'push_focus' 指令缺少 'target_path'。")
                 return
 
-            # 处理相对路径和绝对路径
-            current_path_str = (
-                previous_path_for_desc.get("target_path")
-                if isinstance(previous_path_for_desc, dict)
-                else previous_path_for_desc
-            )
-            new_path = target_path_param
-            if "." not in new_path and current_path_str is not None:
-                new_path = f"{current_path_str}.{new_path}"
+            # 1. 提取真正的会话ID (可能是路径的最后一部分)
+            #    这能同时处理 "1041305886" 和 "qq/conversation/group/1041305886"
+            potential_conv_id = target_path_param.split('/')[-1]
 
+            # 2. 获取当前的平台上下文
+            current_entry = self.current_focus_path
+            current_path_str = (
+                current_entry.get("target_path")
+                if isinstance(current_entry, dict)
+                else current_entry
+            )
+            # 如果当前在 core 层，平台上下文是未知的，这通常不应该发生
+            # 但为了健壮性，我们假设它至少是在一个平台内
+            current_platform = current_path_str.split('.')[0] if current_path_str and '.' in current_path_str else 'qq'
+            if current_path_str == 'core': # 如果从core层直接下潜
+                # 从目标路径中解析平台
+                current_platform = target_path_param.split('/')[0] if '/' in target_path_param else 'qq'
+
+            # 3. 构造标准的、干净的 `new_path` 和 `conv_id`
+            new_path = f"{current_platform}.{potential_conv_id}"
+            conv_id_to_check = potential_conv_id
             entry_to_push = {**history_entry_base, "target_path": new_path}
             self.focus_history.append(entry_to_push)
             logger.info(f"[堆栈 PUSH] 焦点下潜至: {new_path}")
 
-            path_parts = new_path.split(".")
-            if len(path_parts) >= 2:
-                conv_id = ".".join(path_parts[1:])
-                conv_doc = await self.conversation_service.get_conversation_document_by_id(conv_id)
-                if not conv_doc:
-                    logger.error(f"无法 'push_focus'，数据库中找不到会话 '{conv_id}'。回滚堆栈。")
-                    self.focus_history.pop()
-                else:
-                    await self.get_or_create_session(
-                        conversation_id=conv_id,
-                        platform=conv_doc.get("platform"),
-                        conversation_type=conv_doc.get("type"),
-                    )
-                    focus_switched = True
-            else:  # 进入平台层
+
+            conv_doc = await self.conversation_service.get_conversation_document_by_id(conv_id_to_check)
+            if not conv_doc:
+                logger.error(f"无法 'push_focus'，数据库中找不到会话 '{conv_id_to_check}'。回滚堆栈。")
+                self.focus_history.pop()
+            else:
+                await self.get_or_create_session(
+                    conversation_id=conv_id_to_check,
+                    platform=conv_doc.get("platform"),
+                    conversation_type=conv_doc.get("type"),
+                )
                 focus_switched = True
 
         elif command == "pop_focus" or command == "back":
