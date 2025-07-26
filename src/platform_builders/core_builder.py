@@ -16,7 +16,7 @@ class CoreBuilder(BasePlatformBuilder):
     _CONSCIOUSNESS_CONTROLS_DEFINITIONS: ClassVar = {
         "push_focus": {
             "type": "object",
-            "description": "【下潜/聚焦】深入到下一层焦点。将 target_path 指定的目标压入注意力堆栈顶部。",
+            "description": "【下潜/聚焦】深入到下一层焦点。将 target_id 指定的目标压入注意力堆栈顶部。",
             "properties": {
                 "target_id": {
                     "type": "string",
