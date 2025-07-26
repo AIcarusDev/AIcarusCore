@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 import websockets
 from aicarus_protocols import ConversationInfo, SegBuilder
 from aicarus_protocols import Event as ProtocolEvent
+from aicarus_protocols import UserInfo as ProtocolUserInfo
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
 from src.core_communication.action_sender import ActionSender
@@ -162,21 +163,24 @@ class CoreWebsocketServer:
             logger.info(f"平台 '{display_name}({adapter_id})' 无需上线安检，执行轻量化身份登记。")
             # 新增的判断逻辑！
             # 检查这个平台到底是不是“人”
-            if builder and builder.is_person_platform:
-                # 是“人”，但不需要复杂安检，给它简单登记一下
+            # 这是最终的、正确的逻辑！
+            # 检查这个平台到底是不是“人”
+            is_person = builder and builder.is_person_platform
+
+            # 只有当它是一个“人物平台”时，才执行数据库人物创建！
+            if is_person:
                 logger.info(
                     f"平台 '{adapter_id}' 是一个人物平台，为其在数据库中登记固定的身份信息。"
                 )
+                temp_user_info = ProtocolUserInfo(user_id=adapter_id, user_nickname=display_name)
                 await self.person_service._create_new_person_with_account(
-                    user_info={"user_id": adapter_id, "user_nickname": display_name},
-                    platform=adapter_id,
-                    is_self=True,
+                    user_info=temp_user_info, platform=adapter_id, is_self=True
                 )
             else:
-                # 不是“人”，是个工具，那就完全跳过人物创建！
+                # 如果不是“人”，是个工具，就只打印日志，什么数据库操作都不做！
                 logger.info(f"平台 '{adapter_id}' 是一个工具平台，跳过创建人物档案的步骤。")
 
-            # 无论是不是“人”，ID登记还是要做的
+            # 无论是不是“人”，ID登记这种轻量级操作还是要做的
             if self.action_handler_instance.chat_session_manager:
                 self.action_handler_instance.chat_session_manager.self_bot_ids_map[adapter_id] = (
                     adapter_id
@@ -192,17 +196,7 @@ class CoreWebsocketServer:
                 )
                 unread_service.update_self_bot_ids({adapter_id: adapter_id})
                 logger.debug(f"UnreadInfoService 的 ID 地图已为平台 '{adapter_id}' 更新。")
-
-            # 同样，我们需要把它自己的信息存入数据库，作为“已安检”的凭证
-            # 这样，即使Core重启，也能从数据库中知道这个平台的存在
-            await self.person_service._create_new_person_with_account(
-                user_info={
-                    "user_id": adapter_id,
-                    "user_nickname": display_name,
-                },  # 构造一个临时的UserInfo
-                platform=adapter_id,
-                is_self=True,
-            )
+            #
             logger.info(f"已为平台 '{adapter_id}' 在数据库中登记了固定的身份信息。")
 
         # 为了确保任务完成后能清理掉
