@@ -84,21 +84,28 @@ class CoreLogic:
 
             try:
                 session = self._get_current_session()
-                
-                initial_context_text = "..." # 默认值
+
+                initial_context_text = "..."  # 默认值
                 if session:
                     if self._last_interrupt_context_text:
                         # 如果有中断烙印，就用它！
                         initial_context_text = self._last_interrupt_context_text
-                        logger.info(f"[{session.conversation_id}] 使用了上一次中断的记忆烙印作为上下文: '{initial_context_text[:50]}...'")
+                        logger.info(
+                            f"[{session.conversation_id}] 使用了上一次中断的记忆烙印作为上下文: '{initial_context_text[:50]}...'"
+                        )
                         # 用完就烧掉，避免重复使用
                         self._last_interrupt_context_text = None
                     else:
                         # 没有烙印，才去读数据库这个慢速记忆
-                        initial_context_text = await self.prompt_builder.get_last_valid_text_message(session.conversation_id) or "..."
+                        initial_context_text = (
+                            await self.prompt_builder.get_last_valid_text_message(
+                                session.conversation_id
+                            )
+                            or "..."
+                        )
 
                 main_task = asyncio.create_task(self._run_full_thought_cycle(session))
-                
+
                 tasks_to_race = {main_task}
                 if session:
                     sentry_task = asyncio.create_task(
@@ -106,7 +113,9 @@ class CoreLogic:
                     )
                     tasks_to_race.add(sentry_task)
 
-                done, pending = await asyncio.wait(tasks_to_race, return_when=asyncio.FIRST_COMPLETED)
+                done, pending = await asyncio.wait(
+                    tasks_to_race, return_when=asyncio.FIRST_COMPLETED
+                )
 
                 for task in pending:
                     task.cancel()
@@ -116,7 +125,9 @@ class CoreLogic:
                 if sentry_task and sentry_task in done:
                     interrupting_event_doc = await sentry_task
                     if interrupting_event_doc and session:
-                        logger.warning(f"[{session.conversation_id}] 中断哨兵获胜！思考-行动主任务被中断。")
+                        logger.warning(
+                            f"[{session.conversation_id}] 中断哨兵获胜！思考-行动主任务被中断。"
+                        )
                         session.interruption_context = {
                             "was_interrupted": True,
                             "interrupting_event_doc": interrupting_event_doc,
@@ -124,13 +135,17 @@ class CoreLogic:
                         interrupting_ts = interrupting_event_doc.get("timestamp")
                         if interrupting_ts:
                             session.last_processed_timestamp = interrupting_ts
-                            logger.info(f"[{session.conversation_id}] 任务被中断，全局时间戳被强制更新至中断事件的时间: {interrupting_ts}")
+                            logger.info(
+                                f"[{session.conversation_id}] 任务被中断，全局时间戳被强制更新至中断事件的时间: {interrupting_ts}"
+                            )
 
                         # =======================【 记忆写入·将刺激烙印在海马体！】=======================
                         # 把中断消息的文本内容，直接写入我们的大脑皮层！
                         event_obj = Event.from_dict(interrupting_event_doc)
                         self._last_interrupt_context_text = event_obj.get_text_content()
-                        logger.debug(f"[{session.conversation_id}] 已将中断消息文本 '{self._last_interrupt_context_text}' 烙印到短期记忆中。")
+                        logger.debug(
+                            f"[{session.conversation_id}] 已将中断消息文本 '{self._last_interrupt_context_text}' 烙印到短期记忆中。"
+                        )
                         # ======================================================================
 
                 if main_task in done:
@@ -138,9 +153,13 @@ class CoreLogic:
                     if session and last_processed_ts_from_task:
                         if last_processed_ts_from_task > session.last_processed_timestamp:
                             session.last_processed_timestamp = last_processed_ts_from_task
-                            logger.info(f"[{session.conversation_id}] 主任务正常完成，全局时间戳已更新至: {last_processed_ts_from_task}")
+                            logger.info(
+                                f"[{session.conversation_id}] 主任务正常完成，全局时间戳已更新至: {last_processed_ts_from_task}"
+                            )
                         else:
-                            logger.debug(f"[{session.conversation_id}] 主任务完成，但返回的时间戳不新，不更新全局时间戳。")
+                            logger.debug(
+                                f"[{session.conversation_id}] 主任务完成，但返回的时间戳不新，不更新全局时间戳。"
+                            )
                     if session:
                         session.interruption_context = None
 
@@ -155,14 +174,15 @@ class CoreLogic:
                 logger.error(f"统一意识流主循环发生严重错误: {e}", exc_info=True)
                 await asyncio.sleep(10)
             finally:
-                if main_task and not main_task.done(): main_task.cancel()
-                if sentry_task and not sentry_task.done(): sentry_task.cancel()
+                if main_task and not main_task.done():
+                    main_task.cancel()
+                if sentry_task and not sentry_task.done():
+                    sentry_task.cancel()
 
         logger.info(f"--- {config.persona.bot_name} 的统一意识流已停止 ---")
 
     async def _run_full_thought_cycle(self, session: Optional["ChatSession"]) -> float | None:
-        """执行完整的思考循环，包括生成思考、处理中断和执行动作.
-        """
+        """执行完整的思考循环，包括生成思考、处理中断和执行动作."""
         focus_path = (
             self.chat_session_manager.current_focus_path if self.chat_session_manager else None
         )
@@ -221,7 +241,7 @@ class CoreLogic:
             current_focus_path=focus_path,
             # =======================【 注入春药！】=======================
             session=session,
-            processed_events_this_turn=processed_raw_events
+            processed_events_this_turn=processed_raw_events,
             # =============================================================
         )
 
@@ -234,20 +254,24 @@ class CoreLogic:
             return session.last_processed_timestamp
         return None
 
-    async def _listen_for_interruptions(self, session: "ChatSession", initial_context_text: str) -> dict | None:
+    async def _listen_for_interruptions(
+        self, session: "ChatSession", initial_context_text: str
+    ) -> dict | None:
         """纯粹的中断监听器（哨兵），它现在接收一个固定的初始上下文。"""
         try:
             # 哨兵的“记忆”在它诞生时就被决定了，就是 initial_context_text！
             context_text = initial_context_text
             last_checked_timestamp = session.last_processed_timestamp
-            
+
             while True:
                 # 哨兵现在用它被注入的、永不改变的初始记忆去检查新消息
-                interrupting_event, latest_ts_in_batch = await self._check_for_interruptions(session, context_text, last_checked_timestamp)
-                
+                interrupting_event, latest_ts_in_batch = await self._check_for_interruptions(
+                    session, context_text, last_checked_timestamp
+                )
+
                 if interrupting_event:
                     return interrupting_event
-                
+
                 if latest_ts_in_batch:
                     last_checked_timestamp = latest_ts_in_batch
 
@@ -257,7 +281,6 @@ class CoreLogic:
         except Exception as e:
             logger.error(f"[{session.conversation_id}] 中断哨兵任务异常: {e}", exc_info=True)
             return None
-
 
     async def _check_for_interruptions(
         self, session: "ChatSession", context_text: str, since_timestamp: float

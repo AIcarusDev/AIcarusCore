@@ -13,6 +13,14 @@ class BasePlatformBuilder(ABC):
     """
 
     @property
+    def needs_on_connect_inspection(self) -> bool:
+        """声明此平台是否需要在连接时进行“上线安检”.
+
+        默认返回 False.
+        """
+        return False
+
+    @property
     @abstractmethod
     def platform_id(self) -> str:
         """返回平台ID."""

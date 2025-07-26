@@ -91,7 +91,6 @@ class ChatSessionManager:
 
         logger.info("ChatSessionManager 初始化完成，并已注入智能打断系统。")
 
-
     def _get_conversation_id(self, event: Event) -> str:
         # 从 Event 中提取唯一的会话ID (例如 group_id 或 user_id)
         # 此处需要根据 aicarus_protocols 的具体定义来实现
@@ -264,7 +263,6 @@ class ChatSessionManager:
         """获取上次焦点切换的格式化描述。"""
         return self._last_switch_description
 
-
     async def handle_consciousness_control(self, control_json: dict) -> None:
         """处理来自LLM决策的意识控制指令.
 
@@ -284,7 +282,7 @@ class ChatSessionManager:
 
         # 在改变焦点前，记录当前位置
         self.previous_focus_path = self.current_focus_path
-        new_focus_path: str | None = self.current_focus_path # 默认为当前路径
+        new_focus_path: str | None = self.current_focus_path  # 默认为当前路径
 
         if command == "focus":
             target_id = params.get("platform_id") or params.get("conversation_id")
@@ -293,7 +291,9 @@ class ChatSessionManager:
                 return
 
             platform_to_check = (
-                target_id if self.previous_focus_path is None else self.previous_focus_path.split(".")[0]
+                target_id
+                if self.previous_focus_path is None
+                else self.previous_focus_path.split(".")[0]
             )
             if platform_to_check not in self.self_bot_ids_map:
                 logger.warning(
@@ -390,7 +390,9 @@ class ChatSessionManager:
             to_desc = await self._get_focus_description(self.current_focus_path)
             self._last_switch_description = f"你刚刚从“{from_desc}”来到了“{to_desc}”"
 
-            logger.info(f"AI 决定 [{command}]，{self._last_switch_description} (动机: {motivation})")
+            logger.info(
+                f"AI 决定 [{command}]，{self._last_switch_description} (动机: {motivation})"
+            )
 
             # 3. 触发思考
             if self.core_logic and hasattr(self.core_logic, "prompt_builder"):

@@ -4,9 +4,13 @@ import json
 import time
 from typing import TYPE_CHECKING, Any
 
-from src.database import EnrichedConversationInfo
 from src.common.custom_logging.logging_config import get_logger
-from src.database import ActionLogStorageService, ConversationStorageService, ThoughtStorageService
+from src.database import (
+    ActionLogStorageService,
+    ConversationStorageService,
+    EnrichedConversationInfo,
+    ThoughtStorageService,
+)
 from src.database.services.event_storage_service import EventStorageService
 
 if TYPE_CHECKING:
@@ -151,9 +155,7 @@ class PendingActionManager:
     async def _proactively_create_conversation_docs_from_list(
         self, details: dict | None, sent_dict: dict
     ) -> None:
-        """
-        当 get_list 动作成功后，主动为列表中的每个项目创建或更新会话档案。
-        """
+        """当 get_list 动作成功后，主动为列表中的每个项目创建或更新会话档案。"""
         if not details or not isinstance(details, dict):
             return
 
@@ -169,19 +171,23 @@ class PendingActionManager:
         if not items or not isinstance(items, list):
             return
 
-        logger.info(f"收到 get_list({list_type}) 的成功响应，准备为 {len(items)} 个项目主动创建/更新会话档案。")
+        logger.info(
+            f"收到 get_list({list_type}) 的成功响应，准备为 {len(items)} 个项目主动创建/更新会话档案。"
+        )
 
         conversation_type = "private" if list_type == "friend" else "group"
         # 准备批量更新会话档案的任务
         # 这里我们使用 upsert 方法来确保不存在时创建，存在时更新
         upsert_tasks = []
         for item in items:
-            if not isinstance(item, dict): continue
+            if not isinstance(item, dict):
+                continue
 
             conv_id = item.get("user_id") if list_type == "friend" else item.get("group_id")
             conv_name = item.get("nickname") if list_type == "friend" else item.get("group_name")
 
-            if not conv_id: continue
+            if not conv_id:
+                continue
 
             new_conv_info = EnrichedConversationInfo(
                 conversation_id=str(conv_id),
@@ -198,7 +204,6 @@ class PendingActionManager:
         if upsert_tasks:
             await asyncio.gather(*upsert_tasks)
             logger.info(f"已完成对 {len(upsert_tasks)} 个项目的会话档案主动更新。")
-
 
     def _get_original_id_from_response(self, data: dict[str, Any]) -> str | None:
         content = data.get("content", [])

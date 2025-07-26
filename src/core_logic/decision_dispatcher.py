@@ -2,17 +2,17 @@
 import asyncio
 from typing import TYPE_CHECKING, Optional
 
+from aicarus_protocols import Event
 from src.action.components.message_builder import MessageBuilder
 from src.common.custom_logging.logging_config import get_logger
 from src.common.utils import parse_focus_path
 from src.platform_builders.registry import platform_builder_registry
-from aicarus_protocols import Event
 
 if TYPE_CHECKING:
     from src.action.action_handler import ActionHandler
     from src.core_logic.consciousness_flow import CoreLogic
-    from src.focus_chat_mode.chat_session_manager import ChatSessionManager
     from src.focus_chat_mode.chat_session import ChatSession
+    from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 
 logger = get_logger(__name__)
 
@@ -92,16 +92,16 @@ async def process_llm_decision(
             steps = action_params.get("steps", [])
             # 提取所有要发送的文本内容
             texts_to_send = [
-                s.get("params", {}).get("content", "")
-                for s in steps
-                if s.get("command") == "text"
+                s.get("params", {}).get("content", "") for s in steps if s.get("command") == "text"
             ]
             # 把它们拼接起来，作为最新的“上下文记忆”
             new_context_text = " ".join(texts_to_send).strip()
             if new_context_text:
                 core_logic._last_interrupt_context_text = new_context_text
                 # 【探针植入】
-                logger.info(f"[{session.conversation_id}] 高潮锁定：记忆烙印已更新为 -> '{new_context_text[:50]}...'")
+                logger.info(
+                    f"[{session.conversation_id}] 高潮锁定：记忆烙印已更新为 -> '{new_context_text[:50]}...'"
+                )
 
             logger.info(
                 f"[{current_conv_id}] 检测到 [回声类] 动作 (send_message)，将等待回声后才算完成。"

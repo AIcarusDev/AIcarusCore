@@ -10,8 +10,6 @@ if TYPE_CHECKING:
     from src.action.action_handler import ActionHandler
 
 import websockets
-
-# 导入我们全新的、纯洁的协议对象！
 from aicarus_protocols import ConversationInfo, SegBuilder
 from aicarus_protocols import Event as ProtocolEvent
 from src.common.custom_logging.logging_config import get_logger
@@ -21,6 +19,7 @@ from src.core_communication.event_receiver import EventReceiver
 from src.core_logic.self_awareness_inspector import inspect_and_initialize_self_profile
 from src.database import DBEventDocument, PersonStorageService
 from src.database.services.event_storage_service import EventStorageService
+from src.platform_builders.registry import platform_builder_registry
 from websockets.exceptions import ConnectionClosed, ConnectionClosedError, ConnectionClosedOK
 from websockets.server import WebSocketServerProtocol
 
@@ -145,14 +144,54 @@ class CoreWebsocketServer:
             adapter_id, display_name, "lifecycle.adapter_connected"
         )
 
-        logger.info(f"为新连接的适配器 '{display_name}({adapter_id})' 举行欢迎仪式 (执行安检)...")
+        # --- 核心改造逻辑 ---
+        # 1. 从注册中心获取该平台的 "Builder"
+        builder = platform_builder_registry.get_builder(adapter_id)
 
-        # 在后台运行安检仪式
-        # 这样可以避免阻塞主线程，确保服务器能继续处理其他连接
-        inspection_task = asyncio.create_task(
-            self._run_inspection_ceremony(adapter_id, display_name)
-        )
-        self.active_inspection_tasks.add(inspection_task)
+        # 2. 检查 "Builder" 是否存在以及它的 "安检开关"
+        if builder and builder.needs_on_connect_inspection:
+            # 如果需要安检 (比如 QQ)
+            logger.info(f"平台 '{display_name}({adapter_id})' 需要上线安检，启动安检仪式...")
+            inspection_task = asyncio.create_task(
+                self._run_inspection_ceremony(adapter_id, display_name)
+            )
+            self.active_inspection_tasks.add(inspection_task)
+            inspection_task.add_done_callback(lambda t: self.active_inspection_tasks.discard(t))
+        else:
+            # 如果不需要安检 (比如 Termux)
+            logger.info(f"平台 '{display_name}({adapter_id})' 无需上线安检，执行轻量化身份登记。")
+            # 对于这类平台，它的 platform_id 就是它的 bot_id
+            # 我们直接更新需要这个ID的服务
+            if self.action_handler_instance.chat_session_manager:
+                self.action_handler_instance.chat_session_manager.self_bot_ids_map[adapter_id] = (
+                    adapter_id
+                )
+                logger.debug(f"ChatSessionManager 的 ID 地图已为平台 '{adapter_id}' 更新。")
+
+            # UnreadInfoService 也需要知道
+            # 注意：这里的 unread_info_service 是通过 core_logic.prompt_builder 访问的，
+            # 确保依赖已注入
+            if (
+                self.action_handler_instance.core_logic
+                and self.action_handler_instance.core_logic.prompt_builder
+            ):
+                unread_service = (
+                    self.action_handler_instance.core_logic.prompt_builder.unread_info_service
+                )
+                unread_service.update_self_bot_ids({adapter_id: adapter_id})
+                logger.debug(f"UnreadInfoService 的 ID 地图已为平台 '{adapter_id}' 更新。")
+
+            # 同样，我们需要把它自己的信息存入数据库，作为“已安检”的凭证
+            # 这样，即使Core重启，也能从数据库中知道这个平台的存在
+            await self.person_service._create_new_person_with_account(
+                user_info={
+                    "user_id": adapter_id,
+                    "user_nickname": display_name,
+                },  # 构造一个临时的UserInfo
+                platform=adapter_id,
+                is_self=True,
+            )
+            logger.info(f"已为平台 '{adapter_id}' 在数据库中登记了固定的身份信息。")
 
         # 为了确保任务完成后能清理掉
         def _done_callback(t: asyncio.Task) -> None:
@@ -169,7 +208,6 @@ class CoreWebsocketServer:
         max_retries = 3  # 最多重试3次
         initial_delay = 5  # 初始延迟5秒
         backoff_factor = 2  # 每次重试延迟时间乘以2
-
         for attempt in range(max_retries + 1):
             try:
                 if attempt > 0:
@@ -179,14 +217,11 @@ class CoreWebsocketServer:
                         f"第 {attempt}/{max_retries} 次重试..."
                     )
                     await asyncio.sleep(delay)
-
                 logger.info(
                     f"为适配器 '{adapter_id}' 举行欢迎仪式 (执行安检，尝试次数 {attempt + 1})..."
                 )
-
                 # 给一点点时间，确保连接完全稳定
                 await asyncio.sleep(0.5)
-
                 success, profile_data = await inspect_and_initialize_self_profile(
                     person_service=self.person_service,
                     action_handler=self.action_handler_instance,

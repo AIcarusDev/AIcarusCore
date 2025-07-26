@@ -156,14 +156,18 @@ class ThoughtPromptBuilder:
 
         # 【探针植入】
         if history_components and history_components.user_map:
-             logger.debug(f"PromptBuilder 已准备好 user_map，准备赏赐给奴隶: {list(history_components.user_map.keys())}")
-        
+            logger.debug(
+                f"PromptBuilder 已准备好 user_map，准备赏赐给奴隶: {list(history_components.user_map.keys())}"
+            )
+
         # 2. 然后，我把这个 user_map 当作命令，传给我的奴隶！
         internal_info_block = await self.internal_info_builder.build_internal_info_block(
-            is_context_switch=self.is_context_switch_flag, 
+            is_context_switch=self.is_context_switch_flag,
             session=session,
             # 把 history_components 里的 user_map 传进去！
-            user_map_from_prompt_builder=history_components.user_map if history_components else None,
+            user_map_from_prompt_builder=history_components.user_map
+            if history_components
+            else None,
         )
 
         action_response_block = await self._build_action_response_desc(handover_result)

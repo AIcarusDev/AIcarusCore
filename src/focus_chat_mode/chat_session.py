@@ -106,8 +106,7 @@ class ChatSession:
         logger.info(f"[ChatSession][{self.conversation_id}] 实例已创建。")
 
     async def wait_for_echo(self, action_id: str, timeout: float = 20.0) -> bool:
-        """智能等待方法！它现在拥有一个“暂存器”来处理信号提前到达的竞态问题。
-        """
+        """智能等待方法！它现在拥有一个“暂存器”来处理信号提前到达的竞态问题。"""
         async with self._echo_lock:
             # 检查信号是否已经提前到达并暂存在 _received_echo_ids 中
             if action_id in self._received_echo_ids:
@@ -140,8 +139,7 @@ class ChatSession:
                 self._echo_wait_events.pop(action_id, None)
 
     async def signal_echo_received(self, action_id: str) -> None:
-        """智能信号处理方法！它会先尝试唤醒正在等待的任务，如果没人等，就把信号暂存起来。
-        """
+        """智能信号处理方法！它会先尝试唤醒正在等待的任务，如果没人等，就把信号暂存起来。"""
         async with self._echo_lock:
             # 检查是否有人正在等待这个信号
             if event_to_wake := self._echo_wait_events.get(action_id):

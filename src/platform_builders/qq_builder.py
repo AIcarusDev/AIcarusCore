@@ -21,6 +21,11 @@ class QQBuilder(BasePlatformBuilder):
         这个ID必须和Adapter的core_platform_id完全一致，以确保适配器能够正确识别。
     """
 
+    @property
+    def needs_on_connect_inspection(self) -> bool:
+        """QQ平台需要在连接时进行“上线安检”."""
+        return True
+
     def __init__(self) -> None:
         super().__init__()
         # 把所有可以用通用模板处理的动作都放在这里。

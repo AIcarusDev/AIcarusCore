@@ -21,7 +21,6 @@ class InternalInfoBuilder:
         self.thought_storage_service = thought_storage_service
         self.prompt_builder: ThoughtPromptBuilder | None = None
 
-
     async def build_internal_info_block(
         self,
         is_context_switch: bool,
@@ -43,7 +42,9 @@ class InternalInfoBuilder:
             ]
 
             if session and session.interruption_context:
-                interruption_report = await self._build_interruption_report(session, latest_thought, user_map_from_prompt_builder)
+                interruption_report = await self._build_interruption_report(
+                    session, latest_thought, user_map_from_prompt_builder
+                )
                 if interruption_report:
                     report_lines.append(interruption_report)
                 session.interruption_context = None
@@ -67,7 +68,9 @@ class InternalInfoBuilder:
             logger.error(f"构建内部信息块时发生严重错误: {e}", exc_info=True)
             return "<!-- 内部信息构建失败 -->"
 
-    async def _build_interruption_report(self, session: "ChatSession", latest_thought_doc: dict, user_map: dict | None) -> str:
+    async def _build_interruption_report(
+        self, session: "ChatSession", latest_thought_doc: dict, user_map: dict | None
+    ) -> str:
         context = session.interruption_context
         interrupting_event_doc = context.get("interrupting_event_doc", {})
         if not interrupting_event_doc:
@@ -79,9 +82,13 @@ class InternalInfoBuilder:
         )
         interrupt_sender_uid = f"未知用户({interrupt_sender_id[:4]})"
         if user_map:
-            logger.debug(f"InternalInfoBuilder 正在使用主人传入的 user_map 解析中断者ID: {interrupt_sender_id}")
-            pid_to_uid_map = {pid: data['uid_str'] for pid, data in user_map.items()}
-            interrupt_sender_uid = pid_to_uid_map.get(str(interrupt_sender_id), interrupt_sender_uid)
+            logger.debug(
+                f"InternalInfoBuilder 正在使用主人传入的 user_map 解析中断者ID: {interrupt_sender_id}"
+            )
+            pid_to_uid_map = {pid: data["uid_str"] for pid, data in user_map.items()}
+            interrupt_sender_uid = pid_to_uid_map.get(
+                str(interrupt_sender_id), interrupt_sender_uid
+            )
         else:
             logger.warning("主人没有赏赐 user_map，中断报告中的用户名可能不准确。")
         planned_action_desc = self._format_planned_action(latest_thought_doc)
@@ -199,4 +206,4 @@ class InternalInfoBuilder:
             return f'出于你刚才的想法，{switch_description}。\n因为："{motivation}"'
         except StopIteration:
             # 如果 control_payload 是空的，虽然不太可能，但还是处理一下
-            return f'出于你刚才的想法，{switch_description}。'
+            return f"出于你刚才的想法，{switch_description}。"
