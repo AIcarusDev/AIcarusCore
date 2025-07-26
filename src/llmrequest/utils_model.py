@@ -61,102 +61,6 @@ class GenerationParams(TypedDict, total=False):
     encoding_format: str
     dimensions: int
 
-
-# --- 自定义 .env 加载器 ---
-def load_custom_env(dotenv_path: str = ".env", override: bool = True) -> bool:
-    """加载指定路径的 .env 文件到环境变量中.
-
-    如果文件不存在或不是一个文件，则返回 False。
-    如果成功加载，则返回 True。
-    如果文件格式不正确，记录警告并继续加载其他变量。
-
-    Args:
-        dotenv_path: .env 文件的路径，默认为当前目录下的 .env。
-        override: 是否覆盖已存在的环境变量，默认为 True。
-    Returns:
-        bool: 如果成功加载 .env 文件，则返回 True，否则返回 False。
-    """
-    if not os.path.exists(dotenv_path) or not os.path.isfile(dotenv_path):
-        logger.debug(f".env 文件未找到或不是一个文件于: {dotenv_path}")
-        return False
-    loaded_count = 0
-    try:
-        with open(dotenv_path, encoding="utf-8") as f:
-            lines = f.readlines()
-        i = 0
-        while i < len(lines):
-            line = lines[i].strip()
-            i += 1
-            if not line or line.startswith("#"):
-                continue
-            if "=" not in line:
-                logger.warning(f".env 文件行 {i} 格式无效 (缺少 '='): {line}")
-                continue
-            key, value_part = line.split("=", 1)
-            key = key.strip()
-            value_part = value_part.strip()
-            final_value = value_part
-            open_quote_char = None
-            if value_part.startswith("'") or value_part.startswith('"'):
-                open_quote_char = value_part[0]
-                if (
-                    len(value_part) > 1
-                    and value_part.endswith(open_quote_char)
-                    and (
-                        value_part[1:-1].count(open_quote_char) == 0
-                        or (
-                            value_part[1:-1]
-                            .replace(f"\\{open_quote_char}", "")
-                            .count(open_quote_char)
-                            % 2
-                            == 0
-                        )
-                    )
-                ):
-                    final_value = value_part[1:-1]
-                elif open_quote_char:
-                    accumulated_value_lines = [value_part[1:]]
-                    found_closing_quote = False
-                    while i < len(lines):
-                        next_line_raw = lines[i].rstrip("\n")
-                        i += 1
-                        accumulated_value_lines.append(next_line_raw)
-                        stripped_next_line_for_check = next_line_raw.strip()
-                        if stripped_next_line_for_check.endswith(
-                            open_quote_char
-                        ) and not stripped_next_line_for_check.endswith(f"\\{open_quote_char}"):
-                            if len(accumulated_value_lines) > 0:
-                                last_line_content = accumulated_value_lines[-1]
-                                if last_line_content.strip().endswith(open_quote_char):
-                                    last_quote_pos = last_line_content.rfind(open_quote_char)
-                                    accumulated_value_lines[-1] = last_line_content[:last_quote_pos]
-                            found_closing_quote = True
-                            break
-                    full_multiline_value = "\n".join(accumulated_value_lines)
-                    if found_closing_quote:
-                        final_value = full_multiline_value
-                    else:
-                        logger.warning(
-                            f"多行值 {key} 从 {open_quote_char} 开始，但未找到结束引号。"
-                        )
-                        final_value = value_part[1:] if open_quote_char else value_part
-            if key and (override or key not in os.environ):
-                os.environ[key] = final_value
-                logger.debug(
-                    f"Loaded env var: {key}='{final_value[:50]}"
-                    f"{'...' if len(final_value) > 50 else ''}'"
-                )
-                loaded_count += 1
-        if loaded_count > 0:
-            logger.info(f"成功从 {dotenv_path} 加载了 {loaded_count} 个环境变量。")
-        else:
-            logger.info(f"从 {dotenv_path} 未加载新的或覆盖任何环境变量。")
-        return True
-    except Exception as e:
-        logger.error(f"加载 .env 文件 {dotenv_path} 时发生错误: {e}", exc_info=True)
-        return False
-
-
 class LLMClientError(Exception):
     """表示与语言模型客户端相关的通用错误."""
 
@@ -311,7 +215,6 @@ class LLMClient:
         rate_limit_disable_duration_seconds: int = DEFAULT_RATE_LIMIT_DISABLE_SECONDS,
         **kwargs: Unpack[GenerationParams],
     ) -> None:
-        load_custom_env()
         self.default_generation_config: GenerationParams = kwargs
         logger.debug(
             f"LLMClient __init__ received model: {model}, "
