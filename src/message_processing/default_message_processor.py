@@ -178,8 +178,17 @@ class DefaultMessageProcessor:
                 and self.core_logic.chat_session_manager
                 and proto_event.conversation_info
             ):
-                current_focus_path = self.core_logic.chat_session_manager.current_focus_path
-                _, _, current_conv_id = parse_focus_path(current_focus_path)
+                # 1. 先获取完整的焦点条目（它现在是个字典！）
+                focus_entry = self.core_logic.chat_session_manager.current_focus_path
+
+                # 2. 从字典里把路径字符串提取出来
+                current_focus_path_str = (
+                    focus_entry.get("target_path") if isinstance(focus_entry, dict) else focus_entry
+                )
+
+                # 3. 把干净的字符串传给我们的工具函数，这样它就不会抱怨了~
+                _, _, current_conv_id = parse_focus_path(current_focus_path_str)
+
                 # 检查新消息是否来自当前专注的会话
                 event_conv_id = proto_event.conversation_info.conversation_id
 
