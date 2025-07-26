@@ -108,6 +108,11 @@ class ActionHandler:
         """统一的行动处理流程 (竞速模式适配版)。
         它现在不再触发思考，只负责执行动作并将结果写回思想点。
         """
+
+        # --- [探灯B] 在这里加上！---
+        logger.info(f"[探灯B] ActionHandler 收到的 action_json: {action_json}")
+        # -------------------------
+
         logger.info(f"--- [Action ID: {action_id}] 开始处理行动流程 ---")
 
         # 1. 检查是否为“不行动”决策
@@ -121,10 +126,18 @@ class ActionHandler:
                 )
             return
 
-        # 2. 解析出需要执行的动作
-        platform_actions = action_json.get("qq", {})
+        # 2. 动态解析出需要执行的动作
+        # 我们不再写死平台名，而是动态地查找
         core_actions = action_json.get("core", {})
-        # 注意: send_message 已经被 decision_dispatcher 拦截处理，这里不会再收到
+        # 找到第一个不是'core'的键，作为平台动作
+        platform_actions = next(
+            (
+                {key: value}
+                for key, value in action_json.items()
+                if key != "core"
+            ),
+            {},
+        )
         actions_to_process = platform_actions or core_actions
 
         if not actions_to_process:
