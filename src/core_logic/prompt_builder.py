@@ -84,7 +84,6 @@ class ThoughtPromptBuilder:
             f"</action_response>"
         )
 
-
     async def _build_navigation_log_block(self) -> str:
         """构建导航日志块，展示最近的焦点移动轨迹。"""
         if not self.chat_session_manager or len(self.chat_session_manager.focus_history) <= 1:
@@ -93,7 +92,7 @@ class ThoughtPromptBuilder:
         log_lines = ["<navigation_log>"]
         log_lines.append("<!-- 这是你最近的意识焦点移动轨迹 -->")
 
-        history = list(self.chat_session_manager.focus_history) # 创建副本以安全迭代
+        history = list(self.chat_session_manager.focus_history)  # 创建副本以安全迭代
         history_len = len(history)
 
         for i, entry in enumerate(reversed(history)):
@@ -102,16 +101,15 @@ class ThoughtPromptBuilder:
 
             time_index = history_len - 1 - i
             relative_index = time_index - (history_len - 1)
-            motivation = entry.get('motivation', '未知动机')
+            motivation = entry.get("motivation", "未知动机")
 
             # [优化点] 调用异步方法获取丰富描述
             desc = await self.chat_session_manager._get_focus_description(entry)
 
-            log_lines.append(f'[T{relative_index}] 聚焦于 {desc} (动机: {motivation})')
+            log_lines.append(f"[T{relative_index}] 聚焦于 {desc} (动机: {motivation})")
 
         log_lines.append("</navigation_log>")
         return "\n".join(log_lines)
-
 
     async def build_prompts_components(
         self,

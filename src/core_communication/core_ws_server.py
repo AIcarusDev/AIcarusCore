@@ -167,38 +167,8 @@ class CoreWebsocketServer:
             inspection_task.add_done_callback(_done_callback)
 
         else:
-            # 路径 B: 不需要安检的平台 (e.g., Termux)
             logger.info(f"平台 '{display_name}({adapter_id})' 无需上线安检，执行轻量化身份登记。")
-
-            is_person = builder and builder.is_person_platform
-
-            if is_person:
-                logger.info(
-                    f"平台 '{adapter_id}' 是一个人物平台，为其在数据库中登记固定的身份信息。"
-                )
-                temp_user_info = ProtocolUserInfo(user_id=adapter_id, user_nickname=display_name)
-                await self.person_service._create_new_person_with_account(
-                    user_info=temp_user_info, platform=adapter_id, is_self=True
-                )
-            else:
-                logger.info(f"平台 '{adapter_id}' 是一个工具平台，跳过创建人物档案的步骤。")
-
-            # 无论是不是“人”，ID登记这种轻量级操作还是要做的
-            if self.action_handler_instance.chat_session_manager:
-                self.action_handler_instance.chat_session_manager.self_bot_ids_map[adapter_id] = (
-                    adapter_id
-                )
-                logger.debug(f"ChatSessionManager 的 ID 地图已为平台 '{adapter_id}' 更新。")
-
-            if (
-                self.action_handler_instance.core_logic
-                and self.action_handler_instance.core_logic.prompt_builder
-            ):
-                unread_service = (
-                    self.action_handler_instance.core_logic.prompt_builder.unread_info_service
-                )
-                unread_service.update_self_bot_ids({adapter_id: adapter_id})
-                logger.debug(f"UnreadInfoService 的 ID 地图已为平台 '{adapter_id}' 更新。")
+            await self._register_simple_identity(adapter_id, display_name)
 
     async def _run_inspection_ceremony(self, adapter_id: str, display_name: str) -> None:
         """一个专门用来在后台运行安检的协程."""
@@ -673,3 +643,42 @@ class CoreWebsocketServer:
             self.server.close()
             await self.server.wait_closed()
         logger.info("AIcarus 核心 WebSocket 服务器已停止。")
+
+    async def _register_simple_identity(self, adapter_id: str, display_name: str) -> None:
+        """对于无需安检的平台，执行一个简单的身份登记流程.
+
+        现在它也会在数据库里创建一个基础的Account档案!
+        """
+        # bot_id 对于工具平台来说，就是它的 platform_id
+        bot_id_for_platform = adapter_id
+
+        # --- [新增的核心逻辑！] ---
+        logger.info(f"为工具平台 '{adapter_id}' 创建或更新数据库中的基础Account档案...")
+        # 1. 构造一个最基础的 UserInfo，只需要 user_id 和 nickname
+        bot_user_info = ProtocolUserInfo(user_id=bot_id_for_platform, user_nickname=display_name)
+        # 2. 调用 person_service 来创建“人”和“账号”，并把它们关联起来
+        #    is_self=True 会确保它关联到唯一的 aic_person_0
+        person_id, account_uid = await self.person_service._create_new_person_with_account(
+            user_info=bot_user_info, platform=adapter_id, is_self=True
+        )
+        if not person_id or not account_uid:
+            logger.error(f"为工具平台 '{adapter_id}' 创建基础Account档案失败！")
+            # 这里可以考虑是否要断开连接，但暂时先只打日志
+        else:
+            logger.success(
+                f"已成功为工具平台 '{adapter_id}' 在数据库中登记身份 (Account UID: {account_uid})。"
+            )
+        # --- [新增逻辑结束] ---
+
+        # 下面的内存ID地图更新逻辑保持不变
+        if self.action_handler_instance.chat_session_manager:
+            self.action_handler_instance.chat_session_manager.self_bot_ids_map[adapter_id] = (
+                bot_id_for_platform
+            )
+            logger.debug(f"ChatSessionManager 的 ID 地图已为平台 '{adapter_id}' 更新 (简单登记)。")
+
+        if self.unread_info_service:
+            self.unread_info_service.update_self_bot_ids({adapter_id: bot_id_for_platform})
+            logger.debug(f"UnreadInfoService 的 ID 地图已为平台 '{adapter_id}' 更新。")
+
+        logger.info(f"平台 '{display_name}({adapter_id})' 已完成轻量化身份登记。")

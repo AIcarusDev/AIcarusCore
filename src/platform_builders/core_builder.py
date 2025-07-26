@@ -16,14 +16,19 @@ class CoreBuilder(BasePlatformBuilder):
         "push_focus": {
             "type": "object",
             "properties": {
-                "target_path": {"type": "string", "description": "要聚焦的目标路径 (绝对或相对路径)。"},
+                "target_path": {
+                    "type": "string",
+                    "description": "要聚焦的目标路径 (绝对或相对路径)。",
+                },
                 "motivation": {"type": "string"},
             },
             "required": ["target_path", "motivation"],
         },
         "pop_focus": {
             "type": "object",
-            "properties": {"motivation": {"type": "string", "description": "你为什么要返回上一层？"}},
+            "properties": {
+                "motivation": {"type": "string", "description": "你为什么要返回上一层？"}
+            },
             "required": ["motivation"],
         },
         "swap_focus": {
@@ -44,13 +49,18 @@ class CoreBuilder(BasePlatformBuilder):
         },
         "back": {
             "type": "object",
-            "properties": {"motivation": {"type": "string", "description": "你为什么要回溯到上一个焦点？"}},
+            "properties": {
+                "motivation": {"type": "string", "description": "你为什么要回溯到上一个焦点？"}
+            },
             "required": ["motivation"],
         },
         "jump_to_history": {
             "type": "object",
             "properties": {
-                "history_index": {"type": "integer", "description": "导航日志中的时间索引 (例如 T-2 的索引是 -2)。"},
+                "history_index": {
+                    "type": "integer",
+                    "description": "导航日志中的时间索引 (例如 T-2 的索引是 -2)。",
+                },
                 "motivation": {"type": "string"},
             },
             "required": ["history_index", "motivation"],
@@ -73,13 +83,15 @@ class CoreBuilder(BasePlatformBuilder):
     def platform_id(self) -> str:
         return "core"
 
-    def build_action_event(self, action_name: str, params: dict[str, Any], bot_id: str) -> Event | None:
-        logger.warning(
-            f"CoreBuilder 的 build_action_event 被意外调用！Action: {action_name}。"
-        )
+    def build_action_event(
+        self, action_name: str, params: dict[str, Any], bot_id: str
+    ) -> Event | None:
+        logger.warning(f"CoreBuilder 的 build_action_event 被意外调用！Action: {action_name}。")
         return None
 
-    def get_level_consciousness_controls_definitions(self, level: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    def get_level_consciousness_controls_definitions(
+        self, level: str
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
         props = {}
         if level == "core":
             props["push_focus"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["push_focus"]
@@ -103,12 +115,22 @@ class CoreBuilder(BasePlatformBuilder):
     def get_level_consciousness_controls_descriptions(self, level: str) -> str:
         descs = []
         # --- v2.0 全新指令集的自然语言描述 ---
-        descs.append("    - `push_focus(target_path, motivation)`: **下潜/聚焦**。进入到下一层焦点。")
+        descs.append(
+            "    - `push_focus(target_path, motivation)`: **下潜/聚焦**。进入到下一层焦点。"
+        )
         descs.append("    - `pop_focus(motivation)`: **上浮/返回**。从当前层级退栈，返回上一层。")
-        descs.append("    - `swap_focus(target_path, motivation)`: **交换/切换**。切换到同层级的另一个目标。")
-        descs.append("    - `teleport_focus(target_path, motivation)`: **传送/跃迁**。无视当前位置，直接跳转到任意绝对路径。")
-        descs.append("    - `back(motivation)`: **回溯**。根据<navigation_log>，返回到历史记录中的【上一个】焦点。")
-        descs.append("    - `jump_to_history(history_index, motivation)`: **跳跃**。根据<navigation_log>，直接跳转到历史记录中的【指定】焦点。")
+        descs.append(
+            "    - `swap_focus(target_path, motivation)`: **交换/切换**。切换到同层级的另一个目标。"
+        )
+        descs.append(
+            "    - `teleport_focus(target_path, motivation)`: **传送/跃迁**。无视当前位置，直接跳转到任意绝对路径。"
+        )
+        descs.append(
+            "    - `back(motivation)`: **回溯**。根据<navigation_log>，返回到历史记录中的【上一个】焦点。"
+        )
+        descs.append(
+            "    - `jump_to_history(history_index, motivation)`: **跳跃**。根据<navigation_log>，直接跳转到历史记录中的【指定】焦点。"
+        )
 
         return "\n".join(descs)
 

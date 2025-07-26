@@ -1,5 +1,5 @@
 # src/core_logic/internal_info_builder.py (完整实现版 v2.0)
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Optional
 
 from aicarus_protocols import Event
 from src.common.custom_logging.logging_config import get_logger
@@ -38,7 +38,9 @@ class InternalInfoBuilder:
                 snapshot_lines.append('<snapshot time="T-1" status="INTERRUPTED">')
                 snapshot_lines.extend(self._format_thought_content(latest_thought))
                 snapshot_lines.append(self._format_planned_action(latest_thought))
-                snapshot_lines.append(await self._format_interruption(session, user_map_from_prompt_builder))
+                snapshot_lines.append(
+                    await self._format_interruption(session, user_map_from_prompt_builder)
+                )
                 # 中断发生后，清理上下文，避免下次思考时重复报告
                 session.interruption_context = None
             else:
@@ -46,7 +48,7 @@ class InternalInfoBuilder:
                 snapshot_lines.extend(self._format_thought_content(latest_thought))
                 snapshot_lines.append(self._format_completed_action(latest_thought))
 
-            snapshot_lines.append('</snapshot>')
+            snapshot_lines.append("</snapshot>")
 
             # 使用缩进美化输出
             indented_lines = "\n".join(f"    {line}" for line in snapshot_lines)
@@ -61,7 +63,7 @@ class InternalInfoBuilder:
         lines = []
         lines.append(f"<mood>{thought_doc.get('mood', '平静')}</mood>")
         lines.append(f"<think>{thought_doc.get('think', '...')}</think>")
-        if goal := thought_doc.get('goal'):
+        if goal := thought_doc.get("goal"):
             lines.append(f"<goal>{goal}</goal>")
         return lines
 
@@ -90,7 +92,7 @@ class InternalInfoBuilder:
                             if not texts:
                                 descriptions.append("发送一条非文本消息")
                             else:
-                                formatted_texts = '、'.join(f'“{t}”' for t in texts)
+                                formatted_texts = "、".join(f"“{t}”" for t in texts)
                                 descriptions.append(f"发言（内容：{formatted_texts}）")
                         else:
                             descriptions.append(f"执行 {platform_key}.{action_name}")
@@ -113,12 +115,12 @@ class InternalInfoBuilder:
 
     def _format_completed_action(self, thought_doc: dict) -> str:
         """格式化已完成的动作及其结果。"""
-        action_result = thought_doc.get('action_result')
+        action_result = thought_doc.get("action_result")
         if not action_result or "决策中未包含任何行动指令" in action_result:
             return "<completed_action>无</completed_action>"
 
         # 为了XML格式的整洁，对结果进行缩进处理
-        indented_result = "\n        ".join(action_result.split('\n'))
+        indented_result = "\n        ".join(action_result.split("\n"))
         return f"<completed_action>\n        {indented_result}\n    </completed_action>"
 
     async def _format_interruption(self, session: "ChatSession", user_map: dict | None) -> str:
@@ -137,14 +139,14 @@ class InternalInfoBuilder:
             # 遍历 user_map 找到对应的 uid_str
             for p_id, data in user_map.items():
                 if str(p_id) == str(sender_id):
-                    sender_uid = data.get('uid_str', sender_uid)
+                    sender_uid = data.get("uid_str", sender_uid)
                     break
 
         lines = [
             "<interruption>",
             f"    <source>user {sender_uid}</source>",
             f"    <content>{text}</content>",
-            "</interruption>"
+            "</interruption>",
         ]
 
         # 使用缩进连接字符串
@@ -155,6 +157,6 @@ class InternalInfoBuilder:
         text = text.replace("&", "&")
         text = text.replace("<", "<")
         text = text.replace(">", ">")
-        text = text.replace("\"", "&quot;")
+        text = text.replace('"', "&quot;")
         text = text.replace("'", "&apos;")
         return text
