@@ -16,59 +16,59 @@ class CoreBuilder(BasePlatformBuilder):
     _CONSCIOUSNESS_CONTROLS_DEFINITIONS: ClassVar = {
         "push_focus": {
             "type": "object",
-            "description": "【下潜/聚焦】深入到下一层焦点。将 target_id 指定的目标压入注意力堆栈顶部。",
+            "description": "将注意力聚焦到指定的目标（平台或会话）。",
             "properties": {
                 "target_id": {
                     "type": "string",
-                    "description": "要“潜入”的目标ID。例如平台ID 'qq' 或会话ID '123456'。",
+                    "description": "要聚焦的目标ID。例如平台ID 'qq' 或会话ID '123456'。",
                 },
-                "motivation": {"type": "string", "description": "你为什么要进入这一层？"},
+                "motivation": {"type": "string"},
             },
             "required": ["target_id", "motivation"],
         },
         "pop_focus": {
             "type": "object",
-            "description": "【上浮/返回】从当前焦点返回。从注意力堆栈顶部弹出现有焦点，返回到结构上的上一层。",
+            "description": "从当前注意力焦点返回。例如从当前会话返回到会话所属的平台，或退出当前平台。",
             "properties": {
-                "motivation": {"type": "string", "description": "你为什么要离开当前层级？"}
+                "motivation": {"type": "string"}
             },
             "required": ["motivation"],
         },
         "swap_focus": {
             "type": "object",
-            "description": "【平级切换焦点】替换堆栈顶部的当前焦点为另一个同层级的目标，不改变堆栈深度。",
+            "description": "将你的注意力从当前会话切换到另一个会话。",
             "properties": {
                 "target_id": {
                     "type": "string",
                     "description": "要切换到的新会话ID。",
                 },
-                "motivation": {"type": "string", "description": "你为什么要切换到这个目标？"},
+                "motivation": {"type": "string"},
             },
             "required": ["target_id", "motivation"],
         },
         "teleport_focus": {
             "type": "object",
-            "description": "【强制跳转焦点】清空当前的整个注意力堆栈，然后将指定的目标路径作为新的唯一焦点。",
+            "description": "直接将你的注意力聚焦到指定的目标。",
             "properties": {
                 "target_path": {
                     "type": "string",
-                    "description": "要传送到的绝对路径，必须是使用'.'作为分隔符的完整路径，例如`qq.123456`。",
+                    "description": "要聚焦的绝对路径，必须是使用'.'作为分隔符的完整路径，例如`qq.123456`。",
                 },
-                "motivation": {"type": "string", "description": "是什么情况让你必须使用此指令？"},
+                "motivation": {"type": "string"},
             },
             "required": ["target_path", "motivation"],
         },
         "back": {
             "type": "object",
-            "description": "【回溯到上一个焦点】根据<navigation_log>，将焦点设置到历史记录中的前一个位置 (T-1)。",
+            "description": "将你的注意力拉回到`<navigation_log>`中的上一个注意力焦点(T-1)。",
             "properties": {
-                "motivation": {"type": "string", "description": "你为什么要退回上一步？"}
+                "motivation": {"type": "string"}
             },
             "required": ["motivation"],
         },
         "jump_to_history": {
             "type": "object",
-            "description": "【跳转到指定的历史焦点】根据<navigation_log>，直接跳转到由`history_index`指定的历史焦点。",
+            "description": "根据`<navigation_log>`，直接跳转到由`history_index`指定的历史焦点。",
             "properties": {
                 "history_index": {
                     "type": "integer",

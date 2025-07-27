@@ -16,7 +16,9 @@ logger = get_logger(__name__)
 
 
 async def inspect_and_initialize_self_profile(
-    person_service: "PersonStorageService", action_handler: "ActionHandler", platform_id: str
+    person_service: "PersonStorageService",
+    action_handler: "ActionHandler",
+    platform_id: str
 ) -> tuple[bool, dict[str, Any] | None]:
     """检查并初始化祂自身在特定平台上的档案.
 
@@ -106,8 +108,7 @@ async def inspect_and_initialize_self_profile(
 
     logger.info(f"获取到 {len(group_list_data)} 个群聊的档案，开始更新群名片及会话档案...")
     update_tasks = []
-
-    # <--- 新增/修改的代码从这里开始 --->
+    # 遍历所有群聊，更新群名片和会话档案
     for group_id, group_profile in group_list_data.items():
         if group_id and isinstance(group_profile, dict):
             # 构建一个完整的、将要存入会话文档的机器人档案
