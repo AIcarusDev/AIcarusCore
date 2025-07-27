@@ -76,6 +76,20 @@ class ThoughtPromptBuilder:
         try:
             # 1. 尝试从 payload 中解析出平台、动作名和参数
             action_part = action_payload.get("action", {})
+            if not action_part or not isinstance(action_part, dict):
+                # 如果没有 action 部分或格式不正确，则直接返回默认描述
+                return f"<action_response>\n{action_desc}\n{action_result_text}\n</action_response>"
+
+            # 2. 在这里对 action_part 进行规范化处理
+            # 检查它是否已经是规范的嵌套结构
+            known_platform_keys = platform_builder_registry.get_all_builders().keys()
+            is_normalized = any(key in known_platform_keys for key in action_part)
+
+            if not is_normalized:
+                # 如果是扁平结构 (如 {"web_search": ...})，则假定它是核心动作并包装它
+                action_part = {"core": action_part}
+
+            # 3. 现在可以安全地使用之前的解析逻辑，因为 action_part 结构已统一
             if action_part and isinstance(action_part, dict):
                 # 动态获取平台名 (e.g., 'core', 'qq')
                 platform_key = next(iter(action_part), None)
@@ -86,7 +100,7 @@ class ThoughtPromptBuilder:
                     action_name = next(iter(platform_actions), None)
                     action_params = platform_actions.get(action_name, {}) if action_name else {}
 
-                    # 2. 根据解析出的动作名，构建不同的描述
+                    # 根据解析出的动作名，构建不同的描述
                     if action_name == "web_search":
                         query = action_params.get("query")
                         if query:
