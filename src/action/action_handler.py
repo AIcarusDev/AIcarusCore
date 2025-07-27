@@ -4,7 +4,6 @@ import time
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from src.tools.search.search_service import search_service_instance
 from src.action.components.pending_action_manager import PendingActionManager
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
@@ -111,10 +110,7 @@ class ActionHandler:
 
         它现在不再触发思考，只负责执行动作并将结果写回思想点.
         """
-        # --- [探灯B] 在这里加上！---
         logger.info(f"[探灯B] ActionHandler 收到的 action_json: {action_json}")
-        # -------------------------
-
         logger.info(f"--- [Action ID: {action_id}] 开始处理行动流程 ---")
 
         # 1. 检查是否为“不行动”决策
@@ -147,54 +143,48 @@ class ActionHandler:
         platform_id = platform_id_from_action if platform_actions else "core"
         action_name, params = next(iter(actions_to_process.items()))
 
-        # 3. 根据动作类型分发执行 (send_message 流程已移除)
         if platform_id == "core" and action_name == "web_search":
-            # --- START: 这是你需要修改的部分 ---
 
-            query = params.get("query")
-            result_text = ""
+            # 调用内部的“智能搜索代理”方法
+            logger.info(f"检测到 web_search 动作，正在激活智能搜索代理...")
+            result_text = await self._execute_core_web_search(params)
 
-            if not query:
-                result_text = "动作执行失败：LLM想搜索但没有提供关键词。"
-                logger.warning(result_text)
-            else:
-                try:
-                    logger.info(f"正在执行 web_search，查询: '{query}'")
-                    # 调用我们强大的搜索服务
-                    search_results = await search_service_instance.search(query, max_results=5)
-
-                    if not search_results:
-                        result_text = f"针对查询 '{query}' 的网络搜索没有返回任何结果。"
-                    else:
-                        # 将搜索结果格式化为简洁的文本，供AI在下一轮思考中阅读
-                        formatted_items = []
-                        for i, item in enumerate(search_results):
-                            title = item.get('title', '无标题')
-                            snippet = item.get('snippet', '无摘要').replace('\n', ' ')
-                            url = item.get('url', '#')
-                            formatted_items.append(f"{i+1}. 标题: {title}\n   摘要: {snippet}\n   来源: {url}")
-                        result_text = "网络搜索结果如下：\n" + "\n\n".join(formatted_items)
-
-                except Exception as e:
-                    result_text = f"执行网络搜索时发生意外错误: {e}"
-                    logger.error(result_text, exc_info=True)
-
-            # 将详细结果写回到思想点，这是AI记忆的关键
+            # 将代理返回的高信息密度结果写回到思想点
             if self.thought_storage_service:
                 await self.thought_storage_service.save_action_result_to_thought(
                     thought_key=doc_key_for_updates,
                     result_text=result_text,
                 )
 
-            # 【关键】搜索完成后，立即触发思考，让AI能够处理结果！
+            # 搜索完成后，立即触发思考，让AI能够处理结果！
             if self.thought_trigger:
-                logger.info(f"网页搜索完成 (Action ID: {action_id})，立即触发新一轮思考。")
+                logger.info(f"智能搜索代理完成任务 (Action ID: {action_id})，立即触发新一轮思考。")
                 self.thought_trigger.set()
 
+        # --- END: 修改结束 ---
         else:
             await self._execute_platform_action_flow(
                 platform_id, action_name, params, doc_key_for_updates
             )
+
+    async def _execute_core_web_search(self, params: dict) -> str:
+        """执行核心的网页搜索动作，并直接返回结果字符串."""
+        await self.initialize_llm_clients()
+        query = params.get("query")
+        motivation = params.get("motivation", "没有明确动机")
+
+        if not query or not self.web_search_agent_client:
+            result_text = "动作执行失败：LLM想搜索但没提供关键词，或者搜索代理客户端未初始化。"
+            logger.warning(result_text)
+            return result_text
+
+        logger.info(f"正在调用搜索代理LLM，查询: '{query}'")
+        system_prompt = WEB_SEARCH_SYSTEM_PROMPT.format(bot_name=config.persona.bot_name)
+        user_prompt = WEB_SEARCH_USER_PROMPT.format(query=query, motivation=motivation)
+        response = await self.web_search_agent_client.make_llm_request(
+            prompt=user_prompt, system_prompt=system_prompt, is_stream=False, use_google_search=True
+        )
+        return response.get("text", "搜索失败或未返回任何信息。")
 
         # 4. 【移除】不再从此触发思考
         # if self.thought_trigger:
