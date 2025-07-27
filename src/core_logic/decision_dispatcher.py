@@ -20,7 +20,7 @@ logger = get_logger(__name__)
 def normalize_action_payload(action_payload: dict, current_platform_id: str) -> dict:
     """一步到位地规范化LLM返回的action_payload.
 
-    它不依赖任何硬编码的动作列表，而是利用当前的平台上下文来确保动作被正确包裹.
+    它现在会智能判断动作是属于 'core' 还是特定平台.
     """
     if not action_payload or not isinstance(action_payload, dict):
         return {}
@@ -31,14 +31,28 @@ def normalize_action_payload(action_payload: dict, current_platform_id: str) -> 
         logger.debug(f"Action payload 已经是标准格式，无需规范化: {action_payload}")
         return action_payload
 
-    logger.debug(f"检测到扁平的动作负载，将使用当前平台上下文 '{current_platform_id}' 进行规范化。")
+    # 1. 提取出动作的名字，比如 'web_search'
+    action_name = next(iter(action_payload), None)
 
-    # --- [探灯A] 在这里加上！---
+    if action_name:
+        # 2. 找到我们的核心翻译官 CoreBuilder
+        core_builder = platform_builder_registry.get_builder("core")
+        if core_builder:
+            # 3. 问问核心翻译官，它在任何一个层级认不认识这个动作
+            #    (web_search 在所有层级都可用，所以随便查一个层就行)
+            core_actions_schema, _ = core_builder.get_level_actions_definitions('core')
+            if action_name in core_actions_schema.get('properties', {}):
+                # 4. 如果认识，就把它标记为 'core' 动作！
+                logger.debug(f"动作 '{action_name}' 被识别为核心动作。")
+                normalized_payload = {'core': action_payload}
+                logger.info(f"[探灯A] 扁平动作已规范化为: {normalized_payload}")
+                return normalized_payload
+
+    # 如果不是核心动作，才走原来的老路
+    logger.debug(f"检测到扁平的平台动作，将使用当前平台上下文 '{current_platform_id}' 进行规范化。")
     normalized_payload = {current_platform_id: action_payload}
     logger.info(f"[探灯A] 扁平动作已规范化为: {normalized_payload}")
-    # -------------------------
-
-    return {current_platform_id: action_payload}
+    return normalized_payload
 
 
 async def process_llm_decision(
