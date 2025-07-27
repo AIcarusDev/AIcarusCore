@@ -16,9 +16,7 @@ logger = get_logger(__name__)
 
 
 async def inspect_and_initialize_self_profile(
-    person_service: "PersonStorageService",
-    action_handler: "ActionHandler",
-    platform_id: str
+    person_service: "PersonStorageService", action_handler: "ActionHandler", platform_id: str
 ) -> tuple[bool, dict[str, Any] | None]:
     """检查并初始化祂自身在特定平台上的档案.
 

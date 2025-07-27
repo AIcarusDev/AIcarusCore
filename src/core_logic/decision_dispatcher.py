@@ -40,11 +40,11 @@ def normalize_action_payload(action_payload: dict, current_platform_id: str) -> 
         if core_builder:
             # 3. 问问核心翻译官，它在任何一个层级认不认识这个动作
             #    (web_search 在所有层级都可用，所以随便查一个层就行)
-            core_actions_schema, _ = core_builder.get_level_actions_definitions('core')
-            if action_name in core_actions_schema.get('properties', {}):
+            core_actions_schema, _ = core_builder.get_level_actions_definitions("core")
+            if action_name in core_actions_schema.get("properties", {}):
                 # 4. 如果认识，就把它标记为 'core' 动作！
                 logger.debug(f"动作 '{action_name}' 被识别为核心动作。")
-                normalized_payload = {'core': action_payload}
+                normalized_payload = {"core": action_payload}
                 logger.info(f"[探灯A] 扁平动作已规范化为: {normalized_payload}")
                 return normalized_payload
 

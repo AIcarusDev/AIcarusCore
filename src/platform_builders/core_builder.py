@@ -29,9 +29,7 @@ class CoreBuilder(BasePlatformBuilder):
         "pop_focus": {
             "type": "object",
             "description": "从当前注意力焦点返回。例如从当前会话返回到会话所属的平台，或退出当前平台。",
-            "properties": {
-                "motivation": {"type": "string"}
-            },
+            "properties": {"motivation": {"type": "string"}},
             "required": ["motivation"],
         },
         "swap_focus": {
@@ -61,9 +59,7 @@ class CoreBuilder(BasePlatformBuilder):
         "back": {
             "type": "object",
             "description": "将你的注意力拉回到`<navigation_log>`中的上一个注意力焦点(T-1)。",
-            "properties": {
-                "motivation": {"type": "string"}
-            },
+            "properties": {"motivation": {"type": "string"}},
             "required": ["motivation"],
         },
         "jump_to_history": {

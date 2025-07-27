@@ -144,9 +144,8 @@ class ActionHandler:
         action_name, params = next(iter(actions_to_process.items()))
 
         if platform_id == "core" and action_name == "web_search":
-
             # 调用内部的“智能搜索代理”方法
-            logger.info(f"检测到 web_search 动作，正在激活智能搜索代理...")
+            logger.info("检测到 web_search 动作，正在激活智能搜索代理...")
             result_text = await self._execute_core_web_search(params)
 
             # 将代理返回的高信息密度结果写回到思想点
@@ -190,7 +189,6 @@ class ActionHandler:
         # if self.thought_trigger:
         #     logger.info(f"行动流程处理完毕 (Action ID: {action_id})，触发思考。")
         #     self.thought_trigger.set()
-
 
     async def _execute_platform_action_flow(
         self, platform_id: str, action_name: str, params: dict, doc_key_for_updates: str

@@ -307,10 +307,7 @@ class CoreLogic:
             return None
 
     async def _check_for_interruptions(
-        self,
-        session: "ChatSession",
-        context_text: str,
-        since_timestamp: float
+        self, session: "ChatSession", context_text: str, since_timestamp: float
     ) -> tuple[dict | None, float | None]:
         """检查新消息是否需要中断当前思考."""
         new_events = await session.event_storage.get_message_events_after_timestamp(
