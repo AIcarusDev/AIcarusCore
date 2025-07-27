@@ -30,6 +30,15 @@ class BasePlatformBuilder(ABC):
         return False
 
     @property
+    def is_tool_platform(self) -> bool:
+        """这个平台是否是一个纯粹的“工具平台”?
+
+        如果是，它的能力应该在更高层级就被展示出来。
+        默认返回 False.
+        """
+        return False
+
+    @property
     @abstractmethod
     def platform_id(self) -> str:
         """返回平台ID."""
