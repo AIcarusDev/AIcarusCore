@@ -34,7 +34,9 @@ class AIStateManager:
     }
 
     def __init__(
-        self, thought_service: ThoughtStorageService, action_log_service: ActionLogStorageService
+        self,
+        thought_service: ThoughtStorageService,
+        action_log_service: ActionLogStorageService
     ) -> None:
         """初始化需要 thought_storage_service 和 action_log_service 才能干活，哼."""
         self.thought_service = thought_service
