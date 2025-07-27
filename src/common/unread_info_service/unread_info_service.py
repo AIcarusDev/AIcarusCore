@@ -252,6 +252,8 @@ class UnreadInfoService:
             latest_event = item["latest_event"]
             unread_count = item["unread_count"]
 
+            is_temporary = conv_doc.get("extra", {}).get("is_temporary", False)
+
             conv_id = conv_doc.get("conversation_id", "unknown_id")
             conv_type = conv_doc.get("type")
 
@@ -271,7 +273,10 @@ class UnreadInfoService:
             if conv_type == "group":
                 summary_parts.append(f"- [群名称]：{conv_name}")
             else:  # private or other
-                summary_parts.append(f"- [用户名称]：{conv_name}")
+                if is_temporary:
+                    summary_parts.append(f"- [临时会话]：{conv_name}")
+                else:
+                    summary_parts.append(f"- [用户名称]：{conv_name}")
             summary_parts.extend((f"  - [ID]：{conv_id}", f"  - [最新消息]：{message_preview}"))
             summary_parts.append(f"  - {status_line}")
             summary_parts.append("")
@@ -341,13 +346,20 @@ class UnreadInfoService:
                         item["latest_event"],
                         item["unread_count"],
                     )
+
+                    is_temporary = conv_doc.get("extra", {}).get("is_temporary", False)
+
                     sender_name = self._get_sender_display_name(latest_event, "private")
                     time_str = datetime.fromtimestamp(
                         latest_event.get("timestamp", 0) / 1000.0
                     ).strftime("%H:%M")
                     preview = self._create_message_preview(latest_event, sender_name)
 
-                    summary_parts.append(f"- [用户名称]：{conv_doc.get('name') or sender_name}")
+                    if is_temporary:
+                        summary_parts.append(f"- [临时会话]：{conv_doc.get('name') or sender_name}")
+                    else:
+                        summary_parts.append(f"- [用户名称]：{conv_doc.get('name') or sender_name}")
+
                     summary_parts.append(f"  - [ID]：{conv_doc.get('conversation_id')}")
                     summary_parts.append(f"  - [最新消息]：{preview}")
                     summary_parts.append(f"  - (时间：{time_str}/共 {unread_count} 条未读信息)")
