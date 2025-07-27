@@ -126,22 +126,27 @@ class PendingActionManager:
             result_payload = details if successful else {"error": error_msg}
             pending_future.set_result((successful, result_payload))
 
-        if successful and original_action_type and original_action_type.endswith(".send_message"):
-            # 如果是 send_message 动作，尝试从响应中提取会话信息
+        if successful and original_action_type:
+            # 逻辑分支一：专门处理 send_message 的回声
+            if original_action_type.endswith(".send_message"):
+                conversation_info = sent_dict.get("conversation_info")
+                if conversation_info and isinstance(conversation_info, dict):
+                    conv_id = conversation_info.get("conversation_id")
+                    if conv_id and self.action_handler.chat_session_manager:
+                        session = self.action_handler.chat_session_manager.sessions.get(
+                            str(conv_id)
+                        )
+                        if session:
+                            logger.info(
+                                f"检测到 send_message 动作的回声，"
+                                f"正在为动作 '{original_action_id}' "
+                                f"调用 session.signal_echo_received()！"
+                            )
+                            await session.signal_echo_received(original_action_id)
+
+            # 逻辑分支二：专门处理 get_list 成功后主动创建会话档案
             if original_action_type.endswith(".get_list"):
                 await self._proactively_create_conversation_docs_from_list(details, sent_dict)
-            conversation_info = sent_dict.get("conversation_info")
-            if conversation_info and isinstance(conversation_info, dict):
-                conv_id = conversation_info.get("conversation_id")
-                if conv_id and self.action_handler.chat_session_manager:
-                    session = self.action_handler.chat_session_manager.sessions.get(str(conv_id))
-                    if session:
-                        logger.info(
-                            f"检测到 send_message 动作的回声，正在为动作 '{original_action_id}' "
-                            f"调用 session.signal_echo_received()！"
-                        )
-                        await session.signal_echo_received(original_action_id)
-
         response_timestamp = int(time.time() * 1000)
         response_time_ms = response_timestamp - sent_dict.get("timestamp", response_timestamp)
         tasks_to_gather = [

@@ -1,4 +1,4 @@
-# 文件: src/core_logic/consciousness_flow.py (最终完美版 V1.3)
+# src/core_logic/consciousness_flow.py
 import asyncio
 import contextlib
 import datetime
@@ -13,7 +13,7 @@ from src.config import config
 from src.core_communication.core_ws_server import CoreWebsocketServer
 from src.core_logic.decision_dispatcher import process_llm_decision
 from src.core_logic.intrusive_thoughts import IntrusiveThoughtsGenerator
-from src.core_logic.prompt_builder import ThoughtPromptBuilder
+from src.core_logic.prompt_builder import PromptBuilderError, ThoughtPromptBuilder
 from src.core_logic.state_manager import AIStateManager
 from src.core_logic.thought_generator import ThoughtGenerator
 from src.core_logic.thought_persistor import ThoughtPersistor
@@ -213,14 +213,21 @@ class CoreLogic:
             focus_path_str = focus_entry
         # 如果 focus_entry 是 None，则 focus_path_str 保持为 None
 
-        (
-            prompt_components,
-            processed_raw_events,
-        ) = await self.prompt_builder.build_prompts_components(
-            focus_path=focus_path_str,
-            session=session,
-            handover_result=session.pending_handover_result if session else None,
-        )
+        try:
+            (
+                prompt_components,
+                processed_raw_events,
+            ) = await self.prompt_builder.build_prompts_components(
+                focus_path=focus_path_str,
+                session=session,
+                handover_result=session.pending_handover_result if session else None,
+            )
+        except PromptBuilderError as e:
+            # 如果构建Prompt的过程中出了问题（比如 session manager 还没好）
+            # 我们就在这里抓住它，打个日志，然后安静地结束这一轮思考
+            logger.error(f"构建Prompt失败，中止本轮思考循环: {e}")
+            return None  # 返回 None，表示本轮没有产出
+
         if session:
             session.pending_handover_result = None
 
@@ -283,14 +290,20 @@ class CoreLogic:
     ) -> dict | None:
         """纯粹的中断监听器（哨兵），它现在接收一个固定的初始上下文."""
         try:
-            # 哨兵的“记忆”在它诞生时就被决定了，就是 initial_context_text！
             context_text = initial_context_text
             last_checked_timestamp = session.last_processed_timestamp
 
+            bot_profile = await session.get_bot_profile()
+            current_bot_id = str(bot_profile.get("user_id") or session.bot_id)
+
             while True:
-                # 哨兵现在用它被注入的、永不改变的初始记忆去检查新消息
-                interrupting_event, latest_ts_in_batch = await self._check_for_interruptions(
-                    session, context_text, last_checked_timestamp
+                # 哨兵用它当前的记忆去检查新消息
+                (
+                    interrupting_event,
+                    latest_ts_in_batch,
+                    last_text_in_batch,
+                ) = await self._check_for_interruptions(
+                    session, context_text, last_checked_timestamp, current_bot_id
                 )
 
                 if interrupting_event:
@@ -298,6 +311,9 @@ class CoreLogic:
 
                 if latest_ts_in_batch:
                     last_checked_timestamp = latest_ts_in_batch
+
+                if last_text_in_batch:
+                    context_text = last_text_in_batch
 
                 await asyncio.sleep(0.5)
         except asyncio.CancelledError:
@@ -307,17 +323,22 @@ class CoreLogic:
             return None
 
     async def _check_for_interruptions(
-        self, session: "ChatSession", context_text: str, since_timestamp: float
-    ) -> tuple[dict | None, float | None]:
-        """检查新消息是否需要中断当前思考."""
+        self,
+        session: "ChatSession",
+        context_text: str,
+        since_timestamp: float,
+        current_bot_id: str,
+    ) -> tuple[dict | None, float | None, str | None]:
+        """检查新消息是否需要中断当前思考. 现在它还会返回新消息批次中的最后一条文本."""
         new_events = await session.event_storage.get_message_events_after_timestamp(
             session.conversation_id,
             since_timestamp,
             limit=10,
             status="unread",
+            exclude_user_id=current_bot_id,
         )
         if not new_events:
-            return None, None
+            return None, None, None
 
         latest_timestamp_in_this_batch = max(event.get("timestamp", 0.0) for event in new_events)
         bot_profile = await session.get_bot_profile()
@@ -330,6 +351,10 @@ class CoreLogic:
             text_content = extract_text_from_content(
                 [Seg.from_dict(c) for c in event_doc.get("content", [])]
             )
+
+            if text_content:
+                last_text_content_in_batch = text_content
+
             message_to_check = {"speaker_id": str(sender_id), "text": text_content}
             if not message_to_check.get("text"):
                 continue
@@ -341,9 +366,9 @@ class CoreLogic:
                 logger.info(
                     f"[{session.conversation_id}] IIS决策：中断！元凶ID: {event_doc.get('_key')}"
                 )
-                return event_doc, latest_timestamp_in_this_batch
+                return event_doc, latest_timestamp_in_this_batch, last_text_content_in_batch
 
-        return None, latest_timestamp_in_this_batch
+        return None, latest_timestamp_in_this_batch, last_text_content_in_batch
 
     async def _wait_for_next_cycle(self, interval: float) -> None:
         try:

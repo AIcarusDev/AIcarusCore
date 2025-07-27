@@ -156,46 +156,33 @@ class EventStorageService:
 
     async def get_recent_chat_message_documents(
         self,
-        duration_minutes: int = 0,  # 默认不按时间筛选，主要靠limit
+        duration_minutes: int = 0,
         conversation_id: str | None = None,
         exclude_conversation_id: str | None = None,
         limit: int = 50,
-        fetch_all_event_types: bool = False,
+        fetch_all_event_types: bool = False,  # 这个参数依然有用，用于系统级查询
     ) -> list[dict[str, Any]]:
         """获取最近的聊天消息事件文档.
 
-        Args:
-            duration_minutes (int): 过滤的时间窗口（分钟），默认不按时间筛选.
-            conversation_id (str | None): 要过滤的会话ID.
-            exclude_conversation_id (str | None): 要排除的会话ID.
-            limit (int): 返回的最大文档数量，默认50.
-            fetch_all_event_types (bool): 是否获取所有类型的事件，默认只获取聊天消息.
-
-        Returns:
-            list[dict[str, Any]]: 最近的聊天消息事件文档列表.
+        由于上游逻辑已将所有聊天相关的事件（包括自己的发言）统一为 'message.%' 类型,
+        因此本函数只需查询该类型即可获取完整的上下文.
         """
         try:
             filters = []
             bind_vars: dict[str, Any] = {"limit": limit}
 
-            if duration_minutes > 0:  # 如果指定了有效的时间窗口，则添加时间过滤
+            if duration_minutes > 0:
                 current_time_ms = int(time.time() * 1000.0)
                 threshold_time_ms = current_time_ms - (duration_minutes * 60 * 1000)
                 filters.append("doc.timestamp >= @threshold_time")
                 bind_vars["threshold_time"] = threshold_time_ms
 
             if not fetch_all_event_types:
-                filters.append(
-                    " ( doc.event_type LIKE 'message.%' OR doc.event_type LIKE 'action.%.send_message' ) "  # noqa: E501
-                )
+                filters.append("doc.event_type LIKE 'message.%'")
 
             if conversation_id:
                 filters.append("doc.conversation_id_extracted == @conversation_id")
                 bind_vars["conversation_id"] = conversation_id
-
-            if exclude_conversation_id:
-                filters.append("doc.conversation_id_extracted != @exclude_conversation_id")
-                bind_vars["exclude_conversation_id"] = exclude_conversation_id
 
             query_parts = ["FOR doc IN @@collection"]
             if filters:  # 只有当存在其他过滤器时才添加 FILTER 子句
@@ -212,11 +199,7 @@ class EventStorageService:
             results = await self.conn_manager.execute_query(query, bind_vars)
             return results if results is not None else []
         except Exception as e:
-            logger.error(
-                f"获取最近事件文档失败 (会话ID: {conversation_id}, "
-                f"获取所有类型: {fetch_all_event_types}): {e}",
-                exc_info=True,
-            )
+            logger.error(f"获取最近事件文档失败: {e}", exc_info=True)
             return []
 
     async def get_last_action_response(
@@ -240,16 +223,13 @@ class EventStorageService:
             bind_vars: dict[str, Any] = {"platform": platform}
 
             if conversation_id:
-                filters.append(
-                    "doc.conversation_id_extracted == @conversation_id"
-                )  # 主人你看，这里用了 extracted 哦
+                filters.append("doc.conversation_id_extracted == @conversation_id")
                 bind_vars["conversation_id"] = conversation_id
 
-            if bot_id:  # 如果主人给了 bot_id，小猫咪就用上它
+            if bot_id:
                 filters.append("doc.bot_id == @bot_id")
                 bind_vars["bot_id"] = bot_id
 
-            # 小猫咪把查询语句写得更色情一点
             query = f"""
                 FOR doc IN @@collection
                     FILTER {(" AND ".join(filters))}
@@ -257,7 +237,6 @@ class EventStorageService:
                     LIMIT 1
                     RETURN doc
             """
-            # 主人，这里的 @collection 还是我们的小秘密哦
             bind_vars["@collection"] = self.COLLECTION_NAME
 
             results = await self.conn_manager.execute_query(query, bind_vars)
@@ -266,7 +245,7 @@ class EventStorageService:
                     f"成功为 platform='{platform}', conversation_id='{conversation_id}', "
                     f"bot_id='{bot_id}' 获取到上一个动作响应"
                 )
-                return results[0]  # 只返回最新的那一条，最新鲜的才好吃！
+                return results[0]
             else:
                 logger.info(
                     f"没有找到 platform='{platform}', "
@@ -282,7 +261,12 @@ class EventStorageService:
             return None
 
     async def get_message_events_after_timestamp(
-        self, conversation_id: str, timestamp: int, limit: int = 500, status: str | None = None
+        self,
+        conversation_id: str,
+        timestamp: int,
+        limit: int = 500,
+        status: str | None = None,
+        exclude_user_id: str | None = None,
     ) -> list[dict[str, Any]]:
         """获取指定会话中，在给定时间戳之后的消息事件.
 
@@ -291,6 +275,7 @@ class EventStorageService:
             timestamp (int): 时间戳，用于过滤事件。
             limit (int, optional): 返回的最大事件数量，默认为500。
             status (str, optional): 事件状态，用于过滤事件。
+            exclude_user_id (str, optional): 如果提供，将排除该用户的消息事件。
 
         Returns:
             list[dict[str, Any]]: 符合条件的消息事件列表。
@@ -311,6 +296,10 @@ class EventStorageService:
             if status:
                 filters.append("doc.status == @status")
                 bind_vars["status"] = status
+
+            if exclude_user_id:
+                filters.append("doc.user_info.user_id != @exclude_user_id")
+                bind_vars["exclude_user_id"] = exclude_user_id
 
             query = f"""
                 FOR doc IN @@collection

@@ -33,6 +33,12 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+class PromptBuilderError(Exception):
+    """当构建Prompt过程中发生不可恢复的错误时抛出."""
+
+    pass
+
+
 class ThoughtPromptBuilder:
     """负责构建符合三层信息块模型的系统和用户提示."""
 
@@ -325,7 +331,7 @@ class ThoughtPromptBuilder:
         self, level: str, platform_id: str, conv_id: str | None
     ) -> str:
         if not self.chat_session_manager:
-            return "会话管理器尚未准备就绪。"
+            raise PromptBuilderError("会话管理器尚未准备就绪，无法构建当前状态块。")
         if level == "core":
             return "你当前专注于：发呆/自我思考。"
         elif level == "platform":
@@ -333,7 +339,7 @@ class ThoughtPromptBuilder:
         elif level == "cellular" and conv_id:
             session = self.chat_session_manager.sessions.get(conv_id)
             if not session:
-                return "错误：找不到当前会话的档案。"
+                raise PromptBuilderError(f"找不到会话 {conv_id} 的档案，无法构建当前状态块。")
             bot_profile = await session.get_bot_profile()
             if session.conversation_type == "group":
                 return (
@@ -404,7 +410,7 @@ class ThoughtPromptBuilder:
         """获取外部信息和元信息块."""
         external_info, meta_info, history_components, processed_raw_events = "", "", None, None
         if not self.chat_session_manager:
-            return "会话管理器尚未准备就绪。", "", None, None
+            raise PromptBuilderError("会话管理器尚未准备就绪，无法构建外部信息块。")
         if level == "core":
             external_info = await self.unread_info_service.get_platform_summary()
         elif level == "platform":
@@ -414,7 +420,7 @@ class ThoughtPromptBuilder:
         elif level == "cellular" and conv_id:
             session = self.chat_session_manager.sessions.get(conv_id)
             if not session:
-                return "错误：找不到会话档案。", "", None, None
+                raise PromptBuilderError(f"找不到会话 {conv_id} 的档案，无法构建外部信息块。")
             bot_profile = await session.get_bot_profile()
             history_components, processed_raw_events = await format_chat_history_for_llm(
                 event_storage=self.event_storage,

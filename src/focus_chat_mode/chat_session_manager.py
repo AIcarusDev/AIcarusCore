@@ -3,7 +3,7 @@
 import asyncio
 import time
 from collections import deque
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from aicarus_protocols import Event
 from src.action.action_handler import ActionHandler
@@ -99,12 +99,12 @@ class ChatSessionManager:
         logger.info("ChatSessionManager 初始化完成。")
 
     @property
-    def current_focus_path(self) -> str | None:
+    def current_focus_path(self) -> dict[str, Any] | None:
         """属性：返回当前焦点路径（堆栈顶部）."""
         return self.focus_history[-1]
 
     @property
-    def previous_focus_path(self) -> str | None:
+    def previous_focus_path(self) -> dict[str, Any] | None:
         """属性：返回上一个焦点路径（堆栈次顶部）."""
         if len(self.focus_history) > 1:
             return self.focus_history[-2]

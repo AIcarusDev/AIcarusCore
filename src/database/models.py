@@ -68,6 +68,7 @@ class CoreDBCollections:
         ACTION_LOGS: [
             (["action_id"], True, False),
             (["timestamp"], False, False),
+            (["result_details.sent_message_id"], False, True),
         ],
         CONVERSATION_SUMMARIES: [
             (["conversation_id", "timestamp"], False, False),

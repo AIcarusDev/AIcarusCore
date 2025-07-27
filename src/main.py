@@ -1,5 +1,6 @@
 # src/main.py
 import asyncio
+import contextlib
 
 from src.bootstrap.builder import ServiceBuilder
 from src.bootstrap.wiring import wire_dependencies, wire_dynamic_dependencies
@@ -11,6 +12,7 @@ logger = get_logger(__name__)
 async def start_core_system() -> None:
     """启动 AIcarus Core 系统的全新、优雅的入口."""
     container = None
+    background_tasks = set()
     try:
         # 1. 构建服务容器，创建所有服务实例
         builder = ServiceBuilder()
@@ -29,36 +31,59 @@ async def start_core_system() -> None:
         logic_task = await container.core_logic.start_thinking_loop()
 
         # 启动侵入性思维后台线程 (如果启用)
+        # 它的关闭是由 stop_event (threading.Event) 控制的，所以不在这里管理
         if container.intrusive_generator:
             container.intrusive_generator.start_background_generation()
 
         # 4. 在后台处理动态依赖的连接 (ChatSessionManager)
         # 这不会阻塞主服务运行
-        background_tasks = set()
         dynamic_wiring_task = asyncio.create_task(
             wire_dynamic_dependencies(container), name="DynamicWiring"
         )
         background_tasks.add(dynamic_wiring_task)
+        # 当任务自己完成后，就把它从集合里移除
         dynamic_wiring_task.add_done_callback(background_tasks.discard)
 
         # 5. 等待核心任务结束
-        done, pending = await asyncio.wait(
-            {ws_task, logic_task}, return_when=asyncio.FIRST_COMPLETED
-        )
+        # 核心任务是 ws_task 和 logic_task，它们决定了程序的生命周期
+        main_tasks = {ws_task, logic_task}
+        done, pending = await asyncio.wait(main_tasks, return_when=asyncio.FIRST_COMPLETED)
 
+        # 检查是哪个核心任务先结束了，以及为什么
         for task in done:
             if exc := task.exception():
                 logger.critical(f"核心任务 '{task.get_name()}' 异常终止: {exc!r}", exc_info=exc)
-                raise exc  # 重新抛出异常以触发关闭
+                # 重新抛出异常以触发下面的 finally 清理流程
+                raise exc
+            else:
+                logger.info(f"核心任务 '{task.get_name()}' 正常完成。")
+
+        # 如果一个核心任务结束了，我们也应该取消另一个，准备关机
+        for task in pending:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
 
     except Exception as e:
         logger.critical(f"AIcarus Core 系统启动或运行遭遇致命错误: {e}", exc_info=True)
     finally:
         logger.info("--- AIcarus Core 系统正在进入关闭流程 ---")
+
+        # 在关闭核心服务之前，先处理掉所有后台的“小弟”
+        if background_tasks:
+            logger.info(f"正在取消 {len(background_tasks)} 个后台任务...")
+            for task in background_tasks:
+                task.cancel()
+
+            # 使用 gather 等待所有取消操作完成
+            # return_exceptions=True 就像给它们买了保险，一个任务取消失败不会影响其他的
+            await asyncio.gather(*background_tasks, return_exceptions=True)
+            logger.info("所有后台任务已处理完毕。")
+
         if container:
-            # 优雅地关闭
+            # 优雅地关闭核心服务
             if container.core_logic:
-                await container.core_logic.stop()
+                await container.core_logic.stop()  # 这会处理 intrusive_generator 的线程
             if container.core_comm_layer:
                 await container.core_comm_layer.stop()
             if container.conn_manager:

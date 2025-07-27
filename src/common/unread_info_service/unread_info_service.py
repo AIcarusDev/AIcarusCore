@@ -107,25 +107,40 @@ class UnreadInfoService:
         is_at_me = False
         is_reply_to_me = False
 
-        # 1. 获取当前事件的平台ID
-        platform = event.get("platform")
+        # 1. 先准备好我所有的马甲ID，以备不时之需
+        all_my_bot_ids = set(self.self_bot_ids.values())
 
-        # 2. 根据平台ID，从我们的“马甲字典”中找到AI在这个平台上的ID
-        bot_id_on_this_platform = self.self_bot_ids.get(platform) if platform else None
+        for seg in content:
+            target_user_id = None
+            seg_type = seg.get("type")
 
-        # 3. 只有当我们知道AI在这个平台上的ID时，才进行高亮判断
-        if bot_id_on_this_platform:
-            for seg in content:
-                if (
-                    seg.get("type") == "at"
-                    and str(seg.get("data", {}).get("user_id")) == bot_id_on_this_platform
-                ):
-                    is_at_me = True
-                if (
-                    seg.get("type") == "quote"
-                    and str(seg.get("data", {}).get("user_id")) == bot_id_on_this_platform
-                ):
-                    is_reply_to_me = True
+            if seg_type == "at" or seg_type == "quote":
+                target_user_id = str(seg.get("data", {}).get("user_id", ""))
+
+            if target_user_id:
+                # 2. 优先路径：如果事件有平台信息，就精确匹配
+                platform = event.get("platform")
+                if platform:
+                    bot_id_for_this_platform = self.self_bot_ids.get(platform)
+                    if bot_id_for_this_platform and target_user_id == bot_id_for_this_platform:
+                        if seg_type == "at":
+                            is_at_me = True
+                        if seg_type == "quote":
+                            is_reply_to_me = True
+                else:
+                    # 3. 回退路径：如果事件没平台信息，就用我所有的马甲去比对
+                    #    并且大声抱怨一下！
+                    logger.warning(
+                        f"事件 (ID: {event.get('_key', '未知')}, "
+                        f"Type: {event_type}) 缺少 'platform' 字段！"
+                        f"正在进行回退检查..."
+                    )
+                    if target_user_id in all_my_bot_ids:
+                        if seg_type == "at":
+                            is_at_me = True
+                        if seg_type == "quote":
+                            is_reply_to_me = True
+                        logger.warning(f"回退检查命中！事件 {event.get('_key')} 确实是@或回复我。")
 
         if event_type.endswith("user.poke"):
             target_id = (
@@ -135,7 +150,8 @@ class UnreadInfoService:
                 .get("user_id")
             )
             # 判断戳的是不是我
-            if bot_id_on_this_platform and str(target_id) == bot_id_on_this_platform:
+            # 这里也用更健壮的检查
+            if target_id and str(target_id) in all_my_bot_ids:
                 return f'{display_name} "戳了戳" 你'
             else:
                 target_name = (
