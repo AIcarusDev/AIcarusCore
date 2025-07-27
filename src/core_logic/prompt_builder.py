@@ -8,7 +8,7 @@ from src.common.time_utils import get_formatted_time_for_llm
 from src.common.utils import parse_focus_path
 from src.config import config
 from src.core_logic.internal_info_builder import InternalInfoBuilder
-from src.database import ThoughtStorageService
+from src.database import ConversationStorageService, ThoughtStorageService
 from src.focus_chat_mode.behavioral_guidance_generator import BehavioralGuidanceGenerator
 from src.focus_chat_mode.components import PromptComponents
 from src.platform_builders.base_builder import BasePlatformBuilder
@@ -22,7 +22,6 @@ from src.prompt_templates.focus_chat_prompts import (
     FOCUS_INPUT_XML_DESCRIPTION,
 )
 from src.prompt_templates.platform_prompts import PLATFORM_INPUT_XML_DESCRIPTION
-from src.database import ConversationStorageService, ThoughtStorageService
 
 if TYPE_CHECKING:
     from src.common.unread_info_service.unread_info_service import UnreadInfoService
@@ -363,17 +362,24 @@ class ThoughtPromptBuilder:
                     f'你当前正在 qq 群"{session.conversation_name or "未知群聊"}"中参与 qq 群聊，'
                     f'你在该群的群名片是"{bot_profile.get("card", config.persona.bot_name)}"'
                 )
-            else: # 私聊
+            else:  # 私聊
                 if is_temporary:
                     source_group_id = session.conversation_info.extra.get("source_group_id")
-                    source_group_name = "未知群聊" # 默认值
+                    source_group_name = "未知群聊"  # 默认值
                     if source_group_id:
                         # 使用注入的 service 查询数据库
-                        source_group_doc = await self.conversation_service.get_conversation_document_by_id(source_group_id)
+                        source_group_doc = (
+                            await self.conversation_service.get_conversation_document_by_id(
+                                source_group_id
+                            )
+                        )
                         if source_group_doc:
                             source_group_name = source_group_doc.get("name", source_group_id)
                     # 返回临时会话的描述
-                    return f"你当前正在 qq 上处理来自“{source_group_name}”群聊中“{session.conversation_name or '对方'}”的临时会话私聊"
+                    return (
+                        f"你当前正在 qq 上处理来自“{source_group_name}”群聊中"
+                        f"“{session.conversation_name or '对方'}”的临时会话私聊"
+                    )
                 else:
                     return f"你当前正在 qq 上与{session.conversation_name or '对方'}私聊"
         return "未知状态"

@@ -117,7 +117,7 @@ class ChatSessionManager:
     async def get_or_create_session(
         self,
         conversation_id: str,
-    ) -> ChatSession | None: # 返回值可能为 None
+    ) -> ChatSession | None:  # 返回值可能为 None
         """获取或创建一个聊天会话实例.
 
         如果会话已存在，则返回现有实例；如果不存在，则创建一个新的会话实例。
@@ -140,12 +140,14 @@ class ChatSessionManager:
                 conversation_id
             )
             if not conv_doc:
-                logger.error(f"严重错误：尝试为 '{conversation_id}' 创建会话，但在数据库中找不到其档案！")
-                return None # 创建失败
+                logger.error(
+                    f"严重错误：尝试为 '{conversation_id}' 创建会话，但在数据库中找不到其档案！"
+                )
+                return None  # 创建失败
 
             from src.database.models import EnrichedConversationInfo
-            conversation_info_obj = EnrichedConversationInfo.from_db_document(conv_doc)
 
+            conversation_info_obj = EnrichedConversationInfo.from_db_document(conv_doc)
 
             if not self.core_logic:
                 raise RuntimeError("CoreLogic未注入，ChatSessionManager无法创建会话。")
@@ -153,11 +155,12 @@ class ChatSessionManager:
             bot_id_for_session = self.self_bot_ids_map.get(conversation_info_obj.platform)
             if not bot_id_for_session:
                 raise RuntimeError(
-                    f"无法为平台 '{conversation_info_obj.platform}' 创建会话，ID地图中找不到对应ID。"
+                    f"无法为平台 '{conversation_info_obj.platform}' "
+                    f"创建会话，ID地图中找不到对应ID。"
                 )
 
             self.sessions[conversation_id] = ChatSession(
-                conversation_info=conversation_info_obj, # <--- 修改点：传入完整的对象
+                conversation_info=conversation_info_obj,  # <--- 修改点：传入完整的对象
                 llm_client=self.llm_client,
                 event_storage=self.event_storage,
                 action_handler=self.action_handler,
@@ -343,9 +346,7 @@ class ChatSessionManager:
 
                 # 直接调用新的 get_or_create_session，它会自己处理数据库查询
                 # 如果返回 None，说明数据库里没有这个会话，是个错误情况
-                session = await self.get_or_create_session(
-                    conversation_id=conv_id
-                )
+                session = await self.get_or_create_session(conversation_id=conv_id)
                 if not session:
                     logger.error(f"无法 'push_focus'，数据库中找不到会话 '{conv_id}' 的档案。")
                     # 把刚刚推进去的错误路径弹出来，当无事发生
