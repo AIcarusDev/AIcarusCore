@@ -457,9 +457,9 @@ class LLMClient:
                 not input_was_gif_and_processed_as_png
                 and current_size_bytes <= self.image_compression_target_bytes * 1.05
             ):
-                logger.info(
-                    f"图像 ({original_mime_type}) 尺寸已达标且非GIF强制转换，无需进一步压缩。"
-                )
+                # logger.info(
+                #     f"图像 ({original_mime_type}) 尺寸已达标且非GIF强制转换，无需进一步压缩。"
+                # )
                 return base64_data, original_mime_type
 
             original_width, original_height = img.size
@@ -561,7 +561,7 @@ class LLMClient:
         determined_mime_type = mime_type_override
         try:
             if image_path_or_url_or_data_uri.startswith("data:image"):
-                logger.info("检测到 Data URI，直接处理。")
+                # logger.info("检测到 Data URI，直接处理。")
                 header, encoded_data = image_path_or_url_or_data_uri.split(",", 1)
                 determined_mime_type = header.split(";")[0].split(":")[1]
                 base64_image_data = encoded_data
