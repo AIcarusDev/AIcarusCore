@@ -17,14 +17,12 @@ class TermuxBuilder(BasePlatformBuilder):
     """
 
     @property
-    def needs_on_connect_inspection(self) -> bool:
-        """Termux平台不需要复杂的连接安检."""
-        return False
+    def is_tool_platform(self) -> bool:
+        """Termux是一个工具平台，提供各种手机功能的访问.
 
-    @property
-    def is_person_platform(self) -> bool:
-        """Termux平台不具有身份内容, 返回 False."""
-        return False
+        它的能力应该在更高层级就被展示出来.
+        """
+        return True
 
     @property
     def platform_id(self) -> str:

@@ -356,7 +356,23 @@ class ThoughtPromptBuilder:
         plat_desc = (
             builder.get_level_actions_descriptions(level) if level != "core" and builder else ""
         )
-        return "\n".join(filter(None, [core_desc, plat_desc])) or "你当前没有可用的外部行动。"
+        final_descs = [core_desc, plat_desc]
+
+        # [通用化改造]
+        if level == "core":
+            # 遍历所有已注册的平台
+            for platform_id, p_builder in platform_builder_registry.get_all_builders().items():
+                # 如果这个平台自称是“工具平台”
+                if p_builder.is_tool_platform:
+                    # 就把它在“平台层”能提供的动作都拿出来展示
+                    tool_actions_desc = p_builder.get_level_actions_descriptions("platform")
+                    if tool_actions_desc:
+                        tool_block = (
+                            f"\n- 工具平台 '{platform_id}' 提供了以下特殊工具:\n{tool_actions_desc}"
+                        )
+                        final_descs.append(tool_block)
+
+        return "\n".join(filter(None, final_descs)) or "你当前没有可用的外部行动。"
 
     async def _get_external_and_meta_info_blocks(
         self, level: str, platform_id: str, conv_id: str | None
