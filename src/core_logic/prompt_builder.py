@@ -108,8 +108,7 @@ class ThoughtPromptBuilder:
 
                     # 根据解析出的动作名，构建不同的描述
                     if action_name == "web_search":
-                        query = action_params.get("query")
-                        if query:
+                        if query := action_params.get("query"):
                             # 特例：为 web_search 构建包含关键词的丰富描述
                             action_desc = (
                                 f"你刚才执行了网页搜索，搜索的关键词是“{query}”，得到了以下结果："
@@ -132,8 +131,7 @@ class ThoughtPromptBuilder:
         if not self.chat_session_manager or len(self.chat_session_manager.focus_history) <= 1:
             return ""
 
-        log_lines = ["<navigation_log>"]
-        log_lines.append("<!-- 这是你最近的意识焦点移动轨迹 -->")
+        log_lines = ["<navigation_log>", "<!-- 这是你最近的意识焦点移动轨迹 -->"]
 
         history = list(self.chat_session_manager.focus_history)  # 创建副本以安全迭代
         history_len = len(history)
@@ -187,14 +185,14 @@ class ThoughtPromptBuilder:
             **core_ctrl_schema.get("properties", {}),
             **plat_ctrl_schema.get("properties", {}),
         }
-        if current_level == "core" and "focus" in final_ctrl_schema_props:
-            all_platform_ids = [
+        if (current_level == "core" and "focus" in final_ctrl_schema_props) and (
+            all_platform_ids := [
                 pid for pid in platform_builder_registry.get_all_builders() if pid != "core"
             ]
-            if all_platform_ids:
-                focus_properties = final_ctrl_schema_props["focus"].get("properties", {})
-                if "platform_id" in focus_properties:
-                    focus_properties["platform_id"]["enum"] = all_platform_ids
+        ):
+            focus_properties = final_ctrl_schema_props["focus"].get("properties", {})
+            if "platform_id" in focus_properties:
+                focus_properties["platform_id"]["enum"] = all_platform_ids
         plat_act_schema, _ = (
             builder.get_level_actions_definitions(current_level) if builder else ({}, {})
         )
@@ -365,20 +363,18 @@ class ThoughtPromptBuilder:
         return "未知状态"
 
     def _get_behavior_guidelines_block(self, level: str) -> str:
-        if level in ["core", "platform"]:
+        if level in {"core", "platform"}:
             return CORE_BEHAVIOR_GUIDELINES
-        if level == "cellular":
+        elif level == "cellular":
             return FOCUS_BEHAVIOR_GUIDELINES
         return ""
 
     def _get_input_xml_block_description(self, level: str) -> str:
         if level == "core":
             return CORE_INPUT_XML_DESCRIPTION
-        if level == "platform":
+        elif level == "platform":
             return PLATFORM_INPUT_XML_DESCRIPTION
-        if level == "cellular":
-            return FOCUS_INPUT_XML_DESCRIPTION
-        return ""
+        return FOCUS_INPUT_XML_DESCRIPTION if level == "cellular" else ""
 
     def _get_controls_descriptions(
         self, level: str, builder: BasePlatformBuilder, core_builder: CoreBuilder
@@ -407,14 +403,13 @@ class ThoughtPromptBuilder:
             # 遍历所有已注册的平台
             for platform_id, p_builder in platform_builder_registry.get_all_builders().items():
                 # 如果这个平台自称是“工具平台”
-                if p_builder.is_tool_platform:
-                    # 就把它在“平台层”能提供的动作都拿出来展示
-                    tool_actions_desc = p_builder.get_level_actions_descriptions("platform")
-                    if tool_actions_desc:
-                        tool_block = (
-                            f"\n- 工具平台 '{platform_id}' 提供了以下特殊工具:\n{tool_actions_desc}"
-                        )
-                        final_descs.append(tool_block)
+                if p_builder.is_tool_platform and (
+                    tool_actions_desc := p_builder.get_level_actions_descriptions("platform")
+                ):
+                    tool_block = (
+                        f"\n- 工具平台 '{platform_id}' 提供了以下特殊工具:\n{tool_actions_desc}"
+                    )
+                    final_descs.append(tool_block)
 
         return "\n".join(filter(None, final_descs)) or "你当前没有可用的外部行动。"
 

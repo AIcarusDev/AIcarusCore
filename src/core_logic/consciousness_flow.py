@@ -149,8 +149,7 @@ class CoreLogic:
                             "was_interrupted": True,
                             "interrupting_event_doc": interrupting_event_doc,
                         }
-                        interrupting_ts = interrupting_event_doc.get("timestamp")
-                        if interrupting_ts:
+                        if interrupting_ts := interrupting_event_doc.get("timestamp"):
                             session.last_processed_timestamp = interrupting_ts
                             logger.info(
                                 f"[{session.conversation_id}] 任务被中断，"

@@ -40,9 +40,11 @@ class InternalInfoBuilder:
             if session and session.interruption_context:
                 snapshot_lines.append('<snapshot time="T-1" status="INTERRUPTED">')
                 snapshot_lines.extend(self._format_thought_content(latest_thought))
-                snapshot_lines.append(self._format_planned_action(latest_thought))
-                snapshot_lines.append(
-                    await self._format_interruption(session, user_map_from_prompt_builder)
+                snapshot_lines.extend(
+                    (
+                        self._format_planned_action(latest_thought),
+                        await self._format_interruption(session, user_map_from_prompt_builder),
+                    )
                 )
                 # 中断发生后，清理上下文，避免下次思考时重复报告
                 session.interruption_context = None
@@ -63,9 +65,10 @@ class InternalInfoBuilder:
 
     def _format_thought_content(self, thought_doc: dict) -> list[str]:
         """格式化思想内容（心情、想法、目标）."""
-        lines = []
-        lines.append(f"<mood>{thought_doc.get('mood', '平静')}</mood>")
-        lines.append(f"<think>{thought_doc.get('think', '...')}</think>")
+        lines = [
+            f"<mood>{thought_doc.get('mood', '平静')}</mood>",
+            f"<think>{thought_doc.get('think', '...')}</think>",
+        ]
         if goal := thought_doc.get("goal"):
             lines.append(f"<goal>{goal}</goal>")
         return lines
@@ -157,9 +160,10 @@ class InternalInfoBuilder:
 
     def _escape_xml_text(self, text: str) -> str:
         """对文本进行标准的XML转义，防止破坏结构."""
-        text = text.replace("&", "&")
-        text = text.replace("<", "<")
-        text = text.replace(">", ">")
-        text = text.replace('"', "&quot;")
-        text = text.replace("'", "&apos;")
-        return text
+        return (
+            text.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+            .replace("'", "&apos;")
+        )

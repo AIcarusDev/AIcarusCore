@@ -208,15 +208,13 @@ class CoreWebsocketServer:
                         self.adapter_clients_info[adapter_id]["bot_profile"] = profile_data
 
                     # 安检成功后，需要更新 ChatSessionManager 的 ID 地图
-                    if self.action_handler_instance.chat_session_manager:
-                        bot_id = profile_data.get("user_id")
-                        if bot_id:
-                            self.action_handler_instance.chat_session_manager.self_bot_ids_map[
-                                adapter_id
-                            ] = str(bot_id)
-                            logger.info(
-                                f"ChatSessionManager 的 ID 地图已为平台 '{adapter_id}' 更新。"
-                            )
+                    if self.action_handler_instance.chat_session_manager and (
+                        bot_id := profile_data.get("user_id")
+                    ):
+                        self.action_handler_instance.chat_session_manager.self_bot_ids_map[
+                            adapter_id
+                        ] = str(bot_id)
+                        logger.info(f"ChatSessionManager 的 ID 地图已为平台 '{adapter_id}' 更新。")
 
                     return  # 成功后直接退出函数
 

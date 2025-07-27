@@ -272,8 +272,7 @@ class UnreadInfoService:
                 summary_parts.append(f"- [群名称]：{conv_name}")
             else:  # private or other
                 summary_parts.append(f"- [用户名称]：{conv_name}")
-            summary_parts.append(f"  - [ID]：{conv_id}")
-            summary_parts.append(f"  - [最新消息]：{message_preview}")
+            summary_parts.extend((f"  - [ID]：{conv_id}", f"  - [最新消息]：{message_preview}"))
             summary_parts.append(f"  - {status_line}")
             summary_parts.append("")
 
@@ -373,8 +372,7 @@ class UnreadInfoService:
 
         platforms_with_news = defaultdict(lambda: {"has_high_priority": False})
         for item in unread_convs:
-            platform = item["conv_doc"].get("platform")
-            if platform:
+            if platform := item["conv_doc"].get("platform"):
                 if item["has_high_priority"]:
                     platforms_with_news[platform]["has_high_priority"] = True
                 # 只要有未读，就标记一下，方便后续统一处理

@@ -106,9 +106,7 @@ class ChatSessionManager:
     @property
     def previous_focus_path(self) -> dict[str, Any] | None:
         """属性：返回上一个焦点路径（堆栈次顶部）."""
-        if len(self.focus_history) > 1:
-            return self.focus_history[-2]
-        return None
+        return self.focus_history[-2] if len(self.focus_history) > 1 else None
 
     def _get_conversation_id(self, event: Event) -> str:
         # 从 Event 中提取唯一的会话ID (例如 group_id 或 user_id)
@@ -190,8 +188,7 @@ class ChatSessionManager:
     ) -> None:
         """处理会话停用。现在它负责触发最终总结并从管理器中移除会话档案."""
         async with self.lock:
-            session = self.sessions.pop(conversation_id, None)
-            if session:
+            if session := self.sessions.pop(conversation_id, None):
                 logger.info(f"[SessionManager] 会话 '{conversation_id}' 的档案正在被移除。")
 
                 # 在移除会话前，将会话内存中的“最后已读时间戳”持久化到数据库。
@@ -366,7 +363,7 @@ class ChatSessionManager:
                     self.focus_history.pop()
             focus_switched = True
 
-        elif command == "pop_focus" or command == "back":
+        elif command in {"pop_focus", "back"}:
             # pop_focus 和 back 的逻辑基本一致：都是返回上一层
             if len(self.focus_history) <= 1:
                 logger.warning(f"在顶层Core-Level尝试执行 '{command}'，无效操作，已忽略。")

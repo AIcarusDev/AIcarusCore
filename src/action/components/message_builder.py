@@ -135,10 +135,9 @@ class MessageBuilder:
         if not self._current_segments:
             return False
 
-        text_to_send = "".join(
+        if text_to_send := "".join(
             seg.data.get("text", "") for seg in self._current_segments if seg.type == "text"
-        ).strip()
-        if text_to_send:
+        ).strip():
             typing_delay = self._calculate_typing_delay(text_to_send)
             logger.debug(
                 f"[{self.conversation_info.conversation_id}] 模拟打字: '{text_to_send[:20]}...'，"
