@@ -340,6 +340,7 @@ class CoreLogic:
             return None, None, None
 
         latest_timestamp_in_this_batch = max(event.get("timestamp", 0.0) for event in new_events)
+        last_text_content_in_batch: str | None = None
         bot_profile = await session.get_bot_profile()
         current_bot_id = str(bot_profile.get("user_id") or session.bot_id)
 
