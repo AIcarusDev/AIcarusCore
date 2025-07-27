@@ -99,6 +99,8 @@ class DefaultMessageProcessor:
             logger.error(f"传入的事件不是 ProtocolEvent 类型，而是 {type(proto_event)}。跳过处理。")
             return
 
+        is_echo = False
+
         platform_id = proto_event.get_platform()
         if not platform_id:
             logger.error(
@@ -112,7 +114,7 @@ class DefaultMessageProcessor:
         )
 
         try:
-            # --- 核心改造点：优先处理回声事件 ---
+            # 优先处理回声事件
             if proto_event.event_type.startswith("message."):
                 is_echo, original_action_id = await self._is_self_echo_message(proto_event)
                 if is_echo and original_action_id:
@@ -128,8 +130,8 @@ class DefaultMessageProcessor:
                     # 回声事件的任务已经完成，不需要持久化或进一步处理，直接返回
                     return
 
-            # --- 如果不是回声，则按原流程处理 ---
-            # ... (关联Person、持久化事件、更新会话档案的逻辑保持不变)
+            # 如果不是回声，则按原流程处理
+            # 关联Person、持久化事件、更新会话档案
             person_id, account_uid = None, None
             if proto_event.user_info and proto_event.user_info.user_id:
                 (
