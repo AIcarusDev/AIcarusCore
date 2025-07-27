@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
-from src.database import ConversationStorageService
+from src.database import ConversationStorageService, EnrichedConversationInfo
 from src.database.services.event_storage_service import EventStorageService
 from src.database.services.thought_storage_service import ThoughtStorageService
 from src.llmrequest.llm_processor import Client as LLMProcessorClient
@@ -38,13 +38,14 @@ class ChatSession:
 
     def __init__(
         self,
+        conversation_info: EnrichedConversationInfo,
         conversation_id: str,
         llm_client: LLMProcessorClient,
         event_storage: EventStorageService,
         action_handler: ActionHandler,
         bot_id: str,
-        platform: str,
-        conversation_type: str,
+        # platform: str,
+        # conversation_type: str,
         core_logic: "CoreLogicFlow",
         chat_session_manager: "ChatSessionManager",
         conversation_service: ConversationStorageService,
@@ -56,14 +57,14 @@ class ChatSession:
         initial_last_processed_timestamp: float | None = None,
     ) -> None:
         # --- 模块化组件 ---
-        self.conversation_id: str = conversation_id
+        self.conversation_info = conversation_info
         self.llm_client: LLMProcessorClient = llm_client
         self.event_storage: EventStorageService = event_storage
         self.action_handler: ActionHandler = action_handler
         self.bot_id: str = bot_id
-        self.platform: str = platform
-        self.conversation_type: str = conversation_type
-        self.conversation_name: str | None = None
+        self.platform: str = conversation_info.platform
+        self.conversation_type: str = conversation_info.type
+        self.conversation_name: str | None = conversation_info.name
         self.core_logic = core_logic
         self.chat_session_manager = chat_session_manager
         self.conversation_service = conversation_service

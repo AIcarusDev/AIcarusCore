@@ -117,9 +117,7 @@ class ChatSessionManager:
     async def get_or_create_session(
         self,
         conversation_id: str,
-        platform: str | None = None,
-        conversation_type: str | None = None,
-    ) -> ChatSession:
+    ) -> ChatSession | None: # 返回值可能为 None
         """获取或创建一个聊天会话实例.
 
         如果会话已存在，则返回现有实例；如果不存在，则创建一个新的会话实例。
@@ -132,54 +130,48 @@ class ChatSessionManager:
             ChatSession: 对应的聊天会话实例。
         """
         async with self.lock:
-            if conversation_id not in self.sessions:
-                logger.info(f"[SessionManager] 为 '{conversation_id}' 创建新的会话实例。")
+            if conversation_id in self.sessions:
+                return self.sessions[conversation_id]
 
-                if not platform or not conversation_type:
-                    raise ValueError(
-                        f"Platform 和 conversation_type 是创建新会话 '{conversation_id}' 的必需品！"
-                    )
+            logger.info(f"[SessionManager] 为 '{conversation_id}' 创建新的会话实例。")
 
-                if not self.core_logic:
-                    raise RuntimeError("CoreLogic未注入，ChatSessionManager无法创建会话。")
-                # 确保在创建会话时使用正确的自身ID
-                bot_id_for_session = self.self_bot_ids_map.get(platform)
-                if not bot_id_for_session:
-                    # 如果因为某种原因找不到（比如安检失败），这是一个严重问题
-                    raise RuntimeError(
-                        f"无法为平台 '{platform}' 创建会话，"
-                        "因为在 ChatSessionManager 的 ID 地图中找不到祂对应的ID。"
-                    )
+            # 从数据库获取完整的会话档案
+            conv_doc = await self.conversation_service.get_conversation_document_by_id(
+                conversation_id
+            )
+            if not conv_doc:
+                logger.error(f"严重错误：尝试为 '{conversation_id}' 创建会话，但在数据库中找不到其档案！")
+                return None # 创建失败
 
-                # 在创建新会话前，先从数据库加载它的“记忆”
-                initial_timestamp = None
-                conv_doc = await self.conversation_service.get_conversation_document_by_id(
-                    conversation_id
+            from src.database.models import EnrichedConversationInfo
+            conversation_info_obj = EnrichedConversationInfo.from_db_document(conv_doc)
+
+
+            if not self.core_logic:
+                raise RuntimeError("CoreLogic未注入，ChatSessionManager无法创建会话。")
+
+            bot_id_for_session = self.self_bot_ids_map.get(conversation_info_obj.platform)
+            if not bot_id_for_session:
+                raise RuntimeError(
+                    f"无法为平台 '{conversation_info_obj.platform}' 创建会话，ID地图中找不到对应ID。"
                 )
-                if conv_doc and "last_processed_timestamp" in conv_doc:
-                    initial_timestamp = conv_doc["last_processed_timestamp"]
-                    logger.info(
-                        f"[{conversation_id}] 从数据库加载了上次的处理时间戳: {initial_timestamp}"
-                    )
 
-                self.sessions[conversation_id] = ChatSession(
-                    conversation_id=conversation_id,
-                    llm_client=self.llm_client,
-                    event_storage=self.event_storage,
-                    action_handler=self.action_handler,
-                    bot_id=bot_id_for_session,
-                    platform=platform,
-                    conversation_type=conversation_type,
-                    core_logic=self.core_logic,
-                    chat_session_manager=self,
-                    conversation_service=self.conversation_service,
-                    summarization_service=self.summarization_service,
-                    summary_storage_service=self.summary_storage_service,
-                    intelligent_interrupter=self.intelligent_interrupter,
-                    thought_storage_service=self.thought_storage_service,
-                    internal_info_builder=self.internal_info_builder,
-                    initial_last_processed_timestamp=initial_timestamp,
-                )
+            self.sessions[conversation_id] = ChatSession(
+                conversation_info=conversation_info_obj, # <--- 修改点：传入完整的对象
+                llm_client=self.llm_client,
+                event_storage=self.event_storage,
+                action_handler=self.action_handler,
+                bot_id=bot_id_for_session,
+                core_logic=self.core_logic,
+                chat_session_manager=self,
+                conversation_service=self.conversation_service,
+                summarization_service=self.summarization_service,
+                summary_storage_service=self.summary_storage_service,
+                intelligent_interrupter=self.intelligent_interrupter,
+                thought_storage_service=self.thought_storage_service,
+                internal_info_builder=self.internal_info_builder,
+                initial_last_processed_timestamp=conversation_info_obj.last_processed_timestamp,
+            )
 
             return self.sessions[conversation_id]
 
@@ -347,18 +339,15 @@ class ChatSessionManager:
             if "." in new_path:
                 path_parts = new_path.split(".")
                 conv_id = ".".join(path_parts[1:])
-                platform_id = path_parts[0]
+                # platform_id = path_parts[0] # platform_id 也不需要了
 
-                # 从数据库确认这个会话真的存在
-                conv_doc = await self.conversation_service.get_conversation_document_by_id(conv_id)
-                if conv_doc:
-                    await self.get_or_create_session(
-                        conversation_id=conv_id,
-                        platform=platform_id,  # 直接用路径里的平台ID
-                        conversation_type=conv_doc.get("type"),
-                    )
-                else:
-                    logger.error(f"无法 'push_focus'，数据库中找不到会话 '{conv_id}'。")
+                # 直接调用新的 get_or_create_session，它会自己处理数据库查询
+                # 如果返回 None，说明数据库里没有这个会话，是个错误情况
+                session = await self.get_or_create_session(
+                    conversation_id=conv_id
+                )
+                if not session:
+                    logger.error(f"无法 'push_focus'，数据库中找不到会话 '{conv_id}' 的档案。")
                     # 把刚刚推进去的错误路径弹出来，当无事发生
                     self.focus_history.pop()
             focus_switched = True
@@ -392,13 +381,10 @@ class ChatSessionManager:
             if new_path_str and "." in new_path_str:
                 path_parts = new_path_str.split(".")
                 conv_id = ".".join(path_parts[1:])
-                conv_doc = await self.conversation_service.get_conversation_document_by_id(conv_id)
-                if conv_doc:
-                    await self.get_or_create_session(
-                        conversation_id=conv_id,
-                        platform=conv_doc.get("platform"),
-                        conversation_type=conv_doc.get("type"),
-                    )
+
+                # 直接调用新的方法
+                await self.get_or_create_session(conversation_id=conv_id)
+
             focus_switched = True
 
         elif command == "swap_focus":
@@ -427,18 +413,16 @@ class ChatSessionManager:
             )
 
             # 激活新会话并更新历史
-            conv_doc = await self.conversation_service.get_conversation_document_by_id(target_id)
-            if not conv_doc:
+            new_session = await self.get_or_create_session(conversation_id=target_id)
+            # 如果新会话不存在，说明数据库中没有这个会话档案
+            if not new_session:
                 logger.error(
                     f"无法 'swap_focus'，数据库中找不到目标会话 "
                     f"'{target_id}'。切换中止，停留在平台层。"
                 )
+                # 注意：这里需要确保在 pop 之后，如果没有 push 新的，焦点路径是正确的。
+                # 您的原始逻辑中，如果没有 push，焦点就停留在父路径，这是对的。
             else:
-                await self.get_or_create_session(
-                    conversation_id=target_id,
-                    platform=conv_doc.get("platform"),
-                    conversation_type=conv_doc.get("type"),
-                )
                 entry_to_push = {**history_entry_base, "target_path": new_path}
                 self.focus_history.append(entry_to_push)
                 logger.info(f"[堆栈 SWAP] 焦点切换至: {new_path}")
@@ -476,14 +460,10 @@ class ChatSessionManager:
             path_parts = target_path.split(".")
             if len(path_parts) >= 2:
                 conv_id = ".".join(path_parts[1:])
-                conv_doc = await self.conversation_service.get_conversation_document_by_id(conv_id)
-                if conv_doc:
-                    logger.info(f"传送着陆后，根据数据库记录激活会话: {conv_id}")
-                    await self.get_or_create_session(
-                        conversation_id=conv_id,
-                        platform=conv_doc.get("platform"),
-                        conversation_type=conv_doc.get("type"),
-                    )
+                # 直接调用新的方法
+                session = await self.get_or_create_session(conversation_id=conv_id)
+                if session:
+                    logger.info(f"传送着陆后，成功激活会话: {conv_id}")
                 else:
                     logger.warning(
                         f"传送目标 '{target_path}' 无法在数据库中找到对应会话，可能无法正常交互。"
@@ -537,15 +517,8 @@ class ChatSessionManager:
                 if target_path and "." in target_path:
                     path_parts = target_path.split(".")
                     conv_id = ".".join(path_parts[1:])
-                    conv_doc = await self.conversation_service.get_conversation_document_by_id(
-                        conv_id
-                    )
-                    if conv_doc:
-                        await self.get_or_create_session(
-                            conversation_id=conv_id,
-                            platform=conv_doc.get("platform"),
-                            conversation_type=conv_doc.get("type"),
-                        )
+                    # 直接调用新的方法
+                    await self.get_or_create_session(conversation_id=conv_id)
                 # 更新当前焦点路径
                 focus_switched = True
 

@@ -22,6 +22,7 @@ from src.prompt_templates.focus_chat_prompts import (
     FOCUS_INPUT_XML_DESCRIPTION,
 )
 from src.prompt_templates.platform_prompts import PLATFORM_INPUT_XML_DESCRIPTION
+from src.database import ConversationStorageService, ThoughtStorageService
 
 if TYPE_CHECKING:
     from src.common.unread_info_service.unread_info_service import UnreadInfoService
@@ -48,6 +49,7 @@ class ThoughtPromptBuilder:
         internal_info_builder: "InternalInfoBuilder",
         event_storage_service: "EventStorageService",
         thought_storage_service: "ThoughtStorageService",
+        conversation_service: "ConversationStorageService",
         chat_session_manager: Optional["ChatSessionManager"] = None,
         core_ws_server: Optional["CoreWebsocketServer"] = None,
     ) -> None:
@@ -55,6 +57,7 @@ class ThoughtPromptBuilder:
         self.internal_info_builder = internal_info_builder
         self.event_storage = event_storage_service
         self.thought_storage = thought_storage_service
+        self.conversation_service = conversation_service
         self.chat_session_manager = chat_session_manager
         self.core_ws_server = core_ws_server
         self.is_context_switch_flag: bool = False
@@ -353,13 +356,26 @@ class ThoughtPromptBuilder:
             if not session:
                 raise PromptBuilderError(f"找不到会话 {conv_id} 的档案，无法构建当前状态块。")
             bot_profile = await session.get_bot_profile()
+            is_temporary = session.conversation_info.extra.get("is_temporary", False)
+
             if session.conversation_type == "group":
                 return (
                     f'你当前正在 qq 群"{session.conversation_name or "未知群聊"}"中参与 qq 群聊，'
                     f'你在该群的群名片是"{bot_profile.get("card", config.persona.bot_name)}"'
                 )
-            else:
-                return f"你当前正在 qq 上与{session.conversation_name or '对方'}私聊"
+            else: # 私聊
+                if is_temporary:
+                    source_group_id = session.conversation_info.extra.get("source_group_id")
+                    source_group_name = "未知群聊" # 默认值
+                    if source_group_id:
+                        # 使用注入的 service 查询数据库
+                        source_group_doc = await self.conversation_service.get_conversation_document_by_id(source_group_id)
+                        if source_group_doc:
+                            source_group_name = source_group_doc.get("name", source_group_id)
+                    # 返回临时会话的描述
+                    return f"你当前正在 qq 上处理来自“{source_group_name}”群聊中“{session.conversation_name or '对方'}”的临时会话私聊"
+                else:
+                    return f"你当前正在 qq 上与{session.conversation_name or '对方'}私聊"
         return "未知状态"
 
     def _get_behavior_guidelines_block(self, level: str) -> str:
