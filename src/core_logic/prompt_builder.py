@@ -58,27 +58,52 @@ class ThoughtPromptBuilder:
         if not latest_thought:
             return ""
 
-        action_result_text, action_name = None, "某个动作"
+        action_result_text = None
+        action_payload = {}
+
         if handover_result:
             action_result_text = handover_result.get("result_text")
-            action_name = handover_result.get("action_name", action_name)
         elif thought_action_result := latest_thought.get("action_result"):
             action_result_text = thought_action_result
-            try:
-                action_payload = latest_thought.get("action_payload", {})
-                action_part = action_payload.get("action", {})
-                if action_part:
-                    _, actions = next(iter(action_part.items()))
-                    action_name, _ = next(iter(actions.items()))
-            except (StopIteration, AttributeError):
-                pass
+            action_payload = latest_thought.get("action_payload", {})
 
         if not action_result_text or "决策中未包含任何行动指令" in action_result_text:
             return ""
 
+        # 如果没有提供动作结果文本，则使用默认的描述
+        action_desc = "你刚才的行动成功了，返回了以下信息：" # 默认回退描述
+
+        try:
+            # 1. 尝试从 payload 中解析出平台、动作名和参数
+            action_part = action_payload.get("action", {})
+            if action_part and isinstance(action_part, dict):
+                # 动态获取平台名 (e.g., 'core', 'qq')
+                platform_key = next(iter(action_part), None)
+                platform_actions = action_part.get(platform_key, {}) if platform_key else {}
+
+                if platform_actions and isinstance(platform_actions, dict):
+                    # 动态获取动作名 (e.g., 'web_search', 'get_list')
+                    action_name = next(iter(platform_actions), None)
+                    action_params = platform_actions.get(action_name, {}) if action_name else {}
+
+                    # 2. 根据解析出的动作名，构建不同的描述
+                    if action_name == 'web_search':
+                        query = action_params.get("query")
+                        if query:
+                            # 特例：为 web_search 构建包含关键词的丰富描述
+                            action_desc = f'你刚才执行了网页搜索，搜索的关键词是“{query}”，得到了以下结果：'
+                    elif action_name:
+                        # 通用情况：为所有其他动作构建清晰的描述
+                        # 例如: "你刚才执行了动作 “qq.get_list”，得到了以下结果："
+                        action_desc = f'你刚才执行了动作 “{platform_key}.{action_name}”，得到了以下结果：'
+
+        except Exception as e:
+            logger.warning(f"解析上一个动作的 payload 以增强描述时出错: {e}。将使用通用描述。")
+            # 如果解析过程中出现任何意外，程序不会崩溃，而是安全地使用上面的默认描述
+
         return (
             f"<action_response>\n"
-            f'你刚才的行动 "{action_name}" 成功了，返回了以下信息：\n'
+            f"{action_desc}\n"
             f"{action_result_text}\n"
             f"</action_response>"
         )
