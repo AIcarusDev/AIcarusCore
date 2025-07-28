@@ -277,9 +277,9 @@ class ConversationStorageService:
     async def get_recently_active_conversations_with_details(
         self,
         exclude_conversation_id: str | None = None,
-        self_bot_ids_map: dict[str, str] | None = None
+        self_bot_ids_map: dict[str, str] | None = None,
     ) -> list[dict[str, Any]]:
-        """【核心方法】获取所有最近活跃的会话及其详细信息.
+        """获取所有最近活跃的会话及其详细信息.
 
         这个方法使用单个高效的AQL查询来获取：
         1. 所有活跃的会话文档。
@@ -290,6 +290,8 @@ class ConversationStorageService:
 
         Args:
             exclude_conversation_id: 要从结果中排除的会话ID。
+            self_bot_ids_map: 一个字典，映射平台到当前机器人的用户ID，
+                用于判断 @我 或 回复我 的情况。
 
         Returns:
             一个字典列表，每个字典代表一个会话，包含 'conv_doc', 'latest_event',
@@ -373,7 +375,7 @@ class ConversationStorageService:
             "@conv_collection": self.COLLECTION_NAME,
             "@event_collection": EventStorageService.COLLECTION_NAME,
             "exclude_conv_id": exclude_conversation_id,
-            "self_bot_ids_map": bot_ids_map, # 【修复点5】: 绑定变量
+            "self_bot_ids_map": bot_ids_map,  # 【修复点5】: 绑定变量
         }
         try:
             results = await self.conn_manager.execute_query(query, bind_vars)

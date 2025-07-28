@@ -399,19 +399,16 @@ class CoreLogic:
 
         latest_timestamp_in_this_batch = max(event.get("timestamp", 0.0) for event in new_events)
         last_text_content_in_batch: str | None = None
-        bot_profile = await session.get_bot_profile()
-        current_bot_id = str(bot_profile.get("user_id") or session.bot_id)
+        current_context_for_this_batch = context_text
 
         for event_doc in new_events:
             sender_id = event_doc.get("user_info", {}).get("user_id")
             if sender_id and str(sender_id) == current_bot_id:
                 continue
+
             text_content = extract_text_from_content(
                 [Seg.from_dict(c) for c in event_doc.get("content", [])]
             )
-
-            if text_content:
-                last_text_content_in_batch = text_content
 
             message_to_check = {"speaker_id": str(sender_id), "text": text_content}
             if not message_to_check.get("text"):
@@ -419,12 +416,18 @@ class CoreLogic:
 
             if session.intelligent_interrupter.should_interrupt(
                 new_message=message_to_check,
-                context_message_text=context_text,
+                context_message_text=current_context_for_this_batch,
             ):
                 logger.info(
                     f"[{session.conversation_id}] IIS决策：中断！元凶ID: {event_doc.get('_key')}"
                 )
+                if text_content:
+                    last_text_content_in_batch = text_content
                 return event_doc, latest_timestamp_in_this_batch, last_text_content_in_batch
+
+            if text_content:
+                current_context_for_this_batch = text_content
+                last_text_content_in_batch = text_content
 
         return None, latest_timestamp_in_this_batch, last_text_content_in_batch
 
