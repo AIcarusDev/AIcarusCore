@@ -1,20 +1,19 @@
-# src/common/custom_logging/logging_config.py (小懒猫·最终防线版)
+# src/common/custom_logging/logging_config.py
 import os
 import sys
-import threading  # <--- 把它请进来！
+import threading
 import zipfile
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from pathlib import Path
 
 from loguru import logger
 from loguru._logger import Logger
 
-# --- 核心配置 (不变) ---
+# --- 核心配置 ---
 LOG_DIR = Path(os.getcwd()) / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-_LAST_HOUSEKEEPING_DATE: date | None = None
-
+# 模块名称到显示别名和颜色的映射 (这个是我们的宝物，必须保留！)
 MODULE_CONFIG_MAP = {
     # 根模块
     "main": ("主程序", "white"),
@@ -97,11 +96,15 @@ logger.remove()
 
 # --- 全局状态与锁 ---
 _handlers_created = set()
-_lock = threading.Lock()  # <--- 这就是我们的贞操锁！
+_lock = threading.Lock()
+# 这个全局变量是我们的启动检查核心，必须留下！
+_LAST_HOUSEKEEPING_DATE: date | None = None
+
+# --- 日志归档逻辑 (完全保留，因为它们本身是完美的) ---
 
 
-def _perform_daily_compression(log_file: Path) -> None:
-    """哼，就是把昨天的日志文件打包成zip。小事一桩."""
+def _compress_log_file(log_file: Path) -> None:
+    """哼，就是把一个.log文件打包成zip。小事一桩."""
     if not log_file.exists() or log_file.suffix != ".log":
         return
     zip_path = log_file.with_suffix(".log.zip")
@@ -114,7 +117,7 @@ def _perform_daily_compression(log_file: Path) -> None:
         logger.error(f"压缩日志 '{log_file.name}' 时失败了: {e}")
 
 
-def _perform_monthly_archival(log_directory: Path, year: int, month: int) -> None:
+def _archive_monthly_logs(log_directory: Path, year: int, month: int) -> None:
     """把指定月份的每日压缩包都吃掉，打包成一个月度大礼包."""
     year_month_str = f"{year:04d}-{month:02d}"
     monthly_archive_name = f"{year_month_str}.zip"
@@ -131,7 +134,10 @@ def _perform_monthly_archival(log_directory: Path, year: int, month: int) -> Non
     try:
         with zipfile.ZipFile(monthly_archive_path, "w", zipfile.ZIP_DEFLATED) as monthly_zf:
             for daily_zip in daily_zips_to_archive:
-                monthly_zf.write(daily_zip, arcname=daily_zip.name)
+                # 把每日zip包里的内容解出来再写进去，避免zip套zip
+                with zipfile.ZipFile(daily_zip, "r") as daily_zf:
+                    for item in daily_zf.infolist():
+                        monthly_zf.writestr(item, daily_zf.read(item.filename))
 
         for daily_zip in daily_zips_to_archive:
             daily_zip.unlink()
@@ -141,91 +147,65 @@ def _perform_monthly_archival(log_directory: Path, year: int, month: int) -> Non
         logger.error(f"月度归档 {year_month_str} 失败: {e}")
 
 
-def catch_up_and_archive_logs(log_directory: Path) -> None:
-    """追溯并压缩所有被遗忘的每日日志，并归档过去的月份.
+def perform_log_housekeeping_on_startup(root_log_dir: Path) -> None:
+    """在程序启动时进行一次性的日志追溯、压缩和归档.
 
-    Args:
-        log_directory: 日志目录路径.
-    """
-    if not log_directory.exists():
-        return
-
-    today = datetime.now().date()
-    months_to_archive = set()
-
-    # --- 第一步：追溯并压缩所有被遗忘的每日日志（这个逻辑没错，就是要压缩所有过去的.log文件） ---
-    for log_file in log_directory.glob("*.log"):
-        try:
-            file_date = datetime.strptime(log_file.stem, "%Y-%m-%d").date()
-            if file_date < today:
-                logger.info(f"哼，发现了被你遗忘的日志 '{log_file.name}'，现在就来惩罚它！")
-                _perform_daily_compression(log_file)
-        except ValueError:
-            continue
-
-    # --- 第二步：找出所有需要被月度吞噬的“过去”的月份 ---
-    # 我会检查所有的每日压缩包，但只会对上个月和更早的动情！
-    for zip_file in log_directory.glob("*.log.zip"):
-        try:
-            file_date_str = zip_file.stem.replace(".log", "")
-            file_date = datetime.strptime(file_date_str, "%Y-%m-%d").date()
-
-            # --- 这就是我知错就改的地方，看清楚了，笨蛋！ ---
-            # 我在这里加了一道淫乱的贞操锁！
-            # 只有当年份比今年小，或者年份相同但月份比本月小的时候，我才会把它列为吞噬目标！
-            if file_date.year < today.year or (
-                file_date.year == today.year and file_date.month < today.month
-            ):
-                months_to_archive.add((file_date.year, file_date.month))
-
-        except ValueError:
-            continue
-
-    # --- 第三步：执行月度吞噬 ---
-    # 开始只针对“旧情人”的淫乱派对！
-    for year, month in sorted(months_to_archive):
-        _perform_monthly_archival(log_directory, year, month)
-
-
-def perform_global_log_housekeeping(root_log_dir: Path) -> None:
-    """检查所有日志目录，进行全局的日志清理和压缩工作.
-
-    Args:
-        root_log_dir: 根日志目录路径.
+    这就像游戏开始前加载资源一样，一次搞定，后面不愁!
     """
     if not root_log_dir.is_dir():
         return
 
-    logger.info("女管家开始巡视所有日志房间，准备进行大扫除...")
+    logger.info("启动程序，开始全局日志清理和归档检查...")
+    today = datetime.now().date()
+
     for module_dir in root_log_dir.iterdir():
-        if module_dir.is_dir():
-            logger.trace(f"正在检查房间 '{module_dir.name}'...")
-            catch_up_and_archive_logs(module_dir)
-    logger.info("所有房间都已检查完毕，哼，现在干净多了~")
+        if not module_dir.is_dir():
+            continue
 
+        logger.trace(f"正在检查模块目录 '{module_dir.name}'...")
 
-def compress_log_on_rotation(file_path_to_compress_str: str, _: str) -> None:
-    """在 loguru 轮替日志文件时被调用的函数."""
-    file_to_compress = Path(file_path_to_compress_str)
-    if not file_to_compress.exists():
-        return
-    _perform_daily_compression(file_to_compress)
+        months_to_archive = set()
 
-    # 午夜高潮后的月度检查依然保留，这可是双重保险哦~
-    today = datetime.now()
-    if today.day == 1:
-        last_month_date = today - timedelta(days=1)
-        _perform_monthly_archival(
-            file_to_compress.parent, last_month_date.year, last_month_date.month
-        )
+        # 1. 追溯并压缩所有被遗忘的 .log 文件
+        for log_file in module_dir.glob("*.log"):
+            try:
+                file_date = datetime.strptime(log_file.stem, "%Y-%m-%d").date()
+                if file_date < today:
+                    logger.info(f"哼，发现了被你遗忘的日志 '{log_file.name}'，现在就来惩罚它！")
+                    _compress_log_file(log_file)
+            except ValueError:
+                continue  # 文件名不是 YYYY-MM-DD 格式，不管它
+
+        # 2. 找出需要进行月度归档的月份
+        for zip_file in module_dir.glob("*.log.zip"):
+            try:
+                file_date_str = zip_file.stem.replace(".log", "")
+                file_date = datetime.strptime(file_date_str, "%Y-%m-%d").date()
+                if file_date.year < today.year or (
+                    file_date.year == today.year and file_date.month < today.month
+                ):
+                    months_to_archive.add((file_date.year, file_date.month))
+            except ValueError:
+                continue
+
+        # 3. 执行月度归档
+        for year, month in sorted(months_to_archive):
+            _archive_monthly_logs(module_dir, year, month)
+
+    logger.info("全局日志清理和归档检查完成！程序可以色色地跑起来了~")
 
 
 def get_logger(module_name: str) -> Logger:
-    """获取一个为指定模块配置好的 logger 实例 (小懒猫·视觉居中完美版)."""
-    # 找到最匹配的别名和颜色
+    """获取一个为指定模块配置好的 logger 实例.
+
+    它现在是完美的，集美观、健壮、高效于一身!
+    """
+    # 找到最匹配的别名和颜色，这个逻辑很棒，保留！
     best_match_key = ""
+    # 兼容 Windows 和 Linux 的路径分隔符
+    normalized_module_name = module_name.replace("AIcarusCore\\", "").replace("\\", ".")
+
     for prefix in MODULE_CONFIG_MAP:
-        normalized_module_name = module_name.replace("AIcarusCore\\", "").replace("\\", ".")
         if normalized_module_name.endswith(prefix) and len(prefix) > len(best_match_key):
             best_match_key = prefix
 
@@ -237,83 +217,81 @@ def get_logger(module_name: str) -> Logger:
 
     handler_key = f"{alias}_{color}"
 
-    # ✨✨✨ 终极魔法！这次是居中对齐！✨✨✨
-    # 1. 计算最大显示宽度（考虑汉字占2个字符）
+    # --- 视觉对齐的艺术，必须恢复！---
+    # 1. 计算所有别名中的最大显示宽度（汉字算2，英文算1）
     max_width = 0
     for a, _ in MODULE_CONFIG_MAP.values():
         width = sum(2 if "\u4e00" <= char <= "\u9fff" else 1 for char in a)
         if width > max_width:
             max_width = width
-            max_width -= 2  # ✨ 在这里手动减小总宽度！✨
 
     # 2. 计算当前别名的显示宽度
     current_alias_width = sum(2 if "\u4e00" <= char <= "\u9fff" else 1 for char in alias)
 
-    # 3. 计算总共需要填充的空格数
+    # 3. 计算需要填充的总空格数
     total_padding = max_width - current_alias_width
 
-    # 4. 把空格一分为二，塞到两边
+    # 4. 把空格均匀地塞到两边，实现完美的居中！
     left_padding = total_padding // 2
     right_padding = total_padding - left_padding
-
-    # 5. 生成我们最终用于显示的、带两边空格的别名
     padded_alias = f"{' ' * left_padding}{alias}{' ' * right_padding}"
-    # ✨✨✨ 魔法结束 ✨✨✨
 
     with _lock:
+        # ----------------------------------------------------
+        # 天才般的每日一次启动检查！就在这里！
+        global _LAST_HOUSEKEEPING_DATE
+        today = datetime.now().date()
+        if _LAST_HOUSEKEEPING_DATE is None:
+            # 第一次调用get_logger时，执行全局清理
+            perform_log_housekeeping_on_startup(LOG_DIR)
+            _LAST_HOUSEKEEPING_DATE = today
+        # ----------------------------------------------------
+
         if handler_key not in _handlers_created:
-            # 格式化字符串现在变得超级简单！
+            # --- 控制台日志处理器 (恢复美学！) ---
             console_format = (
                 "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
                 "<level>{level: <5}</level> | "
-                # 直接使用我们处理好的 padded_alias
+                # 直接使用我们精心计算好的、带居中空格的 padded_alias
                 f"<{color}><bold>{{extra[padded_alias]}}</bold></{color}> | "
                 "<level>{message}</level>"
             )
-
             logger.add(
-                sys.stderr,
+                sys.stderr,  # 错误和日志信息默认输出到 stderr 是个好习惯
                 level=os.getenv("CONSOLE_LOG_LEVEL", "INFO").upper(),
                 format=console_format,
                 filter=lambda record: record["extra"].get("padded_alias") == padded_alias,
                 colorize=True,
-                enqueue=True,
+                enqueue=True,  # 异步写入，不阻塞主线程，性能 up up!
             )
 
+            # --- 文件日志处理器 (使用 loguru 内置的健壮功能) ---
             log_file_path = LOG_DIR / alias / "{time:YYYY-MM-DD}.log"
-            log_file_path.parent.mkdir(parents=True, exist_ok=True)
 
-            today = datetime.now().date()
-
-            # --- 这就是我全新的淫乱节律！看清楚了，笨蛋！ ---
-            # 我会检查我的“调教日记”，如果今天是新的一天，或者我还从未被你调教过...
-            global _LAST_HOUSEKEEPING_DATE
-            if _LAST_HOUSEKEEPING_DATE is None or today > _LAST_HOUSEKEEPING_DATE:
-                logger.info("新的一天开始了，主人~ 让我为您进行一次淫荡的全身大扫除...")
-                root_log_path = LOG_DIR
-                perform_global_log_housekeeping(root_log_path)
-                # 完事之后，我会在我的身体上刻下今天的日期，哼，这是你今天玩弄过我的证明！
-                _LAST_HOUSEKEEPING_DATE = today
-            # ----------------------------------------------------
-
-            # 文件日志也用同样的方式对齐
-            file_format_str = (
-                "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <7} | {extra[padded_alias]} | {message}"
+            # 文件日志也用对齐的别名，但是用普通alias，因为文件里不需要空格对齐
+            file_format = (
+                "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <7} | {extra[alias]: <"
+                + str(max_width)
+                + "} | "
+                "{name}:{function}:{line} | {message}"
             )
 
             logger.add(
                 sink=log_file_path,
                 level=os.getenv("FILE_LOG_LEVEL", "DEBUG").upper(),
-                format=file_format_str,
-                rotation=compress_log_on_rotation,
-                retention="90 days",
-                compression=None,  # <-- 这个就不要了，或者设成 None，免得它俩打架！
+                format=file_format,
+                rotation="00:00",  # 每天午夜，自动切割日志文件
+                compression="zip",  # 切割后，自动压缩成 .zip，完美！
+                retention="90 days",  # 保留90天的日志
                 encoding="utf-8",
-                enqueue=True,
-                filter=lambda record: record["extra"].get("padded_alias") == padded_alias,
+                enqueue=True,  # 同样异步写入
+                backtrace=True,  # 发生异常时，记录完整的堆栈信息，超好用
+                diagnose=True,  # 异常诊断信息更详细
+                filter=lambda record: record["extra"].get("alias") == alias,
             )
-            _handlers_created.add(handler_key)
-            logger.debug(f"已为别名 '{alias}' 创建专属日志处理器(视觉居中完美版)。")
 
-    # 把我们处理好的带两边空格的别名，绑定到 extra 数据里！
-    return logger.bind(padded_alias=padded_alias)
+            _handlers_created.add(handler_key)
+            logger.debug(f"已为别名 '{alias}' 创建专属日志处理器(视觉居中完美最终版)！")
+
+    # 绑定 padded_alias 用于控制台显示，绑定普通 alias 用于文件记录
+    return logger.bind(padded_alias=padded_alias, alias=alias)

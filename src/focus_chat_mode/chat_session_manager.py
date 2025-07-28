@@ -2,7 +2,8 @@
 # 聊天会话管理器模块，用于管理聊天会话的生命周期和相关操作。
 import asyncio
 import time
-from typing import TYPE_CHECKING, Optional
+from collections import deque
+from typing import TYPE_CHECKING, Any, Optional
 
 from aicarus_protocols import Event
 from src.action.action_handler import ActionHandler
@@ -23,6 +24,7 @@ if TYPE_CHECKING:
     )
     from src.common.summarization_observation.summarization_service import SummarizationService
     from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
+    from src.core_logic.internal_info_builder import InternalInfoBuilder
 
 logger = get_logger(__name__)
 
@@ -37,7 +39,7 @@ class ChatSessionManager:
         llm_client (LLMProcessorClient): LLM 处理器客户端，用于与 LLM 交互。
         event_storage (EventStorageService): 事件存储服务，用于存储和检索事件。
         action_handler (ActionHandler): 动作处理器，用于处理会话中的动作。
-        bot_id (str): 机器人的唯一标识符，用于识别和处理消息。
+        bot_id (str): 祂的唯一标识符，用于识别和处理消息。
         conversation_service (ConversationStorageService): 会话存储服务，用于管理会话数据.
         summarization_service (SummarizationService): 摘要服务，用于生成会话摘要.
         summary_storage_service (SummaryStorageService): 摘要存储服务，用于存储和检索摘要数据.
@@ -58,24 +60,26 @@ class ChatSessionManager:
         llm_client: LLMProcessorClient,
         event_storage: EventStorageService,
         action_handler: ActionHandler,
-        bot_id: str,
+        self_bot_ids_map: dict[str, str],
         conversation_service: ConversationStorageService,
         summarization_service: "SummarizationService",
         summary_storage_service: "SummaryStorageService",
         intelligent_interrupter: "IntelligentInterrupter",
-        thought_storage_service: "ThoughtStorageService",  # 哼，新来的！
+        thought_storage_service: "ThoughtStorageService",
+        internal_info_builder: "InternalInfoBuilder",
         core_logic: Optional["CoreLogicFlow"] = None,
     ) -> None:
         self.config = config
         self.llm_client = llm_client
         self.event_storage = event_storage
         self.action_handler = action_handler
-        self.bot_id = bot_id
+        self.self_bot_ids_map = self_bot_ids_map
 
         self.conversation_service = conversation_service
         self.summarization_service = summarization_service
         self.summary_storage_service = summary_storage_service
-        self.thought_storage_service = thought_storage_service  # 哼，新来的！
+        self.thought_storage_service = thought_storage_service
+        self.internal_info_builder = internal_info_builder
 
         self.intelligent_interrupter = intelligent_interrupter
 
@@ -83,24 +87,36 @@ class ChatSessionManager:
 
         self.sessions: dict[str, ChatSession] = {}
         self.lock = asyncio.Lock()
+        initial_focus_entry = {
+            "timestamp": int(time.time() * 1000),
+            "command": "initialize",
+            "motivation": "AI意识苏醒，默认处于核心思考状态。",
+            "target_path": "core",
+        }
+        self.focus_history = deque([initial_focus_entry], maxlen=10)
+        self._last_switch_description: str = "你刚刚从发呆的状态中回过神来"
 
-        logger.info("ChatSessionManager 初始化完成，并已注入智能打断系统。")
+        # 创建一个指令到处理函数的“映射表”
+        self._command_handlers = {
+            "push_focus": self._handle_push_focus,
+            "pop_focus": self._handle_pop_focus,
+            "back": self._handle_back,
+            "swap_focus": self._handle_swap_focus,
+            "teleport_focus": self._handle_teleport_focus,
+            "jump_to_history": self._handle_jump_to_history,
+        }
 
-    def set_core_logic(self, core_logic_instance: "CoreLogicFlow") -> None:
-        """延迟注入 CoreLogic 实例，解决循环依赖."""
-        self.core_logic = core_logic_instance
-        logger.info("CoreLogic 实例已成功注入到 ChatSessionManager。")
+        logger.info("ChatSessionManager 初始化完成。")
 
-        # 哼，顺便把那个唤醒主意识的事件也拿过来
-        if hasattr(core_logic_instance, "focus_session_inactive_event"):
-            self.focus_session_inactive_event = core_logic_instance.focus_session_inactive_event
-            logger.info("已从 CoreLogic 获取 focus_session_inactive_event。")
-        else:
-            logger.error(
-                "CoreLogic 实例中没有找到 focus_session_inactive_event！"
-                "这会导致主意识无法被正确唤醒！"
-            )
-            self.focus_session_inactive_event = None
+    @property
+    def current_focus_path(self) -> dict[str, Any] | None:
+        """属性：返回当前焦点路径（堆栈顶部）."""
+        return self.focus_history[-1]
+
+    @property
+    def previous_focus_path(self) -> dict[str, Any] | None:
+        """属性：返回上一个焦点路径（堆栈次顶部）."""
+        return self.focus_history[-2] if len(self.focus_history) > 1 else None
 
     def _get_conversation_id(self, event: Event) -> str:
         # 从 Event 中提取唯一的会话ID (例如 group_id 或 user_id)
@@ -111,9 +127,7 @@ class ChatSessionManager:
     async def get_or_create_session(
         self,
         conversation_id: str,
-        platform: str | None = None,
-        conversation_type: str | None = None,
-    ) -> ChatSession:
+    ) -> ChatSession | None:  # 返回值可能为 None
         """获取或创建一个聊天会话实例.
 
         如果会话已存在，则返回现有实例；如果不存在，则创建一个新的会话实例。
@@ -126,222 +140,85 @@ class ChatSessionManager:
             ChatSession: 对应的聊天会话实例。
         """
         async with self.lock:
-            if conversation_id not in self.sessions:
-                logger.info(f"[SessionManager] 为 '{conversation_id}' 创建新的会话实例。")
+            if conversation_id in self.sessions:
+                return self.sessions[conversation_id]
 
-                if not platform or not conversation_type:
-                    raise ValueError(
-                        f"Platform 和 conversation_type 是创建新会话 '{conversation_id}' 的必需品！"
-                    )
+            logger.info(f"[SessionManager] 为 '{conversation_id}' 创建新的会话实例。")
 
-                if not self.core_logic:
-                    raise RuntimeError("CoreLogic未注入，ChatSessionManager无法创建会话。")
-
-                self.sessions[conversation_id] = ChatSession(
-                    conversation_id=conversation_id,
-                    llm_client=self.llm_client,
-                    event_storage=self.event_storage,
-                    action_handler=self.action_handler,
-                    bot_id=self.bot_id,
-                    platform=platform,
-                    conversation_type=conversation_type,
-                    core_logic=self.core_logic,
-                    chat_session_manager=self,
-                    conversation_service=self.conversation_service,
-                    summarization_service=self.summarization_service,
-                    summary_storage_service=self.summary_storage_service,
-                    intelligent_interrupter=self.intelligent_interrupter,
-                    thought_storage_service=self.thought_storage_service,  # 哼，新来的！
+            # 从数据库获取完整的会话档案
+            conv_doc = await self.conversation_service.get_conversation_document_by_id(
+                conversation_id
+            )
+            if not conv_doc:
+                logger.error(
+                    f"严重错误：尝试为 '{conversation_id}' 创建会话，但在数据库中找不到其档案！"
                 )
+                return None  # 创建失败
+
+            from src.database.models import EnrichedConversationInfo
+
+            conversation_info_obj = EnrichedConversationInfo.from_db_document(conv_doc)
+
+            if not self.core_logic:
+                raise RuntimeError("CoreLogic未注入，ChatSessionManager无法创建会话。")
+
+            bot_id_for_session = self.self_bot_ids_map.get(conversation_info_obj.platform)
+            if not bot_id_for_session:
+                raise RuntimeError(
+                    f"无法为平台 '{conversation_info_obj.platform}' "
+                    f"创建会话，ID地图中找不到对应ID。"
+                )
+
+            self.sessions[conversation_id] = ChatSession(
+                conversation_info=conversation_info_obj,
+                conversation_id=conversation_id,
+                llm_client=self.llm_client,
+                event_storage=self.event_storage,
+                action_handler=self.action_handler,
+                bot_id=bot_id_for_session,
+                core_logic=self.core_logic,
+                chat_session_manager=self,
+                conversation_service=self.conversation_service,
+                summarization_service=self.summarization_service,
+                summary_storage_service=self.summary_storage_service,
+                intelligent_interrupter=self.intelligent_interrupter,
+                thought_storage_service=self.thought_storage_service,
+                internal_info_builder=self.internal_info_builder,
+                initial_last_processed_timestamp=conversation_info_obj.last_processed_timestamp,
+            )
 
             return self.sessions[conversation_id]
 
-    async def deactivate_session(self, conversation_id: str) -> None:
-        """根据会话ID停用并移除一个会话.
-
-        这个方法会检查会话是否存在，如果存在则停用它并从管理器中移除。
-
-        Args:
-            conversation_id (str): 要停用的会话的唯一标识符。
-        """
+    async def deactivate_session(
+        self, conversation_id: str, handover_context: dict | None = None
+    ) -> None:
+        """处理会话停用。现在它负责触发最终总结并从管理器中移除会话档案."""
         async with self.lock:
-            if conversation_id in self.sessions:
-                session = self.sessions.pop(conversation_id, None)  # 用pop，更安全
-                if session:
-                    # 不再由这里调用 shutdown，而是由 session 内部的 deactivate 触发
-                    session.deactivate()
+            if session := self.sessions.pop(conversation_id, None):
+                logger.info(f"[SessionManager] 会话 '{conversation_id}' 的档案正在被移除。")
+
+                # 在移除会话前，将会话内存中的“最后已读时间戳”持久化到数据库。
+                # 我们真正需要记录的是“AI离开这个会话的时刻”。
+                # 直接使用当前时间作为最终的处理时间戳。
+                # 这确保了任何在此之前发生的消息都被视为“已读”或“已知晓”。
+                final_timestamp = time.time() * 1000.0
+                if final_timestamp > 0:
                     logger.info(
-                        f"[SessionManager] 会话 '{conversation_id}' 已被停用并从管理器中移除。"
+                        f"[{conversation_id}] 正在将会话的最终处理时间戳 "
+                        f"({final_timestamp}) 保存到数据库..."
+                    )
+                    await self.conversation_service.update_conversation_processed_timestamp(
+                        conversation_id, int(final_timestamp)
                     )
 
-                # 检查是否所有会话都已停用
-                if not self.is_any_session_active():
-                    logger.info("[SessionManager] 所有专注会话均已结束。")
-                    if (
-                        hasattr(self, "focus_session_inactive_event")
-                        and self.focus_session_inactive_event
-                    ):
-                        logger.info(
-                            "[SessionManager] 正在设置 focus_session_inactive_event 以唤醒主意识。"
-                        )
-                        self.focus_session_inactive_event.set()
-                    else:
-                        logger.error(
-                            "[SessionManager] 无法唤醒主意识：focus_session_inactive_event 未设置！"
-                        )
-            else:
-                logger.warning(
-                    f"[SessionManager] 尝试停用一个不存在或已被移除的会话 '{conversation_id}'。"
+                shift_motivation = handover_context.get("motivation") if handover_context else None
+                target_id = handover_context.get("target_id") if handover_context else None
+                await session.summarization_manager.create_and_save_final_summary(
+                    shift_motivation=shift_motivation, target_conversation_id=target_id
                 )
-
-    async def _is_bot_mentioned(self, event: Event, session: "ChatSession") -> bool:
-        """检查消息中是否 @ 了机器人.
-
-        这个方法会遍历消息内容，寻找 @ 机器人的标记。
-        如果找到了，就返回 True，表示机器人被提及了。
-
-        Args:
-            event (Event): 消息事件对象，包含消息内容和会话信息。
-            session (ChatSession): 当前会话实例，用于获取机器人的当前状态。
-        Returns:
-            bool: 如果消息中提及了机器人，返回 True；否则返回 False。
-        """
-        if not event.event_type.startswith("message.") or not (
-            event.conversation_info and event.conversation_info.type == "group"
-        ):
-            return False
-
-        if not event.content:
-            return False
-
-        # --- 照镜子！从 session 里获取我现在的样子！
-        bot_profile = await session.get_bot_profile()
-        # 如果镜子是碎的（没获取到），就用身份证上的老号码保底
-        current_bot_id = str(bot_profile.get("user_id", self.bot_id))
-
-        # --- 遍历消息内容，进行安全的比较 ---
-        for seg in event.content:
-            if seg.type == "at":
-                at_user_id_raw = seg.data.get("user_id")
-                if at_user_id_raw is not None and str(at_user_id_raw) == current_bot_id:
-                    logger.debug(f"检测到机器人被@，动态ID: {current_bot_id}")  # 加个日志看看
-                    return True
-        return False
-
-    async def handle_incoming_message(self, event: Event) -> None:
-        """处理来自消息处理器的消息事件."""
-        conv_id = self._get_conversation_id(event)
-        # --- ❤❤❤ 咸猪手修正点！❤❤❤ ---
-        # 我不再去乱摸 event.platform 了，而是用更优雅的 event.get_platform()！
-        platform = event.get_platform()
-        if not platform:
-            logger.error(f"无法处理进入专注模式的事件 {event.event_id}，因为它没有可解析的平台ID。")
-            return
-        conv_type = (
-            event.conversation_info.type if event.conversation_info else "unknown"
-        )  # 默认为unknown，但应尽量从事件获取
-
-        session = await self.get_or_create_session(
-            conversation_id=conv_id, platform=platform, conversation_type=conv_type
-        )
-
-        if session.is_active and hasattr(session.cycler, "wakeup"):
-            session.cycler.wakeup()
-        # TODO:
-        # 激活逻辑：如果被@或收到私聊消息，则激活会话
-        # 这里是为了方便测试硬编码的逻辑，未来会进一步优化激活逻辑
-        if self.is_any_session_active():
-            if session.is_active:
-                # 如果消息是给当前激活的会话的，就唤醒它去处理新消息
-                session.cycler.wakeup()
-            else:
-                # 如果消息不是给当前激活会话的，就当没看见，不打扰
-                logger.debug(f"已有其他会话激活中，忽略对非激活会话 '{conv_id}' 的消息。")
-            return
-
-        # // 只有在没有任何会话激活时，才检查@
-        is_mentioned = await self._is_bot_mentioned(event, session)
-        if is_mentioned:
-            logger.info(f"会话 '{conv_id}' 因被@而满足激活条件，准备激活。")
-            # // 看，这里只传递动机，别的什么都不管！
-            session.activate(core_motivation="被一股神秘的力量吸引了，想看看是谁在叫我。")
-
-        # 在新的主动循环模型中，管理器不再直接将事件推给会话。
-        # 会话的循环 (`FocusChatCycler`) 会自己从数据库拉取最新的事件。
-        # `handle_incoming_message` 的主要职责是确保在需要时（如被@）激活会话。
-        # （可选优化：此处可以设置一个 event 或 condition 来唤醒可能正在等待的循环，以提高响应速度）
-
-    async def run_periodic_deactivation_check(self) -> None:
-        """后台任务，定期检查并停用不活跃的会话."""
-        while True:
-            await asyncio.sleep(self.config.deactivation_check_interval_seconds)
-
-            async with self.lock:
-                inactive_session_ids = []
-                current_time = time.time()
-                for conv_id, session in self.sessions.items():
-                    if (
-                        session.is_active
-                        and (current_time - session.last_active_time)
-                        > self.config.session_timeout_seconds
-                    ):
-                        inactive_session_ids.append(conv_id)
-            for conv_id in inactive_session_ids:
-                logger.info(f"会话 '{conv_id}' 因超时不活跃，将被系统停用。")
-                await self.deactivate_session(conv_id)
-
-    async def activate_session_by_id(
-        self,
-        conversation_id: str,
-        core_motivation: str,  # // 看！现在只需要动机了！
-        platform: str,
-        conversation_type: str,
-    ) -> None:
-        """根据会话ID激活一个专注会话.
-
-        这通常由外部事件触发，比如用户@机器人或私聊消息。
-
-        Args:
-            conversation_id (str): 会话的唯一标识符。
-            core_motivation (str): 激活会话的核心动机。
-            platform (str): 消息来源的平台（如 QQ、Telegram 等）。
-            conversation_type (str): 会话类型（如 group、private 等）。
-        """
-        logger.info(
-            f"[SessionManager] 收到激活会话 '{conversation_id}' 的请求。"
-            f" Platform: {platform}, Type: {conversation_type}, 激活动机: '{core_motivation}'"
-        )
-        try:
-            # // 如果已经有专注会话了，就直接拒绝新的激活指令
-            if self.is_any_session_active():
-                active_session_id = next(
-                    (sid for sid, s in self.sessions.items() if s.is_active), "未知"
+                logger.info(
+                    f"[SessionManager] 会话 '{conversation_id}' 的最终总结已处理，档案已移除。"
                 )
-                logger.warning(
-                    f"拒绝激活 '{conversation_id}'，因为会话 '{active_session_id}' 已处于专注模式。"
-                )
-                return
-
-            session = await self.get_or_create_session(
-                conversation_id=conversation_id,
-                platform=platform,
-                conversation_type=conversation_type,
-            )
-            if session:
-                # // 只传递动机
-                session.activate(core_motivation=core_motivation)
-                logger.info(f"[SessionManager] 会话 '{conversation_id}' 已成功激活。")
-        except Exception as e:
-            logger.error(
-                f"[SessionManager] 激活会话 '{conversation_id}' 时发生错误: {e}", exc_info=True
-            )
-
-    def is_any_session_active(self) -> bool:
-        """检查当前是否有任何会话处于激活状态."""
-        # 必须在锁内操作，或者复制一份再操作，避免遍历时字典被修改
-        # 这里我们直接复制一份，开销很小但绝对安全
-        sessions_copy = self.sessions.copy()
-        return any(session.is_active for session in sessions_copy.values())
 
     async def shutdown(self) -> None:
         """关闭所有活动的聊天会话."""
@@ -368,3 +245,290 @@ class ChatSessionManager:
                 logger.info(f"[SessionManager] 会话 '{session.conversation_id}' 已成功关闭。")
 
         logger.info("[SessionManager] 所有活动会话的关闭流程已完成。")
+
+    async def _get_focus_description(self, focus_path_or_entry: str | dict | None) -> str:
+        """根据 focus_path 或历史条目 生成一个详细的、人类可读的位置描述."""
+        # --- 步骤 1: 预处理，从输入中提取出纯粹的路径字符串 ---
+        focus_path: str | None = None
+        if isinstance(focus_path_or_entry, dict):
+            # 如果输入是我们的历史条目字典，就从中提取 'target_path'
+            focus_path = focus_path_or_entry.get("target_path")
+        elif isinstance(focus_path_or_entry, str):
+            # 如果输入直接就是字符串，就直接使用
+            focus_path = focus_path_or_entry
+        # 如果输入是 None 或者其他类型，focus_path 将保持为 None
+
+        # --- 步骤 2: 执行原有的描述生成逻辑 (这部分逻辑完全不用变) ---
+        if focus_path is None or focus_path == "core":
+            return "正在发呆/自我思考"
+
+        path_parts = focus_path.split(".")
+
+        # 平台层
+        if len(path_parts) == 1:
+            return f"平台'{path_parts[0]}'"
+
+        # 会话层 (cellular)
+        if len(path_parts) >= 2:
+            platform_id = path_parts[0]
+            # 修复：会话ID可能是由多个部分组成的，例如 "private.123456"
+            conv_id = ".".join(path_parts[1:])
+
+            # 尝试从内存中的 session 获取信息
+            session = self.sessions.get(conv_id)
+            if session and session.conversation_name:  # 优先使用内存中更新的会话名
+                conv_type_str = "群会话" if session.conversation_type == "group" else "私聊会话"
+                return f"{conv_type_str}'{session.conversation_name}'(ID: {conv_id})"
+
+            # 如果 session 不在内存或没有名字，从数据库查
+            conv_doc = await self.conversation_service.get_conversation_document_by_id(conv_id)
+            if conv_doc:
+                conv_type = conv_doc.get("type", "unknown")
+                conv_name = conv_doc.get("name", conv_id)
+                conv_type_str = "群会话" if conv_type == "group" else "私聊会话"
+                return f"{conv_type_str}'{conv_name}'(ID: {conv_id})"
+
+            # 如果都找不到，提供一个保底描述
+            logger.warning(
+                f"无法获取会话 '{conv_id}' 的详细信息，可能是因为它不在内存中且数据库中也不存在。"
+            )
+            return f"一个位于平台'{platform_id}'下的未知会话(ID: {conv_id})"
+
+        return "一个未知的地方"
+
+    def get_last_switch_description(self) -> str:
+        """获取上次焦点切换的格式化描述."""
+        return self._last_switch_description
+
+    async def handle_consciousness_control(self, control_json: dict) -> None:
+        """处理来自LLM决策的意识控制指令.
+
+        是一个干净利落的“总调度中心”.
+
+        Args:
+            control_json (dict): 包含意识控制指令的 JSON 对象.
+        """
+        if not (command := next(iter(control_json), None)) or not (
+            params := control_json.get(command)
+        ):
+            logger.warning(f"收到的意识控制指令格式不正确或为空: {control_json}")
+            return
+
+        logger.info(f"焦点管理器(v2.1)收到指令: {command}, 参数: {params}")
+
+        # 从“映射表”里找到对应的处理函数
+        handler = self._command_handlers.get(command)
+        if not handler:
+            logger.error(f"收到未知的意识控制指令: '{command}'，无法处理。")
+            return
+
+        previous_path_for_desc = self.current_focus_path
+        history_entry_base = {
+            "timestamp": int(time.time() * 1000),
+            "command": command,
+            "motivation": params.get("motivation", "没有明确动机"),
+        }
+
+        # 把具体的工作交给专业的辅助函数去做，自己只关心结果
+        focus_switched = await handler(params, history_entry_base)
+
+        # 如果报告说“搞定了”，就统一处理后续事宜
+        if focus_switched:
+            from_desc = await self._get_focus_description(previous_path_for_desc)
+            to_desc = await self._get_focus_description(self.current_focus_path)
+            self._last_switch_description = f"你刚刚从“{from_desc}”来到了“{to_desc}”"
+
+            logger.info(
+                f"AI 决定 [{command}]，{self._last_switch_description} "
+                f"(动机: {history_entry_base['motivation']})"
+            )
+
+            if self.core_logic and hasattr(self.core_logic, "prompt_builder"):
+                self.core_logic.prompt_builder.is_context_switch_flag = True
+                self.core_logic.trigger_immediate_thought_cycle()
+
+    # 下面是所有被拆分出来的“专业处理函数”
+
+    async def _handle_push_focus(self, params: dict, history_entry_base: dict) -> bool:
+        """处理 'push_focus' 指令."""
+        if not (target_id := params.get("target_id")):
+            logger.error("'push_focus' 指令缺少 'target_id'。")
+            return False
+
+        current_entry = self.current_focus_path
+        current_path_str = (
+            current_entry.get("target_path") if isinstance(current_entry, dict) else current_entry
+        )
+        new_path = target_id if current_path_str == "core" else f"{current_path_str}.{target_id}"
+
+        entry_to_push = {**history_entry_base, "target_path": new_path}
+        self.focus_history.append(entry_to_push)
+        logger.info(f"[堆栈 PUSH] 焦点下潜至: {new_path}")
+
+        if "." in new_path:
+            conv_id = ".".join(new_path.split(".")[1:])
+            if not await self.get_or_create_session(conversation_id=conv_id):
+                logger.error(f"无法 'push_focus'，数据库中找不到会话 '{conv_id}' 的档案。")
+                self.focus_history.pop()  # 回滚
+                return False
+        return True
+
+    async def _handle_pop_focus(self, params: dict, history_entry_base: dict) -> bool:
+        """处理 'pop_focus' 指令.
+
+        这会从 focus_history 堆栈的顶部移除当前焦点.
+        """
+        if len(self.focus_history) <= 1:
+            logger.warning("在顶层Core-Level尝试执行 'pop_focus'，无效操作，已忽略。")
+            return False
+
+        # 这是【空间】上浮的核心：直接 pop 掉最后一个元素
+        leaving_entry = self.focus_history.pop()
+        leaving_path = (
+            leaving_entry.get("target_path") if isinstance(leaving_entry, dict) else leaving_entry
+        )
+        logger.info(f"[堆栈 POP - 空间] 焦点从 '{leaving_path}' 上浮。")
+
+        if leaving_path and "." in leaving_path:
+            conv_id_to_deactivate = ".".join(leaving_path.split(".")[1:])
+            await self.deactivate_session(
+                conv_id_to_deactivate, {"motivation": history_entry_base["motivation"]}
+            )
+
+        # 检查上浮后的新焦点是否需要激活
+        new_focus_entry = self.current_focus_path
+        new_path_str = (
+            new_focus_entry.get("target_path")
+            if isinstance(new_focus_entry, dict)
+            else new_focus_entry
+        )
+        if new_path_str and "." in new_path_str:
+            conv_id = ".".join(new_path_str.split(".")[1:])
+            await self.get_or_create_session(conversation_id=conv_id)
+        return True
+
+    async def _handle_back(self, params: dict, history_entry_base: dict) -> bool:
+        """处理 'back' 指令。【时间】回溯.
+
+        这会回到 T-1 的焦点，本质上是 jump_to_history(-1).
+        """
+        if len(self.focus_history) <= 1:
+            logger.warning("历史记录不足，无法执行 'back' 操作。")
+            return False
+
+        # 这是回溯的核心：我们先看看 T-1 是谁，然后再决定怎么做
+        # 为了代码复用和逻辑一致性，我们直接调用 jump 的逻辑！
+        # jump_to_history 的 history_index T-1 对应的是 -1
+        logger.info("检测到 'back' 指令，将其作为 'jump_to_history' (index=-1) 处理。")
+        return await self._handle_jump_to_history(
+            {"history_index": -1, "motivation": history_entry_base["motivation"]},
+            history_entry_base,
+        )
+
+    async def _handle_swap_focus(self, params: dict, history_entry_base: dict) -> bool:
+        """处理 'swap_focus' 指令."""
+        current_entry = self.current_focus_path
+        current_path_str = (
+            current_entry.get("target_path") if isinstance(current_entry, dict) else current_entry
+        )
+
+        if (
+            not (target_id := params.get("target_id"))
+            or not current_path_str
+            or "." not in current_path_str
+        ):
+            logger.error("'swap_focus' 指令无效：缺少目标ID或当前不在底层会话中。")
+            return False
+
+        path_parts = current_path_str.split(".")
+        parent_path = ".".join(path_parts[:-1])
+        new_path = f"{parent_path}.{target_id}"
+
+        self.focus_history.pop()
+        conv_id_to_deactivate = path_parts[-1]
+        await self.deactivate_session(
+            conv_id_to_deactivate,
+            {"motivation": history_entry_base["motivation"], "target_id": target_id},
+        )
+
+        if await self.get_or_create_session(conversation_id=target_id):
+            entry_to_push = {**history_entry_base, "target_path": new_path}
+            self.focus_history.append(entry_to_push)
+            logger.info(f"[堆栈 SWAP] 焦点切换至: {new_path}")
+        else:
+            logger.error(
+                f"无法 'swap_focus'，数据库中找不到目标会话 '{target_id}'。切换中止，停留在平台层。"
+            )
+
+        return True  # 无论是否成功找到新会话，焦点都已经切换了（至少是上浮了）
+
+    async def _handle_teleport_focus(self, params: dict, history_entry_base: dict) -> bool:
+        """处理 'teleport_focus' 指令."""
+        if not (target_path := params.get("target_path")):
+            logger.error("'teleport_focus' 指令缺少 'target_path'。")
+            return False
+
+        current_entry = self.current_focus_path
+        current_path_str = (
+            current_entry.get("target_path") if isinstance(current_entry, dict) else current_entry
+        )
+        if current_path_str and "." in current_path_str:
+            conv_id_to_deactivate = ".".join(current_path_str.split(".")[1:])
+            await self.deactivate_session(
+                conv_id_to_deactivate, {"motivation": f"传送到 {target_path}"}
+            )
+
+        self.focus_history.clear()
+        self.focus_history.append({"target_path": "core"})
+        entry_to_push = {**history_entry_base, "target_path": target_path}
+        self.focus_history.append(entry_to_push)
+        logger.info(f"[堆栈 TELEPORT] 焦点已传送至: {target_path}")
+
+        path_parts = target_path.split(".")
+        if len(path_parts) >= 2:
+            conv_id = ".".join(path_parts[1:])
+            if not await self.get_or_create_session(conversation_id=conv_id):
+                logger.warning(
+                    f"传送目标 '{target_path}' 无法在数据库中找到对应会话，可能无法正常交互。"
+                )
+        return True
+
+    async def _handle_jump_to_history(self, params: dict, history_entry_base: dict) -> bool:
+        """处理 'jump_to_history' 指令."""
+        if (history_index := params.get("history_index")) is None:
+            logger.error("'jump_to_history' 指令缺少 'history_index'。")
+            return False
+
+        try:
+            history_len = len(self.focus_history)
+            target_deque_index = -1 + history_index
+            if not (-history_len <= target_deque_index < 0):
+                logger.error(
+                    f"历史索引 {history_index} 超出范围 (当前历史深度: {history_len - 1})。"
+                )
+                return False
+
+            target_path = self.focus_history[target_deque_index].get("target_path")
+            current_entry = self.current_focus_path
+            current_path_str = (
+                current_entry.get("target_path")
+                if isinstance(current_entry, dict)
+                else current_entry
+            )
+            if current_path_str and "." in current_path_str:
+                conv_id_to_deactivate = ".".join(current_path_str.split(".")[1:])
+                await self.deactivate_session(
+                    conv_id_to_deactivate, {"motivation": f"跳跃到历史焦点 {target_path}"}
+                )
+
+            for _ in range(abs(target_deque_index) - 1):
+                self.focus_history.pop()
+            logger.info(f"[堆栈 JUMP] 焦点已跳跃至历史记录: {target_path}")
+
+            if target_path and "." in target_path:
+                conv_id = ".".join(target_path.split(".")[1:])
+                await self.get_or_create_session(conversation_id=conv_id)
+            return True
+        except (IndexError, TypeError) as e:
+            logger.error(f"处理 'jump_to_history' 时发生错误，索引: {history_index}, 错误: {e}")
+            return False

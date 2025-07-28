@@ -1,4 +1,5 @@
 # src/core_logic/thought_generator.py
+import json
 import uuid
 from typing import TYPE_CHECKING, Any
 
@@ -31,7 +32,8 @@ class ThoughtGenerator:
         system_prompt: str,
         user_prompt: str,
         image_inputs: list[str],
-        response_schema: dict[str, Any] | None = None,  # <--- 看这里！我给它加上了！
+        response_schema: dict[str, Any] | None = None,
+        focus_path: str | None = None,
     ) -> dict[str, Any] | None:
         """生成思考结果的核心方法.
 
@@ -43,10 +45,32 @@ class ThoughtGenerator:
             user_prompt (str): 用户提示，包含用户的输入或问题.
             image_inputs (list[str]): 可选的图像输入列表，用于多模态处理.
             response_schema (dict[str, Any] | None): 可选的响应模式定义，用于指导 LLM 的输出格式.
+            focus_path (str | None): 可选的焦点路径，用于指定当前思考的上下文.
 
         Returns:
             dict[str, Any] | None: 解析后的思考结果 JSON 对象，如果调用失败或解析错误则返回 None.
         """
+        # 在这里打印所有即将发送给LLM的信息
+        logger.debug("=" * 40 + " LLM DEBUG PROMPT " + "=" * 40)
+        logger.debug(f"当前思考焦点 (Focus Path): {focus_path or 'core'}")
+
+        # 使用 logger.info 打印多行内容，loguru会自动处理换行
+        logger.debug(f"--- [SYSTEM PROMPT] ---\n{system_prompt}")
+        logger.debug(f"--- [USER PROMPT] ---\n{user_prompt}")
+
+        if response_schema:
+            try:
+                # 使用 json.dumps 美化输出，方便查看
+                schema_str = json.dumps(response_schema, indent=2, ensure_ascii=False)
+                logger.debug(f"--- [JSON SCHEMA] ---\n{schema_str}")
+            except Exception as e:
+                logger.error(f"无法序列化 JSON Schema: {e}")
+                logger.debug(f"--- [JSON SCHEMA (Raw)] ---\n{response_schema}")
+        else:
+            logger.debug("--- [JSON SCHEMA] --- \nNone")
+
+        logger.debug("=" * 41 + " END OF DEBUG " + "=" * 41)
+
         try:
             response_data = await self.llm_client.make_llm_request(
                 prompt=user_prompt,
@@ -54,8 +78,8 @@ class ThoughtGenerator:
                 is_stream=False,
                 image_inputs=image_inputs or None,
                 is_multimodal=bool(image_inputs),
-                use_google_search=False,  # 主意识不开启接地搜索
-                response_schema=response_schema,  # <--- 在这里把它传下去！
+                use_google_search=False,
+                response_schema=response_schema,
             )
 
             if response_data.get("error"):

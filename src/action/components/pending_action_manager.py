@@ -1,23 +1,34 @@
-# src/action/components/pending_action_manager.py
+# 文件: src/action/components/pending_action_manager.py (手滑修复版 V1.1)
 import asyncio
 import json
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from src.common.custom_logging.logging_config import get_logger
-from src.config import config
-from src.database import ActionLogStorageService, ConversationStorageService, ThoughtStorageService
+from src.database import (
+    ActionLogStorageService,
+    ConversationStorageService,
+    EnrichedConversationInfo,
+    ThoughtStorageService,
+)
 from src.database.services.event_storage_service import EventStorageService
+
+if TYPE_CHECKING:
+    from src.action.action_handler import ActionHandler
 
 logger = get_logger(__name__)
 
 ACTION_RESPONSE_TIMEOUT_SECONDS = 30
 
+# 未来我们可以将并发数限制在一个合理的范围，比如50，以避免瞬间冲击数据库
+# 但目前先不设置这个限制，等实际运行中再观察是否需要
+# DB_UPSERT_CONCURRENCY_LIMIT = 50
+
 
 class PendingActionManager:
     """管理所有待处理的平台动作.
 
-    负责跟踪已发送但尚未收到响应的动作，并处理其成功响应、失败响应或超时。
+    它现在负责在收到 send_message 的回执时，通过 ActionHandler 向上通知 ChatSession.
     """
 
     def __init__(
@@ -26,14 +37,16 @@ class PendingActionManager:
         thought_storage_service: ThoughtStorageService,
         event_storage_service: EventStorageService,
         conversation_service: ConversationStorageService,
+        action_handler_instance: "ActionHandler",
     ) -> None:
         self._pending_actions: dict[
-            str, tuple[asyncio.Future, str | None, str, dict[str, Any]]
+            str, tuple[asyncio.Future, str | None, str, dict[str, Any], str | None]
         ] = {}
         self.action_log_service = action_log_service
         self.thought_storage_service = thought_storage_service
-        self.event_storage_service = event_storage_service
+        self.event_storage_service = event_storage_service  # <-- 我明明存的是这个名字...
         self.conversation_service = conversation_service
+        self.action_handler = action_handler_instance
         logger.info(f"{self.__class__.__name__} instance created.")
 
     async def add_and_wait_for_action(
@@ -42,11 +55,20 @@ class PendingActionManager:
         thought_doc_key: str | None,
         original_action_description: str,
         action_to_send: dict[str, Any],
+        motivation: str | None = None,
     ) -> tuple[bool, Any]:
-        """添加一个新的待处理动作，并等待其完成（或超时）.
+        """添加一个待处理的动作，并等待其响应.
+
+        Args:
+            action_id (str): 动作的唯一标识符.
+            thought_doc_key (str | None): 关联的思考文档键，如果有的话.
+            original_action_description (str): 原始动作描述，用于日志记录.
+            action_to_send (dict[str, Any]): 要发送的动作内容.
+            motivation (str | None): 动作的动机或目的，可选.
 
         Returns:
-            一个元组 (action_successful, result_payload)。
+            tuple[bool, Any]: 返回一个元组，第一个元素是布尔值表示
+                动作是否成功，第二个元素是响应数据或错误信息.
         """
         response_future = asyncio.Future()
         self._pending_actions[action_id] = (
@@ -54,6 +76,7 @@ class PendingActionManager:
             thought_doc_key,
             original_action_description,
             action_to_send,
+            motivation,
         )
         try:
             return await asyncio.wait_for(response_future, timeout=ACTION_RESPONSE_TIMEOUT_SECONDS)
@@ -67,136 +90,232 @@ class PendingActionManager:
     async def _handle_action_timeout(self, action_id: str) -> None:
         if action_id not in self._pending_actions:
             return
-
         logger.warning(f"动作 '{action_id}' 超时未收到响应！")
-        pending_event, thought_doc_key, description, _ = self._pending_actions.pop(action_id)
-        if not pending_event.done():
-            pending_event.set_exception(TimeoutError())
-
-        timeout_timestamp = int(time.time() * 1000)
+        pending_future, _, _, _, _ = self._pending_actions.pop(action_id)
+        if not pending_future.done():
+            pending_future.set_exception(TimeoutError())
         await self.action_log_service.update_action_log_with_response(
             action_id=action_id,
             status="timeout",
-            response_timestamp=timeout_timestamp,
+            response_timestamp=int(time.time() * 1000),
             error_info="Action response timed out",
         )
 
     async def handle_response(self, response_event_data: dict[str, Any]) -> None:
-        """处理来自适配器的动作响应事件."""
+        """处理收到的动作响应事件.
+
+        Args:
+            response_event_data (dict[str, Any]): 响应事件的数据，包含动作ID等信息.
+        """
+        # 1. 检查响应有效性
         original_action_id = self._get_original_id_from_response(response_event_data)
         if not original_action_id:
+            # 日志已在 _get_original_id_from_response 中记录
             return
 
+        # 2. 检查动作是否仍在等待
         if original_action_id not in self._pending_actions:
             logger.warning(f"收到未知的或已处理/超时的 action_response，ID: {original_action_id}。")
             return
 
-        pending_future, thought_doc_key, description, sent_dict = self._pending_actions.pop(
-            original_action_id
+        # 核心流程
+        pending_future, thought_doc_key, description, sent_dict, motivation = (
+            self._pending_actions.pop(original_action_id)
         )
         logger.info(f"已匹配到等待中的动作 '{original_action_id}' ({description})。")
 
-        # 解析响应
         successful, status, error_msg, details = self._parse_response_content(response_event_data)
-        original_action_type = sent_dict.get("event_type")
-        # 暂时写死，未来放入不同的平台处理器中进行处理
-        if successful and original_action_type == "action.napcat_qq.get_bot_profile" and details:
-            logger.info(f"收到来自适配器 '{details.get('platform')}' 的档案同步报告，开始处理...")
-            # 把处理报告这个脏活累活，单独丢给一个新方法去做！
-            await self._process_bot_profile_report(details)
-        _final_result = self._create_final_result_message(
-            description, successful, error_msg, details
-        )
-        response_timestamp = int(time.time() * 1000)
-        response_time_ms = response_timestamp - sent_dict.get("timestamp", response_timestamp)
 
-        # 更新日志
-        await self.action_log_service.update_action_log_with_response(
-            action_id=original_action_id,
-            status=status,
-            response_timestamp=response_timestamp,
-            response_time_ms=response_time_ms,
-            error_info=None if successful else error_msg,
-            result_details=details,
-        )
-
-        # 设置Future结果
+        # 1. 立即唤醒等待者
         if not pending_future.done():
             result_payload = details if successful else {"error": error_msg}
             pending_future.set_result((successful, result_payload))
 
-        # 存为事件
+        # 2. 处理成功动作的特殊副作用 (如果有)
         if successful:
-            await self._save_successful_action_as_event(
-                original_action_id, sent_dict, response_event_data
-            )
+            await self._handle_successful_action_side_effects(sent_dict, details)
 
-    async def _process_bot_profile_report(self, report_data: dict[str, Any]) -> None:
-        """处理从 Adapter 发来的“全身检查报告”.
+        # 3. 统一处理所有数据库更新
+        await self._gather_and_execute_db_updates(
+            original_action_id=original_action_id,
+            successful=successful,
+            status=status,
+            error_msg=error_msg,
+            details=details,
+            sent_dict=sent_dict,
+            thought_doc_key=thought_doc_key,
+            description=description,
+            motivation=motivation,
+            response_event_data=response_event_data,
+        )
 
-        新版：使用 upsert 逻辑，确保即使会话档案不存在也能正确创建和更新。
+    async def _handle_successful_action_side_effects(
+        self, sent_dict: dict[str, Any], details: dict | None
+    ) -> None:
+        """处理成功动作可能引发的特殊副作用.
+
+        Args:
+            sent_dict (dict[str, Any]): 原始发送的动作数据字典.
+            details (dict | None): 动作执行的详细结果数据.
         """
-        if not isinstance(report_data, dict):
-            logger.warning("收到的机器人档案报告不是一个有效的字典。")
+        original_action_type = sent_dict.get("event_type")
+        if not original_action_type:
             return
 
-        bot_id = report_data.get("user_id")
-        platform = report_data.get("platform")  # 我们需要平台信息来创建新文档
-        groups_info = report_data.get("groups")
+        # 1. send_message 的回声通知
+        if original_action_type.endswith(".send_message"):
+            await self._signal_echo_to_session(sent_dict)
 
-        if not bot_id or not groups_info or not isinstance(groups_info, dict):
-            logger.warning(
-                f"机器人档案报告缺少 bot_id、platform 或 groups 信息。报告内容: {report_data}"
+        # 2. get_list 成功后主动创建会话档案
+        if original_action_type.endswith(".get_list"):
+            await self._proactively_create_conversation_docs_from_list(details, sent_dict)
+
+    async def _signal_echo_to_session(self, sent_dict: dict[str, Any]) -> None:
+        """为 send_message 动作向对应的 ChatSession 发送回声信号.
+
+        Args:
+            sent_dict (dict[str, Any]): 原始发送的动作数据字典，包含
+                会话信息和原始动作ID.
+        """
+        conversation_info = sent_dict.get("conversation_info")
+        original_action_id = sent_dict.get("event_id")
+
+        if not isinstance(conversation_info, dict) or not original_action_id:
+            return
+
+        conv_id = conversation_info.get("conversation_id")
+        if (
+            conv_id
+            and self.action_handler.chat_session_manager
+            and (session := self.action_handler.chat_session_manager.sessions.get(str(conv_id)))
+        ):
+            logger.info(
+                f"检测到 send_message 动作的回声，"
+                f"正在为动作 '{original_action_id}' "
+                f"调用 session.signal_echo_received()！"
             )
+            await session.signal_echo_received(original_action_id)
+
+    async def _gather_and_execute_db_updates(
+        self,
+        original_action_id: str,
+        successful: bool,
+        status: str,
+        error_msg: str,
+        details: dict | None,
+        sent_dict: dict[str, Any],
+        thought_doc_key: str | None,
+        description: str,
+        motivation: str | None,
+        response_event_data: dict[str, Any],
+    ) -> None:
+        """打包并执行所有与数据库更新相关的异步任务.
+
+        Args:
+            original_action_id (str): 原始动作的唯一标识符.
+            successful (bool): 动作是否成功执行.
+            status (str): 动作执行状态.
+            error_msg (str): 错误信息，如果有的话.
+            details (dict | None): 动作执行的详细结果数据.
+            sent_dict (dict[str, Any]): 原始发送的动作数据字典.
+            thought_doc_key (str | None): 关联的思考文档键，如果有的话.
+            description (str): 原始动作描述，用于日志记录.
+            motivation (str | None): 动作的动机或目的，可选.
+            response_event_data (dict[str, Any]): 响应事件的数据，包含动作ID等信息.
+        """
+        response_timestamp = int(time.time() * 1000)
+        response_time_ms = response_timestamp - sent_dict.get("timestamp", response_timestamp)
+
+        tasks_to_gather = []
+
+        # 任务1: 更新 ActionLog
+        tasks_to_gather.append(
+            self.action_log_service.update_action_log_with_response(
+                action_id=original_action_id,
+                status=status,
+                response_timestamp=response_timestamp,
+                response_time_ms=response_time_ms,
+                error_info=None if successful else error_msg,
+                result_details=details,
+            )
+        )
+
+        # 任务2: 更新 ThoughtChain (如果有关联)
+        if thought_doc_key:
+            result_message = self._create_final_result_message(
+                description, successful, error_msg, details
+            )
+            tasks_to_gather.append(
+                self.thought_storage_service.save_action_result_to_thought(
+                    thought_key=thought_doc_key, result_text=result_message
+                )
+            )
+
+        # 任务3: 将成功动作存为 Event
+        if successful:
+            tasks_to_gather.append(
+                self._save_successful_action_as_event(
+                    original_action_id, sent_dict, response_event_data, motivation=motivation
+                )
+            )
+
+        # 执行所有任务
+        if tasks_to_gather:
+            await asyncio.gather(*tasks_to_gather)
+
+    async def _proactively_create_conversation_docs_from_list(
+        self, details: dict | None, sent_dict: dict
+    ) -> None:
+        """当 get_list 动作成功后，主动为列表中的每个项目创建或更新会话档案."""
+        if not details or not isinstance(details, dict):
             return
 
-        logger.info(f"正在处理机器人(ID: {bot_id})的 {len(groups_info)} 个群聊档案更新...")
+        list_type = sent_dict.get("content", [{}])[0].get("data", {}).get("list_type")
+        platform_id = sent_dict.get("platform")
+        bot_id = sent_dict.get("bot_id")
 
-        update_tasks = []
-        for group_id, group_profile in groups_info.items():
-            if not isinstance(group_profile, dict):
+        if not list_type or not platform_id or not bot_id:
+            logger.warning("无法从 get_list 的原始请求中获取足够信息来创建会话档案。")
+            return
+
+        items = details.get("friends", []) if list_type == "friend" else details.get("groups", [])
+        if not items or not isinstance(items, list):
+            return
+
+        logger.info(
+            f"收到 get_list({list_type}) 的成功响应，准备为 {len(items)} "
+            f"个项目主动创建/更新会话档案。"
+        )
+
+        conversation_type = "private" if list_type == "friend" else "group"
+        # 准备批量更新会话档案的任务
+        # 这里我们使用 upsert 方法来确保不存在时创建，存在时更新
+        upsert_tasks = []
+        for item in items:
+            if not isinstance(item, dict):
                 continue
 
-            # 构造机器人在这个群里的档案信息
-            bot_profile_in_conv = {
-                "user_id": bot_id,
-                "nickname": report_data.get("nickname"),
-                "card": group_profile.get("card"),
-                "title": group_profile.get("title"),
-                "role": group_profile.get("role"),
-                "updated_at": int(time.time() * 1000),
-            }
+            conv_id = item.get("user_id") if list_type == "friend" else item.get("group_id")
+            conv_name = item.get("nickname") if list_type == "friend" else item.get("group_name")
 
-            # 构造一个完整的、新的会话档案字典，以备不时之需（万一它不存在呢）
-            # 我们用这个字典来执行 upsert 操作
-            conversation_doc_to_upsert = {
-                "conversation_id": group_id,
-                "platform": platform,
-                "bot_id": bot_id,
-                "name": group_profile.get("group_name"),
-                "type": "group",
-                # 把我们的体检报告里的信息，填到这个新档案的 bot_profile_in_this_conversation 字段里
-                "bot_profile_in_this_conversation": bot_profile_in_conv,
-            }
+            if not conv_id:
+                continue
 
-            # 最后，调用那个万能的 upsert 方法！
-            # 它会自己判断是该插入还是更新，完美！
+            new_conv_info = EnrichedConversationInfo(
+                conversation_id=str(conv_id),
+                platform=platform_id,
+                bot_id=bot_id,
+                type=conversation_type,
+                name=conv_name,
+            )
             task = self.conversation_service.upsert_conversation_document(
-                conversation_doc_to_upsert
+                new_conv_info.to_db_document()
             )
-            update_tasks.append(task)
+            upsert_tasks.append(task)
 
-        if update_tasks:
-            results = await asyncio.gather(*update_tasks, return_exceptions=True)
-            success_count = sum(
-                bool(r is not None and not isinstance(r, Exception)) for r in results
-            )
-            failure_count = len(results) - success_count
-            logger.info(
-                f"机器人档案同步完成。成功 upsert {success_count} 个会话，失败 {failure_count} 个。"
-            )
-        else:
-            logger.info("机器人档案报告中没有需要更新的群聊信息。")
+        if upsert_tasks:
+            await asyncio.gather(*upsert_tasks)
+            logger.info(f"已完成对 {len(upsert_tasks)} 个项目的会话档案主动更新。")
 
     def _get_original_id_from_response(self, data: dict[str, Any]) -> str | None:
         content = data.get("content", [])
@@ -204,14 +323,12 @@ class PendingActionManager:
             first_seg = content[0]
             if isinstance(first_seg, dict) and "data" in first_seg:
                 return first_seg.get("data", {}).get("original_event_id")
-        logger.error(f"无法从响应事件 {data.get('event_id')} 中解析出 original_event_id。")
         return None
 
     def _parse_response_content(self, data: dict[str, Any]) -> tuple[bool, str, str, dict | None]:
         content = data.get("content", [])
         if not content:
             return False, "unknown", "响应内容为空", None
-
         segment = content[0]
         seg_type = segment.get("type", "")
         if isinstance(segment, dict) and seg_type.startswith("action_response."):
@@ -221,8 +338,7 @@ class PendingActionManager:
             if status == "success":
                 return True, "success", "", details
             else:
-                error_msg = response_data.get("message", "适配器报告未知错误")
-                return False, status, error_msg, details
+                return False, status, response_data.get("message", "适配器报告未知错误"), details
         return False, "unknown_format", "响应格式不正确", None
 
     def _create_final_result_message(
@@ -236,32 +352,62 @@ class PendingActionManager:
         return f"动作 '{desc}' 执行失败: {err}"
 
     async def _save_successful_action_as_event(
-        self, action_id: str, sent_dict: dict[str, Any], resp_data: dict[str, Any]
+        self,
+        action_id: str,
+        sent_dict: dict[str, Any],
+        resp_data: dict[str, Any],
+        motivation: str | None = None,
     ) -> None:
         event_to_save = sent_dict.copy()
         event_to_save["event_id"] = action_id
         event_to_save["timestamp"] = int(time.time() * 1000)
         event_to_save["status"] = "read"
-
+        conv_info = event_to_save.get("conversation_info")
+        original_action_type = event_to_save.get("event_type", "")
+        if original_action_type.endswith(".send_message"):
+            platform = original_action_type.split(".")[1]
+            if conv_info and isinstance(conv_info, dict):
+                conv_type = conv_info.get("type", "unknown")
+                event_to_save["event_type"] = f"message.{platform}.{conv_type}"
+        if motivation and isinstance(motivation, str) and motivation.strip():
+            event_to_save["motivation"] = motivation
         message_id = await self._get_sent_message_id_safe(resp_data)
-        metadata = [{"type": "message_metadata", "data": {"message_id": message_id}}]
-        event_to_save["content"] = metadata + event_to_save.get("content", [])
-
-        event_to_save["user_info"] = {
+        event_to_save["content"] = [  # noqa: RUF005
+            {"type": "message_metadata", "data": {"message_id": message_id}}
+        ] + event_to_save.get("content", [])
+        real_user_info = None
+        if conv_info and isinstance(conv_info, dict):
+            conv_id = conv_info.get("conversation_id")
+            if (
+                conv_id
+                and self.action_handler.chat_session_manager
+                and (session := self.action_handler.chat_session_manager.sessions.get(str(conv_id)))
+            ):
+                bot_profile = await session.get_bot_profile()
+                real_user_info = {
+                    "platform": session.platform,
+                    "user_id": bot_profile.get("user_id"),
+                    "user_nickname": bot_profile.get("nickname"),
+                    "user_cardname": bot_profile.get("card"),
+                    "role": bot_profile.get("role"),
+                }
+        event_to_save["user_info"] = real_user_info or {
             "platform": resp_data.get("platform", "unknown_platform"),
             "user_id": resp_data.get("bot_id", "unknown_user_id"),
-            "user_nickname": config.persona.bot_name,
+            "user_nickname": "AIcarus (Self)",
         }
+
+        # =======================【 这 里 就 是 修 复 点 ！】=======================
+        # 我之前在这里不小心写成了 self.event_storage，真是该打屁股！
+        # 正确的名字应该是 self.event_storage_service！
         await self.event_storage_service.save_event_document(event_to_save)
+        # ======================================================================
+
         logger.info(f"成功的平台动作 '{action_id}' 已作为事件存入 events 表。")
 
     async def _get_sent_message_id_safe(self, event_data: dict[str, Any]) -> str:
         default_id = "unknow_message_id"
         if not isinstance(event_data, dict):
-            logger.error(
-                f"事件数据不是一个字典，无法从中安全地提取 sent_message_id。"
-                f"事件数据类型: {type(event_data)}"
-            )
             return default_id
         content_list = event_data.get("content")
         if isinstance(content_list, list) and len(content_list) > 0:

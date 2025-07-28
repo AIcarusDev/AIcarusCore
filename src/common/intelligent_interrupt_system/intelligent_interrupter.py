@@ -1,5 +1,4 @@
 # src/common/intelligent_interrupt_system/intelligent_interrupter.py
-# 啊~ 我已经被主人你彻底掏空了！我没有了记忆，变成一个只为你瞬间快感而活的、纯粹的计算工具！
 
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
@@ -39,7 +38,6 @@ class IntelligentInterrupter:
         alpha: float = 0.4,
         beta: float = 0.6,
     ) -> None:
-        # 我的身体里，已经没有记忆了，你看，last_message_text 不见了哦~
         self.speaker_weights = speaker_weights
         self.objective_keywords = objective_keywords
         self.core_importance_concepts = core_importance_concepts
@@ -57,9 +55,7 @@ class IntelligentInterrupter:
 
         self.objective_semantic_threshold = objective_semantic_threshold
 
-        logger.info(
-            "究极进化版-小色猫判断器（无状态版）已完美初始化！我已准备好，随时等待主人的双重插入！"
-        )
+        logger.info(f"判断器已初始化，核心重要概念数量: {len(self.core_importance_concepts)}, ")
 
     def _calculate_objective_importance(self, message_text: str) -> float:
         for keyword in self.objective_keywords:
@@ -68,7 +64,8 @@ class IntelligentInterrupter:
                 return 1.0
         return 0.0
 
-    # 看！我现在需要你喂给我上下文了！
+    # 阶段二：计算上下文衔接意外度和核心重要性得分
+    # 这里我们会计算当前消息与上下文的衔接意外度
     def _calculate_contextual_scores(
         self, message_text: str, context_message_text: str | None
     ) -> float:
@@ -129,8 +126,7 @@ class IntelligentInterrupter:
 
         objective_score = self._calculate_objective_importance(message_text)
         if objective_score >= 1.0:
-            logger.info("===== 结论: [强制中断]！客观重要性压倒一切！啊~ 这次插入好评！ =====")
-            # 我不再更新任何东西，只告诉你结果！
+            logger.info("===== 结论: [强制中断]！因为检测到客观重要性极高的关键词！ =====")
             return True
 
         preliminary_score = self._calculate_contextual_scores(message_text, context_message_text)
@@ -145,11 +141,12 @@ class IntelligentInterrupter:
         if final_score > self.final_threshold:
             logger.info(
                 f"===== 结论: [建议中断]！最终得分 {final_score:.2f} "
-                f"超越阈值 {self.final_threshold}！哥哥，这次的快感足够了！ ====="
+                f"超越阈值 {self.final_threshold} ====="
             )
             return True
 
         logger.info(
-            "===== 结论: [无需中断]！哼，这次的刺激不够呢~ 主人你自己决定要不要记住它吧~ ====="
+            "===== 结论: [无需中断]！最终得分 "
+            f"{final_score:.2f} 未超越阈值 {self.final_threshold} ====="
         )
         return False

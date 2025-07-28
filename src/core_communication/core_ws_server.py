@@ -10,17 +10,18 @@ if TYPE_CHECKING:
     from src.action.action_handler import ActionHandler
 
 import websockets
-
-# 导入我们全新的、纯洁的协议对象！
 from aicarus_protocols import ConversationInfo, SegBuilder
 from aicarus_protocols import Event as ProtocolEvent
+from aicarus_protocols import UserInfo as ProtocolUserInfo
 from src.common.custom_logging.logging_config import get_logger
+from src.common.unread_info_service.unread_info_service import UnreadInfoService
 from src.config import config
 from src.core_communication.action_sender import ActionSender
 from src.core_communication.event_receiver import EventReceiver
 from src.core_logic.self_awareness_inspector import inspect_and_initialize_self_profile
 from src.database import DBEventDocument, PersonStorageService
 from src.database.services.event_storage_service import EventStorageService
+from src.platform_builders.registry import platform_builder_registry
 from websockets.exceptions import ConnectionClosed, ConnectionClosedError, ConnectionClosedOK
 from websockets.server import WebSocketServerProtocol
 
@@ -64,6 +65,7 @@ class CoreWebsocketServer:
         event_storage_service: EventStorageService,
         action_handler_instance: "ActionHandler",
         person_service: "PersonStorageService",
+        unread_info_service: "UnreadInfoService",
     ) -> None:
         self.host: str = host
         self.port: int = port
@@ -73,6 +75,7 @@ class CoreWebsocketServer:
         self.action_sender = action_sender
         self.action_handler_instance = action_handler_instance
         self.person_service = person_service
+        self.unread_info_service = unread_info_service
         self.adapter_clients_info: dict[str, dict[str, Any]] = {}
         self._websocket_to_adapter_id: dict[WebSocketServerProtocol, str] = {}
         self._stop_event: asyncio.Event = asyncio.Event()
@@ -126,15 +129,15 @@ class CoreWebsocketServer:
     async def _register_adapter(
         self, adapter_id: str, display_name: str, websocket: WebSocketServerProtocol
     ) -> None:
-        """注册一个新的适配器，并通知 ActionSender."""
+        """注册一个新的适配器，并根据其需求和类型决定处理流程."""
         current_timestamp = time.time()
         self._websocket_to_adapter_id[websocket] = adapter_id
         self.adapter_clients_info[adapter_id] = {
             "websocket": websocket,
             "last_heartbeat": current_timestamp,
             "display_name": display_name,
+            "bot_profile": None,
         }
-        # 通知 ActionSender
         self.action_sender.register_adapter(adapter_id, display_name, websocket)
         logger.info(
             f"适配器 '{display_name}({adapter_id})' 已连接: {websocket.remote_address}. "
@@ -144,34 +147,109 @@ class CoreWebsocketServer:
             adapter_id, display_name, "lifecycle.adapter_connected"
         )
 
-        logger.info(f"为新连接的适配器 '{display_name}({adapter_id})' 举行欢迎仪式 (执行安检)...")
+        # --- 核心逻辑 ---
+        builder = platform_builder_registry.get_builder(adapter_id)
 
-        # 在后台运行安检仪式
-        # 这样可以避免阻塞主线程，确保服务器能继续处理其他连接
-        inspection_task = asyncio.create_task(
-            self._run_inspection_ceremony(adapter_id, display_name)
-        )
-        self.active_inspection_tasks.add(inspection_task)
-        inspection_task.add_done_callback(self.active_inspection_tasks.discard)
+        if builder and builder.needs_on_connect_inspection:
+            # 路径 A: 需要安检的平台 (e.g., QQ)
+            logger.info(f"平台 '{display_name}({adapter_id})' 需要上线安检，启动安检仪式...")
+
+            # 1. 创建安检任务
+            inspection_task = asyncio.create_task(
+                self._run_inspection_ceremony(adapter_id, display_name)
+            )
+            self.active_inspection_tasks.add(inspection_task)
+
+            # 2. 定义并绑定回调函数 (只在这里做，只做一次！)
+            def _done_callback(t: asyncio.Task) -> None:
+                """任务完成后的回调函数，用于清理和记录异常."""
+                self.active_inspection_tasks.discard(t)
+                if not t.cancelled() and t.exception():
+                    logger.error("安检仪式后台任务异常:", exc_info=t.exception())
+
+            inspection_task.add_done_callback(_done_callback)
+
+        else:
+            logger.info(f"平台 '{display_name}({adapter_id})' 无需上线安检，执行轻量化身份登记。")
+            await self._register_simple_identity(adapter_id, display_name)
 
     async def _run_inspection_ceremony(self, adapter_id: str, display_name: str) -> None:
         """一个专门用来在后台运行安检的协程."""
-        try:
-            # 给一点点时间，确保连接完全稳定
-            await asyncio.sleep(0.5)
+        max_retries = 3  # 最多重试3次
+        initial_delay = 5  # 初始延迟5秒
+        backoff_factor = 2  # 每次重试延迟时间乘以2
+        for attempt in range(max_retries + 1):
+            try:
+                if attempt > 0:
+                    delay = initial_delay * (backoff_factor ** (attempt - 1))
+                    logger.info(
+                        f"适配器 '{adapter_id}' 的安检将在 {delay} 秒后进行"
+                        f"第 {attempt}/{max_retries} 次重试..."
+                    )
+                    await asyncio.sleep(delay)
+                logger.info(
+                    f"为适配器 '{adapter_id}' 举行欢迎仪式 (执行安检，尝试次数 {attempt + 1})..."
+                )
+                # 给一点点时间，确保连接完全稳定
+                await asyncio.sleep(0.5)
+                success, profile_data = await inspect_and_initialize_self_profile(
+                    person_service=self.person_service,
+                    action_handler=self.action_handler_instance,
+                    platform_id=adapter_id,
+                )
 
-            inspection_success = await inspect_and_initialize_self_profile(
-                person_service=self.person_service,
-                action_handler=self.action_handler_instance,
-                platform_id=adapter_id,
-            )
+                if success and profile_data:
+                    logger.success(
+                        f"安检成功 (尝试次数 {attempt + 1})，"
+                        f"获取到适配器 '{adapter_id}' 中祂的档案。"
+                    )
+                    # 将获取到的档案缓存起来
+                    if adapter_id in self.adapter_clients_info:
+                        self.adapter_clients_info[adapter_id]["bot_profile"] = profile_data
 
-            if not inspection_success:
-                logger.error(f"后台安检仪式失败！适配器 '{adapter_id}' 的相关功能可能受影响。")
-        except Exception as e:
-            logger.error(
-                f"在为适配器 '{adapter_id}' 举行后台安检仪式时发生严重错误: {e}", exc_info=True
-            )
+                    # 安检成功后，需要更新 ChatSessionManager 的 ID 地图
+                    if self.action_handler_instance.chat_session_manager and (
+                        bot_id := profile_data.get("user_id")
+                    ):
+                        self.action_handler_instance.chat_session_manager.self_bot_ids_map[
+                            adapter_id
+                        ] = str(bot_id)
+                        logger.info(f"ChatSessionManager 的 ID 地图已为平台 '{adapter_id}' 更新。")
+
+                    return  # 成功后直接退出函数
+
+                # 如果执行到这里，说明 success 为 False
+                logger.warning(
+                    f"安检尝试 {attempt + 1} 失败。返回结果: success={success}, "
+                    f"profile_data={str(profile_data)[:200]}"
+                )
+
+            except Exception as e:
+                logger.error(
+                    f"在为适配器 '{adapter_id}' 举行后台安检仪式 (尝试次数 {attempt + 1}) "
+                    f"时发生严重错误: {e}",
+                    exc_info=True,
+                )
+
+        # 如果循环结束都没有成功
+        logger.critical(
+            f"后台安检仪式在经过 {max_retries + 1} 次尝试后彻底失败！"
+            f"适配器 '{adapter_id}' 的相关功能将严重受影响。"
+        )
+
+    async def wait_for_all_inspections(self) -> None:
+        """等待所有正在进行的安检任务完成.
+
+        这个方法提供了一个阻塞点，确保在继续执行依赖安检结果的逻辑前，
+        所有平台的身份信息都已获取。
+        """
+        if not self.active_inspection_tasks:
+            logger.info("没有正在进行的安检任务需要等待。")
+            return
+
+        logger.info(f"正在等待 {len(self.active_inspection_tasks)} 个平台的安检仪式完成...")
+        await asyncio.gather(*self.active_inspection_tasks)
+        logger.success("所有待处理的安检仪式均已完成。")
 
     async def _unregister_adapter(
         self, websocket: WebSocketServerProtocol, reason: str = "连接关闭"
@@ -298,32 +376,36 @@ class CoreWebsocketServer:
                 if self._stop_event.is_set():
                     break
 
-                # 换成我这个充满弹性和包容性的、全新的性感姿势！
-                # ↓↓↓ 小猫咪的淫纹植入处！ ↓↓↓
+                # 预先检查，如果消息明显不是心跳，就直接跳过解析，交给后面的标准处理器
+                # 这样可以避免不必要的JSON解析和宽泛的异常捕获
+                if ".heartbeat" not in message_str:
+                    await self.event_receiver.handle_message(
+                        message_str, websocket, adapter_id, display_name
+                    )
+                    continue
+
+                # 如果消息中包含".heartbeat"，我们再尝试将其作为心跳处理
                 try:
-                    # 尝试解析消息，看看是不是私密的心跳信号
                     message_dict = json.loads(message_str)
-                    # --- ❤❤❤ 最终高潮修复点！❤❤❤ ---
-                    # 我把它调教得更‘淫荡’、更‘包容’了
                     msg_event_type = message_dict.get("event_type")
                     if (
                         msg_event_type
                         and msg_event_type.startswith("meta.")
                         and msg_event_type.endswith(".heartbeat")
                     ):
-                        # 啊~ 是心跳，感觉到了！
+                        # 确认是心跳，更新时间戳并继续下一次循环
                         self.adapter_clients_info[adapter_id]["last_heartbeat"] = time.time()
                         logger.debug(
                             f"适配器 '{display_name}({adapter_id})' 的心跳已收到，计时器已重置~"
                         )
-                        # 心跳这种私密的事处理完就好了，不用再往后传了，直接等待下一次爱抚
                         continue
                 except (json.JSONDecodeError, KeyError, TypeError):
-                    # 如果消息不是我们想要的心跳格式，就当作普通消息，交给后面的逻辑去处理
+                    # 解析失败，说明它虽然包含".heartbeat"字符串但不是有效的心跳事件
+                    # 这种情况我们依然将它视为普通消息，交给标准处理器
+                    logger.debug("消息包含'.heartbeat'但不是有效的心跳事件，交由标准处理器分析。")
                     pass
-                # ↑↑↑ 小猫咪的淫纹植入处！ ↑↑↑
 
-                # 将消息处理委托给 EventReceiver
+                # 如果代码执行到这里，说明它不是一个被我们处理掉的心跳事件
                 await self.event_receiver.handle_message(
                     message_str, websocket, adapter_id, display_name
                 )
@@ -417,6 +499,82 @@ class CoreWebsocketServer:
             logger.info("AIcarus 核心 WebSocket 服务器已关闭。")
             self.server = None
 
+    async def get_connected_platforms_info(self) -> str:
+        """构建并返回所有平台的信息字符串，现在它能感知在线、离线和安检中的状态了!"""
+        # 从数据库获取所有已知的机器人账号
+        all_known_bots = await self.person_service.get_all_self_accounts()
+        known_platforms = {bot["platform"]: bot for bot in all_known_bots}
+
+        # 获取当前正连着网线的平台
+        connected_platforms_info = self.adapter_clients_info
+
+        all_platform_ids = set(known_platforms.keys()) | set(connected_platforms_info.keys())
+
+        if not all_platform_ids:
+            return "你暂时没有可用平台，可能是与平台连接断开或程序刚刚启动，请稍等。"
+
+        online_parts = []
+        offline_parts = []
+
+        # 遍历所有平台，生成结构化描述
+        for platform_id in sorted(all_platform_ids):
+            # 尝试从在线适配器中获取显示名称，如果没有，就用平台ID自身
+            display_name = connected_platforms_info.get(platform_id, {}).get(
+                "display_name", platform_id
+            )
+
+            # 构造每个平台的描述块
+            platform_block = [
+                f"- 平台名称: {display_name}",
+                f"  - 平台ID: {platform_id}",  # 关键：明确提供机器可读的ID
+            ]
+
+            # 情况 1 & 2: 平台当前在线
+            if platform_id in connected_platforms_info:
+                info = connected_platforms_info[platform_id]
+                profile = info.get("bot_profile")
+
+                if profile and isinstance(profile, dict):  # 安检通过，有身份了！
+                    bot_id = profile.get("user_id", "读取失败")
+                    bot_name = profile.get("nickname", "读取失败")
+                    platform_block.append("  - 状态: 在线")
+                    platform_block.append(f"  - 你的{platform_id}号是：{bot_id}")
+                    platform_block.append(f"  - 你的{platform_id}名称是：{bot_name}")
+                else:  # 正在安检
+                    platform_block.append("  - 状态: 在线 (正在获取你的信息，请稍等...)")
+
+                online_parts.extend(platform_block)
+
+            # 情况 3: 平台不在线，但数据库里有记录
+            elif platform_id in known_platforms:
+                profile = known_platforms[platform_id]
+                bot_id = profile.get("platform_id", "未知ID")
+                bot_name = profile.get("nickname", "未知昵称")
+                platform_block.append("  - 状态: 离线")
+                platform_block.append(f"  - 你的{platform_id}号是：{bot_id}")
+                platform_block.append(f"  - 你的{platform_id}名称是：{bot_name}")
+                offline_parts.extend(platform_block)
+
+        # 组装最终的报告
+        final_parts = []
+        if online_parts:
+            final_parts.append("你当前在线的平台：")
+            final_parts.extend(online_parts)
+
+        if offline_parts:
+            if not online_parts:
+                final_parts.append(
+                    "你暂时没有可用平台，可能是与平台连接断开或程序刚刚启动，请稍等。"
+                )
+            else:
+                final_parts.append("\n你当前离线的平台(可能断开了)：")
+            final_parts.extend(offline_parts)
+
+        if not final_parts:
+            return "你暂时没有可用平台，可能是与平台连接断开或程序刚刚启动，请稍等。"
+
+        return "\n".join(final_parts)
+
     async def stop(self) -> None:
         """停止WebSocket服务器和所有活动连接.
 
@@ -486,3 +644,42 @@ class CoreWebsocketServer:
             self.server.close()
             await self.server.wait_closed()
         logger.info("AIcarus 核心 WebSocket 服务器已停止。")
+
+    async def _register_simple_identity(self, adapter_id: str, display_name: str) -> None:
+        """对于无需安检的平台，执行一个简单的身份登记流程.
+
+        现在它也会在数据库里创建一个基础的Account档案!
+        """
+        # bot_id 对于工具平台来说，就是它的 platform_id
+        bot_id_for_platform = adapter_id
+
+        # --- [新增的核心逻辑！] ---
+        logger.info(f"为工具平台 '{adapter_id}' 创建或更新数据库中的基础Account档案...")
+        # 1. 构造一个最基础的 UserInfo，只需要 user_id 和 nickname
+        bot_user_info = ProtocolUserInfo(user_id=bot_id_for_platform, user_nickname=display_name)
+        # 2. 调用 person_service 来创建“人”和“账号”，并把它们关联起来
+        #    is_self=True 会确保它关联到唯一的 aic_person_0
+        person_id, account_uid = await self.person_service._create_new_person_with_account(
+            user_info=bot_user_info, platform=adapter_id, is_self=True
+        )
+        if not person_id or not account_uid:
+            logger.error(f"为工具平台 '{adapter_id}' 创建基础Account档案失败！")
+            # 这里可以考虑是否要断开连接，但暂时先只打日志
+        else:
+            logger.success(
+                f"已成功为工具平台 '{adapter_id}' 在数据库中登记身份 (Account UID: {account_uid})。"
+            )
+        # --- [新增逻辑结束] ---
+
+        # 下面的内存ID地图更新逻辑保持不变
+        if self.action_handler_instance.chat_session_manager:
+            self.action_handler_instance.chat_session_manager.self_bot_ids_map[adapter_id] = (
+                bot_id_for_platform
+            )
+            logger.debug(f"ChatSessionManager 的 ID 地图已为平台 '{adapter_id}' 更新 (简单登记)。")
+
+        if self.unread_info_service:
+            self.unread_info_service.update_self_bot_ids({adapter_id: bot_id_for_platform})
+            logger.debug(f"UnreadInfoService 的 ID 地图已为平台 '{adapter_id}' 更新。")
+
+        logger.info(f"平台 '{display_name}({adapter_id})' 已完成轻量化身份登记。")

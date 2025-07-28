@@ -6,22 +6,19 @@ from .config_base import ConfigBase
 
 @dataclass
 class PersonaSettings(ConfigBase):
-    """定义 AI 机器人的人格设置.
+    """定义祂的人格设置.
 
     包括名称、描述和个人资料信息.
     """
 
     bot_name: str = "霜"
-    """AI 机器人的名称."""
+    """祂的名称."""
 
     description: str = ""
-    """AI 机器人的描述信息."""
+    """祂的描述信息."""
 
     profile: str = ""
-    """AI 机器人的个人资料信息."""
-
-    qq_id: str | None = None
-    """AI 机器人的QQ号."""
+    """祂的个人资料信息."""
 
 
 @dataclass
@@ -183,29 +180,7 @@ class FocusChatModeSettings(ConfigBase):
     """专注聊天模式的设置."""
 
     enabled: bool = True
-    """是否启用子意识模块"""
-
-    enable_dynamic_bot_profile: bool = True
-    """是否启用动态获取机器人自身信息的功能。如果禁用，将回退到使用 persona 中的静态配置."""
-
-    session_timeout_seconds: int = 180
-    """子意识模块将固定使用 llm_models.focused_chat 中定义的模型
-    会话超时时间（秒），超过此时间未活动则停用"""
-
-    deactivation_check_interval_seconds: int = 60
-    """后台检查不活跃会话的间隔（秒）"""
-
-    enable_kaomoji_protection: bool = True
-    """是否启用颜文字保护"""
-
-    enable_splitter: bool = True
-    """是否启用文本分割器"""
-
-    max_length: int = 200
-    """文本分割器的最大长度"""
-
-    max_sentence_num: int = 3
-    """文本分割器的最大句子数"""
+    """是否允许AI进入底层会话"""
 
     summary_interval: int = 5
     """渐进式总结的触发消息间隔"""

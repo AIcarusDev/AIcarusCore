@@ -13,6 +13,9 @@ from src.database import (
     ArangoDBConnectionManager,
     CoreDBCollections,
 )
+from src.database.services.event_storage_service import (  # 引入 EventStorageService
+    EventStorageService,
+)
 
 # from src.database import AttentionProfile # 将从 models 导入
 
@@ -151,7 +154,10 @@ class ConversationStorageService:
                 result = await collection.insert(doc_for_db, overwrite=False)
                 if result and result.get("_key"):
                     logger.info(f"新的会话档案 '{doc_key}' 已成功创建，ID: {result['_key']}")
-                    return result["_key"]
+                    return {
+                        "_key": result["_key"],
+                        "_id": f"{self.COLLECTION_NAME}/{result['_key']}",
+                    }
                 else:
                     # 这种情况理论上不应该发生，如果insert调用没有抛异常
                     logger.error(
@@ -165,7 +171,6 @@ class ConversationStorageService:
                 )
                 # 可以考虑再次尝试 get 并 update，或者直接返回失败
                 return None
-        return None  # 确保所有路径都有返回值
 
     async def get_conversation_document_by_id(self, conversation_id: str) -> dict[str, Any] | None:
         """根据 conversation_id (即文档的 _key) 获取完整的会话文档."""
@@ -268,3 +273,114 @@ class ConversationStorageService:
                 f"更新会话 '{conversation_id}' 的 last_processed_timestamp 失败: {e}", exc_info=True
             )
             return False
+
+    async def get_recently_active_conversations_with_details(
+        self,
+        exclude_conversation_id: str | None = None,
+        self_bot_ids_map: dict[str, str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """获取所有最近活跃的会话及其详细信息.
+
+        这个方法使用单个高效的AQL查询来获取：
+        1. 所有活跃的会话文档。
+        2. 每个会话的最新一条消息事件。
+        3. 每个会话的未读消息数量。
+        4. 每个会话是否有高优先级未读消息 (@我 或 回复我)。
+        5. 按最新消息时间戳降序排序。
+
+        Args:
+            exclude_conversation_id: 要从结果中排除的会话ID。
+            self_bot_ids_map: 一个字典，映射平台到当前机器人的用户ID，
+                用于判断 @我 或 回复我 的情况。
+
+        Returns:
+            一个字典列表，每个字典代表一个会话，包含 'conv_doc', 'latest_event',
+            'unread_count', 'has_high_priority'。
+        """
+        logger.debug(f"开始获取所有最近活跃会话的详细信息... (将排除: {exclude_conversation_id})")
+
+        bot_ids_map = self_bot_ids_map if self_bot_ids_map is not None else {}
+
+        query = """
+        LET conversations_with_latest_event_time = (
+            FOR conv IN @@conv_collection
+                FILTER conv.conversation_id != @exclude_conv_id AND conv.conversation_id != "system_events"
+                LET latest_event_for_conv = FIRST(
+                    FOR event IN @@event_collection
+                        FILTER event.conversation_id_extracted == conv.conversation_id
+                        AND event.event_type LIKE 'message.%'
+                        SORT event.timestamp DESC
+                        LIMIT 1
+                        RETURN event
+                )
+                FILTER latest_event_for_conv != null
+                RETURN {
+                    conversation_id: conv.conversation_id,
+                    latest_timestamp: latest_event_for_conv.timestamp
+                }
+        )
+        LET top_10_active_conv_ids = (
+            FOR item IN conversations_with_latest_event_time
+                SORT item.latest_timestamp DESC
+                LIMIT 10
+                RETURN item.conversation_id
+        )
+        FOR conv_id IN top_10_active_conv_ids
+            LET conv_doc = DOCUMENT(@@conv_collection, conv_id)
+            LET last_read_ts = conv_doc.last_processed_timestamp OR 0
+            LET latest_event = FIRST(
+                FOR event IN @@event_collection
+                    FILTER event.conversation_id_extracted == conv_doc.conversation_id
+                    AND event.event_type LIKE 'message.%'
+                    SORT event.timestamp DESC
+                    LIMIT 1
+                    RETURN event
+            )
+            LET unread_count = COUNT(
+                FOR event IN @@event_collection
+                    FILTER event.conversation_id_extracted == conv_doc.conversation_id
+                    AND event.event_type LIKE 'message.%'
+                    AND event.timestamp > last_read_ts
+                    RETURN 1
+            )
+            LET has_high_priority = (
+                FOR event IN @@event_collection
+                    FILTER event.conversation_id_extracted == conv_doc.conversation_id
+                    AND event.timestamp > last_read_ts
+                    LET is_at_me = (
+                        FOR seg IN event.content
+                            FILTER seg.type == 'at' AND seg.data.user_id == @self_bot_ids_map[conv_doc.platform]
+                            LIMIT 1
+                            RETURN true
+                    )[0]
+                    LET is_reply_to_me = (
+                        FOR seg IN event.content
+                            FILTER seg.type == 'quote' AND seg.data.user_id == @self_bot_ids_map[conv_doc.platform]
+                            LIMIT 1
+                            RETURN true
+                    )[0]
+                    FILTER is_at_me OR is_reply_to_me
+                    LIMIT 1
+                    RETURN true
+            )[0] OR false
+            SORT latest_event.timestamp DESC
+            RETURN {
+                conv_doc: conv_doc,
+                latest_event: latest_event,
+                unread_count: unread_count,
+                has_high_priority: has_high_priority
+            }
+        """  # noqa: E501
+        bind_vars = {
+            "@conv_collection": self.COLLECTION_NAME,
+            "@event_collection": EventStorageService.COLLECTION_NAME,
+            "exclude_conv_id": exclude_conversation_id,
+            "self_bot_ids_map": bot_ids_map,  # 【修复点5】: 绑定变量
+        }
+        try:
+            results = await self.conn_manager.execute_query(query, bind_vars)
+            logger.info(f"成功获取到 {len(results) if results else 0} 个最近活跃的会话详情。")
+            return results if results is not None else []
+        except Exception as e:
+            logger.error(f"获取最近活跃会话详情失败: {e}", exc_info=True)
+            return []

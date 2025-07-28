@@ -22,7 +22,7 @@ class PersonStorageService:
     """此类负责管理人与账号之间的关系.
 
     它提供了查找或创建“人”和“账号”节点的方法，并确保它们之间有正确的关系边。
-    还提供了更新机器人在群聊中的成员信息的方法。
+    还提供了更新祂在群聊中的成员信息的方法。
 
     Attributes:
         conn_manager (ArangoDBConnectionManager): 数据库连接管理器实例，用于获取集合。
@@ -165,7 +165,7 @@ class PersonStorageService:
         card_name: str | None,
         role: str | None,
     ) -> bool:
-        """专门更新机器人在某个群里的成员信息（主要是群名片）."""
+        """专门更新祂在某个群里的成员信息（主要是群名片）."""
         # 这个方法和通用的 update_membership 很像，但是是为我量身定做的
         from_vertex = f"{CoreDBCollections.ACCOUNTS}/{account_uid}"
         to_vertex = f"{CoreDBCollections.CONVERSATIONS}/{conversation_id}"
@@ -213,12 +213,11 @@ class PersonStorageService:
         try:
             await self.conn_manager.execute_query(query, bind_vars)
             logger.debug(
-                f"成功更新机器人成员关系: Account '{account_uid}' "
-                f"in Conversation '{conversation_id}'"
+                f"成功更新祂的成员关系: Account '{account_uid}' in Conversation '{conversation_id}'"
             )
             return True
         except Exception as e:
-            logger.error(f"更新机器人成员关系时失败: {e}", exc_info=True)
+            logger.error(f"更新祂的成员关系时失败: {e}", exc_info=True)
             return False
 
     async def _create_new_person_with_account(
@@ -407,3 +406,75 @@ class PersonStorageService:
 
         results = await self.conn_manager.execute_query(query, bind_vars)
         return results[0] if results else None
+
+    async def get_all_self_accounts(self) -> list[dict[str, Any]]:
+        """获取祂自身（SELF_PERSON_ID）关联的所有平台账号信息."""
+        query = """
+            LET self_person = DOCUMENT(@@persons_coll, @self_person_key)
+            FILTER self_person != null
+            FOR acc IN 1..1 OUTBOUND self_person @@has_account_coll
+                RETURN {
+                    platform: acc.platform,
+                    platform_id: acc.platform_id,
+                    nickname: acc.nickname
+                }
+        """
+        bind_vars = {
+            "@persons_coll": CoreDBCollections.PERSONS,
+            "self_person_key": SELF_PERSON_ID,
+            "@has_account_coll": CoreDBCollections.HAS_ACCOUNT,
+        }
+        try:
+            results = await self.conn_manager.execute_query(query, bind_vars)
+            return results if results is not None else []
+        except Exception as e:
+            logger.error(f"获取自身所有平台账号信息时失败: {e}", exc_info=True)
+            return []
+
+    async def get_self_account_for_platform(self, platform_id: str) -> dict[str, Any] | None:
+        """根据平台ID，获取祂自身在该平台上的账户信息.
+
+        Args:
+            platform_id: 目标平台的ID, 例如 "qq".
+
+        Returns:
+            一个包含账户信息的字典
+                (例如 {'platform': '...', 'platform_id': '...', 'nickname': '...'}),
+                如果未找到则返回 None.
+        """
+        if not platform_id:
+            return None
+
+        # 这个AQL查询会：
+        # 1. 找到固定的祂自身Person节点。
+        # 2. 沿着'has_account'边向外查找所有关联的Account节点。
+        # 3. 从找到的Account节点中，筛选出平台匹配的那一个。
+        query = """
+            LET self_person = DOCUMENT(@@persons_coll, @self_person_key)
+            FILTER self_person != null
+            FOR acc IN 1..1 OUTBOUND self_person @@has_account_coll
+                FILTER acc.platform == @platform_id
+                LIMIT 1
+                RETURN {
+                    platform: acc.platform,
+                    platform_id: acc.platform_id,
+                    nickname: acc.nickname,
+                    account_uid: acc.account_uid
+                }
+        """
+        bind_vars = {
+            "@persons_coll": CoreDBCollections.PERSONS,
+            "self_person_key": SELF_PERSON_ID,
+            "@has_account_coll": CoreDBCollections.HAS_ACCOUNT,
+            "platform_id": platform_id,
+        }
+        try:
+            results = await self.conn_manager.execute_query(query, bind_vars)
+            if results and isinstance(results, list) and len(results) > 0:
+                logger.debug(f"成功为平台 '{platform_id}' 获取到祂自身账户信息。")
+                return results[0]
+            logger.warning(f"未能为平台 '{platform_id}' 找到祂自身账户信息。")
+            return None
+        except Exception as e:
+            logger.error(f"为平台 '{platform_id}' 获取自身账户信息时失败: {e}", exc_info=True)
+            return None

@@ -1,19 +1,21 @@
-# 文件: src/core_logic/consciousness_flow.py
+# src/core_logic/consciousness_flow.py
 import asyncio
 import contextlib
 import datetime
 import threading
+import time
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
+from aicarus_protocols import Event, Seg, extract_text_from_content
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logging_config import get_logger
-from src.common.time_utils import get_formatted_time_for_llm
+from src.common.utils import parse_focus_path
 from src.config import config
 from src.core_communication.core_ws_server import CoreWebsocketServer
-from src.core_logic.context_builder import ContextBuilder
+from src.core_logic.decision_dispatcher import process_llm_decision
 from src.core_logic.intrusive_thoughts import IntrusiveThoughtsGenerator
-from src.core_logic.prompt_builder import ThoughtPromptBuilder
+from src.core_logic.prompt_builder import PromptBuilderError, ThoughtPromptBuilder
 from src.core_logic.state_manager import AIStateManager
 from src.core_logic.thought_generator import ThoughtGenerator
 from src.core_logic.thought_persistor import ThoughtPersistor
@@ -21,82 +23,14 @@ from src.database import ThoughtStorageService
 from src.database.models import ThoughtChainDocument
 
 if TYPE_CHECKING:
+    from src.focus_chat_mode.chat_session import ChatSession
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 
 logger = get_logger(__name__)
 
-CORE_RESPONSE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "mood": {"type": "string"},
-        "think": {"type": "string"},
-        "goal": {"type": "string"},
-        "action": {
-            "type": "object",
-            "properties": {
-                "core": {
-                    "type": "object",
-                    "properties": {
-                        "web_search": {
-                            "type": "object",
-                            "properties": {
-                                "query": {"type": "string"},
-                                "motivation": {"type": "string"},
-                            },
-                            "required": ["query", "motivation"],
-                        }
-                    },
-                },
-                "napcat_qq": {
-                    "type": "object",
-                    "properties": {
-                        "focus": {
-                            "type": "object",
-                            "properties": {
-                                "conversation_id": {"type": "string"},
-                                "motivation": {"type": "string"},
-                            },
-                            "required": ["conversation_id", "motivation"],
-                        },
-                        "get_list": {
-                            "type": "object",
-                            "properties": {
-                                "list_type": {"type": "string"},
-                                "motivation": {"type": "string"},
-                            },
-                            "required": ["list_type", "motivation"],
-                        },
-                    },
-                },
-            },
-        },
-    },
-    "required": ["mood", "think", "goal"],
-}
-
 
 class CoreLogic:
-    """核心逻辑处理类，负责主思考循环和动作分发.
-
-    这个类负责管理整个意识流动的生命周期，包括思考循环的启动、停止以及在不同思考状态之间的切换.
-    它还处理来自 LLM 的指令，并根据指令执行相应的动作，如激活专注会话等.
-
-    Attributes:
-        core_comm_layer (CoreWebsocketServer): 核心通信层，用于处理与其他组件的通信.
-        action_handler_instance (ActionHandler): 动作处理器实例，用于处理各种动作指令.
-        state_manager (AIStateManager): 状态管理器实例，用于获取当前 AI 的状态信息.
-        chat_session_manager (ChatSessionManager): 聊天会话管理器，用于管理聊天会话的激活和切换.
-        context_builder (ContextBuilder): 上下文构建器实例，用于收集和格式化上下文信息.
-        thought_generator (ThoughtGenerator): 思考生成器实例，用于生成新的思考内容.
-        thought_persistor (ThoughtPersistor): 思考持久化器实例，用于将思考结果存储到数据库中.
-        thought_storage_service (ThoughtStorageService): 思想存储服务实例，用于存储和检索思想点.
-        prompt_builder (ThoughtPromptBuilder): 提示构建器实例，用于生成适合 LLM 的提示内容.
-        stop_event (threading.Event): 用于控制思考循环的停止事件.
-        immediate_thought_trigger (asyncio.Event): 用于触发立即思考循环的事件.
-        intrusive_generator_instance (IntrusiveThoughtsGenerator | None): 可选的侵入性思考生成器实例
-            ，用于处理特殊的思考任务.
-        thinking_loop_task (asyncio.Task | None): 当前的思考循环任务，如果正在运行则为非 None.
-    """
+    """核心逻辑处理类."""
 
     def __init__(
         self,
@@ -104,7 +38,6 @@ class CoreLogic:
         action_handler_instance: ActionHandler,
         state_manager: AIStateManager,
         chat_session_manager: "ChatSessionManager",
-        context_builder: ContextBuilder,
         thought_storage_service: ThoughtStorageService,
         thought_generator: ThoughtGenerator,
         thought_persistor: ThoughtPersistor,
@@ -117,220 +50,410 @@ class CoreLogic:
         self.action_handler_instance = action_handler_instance
         self.state_manager = state_manager
         self.chat_session_manager = chat_session_manager
-        self.context_builder = context_builder
         self.thought_generator = thought_generator
         self.thought_persistor = thought_persistor
-        self.thought_storage_service = thought_storage_service  # 把存储服务也存起来
+        self.thought_storage_service = thought_storage_service
         self.prompt_builder = prompt_builder
         self.stop_event = stop_event
         self.immediate_thought_trigger = immediate_thought_trigger
-        self.focus_session_inactive_event = asyncio.Event()
         self.intrusive_generator_instance = intrusive_generator_instance
         self.thinking_loop_task: asyncio.Task | None = None
-        logger.info(f"{self.__class__.__name__} 已创建")
+        self._last_interrupt_context_text: str | None = None
+        logger.info(f"{self.__class__.__name__} 已创建 (最终完美版 V1.3)")
 
     def trigger_immediate_thought_cycle(self) -> None:
-        """这个方法现在就是个闹钟，只负责把主循环叫醒."""
+        """立即触发思考循环，唤醒主意识."""
         logger.info("接收到立即思考触发信号，主意识将被唤醒。")
         self.immediate_thought_trigger.set()
 
-    async def _dispatch_action(self, thought_pearl: ThoughtChainDocument) -> bool:
-        """处理思想点中的行动指令，特别是 'focus' 指令.
+    def _get_current_session(self) -> Optional["ChatSession"]:
+        """获取当前焦点会话，如果没有则返回None."""
+        if not self.chat_session_manager:
+            return None
 
-        这个方法会检查思想点的 action_payload，
-        如果包含 'focus' 指令，则尝试激活指定的会话.
+        # 1. 从历史记录中获取当前的焦点条目（它现在是一个字典）
+        focus_entry = self.chat_session_manager.current_focus_path
 
-        Args:
-            thought_pearl (ThoughtChainDocument): 包含行动指令的思想点对象.
+        # 2. 健壮性检查：确保它是一个字典
+        if not isinstance(focus_entry, dict):
+            # 如果历史记录的格式不对，这本身就是个问题
+            logger.debug("当前焦点条目不是预期的字典格式，无法获取会话。")
+            return None
 
-        Returns:
-            bool: 如果成功激活了会话，则返回 True；否则返回 False.
-        """
-        action_payload = thought_pearl.action_payload
-        if not action_payload or not isinstance(action_payload, dict):
-            logger.info("当前思想点未指定任何行动。")
-            return False
+        # 3. 从字典中提取出真正的路径字符串
+        focus_path_str = focus_entry.get("target_path")
+        focus_path_str = focus_entry.get("target_path")
+        if not focus_path_str or not isinstance(focus_path_str, str):
+            # 如果路径本身就是空的或者类型不对，直接判定无效！
+            logger.debug(f"从焦点条目中获取的路径无效: {focus_path_str}，无法获取会话。")
+            return None
 
-        action_id = thought_pearl.action_id
-        saved_thought_key = thought_pearl._key
+        # 4. 使用工具函数来解析路径
+        level, _, conv_id = parse_focus_path(focus_path_str)
 
-        focus_params = action_payload.get("napcat_qq", {}).get("focus")
+        # 5. 严格的条件判断，确保我们只在正确的情况下查找会话
+        if level != "cellular":
+            # 只有在 'cellular' (会话) 层级才可能有 session 对象。
+            # 如果是 'core' 或 'platform' 层，直接返回 None 是正确的行为。
+            logger.debug(f"当前焦点层级为 '{level}'，不属于会话层，因此没有当前会话。")
+            return None
 
-        if focus_params and isinstance(focus_params, dict):
-            logger.info("主意识截获 'focus' 指令，准备亲自处理会话激活。")
-            target_conv_id = focus_params.get("conversation_id")
-            motivation = focus_params.get("motivation", "没有明确动机")
+        if not conv_id:
+            # 如果路径解析出来是 'cellular' 层，但没有有效的 conv_id，说明路径格式有问题。
+            logger.warning(f"焦点路径 '{focus_path_str}' 解析为会话层，但未能提取有效的会话ID。")
+            return None
 
-            if not target_conv_id:
-                logger.error("'focus' 动作缺少 conversation_id，无法激活。")
-                return False
+        # 6. 只有通过所有检查，才去会话字典里查找
+        session = self.chat_session_manager.sessions.get(conv_id)
+        if not session:
+            # 这种情况可能发生在：会话刚刚被停用，但焦点还没来得及切换。
+            logger.debug(f"根据会话ID '{conv_id}' 在当前激活的会话池中未找到实例。")
+            return None
 
-            try:
-                unread_convs = await self.prompt_builder.unread_info_service.get_structured_unread_conversations()  # noqa: E501
-                target_conv_details = next(
-                    (c for c in unread_convs if c.get("conversation_id") == target_conv_id), None
-                )
-
-                if not target_conv_details:
-                    logger.error(f"无法激活会话 '{target_conv_id}'，因为它不在未读列表中。")
-                    return False
-
-                await self.chat_session_manager.activate_session_by_id(
-                    conversation_id=target_conv_id,
-                    core_motivation=motivation,
-                    platform=target_conv_details["platform"],
-                    conversation_type=target_conv_details["type"],
-                )
-
-                if "focus" in action_payload.get("napcat_qq", {}):
-                    del action_payload["napcat_qq"]["focus"]
-                if not action_payload.get("napcat_qq"):
-                    del action_payload["napcat_qq"]
-
-                # 既然是 focus，那就返回 True
-                return True
-
-            except Exception as e:
-                logger.error(f"主意识在处理 'focus' 指令时发生错误: {e}", exc_info=True)
-                return False
-
-        # 把剩下的垃圾（如果有的话）丢给ActionHandler去处理。
-        if action_payload:
-            await self.action_handler_instance.process_action_flow(
-                action_id=action_id,
-                doc_key_for_updates=saved_thought_key,
-                action_json=action_payload,
-            )
-
-        # 如果不是 focus 动作，就返回 False
-        return False
+        return session
 
     async def _core_thinking_loop(self) -> None:
+        """核心思考循环.
+
+        只负责维持循环和处理顶层异常.
+        """
         thinking_interval_sec = config.core_logic_settings.thinking_interval_seconds
+        logger.info(f"=== {config.persona.bot_name} 的统一意识流【竞速模式】开始运行 ===")
+
         while not self.stop_event.is_set():
-            if self.chat_session_manager and self.chat_session_manager.is_any_session_active():
-                logger.debug("检测到有专注会话激活，主意识暂停，等待所有专注会话结束...")
-                try:
-                    await self.focus_session_inactive_event.wait()
-                    self.focus_session_inactive_event.clear()
-                    logger.info("所有专注会话已结束，主意识被唤醒，继续思考。")
-                except asyncio.CancelledError:
-                    logger.info("主意识在等待专注会话结束时被取消。")
-                    break
+            try:
+                # // 核心逻辑被委托给了这个新函数，主循环变得超级干净！
+                await self._prepare_and_run_race()
+                await self._wait_for_next_cycle(thinking_interval_sec)
+
+            except asyncio.CancelledError:
+                logger.info("统一意识流主循环被取消。")
+                break
+            except Exception as e:
+                logger.error(f"统一意识流主循环发生严重错误: {e}", exc_info=True)
+                await asyncio.sleep(10)  # // 发生严重错误时，休息一下，避免疯狂刷日志
+
+        logger.info(f"--- {config.persona.bot_name} 的统一意识流已停止 ---")
+
+    async def _prepare_and_run_race(self) -> None:
+        """准备并执行“主任务”与“哨兵任务”的竞速."""
+        main_task: asyncio.Task | None = None
+        sentry_task: asyncio.Task | None = None
+
+        try:
+            race_start_timestamp = time.time() * 1000.0
+            session = self._get_current_session()
+
+            # 1. 准备比赛选手 (Tasks)
+            main_task = asyncio.create_task(self._run_full_thought_cycle(session))
+            tasks_to_race: set[asyncio.Task] = {main_task}
+
+            if session:
+                context_text = self._get_initial_context_for_sentry(session)
+                sentry_task = asyncio.create_task(
+                    self._listen_for_interruptions(session, context_text, race_start_timestamp)
+                )
+                tasks_to_race.add(sentry_task)
+
+            # 2. 发令！开始比赛！
+            done, pending = await asyncio.wait(tasks_to_race, return_when=asyncio.FIRST_COMPLETED)
+
+            # 3. 宣布比赛结果并处理
+            await self._handle_race_outcome(done, pending, session, main_task, sentry_task)
+
+        finally:
+            # // 确保无论如何，这场比赛的选手都会被妥善处理
+            if main_task and not main_task.done():
+                main_task.cancel()
+            if sentry_task and not sentry_task.done():
+                sentry_task.cancel()
+
+    def _get_initial_context_for_sentry(self, session: "ChatSession") -> str:
+        """为哨兵任务获取初始的上下文文本（记忆烙印或数据库）."""
+        if self._last_interrupt_context_text:
+            # // 如果有中断烙印，就用它！
+            logger.info(
+                f"[{session.conversation_id}] 使用了上一次中断的记忆烙印作为上下文: "
+                f"'{self._last_interrupt_context_text[:50]}...'"
+            )
+            return self._last_interrupt_context_text
+        else:
+            # // 没有烙印，就返回一个默认值，让哨兵自己去查数据库
+            return "..."
+
+    async def _handle_race_outcome(
+        self,
+        done: set[asyncio.Task],
+        pending: set[asyncio.Task],
+        session: Optional["ChatSession"],
+        main_task: asyncio.Task,
+        sentry_task: asyncio.Task | None,
+    ) -> None:
+        """处理竞速比赛的结果."""
+        # 1. 让还在跑的选手停下来
+        for task in pending:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+        # 2. 检查是哪个选手赢了
+        if sentry_task and sentry_task in done:
+            await self._process_sentry_victory(sentry_task, session)
+
+        if main_task in done:
+            await self._process_main_task_victory(main_task, session)
+
+    async def _process_sentry_victory(
+        self, sentry_task: asyncio.Task, session: Optional["ChatSession"]
+    ) -> None:
+        """专门处理“哨兵”胜利的场景（即发生中断）."""
+        if not session:
+            return
+
+        interrupting_event_doc = await sentry_task
+        if not interrupting_event_doc:
+            return
+
+        logger.warning(f"[{session.conversation_id}] 中断哨兵获胜！思考-行动主任务被中断。")
+        session.interruption_context = {
+            "was_interrupted": True,
+            "interrupting_event_doc": interrupting_event_doc,
+        }
+
+        if interrupting_ts := interrupting_event_doc.get("timestamp"):
+            session.last_processed_timestamp = interrupting_ts
+            logger.info(
+                f"[{session.conversation_id}] 任务被中断，"
+                f"全局时间戳被强制更新至中断事件的时间: {interrupting_ts}"
+            )
+
+        # // 将中断消息文本烙印到短期记忆中
+        event_obj = Event.from_dict(interrupting_event_doc)
+        self._last_interrupt_context_text = event_obj.get_text_content()
+        logger.debug(
+            f"[{session.conversation_id}] 已将中断消息文本 "
+            f"'{self._last_interrupt_context_text}' 烙印到短期记忆中。"
+        )
+
+    async def _process_main_task_victory(
+        self, main_task: asyncio.Task, session: Optional["ChatSession"]
+    ) -> None:
+        """专门处理“主任务”胜利的场景（即正常完成思考）."""
+        last_processed_ts_from_task = await main_task
+
+        if (session and last_processed_ts_from_task) and (
+            last_processed_ts_from_task > session.last_processed_timestamp
+        ):
+            session.last_processed_timestamp = last_processed_ts_from_task
+            logger.info(
+                f"[{session.conversation_id}] 主任务正常完成，"
+                f"全局时间戳已更新至: {last_processed_ts_from_task}"
+            )
+
+        if session:
+            session.interruption_context = None
+
+        # // 正常完成后，把记忆烙印擦掉
+        self._last_interrupt_context_text = None
+
+    async def _run_full_thought_cycle(self, session: Optional["ChatSession"]) -> float | None:
+        """执行完整的思考循环，包括生成思考、处理中断和执行动作."""
+        focus_entry = (
+            self.chat_session_manager.current_focus_path if self.chat_session_manager else None
+        )
+
+        # 从字典条目中提取出真正的路径字符串
+        focus_path_str: str | None = None
+        if isinstance(focus_entry, dict):
+            focus_path_str = focus_entry.get("target_path")
+        elif isinstance(focus_entry, str):  # 兼容旧格式或可能的'core'字符串
+            focus_path_str = focus_entry
+        # 如果 focus_entry 是 None，则 focus_path_str 保持为 None
+
+        try:
+            (
+                prompt_components,
+                processed_raw_events,
+            ) = await self.prompt_builder.build_prompts_components(
+                focus_path=focus_path_str,
+                session=session,
+                handover_result=session.pending_handover_result if session else None,
+            )
+        except PromptBuilderError as e:
+            # 如果构建Prompt的过程中出了问题（比如 session manager 还没好）
+            # 我们就在这里抓住它，打个日志，然后安静地结束这一轮思考
+            logger.error(f"构建Prompt失败，中止本轮思考循环: {e}")
+            return None  # 返回 None，表示本轮没有产出
+
+        if session:
+            session.pending_handover_result = None
+
+        system_prompt, user_prompt, response_schema = self.prompt_builder.finalize_prompts(
+            prompt_components
+        )
+        self.prompt_builder.is_context_switch_flag = False
+
+        generated_thought_json = await self.thought_generator.generate_thought(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            image_inputs=prompt_components.image_references,
+            response_schema=response_schema,
+            focus_path=focus_path_str,
+        )
+        if not generated_thought_json:
+            return None
+
+        new_thought_pearl = ThoughtChainDocument(
+            _key=str(uuid.uuid4()),
+            timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
+            mood=generated_thought_json.get("internal_state", {}).get("mood", "平静"),
+            think=generated_thought_json.get("internal_state", {}).get("think", "无"),
+            goal=generated_thought_json.get("internal_state", {}).get("goal"),
+            source_type="core_unified",
+            source_id=focus_path_str,
+            action_id=str(uuid.uuid4())
+            if generated_thought_json.get("action")
+            or generated_thought_json.get("consciousness_control")
+            else None,
+            action_payload=generated_thought_json,
+        )
+        saved_key = await self.thought_storage_service.save_thought_and_link(new_thought_pearl)
+        if not saved_key:
+            return None
+
+        await process_llm_decision(
+            decision_json=generated_thought_json,
+            focus_manager=self.chat_session_manager,
+            action_handler=self.action_handler_instance,
+            core_logic=self,
+            source_thought_key=saved_key,
+            source_action_id=new_thought_pearl.action_id,
+            current_focus_path=focus_path_str,
+            session=session,
+            processed_events_this_turn=processed_raw_events,
+        )
+
+        if processed_raw_events:
+            # 返回这批处理过的事件里最新的那个时间戳
+            return max(event.time for event in processed_raw_events)
+        elif session:
+            # 如果没有新事件被处理（比如只是自我思考），也返回当前的时间戳，
+            # 这样下一轮的哨兵就知道从哪里开始了
+            return session.last_processed_timestamp
+        return None
+
+    async def _listen_for_interruptions(
+        self, session: "ChatSession", initial_context_text: str, start_timestamp: float
+    ) -> dict | None:
+        """纯粹的中断监听器（哨兵），它现在接收一个固定的初始上下文."""
+        try:
+            context_text = initial_context_text
+            last_checked_timestamp = start_timestamp
+
+            bot_profile = await session.get_bot_profile()
+            current_bot_id = str(bot_profile.get("user_id") or session.bot_id)
+
+            while True:
+                # 哨兵用它当前的记忆去检查新消息
+                (
+                    interrupting_event,
+                    latest_ts_in_batch,
+                    last_text_in_batch,
+                ) = await self._check_for_interruptions(
+                    session, context_text, last_checked_timestamp, current_bot_id
+                )
+
+                if interrupting_event:
+                    return interrupting_event
+
+                if latest_ts_in_batch:
+                    last_checked_timestamp = latest_ts_in_batch
+
+                if last_text_in_batch:
+                    context_text = last_text_in_batch
+
+                await asyncio.sleep(0.5)
+        except asyncio.CancelledError:
+            return None
+        except Exception as e:
+            logger.error(f"[{session.conversation_id}] 中断哨兵任务异常: {e}", exc_info=True)
+            return None
+
+    async def _check_for_interruptions(
+        self,
+        session: "ChatSession",
+        context_text: str,
+        since_timestamp: float,
+        current_bot_id: str,
+    ) -> tuple[dict | None, float | None, str | None]:
+        """检查新消息是否需要中断当前思考. 现在它还会返回新消息批次中的最后一条文本."""
+        new_events = await session.event_storage.get_message_events_after_timestamp(
+            session.conversation_id,
+            since_timestamp,
+            limit=10,
+            status="unread",
+            exclude_user_id=current_bot_id,
+        )
+        if not new_events:
+            return None, None, None
+
+        latest_timestamp_in_this_batch = max(event.get("timestamp", 0.0) for event in new_events)
+        last_text_content_in_batch: str | None = None
+        current_context_for_this_batch = context_text
+
+        for event_doc in new_events:
+            sender_id = event_doc.get("user_info", {}).get("user_id")
+            if sender_id and str(sender_id) == current_bot_id:
                 continue
 
-            # 1. 构建 Prompt (它内部自己会去拿最新的状态，我们不用管了)
-            current_time_str = get_formatted_time_for_llm()
-            system_prompt, user_prompt, _ = await self.prompt_builder.build_prompts(
-                current_time_str
+            text_content = extract_text_from_content(
+                [Seg.from_dict(c) for c in event_doc.get("content", [])]
             )
 
-            # 2. 生成思考
-            logger.info(
-                f"[{datetime.datetime.now().strftime('%H:%M:%S')}] "
-                f"{config.persona.bot_name} 开始思考..."
-            )
-            generated_thought_json = await self.thought_generator.generate_thought(
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                image_inputs=[],
-                response_schema=CORE_RESPONSE_SCHEMA,
-            )
+            message_to_check = {"speaker_id": str(sender_id), "text": text_content}
+            if not message_to_check.get("text"):
+                continue
 
-            if generated_thought_json:
-                # 3. 把思考结果打包成一颗新的“思想点”
-                action_payload = generated_thought_json.get("action")
-                action_id = str(uuid.uuid4()) if action_payload else None
-
-                new_thought_pearl = ThoughtChainDocument(
-                    _key=str(uuid.uuid4()),
-                    timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
-                    mood=generated_thought_json.get("mood", "平静"),
-                    think=generated_thought_json.get("think", "无"),
-                    goal=generated_thought_json.get("goal"),
-                    source_type="core",
-                    source_id=None,
-                    action_id=action_id,
-                    action_payload=action_payload,
+            if session.intelligent_interrupter.should_interrupt(
+                new_message=message_to_check,
+                context_message_text=current_context_for_this_batch,
+            ):
+                logger.info(
+                    f"[{session.conversation_id}] IIS决策：中断！元凶ID: {event_doc.get('_key')}"
                 )
+                if text_content:
+                    last_text_content_in_batch = text_content
+                return event_doc, latest_timestamp_in_this_batch, last_text_content_in_batch
 
-                # 4. 把点串到链上去！
-                saved_key = await self.thought_storage_service.save_thought_and_link(
-                    new_thought_pearl
-                )
+            if text_content:
+                current_context_for_this_batch = text_content
+                last_text_content_in_batch = text_content
 
-                if saved_key:
-                    # 5. 分发动作
-                    was_focus_triggered = await self._dispatch_action(new_thought_pearl)
-                    if was_focus_triggered:
-                        continue
-                else:
-                    logger.error("严重逻辑错误：思想点未能成功串入思想链，无法分发动作！")
+        return None, latest_timestamp_in_this_batch, last_text_content_in_batch
 
-            # 6. 等待下一次闹钟
-            with contextlib.suppress(asyncio.TimeoutError):
-                await asyncio.wait_for(
-                    self.immediate_thought_trigger.wait(), timeout=float(thinking_interval_sec)
-                )
+    async def _wait_for_next_cycle(self, interval: float) -> None:
+        try:
+            await asyncio.wait_for(self.immediate_thought_trigger.wait(), timeout=interval)
+        except TimeoutError:
+            logger.info(f"思考间隔时间到达 ({interval}s)，开始新一轮思考。")
+        else:
+            logger.info("被动思考被触发，立即开始新一轮思考。")
+        finally:
+            if self.immediate_thought_trigger.is_set():
                 self.immediate_thought_trigger.clear()
-                logger.info("被动思考被触发，立即开始新一轮思考。")
-
-            if self.stop_event.is_set():
-                break
-        logger.info(f"--- {config.persona.bot_name} 的意识流动已停止 ---")
 
     async def start_thinking_loop(self) -> asyncio.Task:
-        """启动主思考循环，开始持续思考和处理动作.
-
-        这个方法会创建一个新的异步任务来运行思考循环，并返回该任务对象.
-
-        Returns:
-            asyncio.Task: 启动的思考循环任务对象.
-        """
-        logger.info(f"=== {config.persona.bot_name} (意识流版) 的大脑准备开始持续思考 ===")
+        """启动核心逻辑的思考循环."""
+        logger.info(f"=== {config.persona.bot_name} 的大脑准备开始持续思考 ===")
         self.thinking_loop_task = asyncio.create_task(self._core_thinking_loop())
         return self.thinking_loop_task
 
     async def stop(self) -> None:
-        """停止主思考循环和意识流动."""
+        """停止核心逻辑的思考循环."""
         logger.info(f"--- {config.persona.bot_name} 的意识流动正在停止 ---")
         self.stop_event.set()
         if self.thinking_loop_task and not self.thinking_loop_task.done():
             self.thinking_loop_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self.thinking_loop_task
-            except asyncio.CancelledError:
-                logger.info("主思考循环任务已被取消。")
-
-    async def _activate_new_focus_session_from_core(self, target_conv_id: str) -> None:
-        """从 CoreLogic 内部直接激活一个新的专注会话.
-
-        这个方法是给 LLMResponseHandler 调用的，用于 LLM 决策直接转移专注.
-
-        Args:
-            target_conv_id (str): 目标会话的 ID，表示要激活的专注会话的唯一标识符.
-        """
-        logger.info(f"CoreLogic 接收到直接激活新专注会话的请求: {target_conv_id}")
-        # 构建一个模拟的 action_payload，让 _dispatch_action 去处理
-        mock_action_payload = {
-            "napcat_qq": {
-                "focus": {
-                    "conversation_id": target_conv_id,
-                    "motivation": "LLM 决策直接转移专注",
-                }
-            }
-        }
-        # 创建一个临时的 ThoughtChainDocument，只包含 action_payload
-        # 其他字段不重要，因为 _dispatch_action 只关心 action_payload
-        mock_thought_pearl = ThoughtChainDocument(
-            _key=str(uuid.uuid4()),
-            timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
-            mood="平静",
-            think="根据LLM指令激活新专注会话",
-            goal="激活指定会话",
-            source_type="core",
-            source_id=None,
-            action_id=str(uuid.uuid4()),
-            action_payload=mock_action_payload,
-        )
-        await self._dispatch_action(mock_thought_pearl)
+            logger.info("主思考循环任务已被取消。")

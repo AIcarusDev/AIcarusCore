@@ -68,6 +68,7 @@ class CoreDBCollections:
         ACTION_LOGS: [
             (["action_id"], True, False),
             (["timestamp"], False, False),
+            (["result_details.sent_message_id"], False, True),
         ],
         CONVERSATION_SUMMARIES: [
             (["conversation_id", "timestamp"], False, False),
@@ -153,13 +154,15 @@ class ThoughtChainDocument:
     # 包含执行的动作信息，如果有的话
     action_id: str | None = None
     action_payload: dict | None = None
+    action_result: str | None = None
+    messages_planned: int | None = None
+    """(仅用于send_message) 本轮计划发送的消息总数"""
+    messages_sent: int | None = None
+    """(仅用于send_message) 本轮实际发送的消息数量"""
 
     def to_dict(self) -> dict[str, Any]:
         """将 dataclass 实例转换为字典."""
         return asdict(self)
-
-
-# --- 已有模型保持不变，这里为了完整性全部贴出 ---
 
 
 @dataclass
@@ -378,7 +381,7 @@ class EnrichedConversationInfo:
     Attributes:
         conversation_id (str): 会话的唯一标识符.
         platform (str): 会话所属的平台标识符，例如 "qq", "wechat" 等.
-        bot_id (str): 处理此会话的机器人的唯一标识符.
+        bot_id (str): 处理此会话中祂的唯一标识符.
         type (str | None): 会话类型，例如 "group", "private" 等.
         name (str | None): 会话的名称或标题.
         parent_id (str | None): 如果是子会话，指向父会话的 ID.
@@ -389,7 +392,7 @@ class EnrichedConversationInfo:
         extra (dict[str, Any]): 额外的自定义字段，可以存储任意的会话相关信息.
         attention_profile (AttentionProfile): AI对该会话的注意力档案，包含
             注意力评分、偏好标签等信息.
-        bot_profile_in_this_conversation (dict[str, Any] | None): 机器人在此会话中的配置文件信息.
+        bot_profile_in_this_conversation (dict[str, Any] | None): 祂在此会话中的配置文件信息.
     """
 
     conversation_id: str
@@ -420,7 +423,7 @@ class EnrichedConversationInfo:
         Args:
             proto_conv_info (ProtocolConversationInfo | None): 协议层传入的会话信息对象。
             event_platform (str): 事件发生的平台标识符，例如 "qq", "wechat" 等。
-            event_bot_id (str): 处理此事件的机器人的唯一标识符。
+            event_bot_id (str): 处理此事件的祂的唯一标识符。
 
         Returns:
             EnrichedConversationInfo: 创建的会话信息实例。
@@ -496,7 +499,7 @@ class DBEventDocument:
         event_type (str): 事件的类型，例如 "message", "reaction" 等。
         timestamp (int): 事件发生的时间戳，单位为毫秒 (UTC)。
         platform (str): 事件发生的平台标识符，例如 "qq", "wechat" 等。
-        bot_id (str): 处理此事件的机器人的唯一标识符。
+        bot_id (str): 处理此事件中祂的唯一标识符。
         content (list[dict[str, Any]]): 事件内容的分段列表，每个段落是一个字典，包含类型和数据。
         user_info (dict[str, Any] | None): 事件相关的用户信息，如果有的话。
         conversation_info (dict[str, Any] | None): 事件相关的会话信息，如果有的话。
@@ -614,7 +617,7 @@ class ConversationSummaryDocument:
     conversation_id: str  # 关联的会话ID
     timestamp: int  # 总结创建的时间戳 (毫秒, UTC)
     platform: str  # 会话所属平台
-    bot_id: str  # 处理此会话的机器人ID
+    bot_id: str  # 处理此会话中祂的ID
     summary_text: str  # 总结的文本内容
     event_ids_covered: list[str] = field(default_factory=list)  # 此总结覆盖的事件ID列表
 
@@ -652,7 +655,7 @@ class ActionRecordDocument:
     action_type: str  # 动作类型，例如 "message.send", "group.kick"
     timestamp: int  # 动作创建或记录的时间戳 (毫秒, UTC)
     platform: str  # 动作执行的目标平台
-    bot_id: str  # 执行此动作的机器人ID
+    bot_id: str  # 执行此动作的自身ID
     status: str = "pending"  # 动作的当前状态，例如: "pending", "processing", "success", "failed"
 
     # 关于动作目标的信息

@@ -7,7 +7,7 @@
 # Inner Settings (内部配置，一般无需更改此部分内容)
 # ===============================
 [inner]
-version = "0.0.15"  # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
+version = "0.0.16"  # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
 protocol_version = "1.5.0"  # Aicarus-Message-Protocol 标准通信协议版本号，确保与客户端和其他服务兼容。
 
 # ===============================
@@ -43,11 +43,6 @@ profile = """
 暴食（Gluttony）：0/10
 色欲（Lust）：8/10
 """
-
-# AI 机器人的QQ号。这个QQ号会用于子意识模块构建System Prompt，以及在被@时识别自身。
-# 如果留空或未设置，依赖此QQ号的功能（如专注聊天子意识）可能无法正常工作。
-qq_id = "123456789" # 请替换为实际的机器人QQ号，如果需要启用相关功能
-
 # ===============================
 # LLM Models Configuration (LLM模型详细配置)
 # ===============================
@@ -127,13 +122,6 @@ insertion_probability = 0.15 # 默认15%的概率注入
 # ===============================
 [focus_chat_mode]
 enabled = true  # 是否启用专注聊天模块。
-enable_dynamic_bot_profile = false  # 是否启用动态获取机器人自身信息，很快就会有更好的实现
-session_timeout_seconds = 180  # 如果一个已激活的会话在此时间内没有任何机器人发言或收到新消息，该会话的专注聊天模式将自动停用。默认3分钟
-deactivation_check_interval_seconds = 60  # 管理器后台检查不活跃会话并将其停用的时间间隔（秒）。默认1分钟
-enable_kaomoji_protection = true  # 是否启用颜文字保护，防止LLM生成的颜文字被意外分割。
-enable_splitter = true  # 是否启用文本分割器，将较长的回复分割成多条消息发送。
-max_length = 9999  # 启用文本分割器后，每条消息的最大长度。
-max_sentence_num = 9999  # 启用文本分割器后，每条消息包含的最大句子数量。
 summary_interval = 5  # 专注聊天期间，进行一次增量式微总结的消息数量间隔。
 
 # ===============================

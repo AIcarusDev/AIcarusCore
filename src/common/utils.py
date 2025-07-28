@@ -7,9 +7,8 @@ from collections import defaultdict
 from typing import Any
 
 import yaml
+from aicarus_protocols import SegBuilder
 from src.common.custom_logging.logging_config import get_logger
-
-# 确保 config 被正确导入，如果 format_messages_for_llm_context 中用到了
 
 logger = get_logger(__name__)
 
@@ -79,9 +78,9 @@ def is_valid_message(msg: str) -> bool:
     return not re.fullmatch(r"text_\d+", msg.strip())
 
 
-# --- 消息内容处理器 ---
-class MessageContentProcessor:
-    """统一的消息内容处理器.
+# --- 消息内容解析器 ---
+class MessageParser:
+    """统一的消息内容解析器.
 
     Attributes:
         image_placeholder_key: 用于图片占位符的键名.
@@ -177,56 +176,6 @@ class MessageContentProcessor:
             processed_segments_for_yaml.append(current_segment_for_yaml)
 
         return processed_segments_for_yaml, image_sources_for_llm
-
-    @staticmethod
-    def create_text_segment(text: str) -> dict:
-        """创建文本消息段.
-
-        Args:
-            text: 要包含的文本内容.
-
-        Returns:
-            dict: 包含文本信息的消息段字典.
-        """
-        return {"type": "text", "data": {"text": text}}
-
-    @staticmethod
-    def create_at_segment(user_id: str, display_name: str = "") -> dict:
-        """创建 @ 用户消息段.
-
-        Args:
-            user_id: 用户的唯一标识符.
-            display_name: 用户的显示名称（可选）.
-
-        Returns:
-            dict: 包含 @ 用户信息的消息段字典.
-        """
-        return {
-            "type": "at",
-            "data": {
-                "user_id": user_id,
-                "display_name": display_name or f"@{user_id}",
-            },
-        }
-
-    @staticmethod
-    def create_image_segment(file_id: str, url: str = "", base64_data: str = "") -> dict:
-        """创建图片消息段.
-
-        Args:
-            file_id: 图片文件的唯一标识符.
-            url: 图片的URL地址（可选）.
-            base64_data: 图片的Base64编码数据（可选）.
-
-        Returns:
-            dict: 包含图片信息的消息段字典.
-        """
-        data = {"file_id": file_id}
-        if url:
-            data["url"] = url
-        if base64_data:
-            data["base64"] = base64_data
-        return {"type": "image", "data": data}
 
 
 # --- 平台状态摘要格式化 ---
@@ -572,12 +521,10 @@ def format_messages_for_llm_context(
 
             content_list_to_process = msg_dict.get("content", [])
             if not isinstance(content_list_to_process, list):
-                content_list_to_process = [
-                    MessageContentProcessor.create_text_segment(str(content_list_to_process))
-                ]
+                content_list_to_process = [SegBuilder.text(str(content_list_to_process))]
 
             final_message_segments_for_yaml, message_images_for_llm_this_message = (
-                MessageContentProcessor.extract_text_content(
+                MessageParser.extract_text_content(
                     content_list_to_process, image_placeholder_key, image_placeholder_value
                 )
             )
@@ -653,3 +600,32 @@ def format_messages_for_llm_context(
             return "格式化聊天记录为YAML时出错。", []
 
     return "错误的格式化风格参数。", []
+
+
+def parse_focus_path(focus_path: str | None) -> tuple[str, str, str | None]:
+    """一个可复用的工具函数，用于解析焦点路径字符串.
+
+    Args:
+        focus_path: 当前的焦点路径，例如 "core", "qq", "qq.123456".
+
+    Returns:
+        一个包含 (层级, 平台ID, 会话ID) 的元组.
+        - 层级: 'core', 'platform', 或 'cellular'.
+        - 平台ID: 例如 'core', 'qq'.
+        - 会话ID: 如果在底层，则为会话ID字符串；否则为 None.
+    """
+    if focus_path and focus_path != "core":
+        path_parts = focus_path.split(".")
+        current_platform_id = path_parts[0]
+        if len(path_parts) >= 2:
+            current_level = "cellular"
+            # 修复：会话ID可能是由多个部分组成的，例如 "private.123456"
+            current_conv_id = ".".join(path_parts[1:])
+        else:
+            current_level = "platform"
+            current_conv_id = None
+    else:
+        current_level = "core"
+        current_platform_id = "core"
+        current_conv_id = None
+    return current_level, current_platform_id, current_conv_id
