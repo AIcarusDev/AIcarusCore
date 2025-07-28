@@ -296,7 +296,7 @@ class QQBuilder(BasePlatformBuilder):
                         "motivation": {"type": "string"},
                     },
                     "required": ["list_type", "motivation"],
-                }
+                },
             },
         }
 
