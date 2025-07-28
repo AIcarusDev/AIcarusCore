@@ -289,6 +289,14 @@ class QQBuilder(BasePlatformBuilder):
                     },
                     "required": ["target_user_id", "motivation"],
                 },
+                "get_list": {
+                    "type": "object",
+                    "properties": {
+                        "list_type": {"type": "string", "enum": ["friend", "group"]},
+                        "motivation": {"type": "string"},
+                    },
+                    "required": ["list_type", "motivation"],
+                }
             },
         }
 
@@ -303,6 +311,7 @@ class QQBuilder(BasePlatformBuilder):
             "cellular": [
                 "    - `send_message`: 在当前会话中发送消息。",
                 "    - `poke_user`: 在当前会话中戳一戳某人。",
+                "    - `get_list`: 获取本平台的好友或群聊列表。",
             ],
         }
 
