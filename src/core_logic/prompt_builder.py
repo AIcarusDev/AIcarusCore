@@ -344,45 +344,64 @@ class ThoughtPromptBuilder:
     async def _get_current_state_block(
         self, level: str, platform_id: str, conv_id: str | None
     ) -> str:
+        """获取当前状态块.
+
+        Args:
+            level (str): 当前层级，可能是 'core', 'platform' 或 'cellular'.
+            platform_id (str): 当前平台的唯一标识符.
+            conv_id (str | None): 当前会话的唯一标识符，如果有的话.
+
+        Returns:
+            str: 描述当前状态的字符串.
+        """
         if not self.chat_session_manager:
             raise PromptBuilderError("会话管理器尚未准备就绪，无法构建当前状态块。")
+
         if level == "core":
             return "你当前专注于：发呆/自我思考。"
-        elif level == "platform":
-            return f"你当前专注于：{platform_id} 平台。"
-        elif level == "cellular" and conv_id:
-            session = self.chat_session_manager.sessions.get(conv_id)
-            if not session:
-                raise PromptBuilderError(f"找不到会话 {conv_id} 的档案，无法构建当前状态块。")
-            bot_profile = await session.get_bot_profile()
-            is_temporary = session.conversation_info.extra.get("is_temporary", False)
 
-            if session.conversation_type == "group":
-                return (
-                    f'你当前正在 qq 群"{session.conversation_name or "未知群聊"}"中参与 qq 群聊，'
-                    f'你在该群的群名片是"{bot_profile.get("card", config.persona.bot_name)}"'
-                )
-            else:  # 私聊
-                if is_temporary:
-                    source_group_id = session.conversation_info.extra.get("source_group_id")
-                    source_group_name = "未知群聊"  # 默认值
-                    if source_group_id:
-                        # 使用注入的 service 查询数据库
-                        source_group_doc = (
-                            await self.conversation_service.get_conversation_document_by_id(
-                                source_group_id
-                            )
-                        )
-                        if source_group_doc:
-                            source_group_name = source_group_doc.get("name", source_group_id)
-                    # 返回临时会话的描述
-                    return (
-                        f"你当前正在 qq 上处理来自“{source_group_name}”群聊中"
-                        f"“{session.conversation_name or '对方'}”的临时会话私聊"
-                    )
-                else:
-                    return f"你当前正在 qq 上与{session.conversation_name or '对方'}私聊"
-        return "未知状态"
+        if level == "platform":
+            return f"你当前专注于：{platform_id} 平台。"
+
+        # 如果不是 'cellular' 层级或者没有 conv_id，直接返回未知状态
+        if level != "cellular" or not conv_id:
+            return "未知状态"
+
+        # 主逻辑 (现在只处理 cellular 层级)
+        session = self.chat_session_manager.sessions.get(conv_id)
+        if not session:
+            raise PromptBuilderError(f"找不到会话 {conv_id} 的档案，无法构建当前状态块。")
+
+        bot_profile = await session.get_bot_profile()
+
+        if session.conversation_type == "group":
+            return (
+                f'你当前正在 qq 群"{session.conversation_name or "未知群聊"}"中参与 qq 群聊，'
+                f'你在该群的群名片是"{bot_profile.get("card", config.persona.bot_name)}"'
+            )
+
+        # 如果代码能走到这里，那它一定是 'private' 类型，无需再用 else
+        is_temporary = session.conversation_info.extra.get("is_temporary", False)
+
+        # 先处理 'not is_temporary' 这种更简单的私聊情况
+        if not is_temporary:
+            return f"你当前正在 qq 上与{session.conversation_name or '对方'}私聊"
+
+        # 最后，处理最复杂的“临时会话”情况
+        source_group_id = session.conversation_info.extra.get("source_group_id")
+        source_group_name = "未知群聊"  # 默认值
+        if source_group_id:
+            # 使用注入的 service 查询数据库
+            source_group_doc = await self.conversation_service.get_conversation_document_by_id(
+                source_group_id
+            )
+            if source_group_doc:
+                source_group_name = source_group_doc.get("name", source_group_id)
+
+        return (
+            f"你当前正在 qq 上处理来自“{source_group_name}”群聊中"
+            f"“{session.conversation_name or '对方'}”的临时会话私聊"
+        )
 
     def _get_behavior_guidelines_block(self, level: str) -> str:
         if level in {"core", "platform"}:

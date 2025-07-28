@@ -96,6 +96,16 @@ class ChatSessionManager:
         self.focus_history = deque([initial_focus_entry], maxlen=10)
         self._last_switch_description: str = "你刚刚从发呆的状态中回过神来"
 
+        # 创建一个指令到处理函数的“映射表”
+        self._command_handlers = {
+            "push_focus": self._handle_push_focus,
+            "pop_focus": self._handle_pop_focus,
+            "back": self._handle_back,
+            "swap_focus": self._handle_swap_focus,
+            "teleport_focus": self._handle_teleport_focus,
+            "jump_to_history": self._handle_jump_to_history,
+        }
+
         logger.info("ChatSessionManager 初始化完成。")
 
     @property
@@ -160,7 +170,8 @@ class ChatSessionManager:
                 )
 
             self.sessions[conversation_id] = ChatSession(
-                conversation_info=conversation_info_obj,  # <--- 修改点：传入完整的对象
+                conversation_info=conversation_info_obj,
+                conversation_id=conversation_id,
                 llm_client=self.llm_client,
                 event_storage=self.event_storage,
                 action_handler=self.action_handler,
@@ -292,152 +303,212 @@ class ChatSessionManager:
     async def handle_consciousness_control(self, control_json: dict) -> None:
         """处理来自LLM决策的意识控制指令.
 
-        这个版本更智能，能理解相对ID，并自动构建完整路径。
+        是一个干净利落的“总调度中心”.
+
+        Args:
+            control_json (dict): 包含意识控制指令的 JSON 对象.
         """
-        if not control_json or not isinstance(control_json, dict):
+        if not (command := next(iter(control_json), None)) or not (
+            params := control_json.get(command)
+        ):
+            logger.warning(f"收到的意识控制指令格式不正确或为空: {control_json}")
             return
 
-        logger.info(f"焦点管理器(v2.2)收到意识控制指令: {control_json}")
+        logger.info(f"焦点管理器(v2.1)收到指令: {command}, 参数: {params}")
 
-        focus_switched = False
-        command, params = next(iter(control_json.items()))
-        motivation = params.get("motivation", "没有明确动机")
+        # 从“映射表”里找到对应的处理函数
+        handler = self._command_handlers.get(command)
+        if not handler:
+            logger.error(f"收到未知的意识控制指令: '{command}'，无法处理。")
+            return
 
-        # 在任何切换发生前，先记下我们现在在哪
         previous_path_for_desc = self.current_focus_path
-
-        # 准备好要写入历史记录的基础信息
         history_entry_base = {
             "timestamp": int(time.time() * 1000),
             "command": command,
-            "motivation": motivation,
+            "motivation": params.get("motivation", "没有明确动机"),
         }
 
-        # --- 新指令处理逻辑 ---
+        # 把具体的工作交给专业的辅助函数去做，自己只关心结果
+        focus_switched = await handler(params, history_entry_base)
 
-        if command == "push_focus":
-            target_id = params.get("target_id")
-            if not target_id:
-                logger.error("'push_focus' 指令缺少 'target_id'。")
-                return
+        # 如果报告说“搞定了”，就统一处理后续事宜
+        if focus_switched:
+            from_desc = await self._get_focus_description(previous_path_for_desc)
+            to_desc = await self._get_focus_description(self.current_focus_path)
+            self._last_switch_description = f"你刚刚从“{from_desc}”来到了“{to_desc}”"
 
-            # 【智能路径拼接·核心】
-            current_entry = self.current_focus_path
-            current_path_str = (
-                current_entry.get("target_path")
-                if isinstance(current_entry, dict)
-                else current_entry
+            logger.info(
+                f"AI 决定 [{command}]，{self._last_switch_description} "
+                f"(动机: {history_entry_base['motivation']})"
             )
 
-            # 如果当前在 core 层，新路径就是目标ID本身；否则，用'.'拼接
-            new_path = (
-                target_id if current_path_str == "core" else f"{current_path_str}.{target_id}"
+            if self.core_logic and hasattr(self.core_logic, "prompt_builder"):
+                self.core_logic.prompt_builder.is_context_switch_flag = True
+                self.core_logic.trigger_immediate_thought_cycle()
+
+    # 下面是所有被拆分出来的“专业处理函数”
+
+    async def _handle_push_focus(self, params: dict, history_entry_base: dict) -> bool:
+        """处理 'push_focus' 指令."""
+        if not (target_id := params.get("target_id")):
+            logger.error("'push_focus' 指令缺少 'target_id'。")
+            return False
+
+        current_entry = self.current_focus_path
+        current_path_str = (
+            current_entry.get("target_path") if isinstance(current_entry, dict) else current_entry
+        )
+        new_path = target_id if current_path_str == "core" else f"{current_path_str}.{target_id}"
+
+        entry_to_push = {**history_entry_base, "target_path": new_path}
+        self.focus_history.append(entry_to_push)
+        logger.info(f"[堆栈 PUSH] 焦点下潜至: {new_path}")
+
+        if "." in new_path:
+            conv_id = ".".join(new_path.split(".")[1:])
+            if not await self.get_or_create_session(conversation_id=conv_id):
+                logger.error(f"无法 'push_focus'，数据库中找不到会话 '{conv_id}' 的档案。")
+                self.focus_history.pop()  # 回滚
+                return False
+        return True
+
+    async def _handle_pop_focus(self, params: dict, history_entry_base: dict) -> bool:
+        """处理 'pop_focus' 指令.
+
+        这会从 focus_history 堆栈的顶部移除当前焦点.
+        """
+        if len(self.focus_history) <= 1:
+            logger.warning("在顶层Core-Level尝试执行 'pop_focus'，无效操作，已忽略。")
+            return False
+
+        # 这是【空间】上浮的核心：直接 pop 掉最后一个元素
+        leaving_entry = self.focus_history.pop()
+        leaving_path = (
+            leaving_entry.get("target_path") if isinstance(leaving_entry, dict) else leaving_entry
+        )
+        logger.info(f"[堆栈 POP - 空间] 焦点从 '{leaving_path}' 上浮。")
+
+        if leaving_path and "." in leaving_path:
+            conv_id_to_deactivate = ".".join(leaving_path.split(".")[1:])
+            await self.deactivate_session(
+                conv_id_to_deactivate, {"motivation": history_entry_base["motivation"]}
             )
 
+        # 检查上浮后的新焦点是否需要激活
+        new_focus_entry = self.current_focus_path
+        new_path_str = (
+            new_focus_entry.get("target_path")
+            if isinstance(new_focus_entry, dict)
+            else new_focus_entry
+        )
+        if new_path_str and "." in new_path_str:
+            conv_id = ".".join(new_path_str.split(".")[1:])
+            await self.get_or_create_session(conversation_id=conv_id)
+        return True
+
+    async def _handle_back(self, params: dict, history_entry_base: dict) -> bool:
+        """处理 'back' 指令。【时间】回溯.
+
+        这会回到 T-1 的焦点，本质上是 jump_to_history(-1).
+        """
+        if len(self.focus_history) <= 1:
+            logger.warning("历史记录不足，无法执行 'back' 操作。")
+            return False
+
+        # 这是回溯的核心：我们先看看 T-1 是谁，然后再决定怎么做
+        # 为了代码复用和逻辑一致性，我们直接调用 jump 的逻辑！
+        # jump_to_history 的 history_index T-1 对应的是 -1
+        logger.info("检测到 'back' 指令，将其作为 'jump_to_history' (index=-1) 处理。")
+        return await self._handle_jump_to_history(
+            {"history_index": -1, "motivation": history_entry_base["motivation"]},
+            history_entry_base,
+        )
+
+    async def _handle_swap_focus(self, params: dict, history_entry_base: dict) -> bool:
+        """处理 'swap_focus' 指令."""
+        current_entry = self.current_focus_path
+        current_path_str = (
+            current_entry.get("target_path") if isinstance(current_entry, dict) else current_entry
+        )
+
+        if (
+            not (target_id := params.get("target_id"))
+            or not current_path_str
+            or "." not in current_path_str
+        ):
+            logger.error("'swap_focus' 指令无效：缺少目标ID或当前不在底层会话中。")
+            return False
+
+        path_parts = current_path_str.split(".")
+        parent_path = ".".join(path_parts[:-1])
+        new_path = f"{parent_path}.{target_id}"
+
+        self.focus_history.pop()
+        conv_id_to_deactivate = path_parts[-1]
+        await self.deactivate_session(
+            conv_id_to_deactivate,
+            {"motivation": history_entry_base["motivation"], "target_id": target_id},
+        )
+
+        if await self.get_or_create_session(conversation_id=target_id):
             entry_to_push = {**history_entry_base, "target_path": new_path}
             self.focus_history.append(entry_to_push)
-            logger.info(f"[堆栈 PUSH] 焦点下潜至: {new_path}")
-
-            # 只有当新路径是会话层时 (包含'.')，才需要激活Session
-            if "." in new_path:
-                path_parts = new_path.split(".")
-                conv_id = ".".join(path_parts[1:])
-                # platform_id = path_parts[0] # platform_id 也不需要了
-
-                # 直接调用新的 get_or_create_session，它会自己处理数据库查询
-                # 如果返回 None，说明数据库里没有这个会话，是个错误情况
-                session = await self.get_or_create_session(conversation_id=conv_id)
-                if not session:
-                    logger.error(f"无法 'push_focus'，数据库中找不到会话 '{conv_id}' 的档案。")
-                    # 把刚刚推进去的错误路径弹出来，当无事发生
-                    self.focus_history.pop()
-            focus_switched = True
-
-        elif command in {"pop_focus", "back"}:
-            # pop_focus 和 back 的逻辑基本一致：都是返回上一层
-            if len(self.focus_history) <= 1:
-                logger.warning(f"在顶层Core-Level尝试执行 '{command}'，无效操作，已忽略。")
-                return
-
-            leaving_entry = self.focus_history.pop()
-            leaving_path = (
-                leaving_entry.get("target_path")
-                if isinstance(leaving_entry, dict)
-                else leaving_entry
-            )
-            logger.info(f"[堆栈 POP/BACK] 焦点从 '{leaving_path}' 上浮。")
-
-            # 只有当离开的是会话层时，才需要停用Session
-            if leaving_path and "." in leaving_path:
-                conv_id_to_deactivate = ".".join(leaving_path.split(".")[1:])
-                await self.deactivate_session(conv_id_to_deactivate, {"motivation": motivation})
-
-            # 检查上浮后是不是又回到了一个会话层（比如从子频道返回父频道）
-            new_focus_entry = self.current_focus_path
-            new_path_str = (
-                new_focus_entry.get("target_path")
-                if isinstance(new_focus_entry, dict)
-                else new_focus_entry
-            )
-            if new_path_str and "." in new_path_str:
-                path_parts = new_path_str.split(".")
-                conv_id = ".".join(path_parts[1:])
-
-                # 直接调用新的方法
-                await self.get_or_create_session(conversation_id=conv_id)
-
-            focus_switched = True
-
-        elif command == "swap_focus":
-            target_id = params.get("target_id")
-            current_entry = self.current_focus_path
-            current_path_str = (
-                current_entry.get("target_path")
-                if isinstance(current_entry, dict)
-                else current_entry
+            logger.info(f"[堆栈 SWAP] 焦点切换至: {new_path}")
+        else:
+            logger.error(
+                f"无法 'swap_focus'，数据库中找不到目标会话 '{target_id}'。切换中止，停留在平台层。"
             )
 
-            if not target_id or not current_path_str or "." not in current_path_str:
-                logger.error("'swap_focus' 指令无效：缺少目标ID或当前不在底层会话中。")
-                return
+        return True  # 无论是否成功找到新会话，焦点都已经切换了（至少是上浮了）
 
-            # 【智能路径拼接·核心】
-            path_parts = current_path_str.split(".")
-            parent_path = ".".join(path_parts[:-1])  # 找到父路径，比如 'core.qq'
-            new_path = f"{parent_path}.{target_id}"  # 拼接成新路径
+    async def _handle_teleport_focus(self, params: dict, history_entry_base: dict) -> bool:
+        """处理 'teleport_focus' 指令."""
+        if not (target_path := params.get("target_path")):
+            logger.error("'teleport_focus' 指令缺少 'target_path'。")
+            return False
 
-            # 停用旧会话
-            leaving_entry = self.focus_history.pop()
-            conv_id_to_deactivate = path_parts[-1]
+        current_entry = self.current_focus_path
+        current_path_str = (
+            current_entry.get("target_path") if isinstance(current_entry, dict) else current_entry
+        )
+        if current_path_str and "." in current_path_str:
+            conv_id_to_deactivate = ".".join(current_path_str.split(".")[1:])
             await self.deactivate_session(
-                conv_id_to_deactivate, {"motivation": motivation, "target_id": target_id}
+                conv_id_to_deactivate, {"motivation": f"传送到 {target_path}"}
             )
 
-            # 激活新会话并更新历史
-            new_session = await self.get_or_create_session(conversation_id=target_id)
-            # 如果新会话不存在，说明数据库中没有这个会话档案
-            if not new_session:
-                logger.error(
-                    f"无法 'swap_focus'，数据库中找不到目标会话 "
-                    f"'{target_id}'。切换中止，停留在平台层。"
+        self.focus_history.clear()
+        self.focus_history.append({"target_path": "core"})
+        entry_to_push = {**history_entry_base, "target_path": target_path}
+        self.focus_history.append(entry_to_push)
+        logger.info(f"[堆栈 TELEPORT] 焦点已传送至: {target_path}")
+
+        path_parts = target_path.split(".")
+        if len(path_parts) >= 2:
+            conv_id = ".".join(path_parts[1:])
+            if not await self.get_or_create_session(conversation_id=conv_id):
+                logger.warning(
+                    f"传送目标 '{target_path}' 无法在数据库中找到对应会话，可能无法正常交互。"
                 )
-                # 注意：这里需要确保在 pop 之后，如果没有 push 新的，焦点路径是正确的。
-                # 您的原始逻辑中，如果没有 push，焦点就停留在父路径，这是对的。
-            else:
-                entry_to_push = {**history_entry_base, "target_path": new_path}
-                self.focus_history.append(entry_to_push)
-                logger.info(f"[堆栈 SWAP] 焦点切换至: {new_path}")
-            focus_switched = True
+        return True
 
-        # teleport_focus, jump_to_history 的逻辑不需要改，因为它们本来就操作完整路径或索引
+    async def _handle_jump_to_history(self, params: dict, history_entry_base: dict) -> bool:
+        """处理 'jump_to_history' 指令."""
+        if (history_index := params.get("history_index")) is None:
+            logger.error("'jump_to_history' 指令缺少 'history_index'。")
+            return False
 
-        elif command == "teleport_focus":
-            target_path = params.get("target_path")
-            if not target_path:
-                logger.error("'teleport_focus' 指令缺少 'target_path'。")
-                return
+        try:
+            history_len = len(self.focus_history)
+            target_deque_index = -1 + history_index
+            if not (-history_len <= target_deque_index < 0):
+                logger.error(
+                    f"历史索引 {history_index} 超出范围 (当前历史深度: {history_len - 1})。"
+                )
+                return False
 
-            # 停用当前可能存在的底层会话
+            target_path = self.focus_history[target_deque_index].get("target_path")
             current_entry = self.current_focus_path
             current_path_str = (
                 current_entry.get("target_path")
@@ -447,99 +518,17 @@ class ChatSessionManager:
             if current_path_str and "." in current_path_str:
                 conv_id_to_deactivate = ".".join(current_path_str.split(".")[1:])
                 await self.deactivate_session(
-                    conv_id_to_deactivate, {"motivation": f"传送到 {target_path}"}
+                    conv_id_to_deactivate, {"motivation": f"跳跃到历史焦点 {target_path}"}
                 )
 
-            # 清空历史并设置新路径
-            self.focus_history.clear()
-            self.focus_history.append({"target_path": "core"})  # 添加core层
-            entry_to_push = {**history_entry_base, "target_path": target_path}
-            self.focus_history.append(entry_to_push)
-            logger.info(f"[堆栈 TELEPORT] 焦点已传送至: {target_path}")
+            for _ in range(abs(target_deque_index) - 1):
+                self.focus_history.pop()
+            logger.info(f"[堆栈 JUMP] 焦点已跳跃至历史记录: {target_path}")
 
-            # 智能激活会话
-            path_parts = target_path.split(".")
-            if len(path_parts) >= 2:
-                conv_id = ".".join(path_parts[1:])
-                # 直接调用新的方法
-                session = await self.get_or_create_session(conversation_id=conv_id)
-                if session:
-                    logger.info(f"传送着陆后，成功激活会话: {conv_id}")
-                else:
-                    logger.warning(
-                        f"传送目标 '{target_path}' 无法在数据库中找到对应会话，可能无法正常交互。"
-                    )
-
-            focus_switched = True
-
-        elif command == "jump_to_history":
-            history_index = params.get("history_index")
-            if history_index is None:
-                logger.error("'jump_to_history' 指令缺少 'history_index'。")
-                return
-
-            try:
-                # 转换 T-index (如 -2) 为 deque 的正向索引
-                history_len = len(self.focus_history)
-                # T-0 is at index -1, T-1 at -2. So a jump to T-N corresponds to index -1-N
-                target_deque_index = -1 + history_index
-
-                if not (-history_len <= target_deque_index < 0):
-                    logger.error(
-                        f"历史索引 {history_index} 超出范围 (当前历史深度: {history_len - 1})。"
-                    )
-                    return
-
-                target_entry = self.focus_history[target_deque_index]
-                target_path = target_entry.get("target_path")
-
-                # 停用当前会话
-                current_entry = self.current_focus_path
-                current_path_str = (
-                    current_entry.get("target_path")
-                    if isinstance(current_entry, dict)
-                    else current_entry
-                )
-                if current_path_str and "." in current_path_str:
-                    conv_id_to_deactivate = ".".join(current_path_str.split(".")[1:])
-                    await self.deactivate_session(
-                        conv_id_to_deactivate,
-                        {"motivation": f"跳跃到历史焦点 {target_path}"},
-                    )
-
-                # 从堆栈中移除目标之后的所有条目
-                num_to_pop = abs(target_deque_index) - 1
-                for _ in range(num_to_pop):
-                    self.focus_history.pop()
-                # 将目标条目添加到堆栈顶部
-                logger.info(f"[堆栈 JUMP] 焦点已跳跃至历史记录: {target_path}")
-
-                # 重新激活目标会话
-                if target_path and "." in target_path:
-                    path_parts = target_path.split(".")
-                    conv_id = ".".join(path_parts[1:])
-                    # 直接调用新的方法
-                    await self.get_or_create_session(conversation_id=conv_id)
-                # 更新当前焦点路径
-                focus_switched = True
-
-            except (IndexError, TypeError) as e:
-                logger.error(f"处理 'jump_to_history' 时发生错误，索引: {history_index}, 错误: {e}")
-                return
-
-        # 如果发生了切换，更新状态并生成描述
-        if focus_switched:
-            from_desc_entry = previous_path_for_desc
-            to_desc_entry = self.current_focus_path
-
-            from_desc = await self._get_focus_description(from_desc_entry)
-            to_desc = await self._get_focus_description(to_desc_entry)
-            self._last_switch_description = f"你刚刚从“{from_desc}”来到了“{to_desc}”"
-
-            logger.info(
-                f"AI 决定 [{command}]，{self._last_switch_description} (动机: {motivation})"
-            )
-            # 触发立即思考周期，更新内部状态
-            if self.core_logic and hasattr(self.core_logic, "prompt_builder"):
-                self.core_logic.prompt_builder.is_context_switch_flag = True
-                self.core_logic.trigger_immediate_thought_cycle()
+            if target_path and "." in target_path:
+                conv_id = ".".join(target_path.split(".")[1:])
+                await self.get_or_create_session(conversation_id=conv_id)
+            return True
+        except (IndexError, TypeError) as e:
+            logger.error(f"处理 'jump_to_history' 时发生错误，索引: {history_index}, 错误: {e}")
+            return False

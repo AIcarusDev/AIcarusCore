@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Optional
 from aicarus_protocols import Event, Seg, extract_text_from_content
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logging_config import get_logger
+from src.common.utils import parse_focus_path
 from src.config import config
 from src.core_communication.core_ws_server import CoreWebsocketServer
 from src.core_logic.decision_dispatcher import process_llm_decision
@@ -74,114 +75,54 @@ class CoreLogic:
 
         # 2. 健壮性检查：确保它是一个字典
         if not isinstance(focus_entry, dict):
+            # 如果历史记录的格式不对，这本身就是个问题
+            logger.debug("当前焦点条目不是预期的字典格式，无法获取会话。")
             return None
 
         # 3. 从字典中提取出真正的路径字符串
         focus_path_str = focus_entry.get("target_path")
+        focus_path_str = focus_entry.get("target_path")
+        if not focus_path_str or not isinstance(focus_path_str, str):
+            # 如果路径本身就是空的或者类型不对，直接判定无效！
+            logger.debug(f"从焦点条目中获取的路径无效: {focus_path_str}，无法获取会话。")
+            return None
 
-        # 4. 使用您项目中已有的工具函数来解析路径
-        from src.common.utils import parse_focus_path
-
+        # 4. 使用工具函数来解析路径
         level, _, conv_id = parse_focus_path(focus_path_str)
 
-        # 5. 只有在最底层的会话级别('cellular')且有conv_id时，才存在session
-        if level == "cellular" and conv_id:
-            return self.chat_session_manager.sessions.get(conv_id)
-        # 如果没有会话，返回None
-        return None
+        # 5. 严格的条件判断，确保我们只在正确的情况下查找会话
+        if level != "cellular":
+            # 只有在 'cellular' (会话) 层级才可能有 session 对象。
+            # 如果是 'core' 或 'platform' 层，直接返回 None 是正确的行为。
+            logger.debug(f"当前焦点层级为 '{level}'，不属于会话层，因此没有当前会话。")
+            return None
+
+        if not conv_id:
+            # 如果路径解析出来是 'cellular' 层，但没有有效的 conv_id，说明路径格式有问题。
+            logger.warning(f"焦点路径 '{focus_path_str}' 解析为会话层，但未能提取有效的会话ID。")
+            return None
+
+        # 6. 只有通过所有检查，才去会话字典里查找
+        session = self.chat_session_manager.sessions.get(conv_id)
+        if not session:
+            # 这种情况可能发生在：会话刚刚被停用，但焦点还没来得及切换。
+            logger.debug(f"根据会话ID '{conv_id}' 在当前激活的会话池中未找到实例。")
+            return None
+
+        return session
 
     async def _core_thinking_loop(self) -> None:
+        """核心思考循环.
+
+        只负责维持循环和处理顶层异常.
+        """
         thinking_interval_sec = config.core_logic_settings.thinking_interval_seconds
         logger.info(f"=== {config.persona.bot_name} 的统一意识流【竞速模式】开始运行 ===")
 
         while not self.stop_event.is_set():
-            main_task: asyncio.Task | None = None
-            sentry_task: asyncio.Task | None = None
-
             try:
-                session = self._get_current_session()
-
-                initial_context_text = "..."  # 默认值
-                if session:
-                    if self._last_interrupt_context_text:
-                        # 如果有中断烙印，就用它！
-                        initial_context_text = self._last_interrupt_context_text
-                        logger.info(
-                            f"[{session.conversation_id}] 使用了上一次中断的记忆烙印作为上下文: "
-                            f"'{initial_context_text[:50]}...'"
-                        )
-                        # 用完就烧掉，避免重复使用
-                        self._last_interrupt_context_text = None
-                    else:
-                        # 没有烙印，才去读数据库这个慢速记忆
-                        initial_context_text = (
-                            await self.prompt_builder.get_last_valid_text_message(
-                                session.conversation_id
-                            )
-                            or "..."
-                        )
-
-                main_task = asyncio.create_task(self._run_full_thought_cycle(session))
-
-                tasks_to_race = {main_task}
-                if session:
-                    sentry_task = asyncio.create_task(
-                        self._listen_for_interruptions(session, initial_context_text)
-                    )
-                    tasks_to_race.add(sentry_task)
-
-                done, pending = await asyncio.wait(
-                    tasks_to_race, return_when=asyncio.FIRST_COMPLETED
-                )
-
-                for task in pending:
-                    task.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await task
-
-                if sentry_task and sentry_task in done:
-                    interrupting_event_doc = await sentry_task
-                    if interrupting_event_doc and session:
-                        logger.warning(
-                            f"[{session.conversation_id}] 中断哨兵获胜！思考-行动主任务被中断。"
-                        )
-                        session.interruption_context = {
-                            "was_interrupted": True,
-                            "interrupting_event_doc": interrupting_event_doc,
-                        }
-                        if interrupting_ts := interrupting_event_doc.get("timestamp"):
-                            session.last_processed_timestamp = interrupting_ts
-                            logger.info(
-                                f"[{session.conversation_id}] 任务被中断，"
-                                f"全局时间戳被强制更新至中断事件的时间: {interrupting_ts}"
-                            )
-
-                        event_obj = Event.from_dict(interrupting_event_doc)
-                        self._last_interrupt_context_text = event_obj.get_text_content()
-                        logger.debug(
-                            f"[{session.conversation_id}] 已将中断消息文本 "
-                            f"'{self._last_interrupt_context_text}' 烙印到短期记忆中。"
-                        )
-
-                if main_task in done:
-                    last_processed_ts_from_task = await main_task
-                    if session and last_processed_ts_from_task:
-                        if last_processed_ts_from_task > session.last_processed_timestamp:
-                            session.last_processed_timestamp = last_processed_ts_from_task
-                            logger.info(
-                                f"[{session.conversation_id}] 主任务正常完成，"
-                                f"全局时间戳已更新至: {last_processed_ts_from_task}"
-                            )
-                        else:
-                            logger.debug(
-                                f"[{session.conversation_id}] 主任务完成，"
-                                f"但返回的时间戳不新，不更新全局时间戳。"
-                            )
-                    if session:
-                        session.interruption_context = None
-
-                    self._last_interrupt_context_text = None
-
+                # // 核心逻辑被委托给了这个新函数，主循环变得超级干净！
+                await self._prepare_and_run_race()
                 await self._wait_for_next_cycle(thinking_interval_sec)
 
             except asyncio.CancelledError:
@@ -189,14 +130,129 @@ class CoreLogic:
                 break
             except Exception as e:
                 logger.error(f"统一意识流主循环发生严重错误: {e}", exc_info=True)
-                await asyncio.sleep(10)
-            finally:
-                if main_task and not main_task.done():
-                    main_task.cancel()
-                if sentry_task and not sentry_task.done():
-                    sentry_task.cancel()
+                await asyncio.sleep(10)  # // 发生严重错误时，休息一下，避免疯狂刷日志
 
         logger.info(f"--- {config.persona.bot_name} 的统一意识流已停止 ---")
+
+    async def _prepare_and_run_race(self) -> None:
+        """准备并执行“主任务”与“哨兵任务”的竞速."""
+        main_task: asyncio.Task | None = None
+        sentry_task: asyncio.Task | None = None
+
+        try:
+            session = self._get_current_session()
+
+            # 1. 准备比赛选手 (Tasks)
+            main_task = asyncio.create_task(self._run_full_thought_cycle(session))
+            tasks_to_race: set[asyncio.Task] = {main_task}
+
+            if session:
+                context_text = self._get_initial_context_for_sentry(session)
+                sentry_task = asyncio.create_task(
+                    self._listen_for_interruptions(session, context_text)
+                )
+                tasks_to_race.add(sentry_task)
+
+            # 2. 发令！开始比赛！
+            done, pending = await asyncio.wait(tasks_to_race, return_when=asyncio.FIRST_COMPLETED)
+
+            # 3. 宣布比赛结果并处理
+            await self._handle_race_outcome(done, pending, session, main_task, sentry_task)
+
+        finally:
+            # // 确保无论如何，这场比赛的选手都会被妥善处理
+            if main_task and not main_task.done():
+                main_task.cancel()
+            if sentry_task and not sentry_task.done():
+                sentry_task.cancel()
+
+    def _get_initial_context_for_sentry(self, session: "ChatSession") -> str:
+        """为哨兵任务获取初始的上下文文本（记忆烙印或数据库）."""
+        if self._last_interrupt_context_text:
+            # // 如果有中断烙印，就用它！
+            logger.info(
+                f"[{session.conversation_id}] 使用了上一次中断的记忆烙印作为上下文: "
+                f"'{self._last_interrupt_context_text[:50]}...'"
+            )
+            return self._last_interrupt_context_text
+        else:
+            # // 没有烙印，就返回一个默认值，让哨兵自己去查数据库
+            return "..."
+
+    async def _handle_race_outcome(
+        self,
+        done: set[asyncio.Task],
+        pending: set[asyncio.Task],
+        session: Optional["ChatSession"],
+        main_task: asyncio.Task,
+        sentry_task: asyncio.Task | None,
+    ) -> None:
+        """处理竞速比赛的结果."""
+        # 1. 让还在跑的选手停下来
+        for task in pending:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+
+        # 2. 检查是哪个选手赢了
+        if sentry_task and sentry_task in done:
+            await self._process_sentry_victory(sentry_task, session)
+
+        if main_task in done:
+            await self._process_main_task_victory(main_task, session)
+
+    async def _process_sentry_victory(
+        self, sentry_task: asyncio.Task, session: Optional["ChatSession"]
+    ) -> None:
+        """专门处理“哨兵”胜利的场景（即发生中断）."""
+        if not session:
+            return
+
+        interrupting_event_doc = await sentry_task
+        if not interrupting_event_doc:
+            return
+
+        logger.warning(f"[{session.conversation_id}] 中断哨兵获胜！思考-行动主任务被中断。")
+        session.interruption_context = {
+            "was_interrupted": True,
+            "interrupting_event_doc": interrupting_event_doc,
+        }
+
+        if interrupting_ts := interrupting_event_doc.get("timestamp"):
+            session.last_processed_timestamp = interrupting_ts
+            logger.info(
+                f"[{session.conversation_id}] 任务被中断，"
+                f"全局时间戳被强制更新至中断事件的时间: {interrupting_ts}"
+            )
+
+        # // 将中断消息文本烙印到短期记忆中
+        event_obj = Event.from_dict(interrupting_event_doc)
+        self._last_interrupt_context_text = event_obj.get_text_content()
+        logger.debug(
+            f"[{session.conversation_id}] 已将中断消息文本 "
+            f"'{self._last_interrupt_context_text}' 烙印到短期记忆中。"
+        )
+
+    async def _process_main_task_victory(
+        self, main_task: asyncio.Task, session: Optional["ChatSession"]
+    ) -> None:
+        """专门处理“主任务”胜利的场景（即正常完成思考）."""
+        last_processed_ts_from_task = await main_task
+
+        if (session and last_processed_ts_from_task) and (
+            last_processed_ts_from_task > session.last_processed_timestamp
+        ):
+            session.last_processed_timestamp = last_processed_ts_from_task
+            logger.info(
+                f"[{session.conversation_id}] 主任务正常完成，"
+                f"全局时间戳已更新至: {last_processed_ts_from_task}"
+            )
+
+        if session:
+            session.interruption_context = None
+
+        # // 正常完成后，把记忆烙印擦掉
+        self._last_interrupt_context_text = None
 
     async def _run_full_thought_cycle(self, session: Optional["ChatSession"]) -> float | None:
         """执行完整的思考循环，包括生成思考、处理中断和执行动作."""

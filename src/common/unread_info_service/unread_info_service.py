@@ -278,19 +278,113 @@ class UnreadInfoService:
                 else:
                     summary_parts.append(f"- [用户名称]：{conv_name}")
             summary_parts.extend((f"  - [ID]：{conv_id}", f"  - [最新消息]：{message_preview}"))
-            summary_parts.append(f"  - {status_line}")
-            summary_parts.append("")
+            summary_parts.extend((f"  - {status_line}", ""))
 
         summary_parts.append("</conversation_list>")
         return "\n".join(summary_parts).strip()
 
+    def _format_single_conversation_summary(self, item: dict[str, Any]) -> list[str]:
+        """辅助函数: 将单个会话的信息格式化为多行摘要文本列表.
+
+        Args:
+            item (dict[str, Any]): 包含会话文档、最新事件和未读计数的字典.
+
+        Returns:
+            list[str]: 格式化后的多行文本列表，包含会话的摘要信息.
+        """
+        conv_doc, latest_event, unread_count = (
+            item["conv_doc"],
+            item["latest_event"],
+            item["unread_count"],
+        )
+        conv_type = conv_doc.get("type", "private")
+
+        sender_name = self._get_sender_display_name(latest_event, conv_type)
+        time_str = datetime.fromtimestamp(latest_event.get("timestamp", 0) / 1000.0).strftime(
+            "%H:%M"
+        )
+        preview = self._create_message_preview(latest_event, sender_name)
+
+        summary_lines = []
+        is_temporary = conv_doc.get("extra", {}).get("is_temporary", False)
+
+        if conv_type == "group":
+            summary_lines.append(f"- [群名称]：{conv_doc.get('name') or '未知群聊'}")
+        else:  # private
+            prefix = "[临时会话]" if is_temporary else "[用户名称]"
+            summary_lines.append(f"- {prefix}：{conv_doc.get('name') or sender_name}")
+
+        summary_lines.extend(
+            [
+                f"  - [ID]：{conv_doc.get('conversation_id')}",
+                f"  - [最新消息]：{preview}",
+                f"  - (时间：{time_str}/共 {unread_count} 条未读信息)",
+                "",  # 用于换行
+            ]
+        )
+
+        return summary_lines
+
+    def _format_chat_type_section(self, chat_type: str, items: list[dict[str, Any]]) -> list[str]:
+        """辅助函数: 格式化特定聊天类型（群聊/私聊）的整个XML块.
+
+        Args:
+            chat_type (str): 聊天类型，可能是 "group" 或 "private".
+            items (list[dict[str, Any]]): 对应聊天类型的会话列表.
+
+        Returns:
+            list[str]: 格式化后的XML块，包含每个会话的摘要信息.
+        """
+        if not items:
+            return []
+
+        tag = "from_group" if chat_type == "group" else "from_private"
+        section_parts = [f"<{tag}>"]
+
+        for item in items:
+            section_parts.extend(self._format_single_conversation_summary(item))
+
+        section_parts.append(f"</{tag}>")
+        return section_parts
+
+    def _format_platform_section(self, platform: str, items: list[dict[str, Any]]) -> list[str]:
+        """辅助函数: 格式化单个平台的完整XML块.
+
+        Args:
+            platform (str): 平台名称.
+            items (list[dict[str, Any]]): 平台下的会话列表.
+
+        Returns:
+            list[str]: 格式化后的XML块.
+        """
+        section_parts = [f"<from_{platform}>"]
+
+        # 按高优排序
+        items.sort(key=lambda x: x["has_high_priority"], reverse=True)
+
+        group_chats = [c for c in items if c["conv_doc"].get("type") == "group"]
+        private_chats = [c for c in items if c["conv_doc"].get("type") == "private"]
+
+        section_parts.extend(self._format_chat_type_section("group", group_chats))
+        section_parts.extend(self._format_chat_type_section("private", private_chats))
+
+        section_parts.append(f"</from_{platform}>")
+        return section_parts
+
     async def generate_unread_summary_text(self, exclude_conversation_id: str | None = None) -> str:
         """生成顶层所需的、带XML标签的未读消息摘要.
 
-        现在它也使用新的核心数据获取方法。
+        这个方法会排除指定的会话ID，并将所有未读消息按平台和聊天类型分组.
+
+        Args:
+            exclude_conversation_id (str | None): 要排除的会话ID，默认为None.
+
+        Returns:
+            str: 格式化的未读消息摘要，包含XML标签和分组信息.
         """
         logger.debug(f"开始生成精装修版未读消息摘要... (将排除: {exclude_conversation_id})")
-        # 只获取有未读消息的会话
+
+        # --- 步骤 1: 获取数据 ---
         unread_convs = [
             item
             for item in await self._get_recently_active_conversations_with_details(
@@ -299,74 +393,20 @@ class UnreadInfoService:
             if item["unread_count"] > 0
         ]
 
+        # --- Guard Clause: 卫语句，提前返回，减少嵌套 ---
         if not unread_convs:
             return "所有其他会话均无未读消息。"
 
+        # --- 步骤 2: 数据分组 ---
         grouped_by_platform = defaultdict(list)
         for item in unread_convs:
             platform = item["conv_doc"].get("platform", "unknown_platform")
             grouped_by_platform[platform].append(item)
 
+        # --- 步骤 3: 委托构建并合并结果 ---
         summary_parts = []
         for platform, items in grouped_by_platform.items():
-            summary_parts.append(f"<from_{platform}>")
-
-            # 按高优排序
-            items.sort(key=lambda x: x["has_high_priority"], reverse=True)
-
-            group_chats = [c for c in items if c["conv_doc"].get("type") == "group"]
-            private_chats = [c for c in items if c["conv_doc"].get("type") == "private"]
-
-            if group_chats:
-                summary_parts.append("<from_group>")
-                for item in group_chats:
-                    conv_doc, latest_event, unread_count = (
-                        item["conv_doc"],
-                        item["latest_event"],
-                        item["unread_count"],
-                    )
-                    sender_name = self._get_sender_display_name(latest_event, "group")
-                    time_str = datetime.fromtimestamp(
-                        latest_event.get("timestamp", 0) / 1000.0
-                    ).strftime("%H:%M")
-                    preview = self._create_message_preview(latest_event, sender_name)
-
-                    summary_parts.append(f"- [群名称]：{conv_doc.get('name') or '未知群聊'}")
-                    summary_parts.append(f"  - [ID]：{conv_doc.get('conversation_id')}")
-                    summary_parts.append(f"  - [最新消息]：{preview}")
-                    summary_parts.append(f"  - (时间：{time_str}/共 {unread_count} 条未读信息)")
-                    summary_parts.append("")
-                summary_parts.append("</from_group>")
-
-            if private_chats:
-                summary_parts.append("<from_private>")
-                for item in private_chats:
-                    conv_doc, latest_event, unread_count = (
-                        item["conv_doc"],
-                        item["latest_event"],
-                        item["unread_count"],
-                    )
-
-                    is_temporary = conv_doc.get("extra", {}).get("is_temporary", False)
-
-                    sender_name = self._get_sender_display_name(latest_event, "private")
-                    time_str = datetime.fromtimestamp(
-                        latest_event.get("timestamp", 0) / 1000.0
-                    ).strftime("%H:%M")
-                    preview = self._create_message_preview(latest_event, sender_name)
-
-                    if is_temporary:
-                        summary_parts.append(f"- [临时会话]：{conv_doc.get('name') or sender_name}")
-                    else:
-                        summary_parts.append(f"- [用户名称]：{conv_doc.get('name') or sender_name}")
-
-                    summary_parts.append(f"  - [ID]：{conv_doc.get('conversation_id')}")
-                    summary_parts.append(f"  - [最新消息]：{preview}")
-                    summary_parts.append(f"  - (时间：{time_str}/共 {unread_count} 条未读信息)")
-                    summary_parts.append("")
-                summary_parts.append("</from_private>")
-
-            summary_parts.append(f"</from_{platform}>")
+            summary_parts.extend(self._format_platform_section(platform, items))
 
         return "\n".join(summary_parts).strip()
 

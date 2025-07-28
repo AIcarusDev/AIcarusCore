@@ -33,9 +33,6 @@ class QQBuilder(BasePlatformBuilder):
 
     def __init__(self) -> None:
         super().__init__()
-        # 把所有可以用通用模板处理的动作都放在这里。
-        # 这样可以避免每次都要写一大堆 if-else 来判断动作类型。
-        # 这些动作都可以直接用通用模板来处理，不需要特殊逻辑。
         self._generic_actions = {
             "recall_message",
             "poke_user",
@@ -72,6 +69,11 @@ class QQBuilder(BasePlatformBuilder):
             "send_ai_voice",
         }
 
+        self._special_action_handlers = {
+            "send_message": self._build_send_message,
+            "send_forward_message": self._build_send_forward_message,
+        }
+
     @property
     def platform_id(self) -> str:
         """返回平台ID，唯一标识一个平台，这个ID必须和Adapter的core_platform_id完全一致."""
@@ -97,33 +99,23 @@ class QQBuilder(BasePlatformBuilder):
             如果在，就用通用模板来处理，并返回一个Event对象.
         3. 如果哪个都不沾，那就真的不认识了，返回 None.
         """
-        # 1. 先处理那些需要特殊处理的动作
-        if action_name == "send_message":
-            return self._build_send_message(params, bot_id)
-        if action_name == "send_forward_message":
-            return self._build_send_forward_message(params, bot_id)
+        # 1. 优先查找特殊处理函数
+        if handler := self._special_action_handlers.get(action_name):
+            return handler(params, bot_id)
 
-        # 2. 然后，检查这个动作是不是在白名单里
+        # 2. 其次检查是否在通用动作白名单中
         if action_name in self._generic_actions:
-            # 如果在白名单里，就用通用模板来处理
-            # 有些动作需要特别关照一下，把 conversation_info 塞进去
             conv_info = None
             if action_name in ["get_group_info", "get_history", "forward_single_message"]:
                 conv_id = params.get("group_id") or params.get("conversation_id")
-                conv_info_dict = params.get("conversation_info")
-                if conv_info_dict:
-                    conv_info = ConversationInfo.from_dict(conv_info_dict)
-                elif conv_id:
-                    # 这是一个简化处理，实际中最好从params里拿到完整的conv_info
-                    conv_info = ConversationInfo(conversation_id=str(conv_id), type="group")
-            elif action_name == "poke_user":
-                conv_id = params.get("target_group_id")
                 if conv_id:
                     conv_info = ConversationInfo(conversation_id=str(conv_id), type="group")
+            elif action_name == "poke_user" and (conv_id := params.get("target_group_id")):
+                conv_info = ConversationInfo(conversation_id=str(conv_id), type="group")
 
             return self._build_generic_event(action_name, params, bot_id, conv_info)
 
-        # 3. 如果哪个都不沾，那就真的不认识了
+        # 3. 如果都不匹配，那就是不认识的动作
         logger.warning(f"QQBuilder 的白名单和特殊名单里都没有这个动作: {action_name}")
         return None
 
@@ -205,6 +197,9 @@ class QQBuilder(BasePlatformBuilder):
         nodes = params.get("nodes", [])
         conv_info_dict = params.get("conversation_info", {})
         if not nodes or not conv_info_dict:
+            logger.warning(
+                f"构建合并转发消息失败：缺少 'nodes' 或 'conversation_info'。收到的参数: {params}"
+            )
             return None
 
         node_segs = [Seg(type="node", data=node_data) for node_data in nodes]
@@ -222,7 +217,8 @@ class QQBuilder(BasePlatformBuilder):
         self, level: str
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """QQ平台不提供任何意识控制，由CoreBuilder统一管理."""
-        return {}, {}
+        empty_schema = {"type": "object", "properties": {}}
+        return empty_schema, empty_schema
 
     def get_level_consciousness_controls_descriptions(self, level: str) -> str:
         """QQ平台不提供任何意识控制的描述."""
@@ -230,86 +226,85 @@ class QQBuilder(BasePlatformBuilder):
 
     def get_level_actions_definitions(self, level: str) -> tuple[dict[str, Any], dict[str, Any]]:
         """根据层级，提供QQ平台专属动作的JSON Schema."""
-        props = {}
-        if level == "platform":
-            props["get_list"] = {
-                "type": "object",
-                "properties": {
-                    "list_type": {"type": "string", "enum": ["friend", "group"]},
-                    "motivation": {"type": "string"},
-                },
-                "required": ["list_type", "motivation"],
-            }
-        elif level == "cellular":
-            props["send_message"] = {
-                "type": "object",
-                "properties": {
-                    "steps": {
-                        "type": "array",
-                        "description": "构建消息的指令序列。",
-                        "items": {
-                            "type": "object",
-                            "description": "一个操作步骤，由一个'command'和对应的'params'组成。",
-                            "properties": {
-                                "command": {
-                                    "type": "string",
-                                    "description": "要执行的指令名称。",
-                                    "enum": [
-                                        "reply",
-                                        "at",
-                                        "text",
-                                        "send_and_break",
-                                    ],  # 你可以根据需要添加更多指令
-                                },
-                                "params": {
-                                    "type": "object",
-                                    "description": "与指令对应的参数包。根据'command'的值，只填写其中对应的字段。",
-                                    "properties": {
-                                        # 'reply' command 用的字段
-                                        "message_id": {
-                                            "type": "string",
-                                            "description": "要引用/回复的消息ID。",
-                                        },
-                                        # 'at' command 用的字段
-                                        "user_id": {
-                                            "type": "string",
-                                            "description": "要@的用户的ID。",
-                                        },
-                                        # 'text' command 用的字段
-                                        "content": {
-                                            "type": "string",
-                                            "description": "要发送的文本内容。",
+        level_to_props_map = {
+            "platform": {
+                "get_list": {
+                    "type": "object",
+                    "properties": {
+                        "list_type": {"type": "string", "enum": ["friend", "group"]},
+                        "motivation": {"type": "string"},
+                    },
+                    "required": ["list_type", "motivation"],
+                }
+            },
+            "cellular": {
+                "send_message": {
+                    "type": "object",
+                    "properties": {
+                        "steps": {
+                            "type": "array",
+                            "description": "构建消息的指令序列。",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "command": {
+                                        "type": "string",
+                                        "description": "要执行的指令名称。",
+                                        "enum": ["reply", "at", "text", "send_and_break"],
+                                    },
+                                    "params": {
+                                        "type": "object",
+                                        "description": "与指令对应的参数包。根据'command'的值，只填写其中对应的字段。",
+                                        "properties": {
+                                            # 'reply' command 用的字段
+                                            "message_id": {
+                                                "type": "string",
+                                                "description": "要引用/回复的消息ID。",
+                                            },
+                                            # 'at' command 用的字段
+                                            "user_id": {
+                                                "type": "string",
+                                                "description": "要@的用户的ID。",
+                                            },
+                                            # 'text' command 用的字段
+                                            "content": {
+                                                "type": "string",
+                                                "description": "要发送的文本内容。",
+                                            },
                                         },
                                     },
-                                    # 注意：这里没有 additionalProperties
                                 },
+                                "required": ["command", "params"],
                             },
-                            "required": ["command", "params"],
                         },
+                        "motivation": {"type": "string"},
                     },
-                    "motivation": {"type": "string"},
+                    "required": ["steps", "motivation"],
                 },
-                "required": ["steps", "motivation"],
-            }
-            props["poke_user"] = {
-                "type": "object",
-                "properties": {
-                    "target_user_id": {"type": "string"},
-                    "motivation": {"type": "string"},
+                "poke_user": {
+                    "type": "object",
+                    "properties": {
+                        "target_user_id": {"type": "string"},
+                        "motivation": {"type": "string"},
+                    },
+                    "required": ["target_user_id", "motivation"],
                 },
-                "required": ["target_user_id", "motivation"],
-            }
+            },
+        }
 
-        schema = {"type": "object", "properties": props} if props else {}
+        props = level_to_props_map.get(level, {})
+        schema = {"type": "object", "properties": props}
         return schema, {}
 
     def get_level_actions_descriptions(self, level: str) -> str:
         """根据层级，提供QQ平台专属动作的自然语言描述."""
-        descs = []
-        if level == "platform":
-            descs.append("    - `get_list`: 获取本平台的好友或群聊列表。")
-        elif level == "cellular":
-            descs.append("    - `send_message`: 在当前会话中发送消息。")
-            descs.append("    - `poke_user`: 在当前会话中戳一戳某人。")
+        level_to_descs_map = {
+            "platform": ["    - `get_list`: 获取本平台的好友或群聊列表。"],
+            "cellular": [
+                "    - `send_message`: 在当前会话中发送消息。",
+                "    - `poke_user`: 在当前会话中戳一戳某人。",
+            ],
+        }
 
+        descs = level_to_descs_map.get(level, [])
         return "\n".join(descs) or "你当前没有可用的动作。"

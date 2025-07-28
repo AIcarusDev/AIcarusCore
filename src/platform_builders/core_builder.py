@@ -121,7 +121,7 @@ class CoreBuilder(BasePlatformBuilder):
         # teleport_focus 也应该是全局可用的
         props["teleport_focus"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["teleport_focus"]
 
-        schema = {"type": "object", "properties": props, "maxProperties": 1} if props else {}
+        schema = {"type": "object", "properties": props, "maxProperties": 1}
         return schema, {}
 
     def get_level_consciousness_controls_descriptions(self, level: str) -> str:
