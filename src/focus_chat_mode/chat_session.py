@@ -108,6 +108,8 @@ class ChatSession:
 
         logger.info(f"[ChatSession][{self.conversation_id}] 实例已创建。")
 
+        self.current_handover_summary: str | None = None  # 防止报错, 未有实际作用
+
     async def wait_for_echo(self, action_id: str, timeout: float = 20.0) -> bool:
         """智能等待方法！它现在拥有一个“暂存器”来处理信号提前到达的竞态问题."""
         async with self._echo_lock:
