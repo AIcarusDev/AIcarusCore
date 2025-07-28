@@ -61,7 +61,6 @@ class AIStateManager:
             else:
                 state_blocks["goal_block"] = self.INITIAL_STATE["goal_block"]
 
-
             # 先看看有没有“发货单号”（action_id）
             if _action_id := latest_thought.get("action_id"):
                 # 如果有，就告诉主意识它上次试图干了啥
