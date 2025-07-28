@@ -38,7 +38,8 @@ class TermuxBuilder(BasePlatformBuilder):
 
         这些是Core的通用能力，所以我们这里返回空字典.
         """
-        return {}, {}
+        empty_schema = {"type": "object", "properties": {}}
+        return empty_schema, empty_schema
 
     def get_level_consciousness_controls_descriptions(self, level: str) -> str:
         """Termux平台没有专属的意识控制描述."""
@@ -63,63 +64,57 @@ class TermuxBuilder(BasePlatformBuilder):
 
         LLM会读取这个Schema，来学习如何正确地调用我们的功能.
         """
-        props = {}
-
-        # 我们的Termux技能在任何层级（core, platform, cellular）都应该可用
-        # 所以我们不需要判断 level
-
-        # 技能一：发送通知
-        props["notification"] = {
-            "type": "object",
-            "description": "在手机上发送一条系统通知。",
-            "properties": {
-                "title": {"type": "string", "description": "通知的标题。"},
-                "content": {"type": "string", "description": "通知的正文内容。"},
-                "motivation": {"type": "string", "description": "你为什么要发这条通知？"},
-            },
-            "required": ["title", "content", "motivation"],
-        }
-
-        # 技能二：语音播报
-        props["tts_speak"] = {
-            "type": "object",
-            "description": "使用手机的TTS引擎朗读一段文字。",
-            "properties": {
-                "text": {"type": "string", "description": "要朗读的文本。"},
-                "motivation": {"type": "string", "description": "你为什么要朗读这段话？"},
-            },
-            "required": ["text", "motivation"],
-        }
-
-        # 技能三：手机振动
-        props["vibrate"] = {
-            "type": "object",
-            "description": "让手机振动一下。",
-            "properties": {
-                "duration_ms": {
-                    "type": "integer",
-                    "description": "振动的持续时间（毫秒），默认200。",
+        props = {
+            # 技能一：发送通知
+            "notification": {
+                "type": "object",
+                "description": "在手机上发送一条系统通知。",
+                "properties": {
+                    "title": {"type": "string", "description": "通知的标题。"},
+                    "content": {"type": "string", "description": "通知的正文内容。"},
+                    "motivation": {"type": "string", "description": "你为什么要发这条通知？"},
                 },
-                "motivation": {"type": "string", "description": "你为什么要让手机振动？"},
+                "required": ["title", "content", "motivation"],
             },
-            "required": ["motivation"],  # 只有动机是必需的
+            # 技能二：语音播报
+            "tts_speak": {
+                "type": "object",
+                "description": "使用手机的TTS引擎朗读一段文字。",
+                "properties": {
+                    "text": {"type": "string", "description": "要朗读的文本。"},
+                    "motivation": {"type": "string", "description": "你为什么要朗读这段话？"},
+                },
+                "required": ["text", "motivation"],
+            },
+            # 技能三：手机振动
+            "vibrate": {
+                "type": "object",
+                "description": "让手机振动一下。",
+                "properties": {
+                    "duration_ms": {
+                        "type": "integer",
+                        "description": "振动的持续时间（毫秒），默认200。",
+                    },
+                    "motivation": {"type": "string", "description": "你为什么要让手机振动？"},
+                },
+                "required": ["motivation"],
+            },
+            # 技能四：弹出Toast
+            "toast": {
+                "type": "object",
+                "description": "在手机屏幕底部弹出一个短暂的提示消息。",
+                "properties": {
+                    "text": {"type": "string", "description": "要显示的提示文本。"},
+                    "short": {"type": "boolean", "description": "是否使用短时显示，默认True。"},
+                    "motivation": {"type": "string", "description": "你为什么要弹出这个提示？"},
+                },
+                "required": ["text", "motivation"],
+            },
         }
 
-        # 技能四：弹出Toast
-        props["toast"] = {
-            "type": "object",
-            "description": "在手机屏幕底部弹出一个短暂的提示消息。",
-            "properties": {
-                "text": {"type": "string", "description": "要显示的提示文本。"},
-                "short": {"type": "boolean", "description": "是否使用短时显示，默认True。"},
-                "motivation": {"type": "string", "description": "你为什么要弹出这个提示？"},
-            },
-            "required": ["text", "motivation"],
-        }
+        # 以后有新技能，直接在这里面加就行了
 
-        # 以后有新技能，就在这里继续添加 props["新技能名"] = { ... }
-
-        schema = {"type": "object", "properties": props} if props else {}
+        schema = {"type": "object", "properties": props}
         return schema, {}
 
     def get_level_actions_descriptions(self, level: str) -> str:

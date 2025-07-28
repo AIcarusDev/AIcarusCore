@@ -73,51 +73,98 @@ class InternalInfoBuilder:
             lines.append(f"<goal>{goal}</goal>")
         return lines
 
-    def _format_planned_action(self, thought_doc: dict) -> str:
-        """完整地格式化被中断前计划执行的动作，复现提案逻辑."""
-        action_payload = thought_doc.get("action_payload", {})
-        action_part = action_payload.get("action")
-        control_part = action_payload.get("consciousness_control")
-        descriptions = []
+    def _format_single_action_description(self, action_part: dict | None) -> str | None:
+        """专门解析action的“行动组”.
 
-        if action_part and isinstance(action_part, dict):
-            if action_part.get("core", {}).get("do_nothing"):
-                descriptions.append("决定不采取任何行动")
-            else:
-                try:
-                    platform_key, platform_actions = next(iter(action_part.items()))
-                    if isinstance(platform_actions, dict):
-                        action_name, action_params = next(iter(platform_actions.items()))
-                        if platform_key == "qq" and action_name == "send_message":
-                            steps = action_params.get("steps", [])
-                            texts = [
-                                s.get("params", {}).get("content")
-                                for s in steps
-                                if s.get("command") == "text" and s.get("params", {}).get("content")
-                            ]
-                            if not texts:
-                                descriptions.append("发送一条非文本消息")
-                            else:
-                                formatted_texts = "、".join(f"“{t}”" for t in texts)
-                                descriptions.append(f"发言（内容：{formatted_texts}）")
-                        else:
-                            descriptions.append(f"执行 {platform_key}.{action_name}")
-                except Exception as e:
-                    logger.debug(f"解析 planned_action 失败: {e}")
-                    descriptions.append("执行一个复杂的动作")
+        它只负责一件事：把 action payload 翻译成人类能看懂的一句话.
 
-        if control_part and isinstance(control_part, dict):
-            try:
-                command, params = next(iter(control_part.items()))
+        Args:
+            action_part: 包含平台和动作的字典，可能为空或格式不正确.
+
+        Returns:
+            如果解析成功，返回描述字符串；否则返回 None.
+        """
+        if not action_part or not isinstance(action_part, dict):
+            return None
+
+        if action_part.get("core", {}).get("do_nothing"):
+            return "决定不采取任何行动"
+
+        try:
+            if (
+                (platform_key := next(iter(action_part)))
+                and (platform_actions := action_part.get(platform_key))
+                and isinstance(platform_actions, dict)
+                and (action_name := next(iter(platform_actions)))
+                and (action_params := platform_actions.get(action_name))
+            ):
+                if platform_key == "qq" and action_name == "send_message":
+                    steps = action_params.get("steps", [])
+                    texts = [
+                        s.get("params", {}).get("content")
+                        for s in steps
+                        if s.get("command") == "text" and s.get("params", {}).get("content")
+                    ]
+                    return (
+                        f"发言（内容：{'、'.join(f'“{t}”' for t in texts)}）"
+                        if texts
+                        else "发送一条非文本消息"
+                    )
+                else:
+                    return f"执行 {platform_key}.{action_name}"
+        except (StopIteration, TypeError, AttributeError) as e:
+            logger.debug(f"解析 planned_action 失败: {e}")
+            return "执行一个复杂的动作"
+
+        return None
+
+    def _format_control_description(self, control_part: dict | None) -> str | None:
+        """专门解析控制指令的“导航组”.
+
+        它只负责把 consciousness_control 翻译成人类能看懂的一句话.
+
+        Args:
+            control_part: 包含控制指令的字典，可能为空或格式不正确.
+
+        Returns:
+            如果解析成功，返回描述字符串；否则返回 None.
+        """
+        if not control_part or not isinstance(control_part, dict):
+            return None
+
+        try:
+            if (command := next(iter(control_part))) and (params := control_part.get(command)):
                 motivation = params.get("motivation", "无")
-                descriptions.append(f"转移注意力（指令: {command}，动机: {motivation}）")
-            except Exception:
-                descriptions.append("转移注意力")
+                return f"转移注意力（指令: {command}，动机: {motivation}）"
+        except (StopIteration, TypeError, AttributeError):
+            return "转移注意力"
 
-        if not descriptions:
+        return None
+
+    def _format_planned_action(self, thought_doc: dict) -> str:
+        """格式化被中断前计划执行的动作, 只负责调度.
+
+        Args:
+            thought_doc: 包含动作信息的字典，可能为空或格式不正确.
+
+        Returns:
+            如果解析成功，返回描述字符串；否则返回 None.
+        """
+        action_payload = thought_doc.get("action_payload", {})
+
+        # // 委托给专业小弟去干活
+        action_desc = self._format_single_action_description(action_payload.get("action"))
+        control_desc = self._format_control_description(action_payload.get("consciousness_control"))
+
+        # // 用 filter(None, ...) 优雅地过滤掉空结果
+        descriptions = list(filter(None, [action_desc, control_desc]))
+
+        # // Hoshiori酱的指摘！(๑•̀ㅂ•́)و✧
+        # // 交换 if/else 分支，先处理有内容的情况，逻辑更清晰！
+        if descriptions:
+            return f"<planned_action>{' 并且 '.join(descriptions)}</planned_action>"
+        else:
             return "<planned_action>无</planned_action>"
-
-        return f"<planned_action>{' 并且 '.join(descriptions)}</planned_action>"
 
     def _format_completed_action(self, thought_doc: dict) -> str:
         """格式化已完成的动作及其结果."""

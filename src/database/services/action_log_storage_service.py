@@ -115,35 +115,48 @@ class ActionLogStorageService:
             logger.error(f"获取 ActionLog 记录 '{action_id}' 失败: {e}", exc_info=True)
             return None
 
-    # =======================【 这 里 就 是 新 增 的 欲 望！】=======================
-    async def get_action_log_by_platform_message_id(self, message_id: str) -> dict[str, Any] | None:
+    async def get_action_log_by_platform_message_id(
+        self, platform: str, conversation_id: str, message_id: str
+    ) -> dict[str, Any] | None:
         """根据平台返回的消息ID，查找对应的、成功的 send_message 动作日志.
 
-        这正是 DefaultMessageProcessor 识别“回声”所需要的关键方法!
+        现在它使用 (平台, 会话ID, 消息ID) 三元组来确保定位的唯一性.
         """
-        if not message_id:
+        if not all([platform, conversation_id, message_id]):
+            logger.debug("回声定位缺少必要坐标 (platform, conversation_id, message_id)，无法查找。")
             return None
         try:
-            # 这个查询会深入到 result_details 内部，去匹配那个 sent_message_id
             query = """
                 FOR doc IN @@collection
                     FILTER doc.status == 'success'
                     AND doc.action_type LIKE '%.send_message'
+                    AND doc.platform == @platform
+                    AND doc.conversation_id == @conversation_id
                     AND doc.result_details.sent_message_id == @message_id
                     SORT doc.timestamp DESC
                     LIMIT 1
                     RETURN doc
             """
-            bind_vars = {"@collection": self.collection_name, "message_id": message_id}
+            bind_vars = {
+                "@collection": self.collection_name,
+                "platform": platform,
+                "conversation_id": conversation_id,
+                "message_id": message_id,
+            }
             results = await self.conn_manager.execute_query(query, bind_vars)
             if results:
                 logger.debug(
-                    f"通过平台消息ID '{message_id}' 成功匹配到动作日志: {results[0]['_key']}"
+                    f"通过精确坐标 (P:{platform}, C:{conversation_id}, M:{message_id}) "
+                    f"成功匹配到动作日志: {results[0]['_key']}"
                 )
                 return results[0]
             return None
         except Exception as e:
-            logger.error(f"通过平台消息ID '{message_id}' 查找动作日志失败: {e}", exc_info=True)
+            logger.error(
+                f"通过精确坐标 (P:{platform}, C:{conversation_id}, M:{message_id}) "
+                f"查找动作日志失败: {e}",
+                exc_info=True,
+            )
             return None
 
     async def get_recent_action_logs(self, limit: int = 10) -> list[dict[str, Any]]:

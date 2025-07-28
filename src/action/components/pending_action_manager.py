@@ -105,51 +105,131 @@ class PendingActionManager:
         """处理收到的动作响应事件.
 
         Args:
-            response_event_data (dict[str, Any]): 包含响应数据的字典，必须包含 'content' 键.
+            response_event_data (dict[str, Any]): 响应事件的数据，包含动作ID等信息.
         """
+        # 1. 检查响应有效性
         original_action_id = self._get_original_id_from_response(response_event_data)
         if not original_action_id:
+            # 日志已在 _get_original_id_from_response 中记录
             return
 
+        # 2. 检查动作是否仍在等待
         if original_action_id not in self._pending_actions:
             logger.warning(f"收到未知的或已处理/超时的 action_response，ID: {original_action_id}。")
             return
 
+        # 核心流程
         pending_future, thought_doc_key, description, sent_dict, motivation = (
             self._pending_actions.pop(original_action_id)
         )
         logger.info(f"已匹配到等待中的动作 '{original_action_id}' ({description})。")
-        successful, status, error_msg, details = self._parse_response_content(response_event_data)
-        original_action_type = sent_dict.get("event_type")
 
+        successful, status, error_msg, details = self._parse_response_content(response_event_data)
+
+        # 1. 立即唤醒等待者
         if not pending_future.done():
             result_payload = details if successful else {"error": error_msg}
             pending_future.set_result((successful, result_payload))
 
-        if successful and original_action_type:
-            # 逻辑分支一：专门处理 send_message 的回声
-            if original_action_type.endswith(".send_message"):
-                conversation_info = sent_dict.get("conversation_info")
-                if conversation_info and isinstance(conversation_info, dict):
-                    conv_id = conversation_info.get("conversation_id")
-                    if (conv_id and self.action_handler.chat_session_manager) and (
-                        session := self.action_handler.chat_session_manager.sessions.get(
-                            str(conv_id)
-                        )
-                    ):
-                        logger.info(
-                            f"检测到 send_message 动作的回声，"
-                            f"正在为动作 '{original_action_id}' "
-                            f"调用 session.signal_echo_received()！"
-                        )
-                        await session.signal_echo_received(original_action_id)
+        # 2. 处理成功动作的特殊副作用 (如果有)
+        if successful:
+            await self._handle_successful_action_side_effects(sent_dict, details)
 
-            # 逻辑分支二：专门处理 get_list 成功后主动创建会话档案
-            if original_action_type.endswith(".get_list"):
-                await self._proactively_create_conversation_docs_from_list(details, sent_dict)
+        # 3. 统一处理所有数据库更新
+        await self._gather_and_execute_db_updates(
+            original_action_id=original_action_id,
+            successful=successful,
+            status=status,
+            error_msg=error_msg,
+            details=details,
+            sent_dict=sent_dict,
+            thought_doc_key=thought_doc_key,
+            description=description,
+            motivation=motivation,
+            response_event_data=response_event_data,
+        )
+
+    async def _handle_successful_action_side_effects(
+        self, sent_dict: dict[str, Any], details: dict | None
+    ) -> None:
+        """处理成功动作可能引发的特殊副作用.
+
+        Args:
+            sent_dict (dict[str, Any]): 原始发送的动作数据字典.
+            details (dict | None): 动作执行的详细结果数据.
+        """
+        original_action_type = sent_dict.get("event_type")
+        if not original_action_type:
+            return
+
+        # 1. send_message 的回声通知
+        if original_action_type.endswith(".send_message"):
+            await self._signal_echo_to_session(sent_dict)
+
+        # 2. get_list 成功后主动创建会话档案
+        if original_action_type.endswith(".get_list"):
+            await self._proactively_create_conversation_docs_from_list(details, sent_dict)
+
+    async def _signal_echo_to_session(self, sent_dict: dict[str, Any]) -> None:
+        """为 send_message 动作向对应的 ChatSession 发送回声信号.
+
+        Args:
+            sent_dict (dict[str, Any]): 原始发送的动作数据字典，包含
+                会话信息和原始动作ID.
+        """
+        conversation_info = sent_dict.get("conversation_info")
+        original_action_id = sent_dict.get("event_id")
+
+        if not isinstance(conversation_info, dict) or not original_action_id:
+            return
+
+        conv_id = conversation_info.get("conversation_id")
+        if (
+            conv_id
+            and self.action_handler.chat_session_manager
+            and (session := self.action_handler.chat_session_manager.sessions.get(str(conv_id)))
+        ):
+            logger.info(
+                f"检测到 send_message 动作的回声，"
+                f"正在为动作 '{original_action_id}' "
+                f"调用 session.signal_echo_received()！"
+            )
+            await session.signal_echo_received(original_action_id)
+
+    async def _gather_and_execute_db_updates(
+        self,
+        original_action_id: str,
+        successful: bool,
+        status: str,
+        error_msg: str,
+        details: dict | None,
+        sent_dict: dict[str, Any],
+        thought_doc_key: str | None,
+        description: str,
+        motivation: str | None,
+        response_event_data: dict[str, Any],
+    ) -> None:
+        """打包并执行所有与数据库更新相关的异步任务.
+
+        Args:
+            original_action_id (str): 原始动作的唯一标识符.
+            successful (bool): 动作是否成功执行.
+            status (str): 动作执行状态.
+            error_msg (str): 错误信息，如果有的话.
+            details (dict | None): 动作执行的详细结果数据.
+            sent_dict (dict[str, Any]): 原始发送的动作数据字典.
+            thought_doc_key (str | None): 关联的思考文档键，如果有的话.
+            description (str): 原始动作描述，用于日志记录.
+            motivation (str | None): 动作的动机或目的，可选.
+            response_event_data (dict[str, Any]): 响应事件的数据，包含动作ID等信息.
+        """
         response_timestamp = int(time.time() * 1000)
         response_time_ms = response_timestamp - sent_dict.get("timestamp", response_timestamp)
-        tasks_to_gather = [
+
+        tasks_to_gather = []
+
+        # 任务1: 更新 ActionLog
+        tasks_to_gather.append(
             self.action_log_service.update_action_log_with_response(
                 action_id=original_action_id,
                 status=status,
@@ -158,22 +238,28 @@ class PendingActionManager:
                 error_info=None if successful else error_msg,
                 result_details=details,
             )
-        ]
+        )
+
+        # 任务2: 更新 ThoughtChain (如果有关联)
         if thought_doc_key:
-            _final_result_message = self._create_final_result_message(
+            result_message = self._create_final_result_message(
                 description, successful, error_msg, details
             )
             tasks_to_gather.append(
                 self.thought_storage_service.save_action_result_to_thought(
-                    thought_key=thought_doc_key, result_text=_final_result_message
+                    thought_key=thought_doc_key, result_text=result_message
                 )
             )
+
+        # 任务3: 将成功动作存为 Event
         if successful:
             tasks_to_gather.append(
                 self._save_successful_action_as_event(
                     original_action_id, sent_dict, response_event_data, motivation=motivation
                 )
             )
+
+        # 执行所有任务
         if tasks_to_gather:
             await asyncio.gather(*tasks_to_gather)
 

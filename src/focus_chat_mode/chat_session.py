@@ -58,6 +58,7 @@ class ChatSession:
     ) -> None:
         # --- 模块化组件 ---
         self.conversation_info = conversation_info
+        self.conversation_id: str = conversation_id
         self.llm_client: LLMProcessorClient = llm_client
         self.event_storage: EventStorageService = event_storage
         self.action_handler: ActionHandler = action_handler

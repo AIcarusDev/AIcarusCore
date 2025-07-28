@@ -83,7 +83,6 @@ AIcarusCore/
   ```bash
   pip install -r requirements.txt
   ```
-  _(注: 您项目中暂未提供 `requirements.txt`，建议创建一个以便于环境部署)_
 
 ### 2. 配置
 
