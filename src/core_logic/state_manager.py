@@ -41,7 +41,7 @@ class AIStateManager:
         self.action_log_service = action_log_service
         logger.info("AIStateManager (思想链版) 初始化完毕。")
 
-    async def get_current_state_for_prompt(self) -> dict[str, str]:
+    async def get_current_state_for_prompt(self) -> dict[str, str]:  # TODO：该方法可能废弃，待处理
         """从思想链获取最新的状态，构建Prompt需要的所有状态块."""
         state_blocks = self.INITIAL_STATE.copy()
 
@@ -50,7 +50,6 @@ class AIStateManager:
 
         # 2. 从点里拿出我们需要的东西，填充状态块
         if latest_thought:
-            # --- 填充心情、想法、目标，这些都是直接抄作业 ---
             state_blocks["mood_block"] = f"你刚才的心情是：{latest_thought.get('mood', '平静')}"
             state_blocks["think_block"] = (
                 f"你刚才的内心想法是：{latest_thought.get('think', '我好像忘了刚才在想啥')}"
@@ -61,8 +60,6 @@ class AIStateManager:
                 state_blocks["goal_block"] = f"你当前的目标是：【{goal_db}】"
             else:
                 state_blocks["goal_block"] = self.INITIAL_STATE["goal_block"]
-
-            # --- 关键部分：处理动作和它的“回执单” ---
 
             # 先看看有没有“发货单号”（action_id）
             if _action_id := latest_thought.get("action_id"):
