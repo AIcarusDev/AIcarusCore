@@ -52,8 +52,9 @@ class UnreadInfoService:
             一个字典列表，每个字典代表一个会话，包含 'conv_doc', 'latest_event',
             'unread_count', 'has_high_priority'。
         """
+        # 调用底层服务时，传入权威的 self.self_bot_ids 字典
         return await self.conversation_storage.get_recently_active_conversations_with_details(
-            exclude_conversation_id
+            exclude_conversation_id, self.self_bot_ids
         )
 
     def _get_sender_display_name(self, event: dict, conversation_type: str) -> str:

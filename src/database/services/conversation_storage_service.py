@@ -275,7 +275,9 @@ class ConversationStorageService:
             return False
 
     async def get_recently_active_conversations_with_details(
-        self, exclude_conversation_id: str | None = None
+        self,
+        exclude_conversation_id: str | None = None,
+        self_bot_ids_map: dict[str, str] | None = None
     ) -> list[dict[str, Any]]:
         """【核心方法】获取所有最近活跃的会话及其详细信息.
 
@@ -294,6 +296,8 @@ class ConversationStorageService:
             'unread_count', 'has_high_priority'。
         """
         logger.debug(f"开始获取所有最近活跃会话的详细信息... (将排除: {exclude_conversation_id})")
+
+        bot_ids_map = self_bot_ids_map if self_bot_ids_map is not None else {}
 
         query = """
         LET conversations_with_latest_event_time = (
@@ -343,13 +347,13 @@ class ConversationStorageService:
                     AND event.timestamp > last_read_ts
                     LET is_at_me = (
                         FOR seg IN event.content
-                            FILTER seg.type == 'at' AND seg.data.user_id == conv_doc.bot_id
+                            FILTER seg.type == 'at' AND seg.data.user_id == @self_bot_ids_map[conv_doc.platform]
                             LIMIT 1
                             RETURN true
                     )[0]
                     LET is_reply_to_me = (
                         FOR seg IN event.content
-                            FILTER seg.type == 'quote' AND seg.data.user_id == conv_doc.bot_id
+                            FILTER seg.type == 'quote' AND seg.data.user_id == @self_bot_ids_map[conv_doc.platform]
                             LIMIT 1
                             RETURN true
                     )[0]
@@ -369,6 +373,7 @@ class ConversationStorageService:
             "@conv_collection": self.COLLECTION_NAME,
             "@event_collection": EventStorageService.COLLECTION_NAME,
             "exclude_conv_id": exclude_conversation_id,
+            "self_bot_ids_map": bot_ids_map, # 【修复点5】: 绑定变量
         }
         try:
             results = await self.conn_manager.execute_query(query, bind_vars)
