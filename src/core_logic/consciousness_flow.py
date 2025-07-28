@@ -3,6 +3,7 @@ import asyncio
 import contextlib
 import datetime
 import threading
+import time
 import uuid
 from typing import TYPE_CHECKING, Optional
 
@@ -140,6 +141,7 @@ class CoreLogic:
         sentry_task: asyncio.Task | None = None
 
         try:
+            race_start_timestamp = time.time() * 1000.0
             session = self._get_current_session()
 
             # 1. 准备比赛选手 (Tasks)
@@ -149,7 +151,7 @@ class CoreLogic:
             if session:
                 context_text = self._get_initial_context_for_sentry(session)
                 sentry_task = asyncio.create_task(
-                    self._listen_for_interruptions(session, context_text)
+                    self._listen_for_interruptions(session, context_text, race_start_timestamp)
                 )
                 tasks_to_race.add(sentry_task)
 
@@ -341,12 +343,12 @@ class CoreLogic:
         return None
 
     async def _listen_for_interruptions(
-        self, session: "ChatSession", initial_context_text: str
+        self, session: "ChatSession", initial_context_text: str, start_timestamp: float
     ) -> dict | None:
         """纯粹的中断监听器（哨兵），它现在接收一个固定的初始上下文."""
         try:
             context_text = initial_context_text
-            last_checked_timestamp = session.last_processed_timestamp
+            last_checked_timestamp = start_timestamp
 
             bot_profile = await session.get_bot_profile()
             current_bot_id = str(bot_profile.get("user_id") or session.bot_id)

@@ -194,7 +194,7 @@ class ChatSessionManager:
     ) -> None:
         """处理会话停用。现在它负责触发最终总结并从管理器中移除会话档案."""
         async with self.lock:
-            if session := self.sessions.pop(conversation_id, None):
+            if _session := self.sessions.pop(conversation_id, None):
                 logger.info(f"[SessionManager] 会话 '{conversation_id}' 的档案正在被移除。")
 
                 # 在移除会话前，将会话内存中的“最后已读时间戳”持久化到数据库。
@@ -211,11 +211,11 @@ class ChatSessionManager:
                         conversation_id, int(final_timestamp)
                     )
 
-                shift_motivation = handover_context.get("motivation") if handover_context else None
-                target_id = handover_context.get("target_id") if handover_context else None
-                await session.summarization_manager.create_and_save_final_summary(
-                    shift_motivation=shift_motivation, target_conversation_id=target_id
-                )
+                _shift_motivation = handover_context.get("motivation") if handover_context else None
+                _target_id = handover_context.get("target_id") if handover_context else None
+                # await session.summarization_manager.create_and_save_final_summary(
+                #     shift_motivation=shift_motivation, target_conversation_id=target_id
+                # )
                 logger.info(
                     f"[SessionManager] 会话 '{conversation_id}' 的最终总结已处理，档案已移除。"
                 )
