@@ -7,25 +7,24 @@ from .core.connection_manager import (
     StandardCollection,
 )
 from .models import (
-    AccountDocument,
     ActionRecordDocument,
     AttentionProfile,
     ConversationSummaryDocument,
     DBEventDocument,
     EnrichedConversationInfo,
+    EntityDocument,
+    EntityProfileDocument,
     MembershipProperties,
-    PersonDocument,
-    PersonProfile,
+    SubjectiveProfile,
 )
 from .services.action_log_storage_service import ActionLogStorageService
 from .services.conversation_storage_service import ConversationStorageService
+from .services.entity_graph_service import EntityGraphService
 from .services.event_storage_service import EventStorageService
-from .services.person_storage_service import PersonStorageService
 from .services.summary_storage_service import SummaryStorageService
 from .services.thought_storage_service import ThoughtStorageService
 
 __all__ = [
-    "AccountDocument",
     "ActionLogStorageService",
     "ActionRecordDocument",
     "ArangoDBConnectionManager",
@@ -35,12 +34,13 @@ __all__ = [
     "CoreDBCollections",
     "DBEventDocument",
     "EnrichedConversationInfo",
+    "EntityDocument",
+    "EntityGraphService",
+    "EntityProfileDocument",
     "EventStorageService",
     "MembershipProperties",
-    "PersonDocument",
-    "PersonProfile",
-    "PersonStorageService",
     "StandardCollection",
+    "SubjectiveProfile",
     "SummaryStorageService",
     "ThoughtStorageService",
 ]

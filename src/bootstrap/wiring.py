@@ -18,7 +18,7 @@ def wire_dependencies(container: ServiceContainer) -> None:
         action_sender=action_sender,
         chat_session_manager=container.chat_session_manager,  # 此时还是 None
         core_logic=container.core_logic,
-        person_service=container.person_storage_service,
+        entity_service=container.entity_graph_service,
     )
     container.action_handler.set_thought_trigger(container.core_logic.immediate_thought_trigger)
 
@@ -41,10 +41,10 @@ async def wire_dynamic_dependencies(container: ServiceContainer) -> None:
     await container.core_comm_layer.wait_for_all_inspections()
 
     # 2. 获取安检后的 bot_ids
-    all_self_accounts = await container.person_storage_service.get_all_self_accounts()
+    all_self_entities = await container.entity_graph_service.get_all_self_entities()
     bot_ids_map = (
-        {acc["platform"]: acc["platform_id"] for acc in all_self_accounts}
-        if all_self_accounts
+        {acc["platform"]: acc["platform_id"] for acc in all_self_entities}
+        if all_self_entities
         else {}
     )
 
@@ -63,6 +63,7 @@ async def wire_dynamic_dependencies(container: ServiceContainer) -> None:
             thought_storage_service=container.thought_storage_service,
             internal_info_builder=container.internal_info_builder,
             core_logic=container.core_logic,
+            entity_graph_service=container.entity_graph_service,
         )
         container.chat_session_manager = chat_session_manager
 

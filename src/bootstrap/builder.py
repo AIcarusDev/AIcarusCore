@@ -31,8 +31,8 @@ from src.database import (
     ArangoDBConnectionManager,
     ConversationStorageService,
     CoreDBCollections,
+    EntityGraphService,
     EventStorageService,
-    PersonStorageService,
     SummaryStorageService,
     ThoughtStorageService,
 )
@@ -94,7 +94,7 @@ class ServiceBuilder:
         message_processor = DefaultMessageProcessor(
             event_service=db_services["event_storage_service"],
             conversation_service=db_services["conversation_storage_service"],
-            person_service=db_services["person_storage_service"],
+            entity_service=db_services["entity_graph_service"],
             action_log_service=db_services["action_log_service"],
             semantic_model=semantic_model,
             qq_chat_session_manager=None,
@@ -114,7 +114,7 @@ class ServiceBuilder:
             action_sender=action_sender,
             event_storage_service=db_services["event_storage_service"],
             action_handler_instance=action_handler,
-            person_service=db_services["person_storage_service"],
+            entity_service=db_services["entity_graph_service"],
             unread_info_service=unread_info_service,
         )
         prompt_builder.core_ws_server = core_comm_layer
@@ -159,7 +159,7 @@ class ServiceBuilder:
             thought_storage_service=db_services["thought_storage_service"],
             action_log_service=db_services["action_log_service"],
             summary_storage_service=db_services["summary_storage_service"],
-            person_storage_service=db_services["person_storage_service"],
+            entity_graph_service=db_services["entity_graph_service"],
             action_handler=action_handler,
             intelligent_interrupter=interrupt_model,
             internal_info_builder=internal_info_builder,
@@ -257,7 +257,7 @@ class ServiceBuilder:
             "conversation_storage_service": ConversationStorageService,
             "thought_storage_service": ThoughtStorageService,
             "action_log_service": ActionLogStorageService,
-            "person_storage_service": PersonStorageService,
+            "entity_graph_service": EntityGraphService,
             "summary_storage_service": SummaryStorageService,
         }
         initialized_services = {"conn_manager": conn_manager}

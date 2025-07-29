@@ -11,7 +11,7 @@ from src.database import (
     ConversationStorageService,
     DBEventDocument,
     EnrichedConversationInfo,
-    PersonStorageService,
+    EntityGraphService,
 )
 from src.database.services.event_storage_service import EventStorageService
 from src.focus_chat_mode.chat_session_manager import ChatSessionManager
@@ -34,7 +34,7 @@ class DefaultMessageProcessor:
         self,
         event_service: EventStorageService,
         conversation_service: ConversationStorageService,
-        person_service: PersonStorageService,
+        entity_service: EntityGraphService,
         action_log_service: ActionLogStorageService,  # 注入 ActionLog 服务
         semantic_model: "SemanticModel",
         core_websocket_server: Optional["CoreWebsocketServer"] = None,
@@ -42,7 +42,7 @@ class DefaultMessageProcessor:
     ) -> None:
         self.event_service: EventStorageService = event_service
         self.conversation_service: ConversationStorageService = conversation_service
-        self.person_service: PersonStorageService = person_service
+        self.entity_service: EntityGraphService = entity_service
         self.action_log_service: ActionLogStorageService = (
             action_log_service  # 保存 ActionLog 服务实例
         )
@@ -181,17 +181,21 @@ class DefaultMessageProcessor:
     ) -> tuple[str | None, str | None]:
         """封装身份关联和成员信息更新的逻辑."""
         if event.user_info and event.user_info.user_id:
-            person_id, account_uid = await self.person_service.find_or_create_person_and_account(
-                event.user_info, platform_id
+            # 1. 调用新的服务和方法来查找或创建 Profile 和 Entity
+            profile_id, entity_uid = await self.entity_service.find_or_create_profile_and_entity(
+                user_info=event.user_info, platform=platform_id
             )
-            if person_id and account_uid and event.conversation_info:
-                await self.person_service.update_membership(
-                    account_uid=account_uid,
+
+            # 2. 如果成功获取了实体，并且事件发生在某个会话中，就更新其'存在于'关系
+            if profile_id and entity_uid and event.conversation_info:
+                # 调用新的方法来更新存在关系！
+                await self.entity_service.update_presence_in_conversation(
+                    entity_uid=entity_uid,
                     conversation_id=event.conversation_info.conversation_id,
                     user_info=event.user_info,
                     conversation_name=event.conversation_info.name,
                 )
-            return person_id, account_uid
+            return profile_id, entity_uid
         return None, None
 
     async def _dispatch_event_action(self, event: ProtocolEvent) -> None:

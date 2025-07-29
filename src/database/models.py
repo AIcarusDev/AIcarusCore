@@ -18,8 +18,8 @@ class CoreDBCollections:
     """一个中央管家，负责记下所有核心集合的名字和它们的类型."""
 
     # 点集合 (Vertex Collections)
-    PERSONS = "persons"
-    ACCOUNTS = "accounts"
+    ENTITY_PROFILES = "EntityProfiles"  # (原 persons) 存放主观侧写
+    ENTITIES = "Entities"  # (原 accounts) 存放客观实体
     CONVERSATIONS = "conversations"
     EVENTS = "events"
     ACTION_LOGS = "action_logs"
@@ -30,13 +30,13 @@ class CoreDBCollections:
     INTRUSIVE_POOL_COLLECTION = "intrusive_thoughts_pool"  # 侵入性思维池
 
     # 边集合 (Edge Collections)
-    HAS_ACCOUNT = "has_account"
-    PARTICIPATES_IN = "participates_in"
+    REPRESENTS = "represents"  # (原 has_account) EntityProfile -> Entity
+    IS_PRESENT_IN = "is_present_in"  # (原 participates_in) Entity -> Entity
     PRECEDES_THOUGHT = "precedes_thought"  # 新的“线”，用来串点！
     LEADS_TO_ACTION = "leads_to_action"  # 这个也最好有
 
     # 图的名字
-    MAIN_GRAPH_NAME = "person_relation_graph"
+    MAIN_GRAPH_NAME = "entity_cognition_graph"  # (原 person_relation_graph)
     THOUGHT_GRAPH_NAME = "consciousness_graph"  # 给思想和行动也建个图
 
     INDEX_DEFINITIONS: ClassVar[dict[str, list[tuple[list[str], bool, bool]]]] = {
@@ -54,11 +54,11 @@ class CoreDBCollections:
             (["attention_profile.is_suspended_by_ai"], False, True),
             (["attention_profile.base_importance_score"], False, False),
         ],
-        PERSONS: [
-            (["person_id"], True, False),
+        ENTITY_PROFILES: [
+            (["profile_id"], True, False),  # 原 person_id
         ],
-        ACCOUNTS: [
-            (["account_uid"], True, False),
+        ENTITIES: [
+            (["entity_uid"], True, False),  # 原 account_uid
             (["platform", "platform_id"], True, False),
         ],
         THOUGHTS_LEGACY: [  # 旧的也保留
@@ -94,20 +94,19 @@ class CoreDBCollections:
             set[str]: 包含所有核心集合名称的集合.
         """
         return {
-            cls.PERSONS,
-            cls.ACCOUNTS,
+            cls.ENTITY_PROFILES,
+            cls.ENTITIES,
             cls.CONVERSATIONS,
             cls.EVENTS,
             cls.ACTION_LOGS,
             cls.CONVERSATION_SUMMARIES,
-            cls.THOUGHTS_LEGACY,
-            # --- 把新玩具加进来 ---
             cls.THOUGHT_CHAIN,
             cls.SYSTEM_STATE,
-            cls.INTRUSIVE_POOL_COLLECTION,  # 别忘了这个新集合
-            # --- 边集合 ---
-            cls.HAS_ACCOUNT,
-            cls.PARTICIPATES_IN,
+            cls.INTRUSIVE_POOL_COLLECTION,
+            cls.THOUGHTS_LEGACY,
+            # Edges
+            cls.REPRESENTS,
+            cls.IS_PRESENT_IN,
             cls.PRECEDES_THOUGHT,
             cls.LEADS_TO_ACTION,
         }
@@ -130,12 +129,18 @@ class CoreDBCollections:
         Returns:
             set[str]: 包含所有边集合名称的集合.
         """
-        return {cls.HAS_ACCOUNT, cls.PARTICIPATES_IN, cls.PRECEDES_THOUGHT, cls.LEADS_TO_ACTION}
+        return {cls.REPRESENTS, cls.IS_PRESENT_IN, cls.PRECEDES_THOUGHT, cls.LEADS_TO_ACTION}
 
     @classmethod
     def get_vertex_collection_names(cls) -> set[str]:
         """返回所有在图中作为“点”的集合的名称."""
-        return {cls.PERSONS, cls.ACCOUNTS, cls.CONVERSATIONS, cls.THOUGHT_CHAIN, cls.ACTION_LOGS}
+        return {
+            cls.ENTITY_PROFILES,
+            cls.ENTITIES,
+            cls.CONVERSATIONS,
+            cls.THOUGHT_CHAIN,
+            cls.ACTION_LOGS,
+        }
 
 
 # --- 新增模型：ThoughtChainDocument (思想点) ---
@@ -165,74 +170,46 @@ class ThoughtChainDocument:
         return asdict(self)
 
 
+# 原 PersonProfile
 @dataclass
-class PersonProfile:
-    """一个'人'的档案，存放那些主观、推断或稳定的信息."""
+class SubjectiveProfile:
+    """一个实体的主观侧写档案，存放推断信息."""
 
     sex: str | None = None
     age: int | None = None
     area: str | None = None
+    # ... 未来可以添加更多主观标签 ...
 
 
+# 原 PersonDocument
 @dataclass
-class PersonDocument:
-    """代表 'persons' 集合中的一个人节点.
+class EntityProfileDocument:
+    """代表 'EntityProfiles' 集合中的一个主观侧写节点."""
 
-    这个文档包含了个人的基本信息，如 person_id、profile 等.
-
-    Attributes:
-        _key (str): 个人的唯一标识符，通常是 person_id 的前缀加上 UUID.
-        person_id (str): 个人的唯一标识符，通常是一个 UUID。
-        profile (PersonProfile): 个人的档案信息.
-        created_at (int): 个人信息创建的时间戳，单位为毫秒 (UTC).
-        updated_at (int): 个人信息最后更新的时间戳，单位为毫秒 (UTC).
-    """
-
-    _key: str  # person_id
-    person_id: str
-    profile: PersonProfile = field(default_factory=PersonProfile)
+    _key: str  # profile_id
+    profile_id: str
+    profile: SubjectiveProfile = field(default_factory=SubjectiveProfile)
     created_at: int = field(default_factory=lambda: int(time.time() * 1000))
     updated_at: int = field(default_factory=lambda: int(time.time() * 1000))
 
     @classmethod
-    def create_new(cls) -> "PersonDocument":
-        """创建一个新的 PersonDocument 实例.
-
-        Returns:
-            PersonDocument: 一个新的 PersonDocument 实例，具有唯一的 person_id.
-        """
-        person_id = f"person_{uuid.uuid4()}"
-        return cls(_key=person_id, person_id=person_id)
+    def create_new(cls) -> "EntityProfileDocument":
+        """创建一个新的 EntityProfileDocument 实例."""
+        profile_id = f"profile_{uuid.uuid4()}"
+        return cls(_key=profile_id, profile_id=profile_id)
 
     def to_dict(self) -> dict[str, Any]:
-        """将 PersonDocument 实例转换为字典.
-
-        Returns:
-            dict[str, Any]: 包含所有属性的字典表示形式.
-        """
+        """将 EntityProfileDocument 实例转换为字典."""
         return asdict(self)
 
 
+# 原 AccountDocument
 @dataclass
-class AccountDocument:
-    """代表 'accounts' 集合中的一个账户节点.
+class EntityDocument:
+    """代表 'Entities' 集合中的一个客观实体节点."""
 
-    这个文档包含了账户的基本信息，如平台、ID、昵称等.
-
-    Attributes:
-        _key (str): 账户的唯一标识符.
-        account_uid (str): 账户的 UID.
-        platform (str): 账户所在的平台.
-        platform_id (str): 账户在平台上的 ID.
-        nickname (str | None): 账户的昵称，如果有的话.
-        avatar (str | None): 账户的头像 URL，如果有的话.
-        created_at (int): 账户创建的时间戳，单位为毫秒 (UTC).
-        last_known_nickname (str | None): 最后一次已知的昵称，用于跟踪昵称变化.
-        from_user_info (ProtocolUserInfo): 从 ProtocolUserInfo 创建一个新的 AccountDocument 实例.
-    """
-
-    _key: str  # account_uid, e.g., 'qq_12345'
-    account_uid: str
+    _key: str  # entity_uid, e.g., 'qq_12345'
+    entity_uid: str
     platform: str
     platform_id: str  # The actual ID on the platform, e.g., '12345'
     nickname: str | None = None
@@ -241,23 +218,14 @@ class AccountDocument:
     last_known_nickname: str | None = None
 
     @classmethod
-    def from_user_info(cls, user_info: ProtocolUserInfo, platform: str) -> "AccountDocument":
-        """从 ProtocolUserInfo 创建一个新的 AccountDocument 实例.
-
-        Args:
-            user_info (ProtocolUserInfo): 用户信息对象.
-            platform (str): 平台名称.
-
-        Raises:
-            ValueError: 如果 user_info 中没有 user_id.
-        """
+    def from_user_info(cls, user_info: ProtocolUserInfo, platform: str) -> "EntityDocument":
+        """从 ProtocolUserInfo 创建 EntityDocument 实例."""
         if not user_info.user_id:
-            raise ValueError("UserInfo必须有user_id才能创建AccountDocument")
-
-        account_uid = f"{platform}_{user_info.user_id}"
+            raise ValueError("UserInfo必须有user_id才能创建EntityDocument")
+        entity_uid = f"{platform}_{user_info.user_id}"
         return cls(
-            _key=account_uid,
-            account_uid=account_uid,
+            _key=entity_uid,
+            entity_uid=entity_uid,
             platform=platform,
             platform_id=user_info.user_id,
             nickname=user_info.user_nickname,
@@ -265,11 +233,7 @@ class AccountDocument:
         )
 
     def to_dict(self) -> dict[str, Any]:
-        """将 AccountDocument 实例转换为字典.
-
-        Returns:
-            dict[str, Any]: 包含所有属性的字典表示形式.
-        """
+        """将 EntityDocument 实例转换为字典."""
         return asdict(self)
 
 

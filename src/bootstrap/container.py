@@ -24,7 +24,7 @@ if TYPE_CHECKING:
         ActionLogStorageService,
         ArangoDBConnectionManager,
         ConversationStorageService,
-        PersonStorageService,
+        EntityGraphService,
         ThoughtStorageService,
     )
     from src.database.services.event_storage_service import EventStorageService
@@ -52,7 +52,7 @@ class ServiceContainer:
     thought_storage_service: ThoughtStorageService
     action_log_service: ActionLogStorageService
     summary_storage_service: SummaryStorageService
-    person_storage_service: PersonStorageService
+    entity_graph_service: EntityGraphService
 
     # 业务逻辑与功能模块
     action_handler: ActionHandler

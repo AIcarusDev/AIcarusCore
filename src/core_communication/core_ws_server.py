@@ -19,7 +19,7 @@ from src.config import config
 from src.core_communication.action_sender import ActionSender
 from src.core_communication.event_receiver import EventReceiver
 from src.core_logic.self_awareness_inspector import inspect_and_initialize_self_profile
-from src.database import DBEventDocument, PersonStorageService
+from src.database import DBEventDocument, EntityGraphService
 from src.database.services.event_storage_service import EventStorageService
 from src.platform_builders.registry import platform_builder_registry
 from websockets.exceptions import ConnectionClosed, ConnectionClosedError, ConnectionClosedOK
@@ -43,7 +43,7 @@ class CoreWebsocketServer:
         event_receiver (EventReceiver): 事件接收器实例，用于处理接收到的事件.
         action_sender (ActionSender): 动作发送器实例，用于发送动作指令.
         action_handler_instance (ActionHandler): 动作处理器实例，用于处理动作逻辑.
-        person_service (PersonStorageService): 人物存储服务实例，用于管理人物信息.
+        entity_service (EntityGraphService): 实体图服务实例，用于管理实体信息.
         adapter_clients_info (dict[str, dict[str, Any]]): 存储适配器连接信息的字典.
         _websocket_to_adapter_id (dict[WebSocketServerProtocol, str]): 映射WebSocket连接到
             适配器ID的字典.
@@ -64,7 +64,7 @@ class CoreWebsocketServer:
         action_sender: ActionSender,
         event_storage_service: EventStorageService,
         action_handler_instance: "ActionHandler",
-        person_service: "PersonStorageService",
+        entity_service: "EntityGraphService",
         unread_info_service: "UnreadInfoService",
     ) -> None:
         self.host: str = host
@@ -74,7 +74,7 @@ class CoreWebsocketServer:
         self.event_receiver = event_receiver
         self.action_sender = action_sender
         self.action_handler_instance = action_handler_instance
-        self.person_service = person_service
+        self.entity_service = entity_service
         self.unread_info_service = unread_info_service
         self.adapter_clients_info: dict[str, dict[str, Any]] = {}
         self._websocket_to_adapter_id: dict[WebSocketServerProtocol, str] = {}
@@ -193,7 +193,7 @@ class CoreWebsocketServer:
                 # 给一点点时间，确保连接完全稳定
                 await asyncio.sleep(0.5)
                 success, profile_data = await inspect_and_initialize_self_profile(
-                    person_service=self.person_service,
+                    entity_service=self.entity_service,
                     action_handler=self.action_handler_instance,
                     platform_id=adapter_id,
                 )
@@ -502,7 +502,7 @@ class CoreWebsocketServer:
     async def get_connected_platforms_info(self) -> str:
         """构建并返回所有平台的信息字符串，现在它能感知在线、离线和安检中的状态了!"""
         # 从数据库获取所有已知的机器人账号
-        all_known_bots = await self.person_service.get_all_self_accounts()
+        all_known_bots = await self.entity_service.get_all_self_entities()
         known_platforms = {bot["platform"]: bot for bot in all_known_bots}
 
         # 获取当前正连着网线的平台
@@ -657,10 +657,10 @@ class CoreWebsocketServer:
         logger.info(f"为工具平台 '{adapter_id}' 创建或更新数据库中的基础Account档案...")
         # 1. 构造一个最基础的 UserInfo，只需要 user_id 和 nickname
         bot_user_info = ProtocolUserInfo(user_id=bot_id_for_platform, user_nickname=display_name)
-        # 2. 调用 person_service 来创建“人”和“账号”，并把它们关联起来
+        # 2. 调用 entity_service 来创建“人”和“账号”，并把它们关联起来
         #    is_self=True 会确保它关联到唯一的 aic_person_0
-        person_id, account_uid = await self.person_service._create_new_person_with_account(
-            user_info=bot_user_info, platform=adapter_id, is_self=True
+        person_id, account_uid = await self.entity_service._create_new_profile_with_entity(
+            user_info=bot_user_info, platform_id=adapter_id, is_self=True
         )
         if not person_id or not account_uid:
             logger.error(f"为工具平台 '{adapter_id}' 创建基础Account档案失败！")

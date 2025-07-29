@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from src.common.summarization_observation.summarization_service import SummarizationService
     from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
     from src.core_logic.internal_info_builder import InternalInfoBuilder
+    from src.database.services.entity_graph_service import EntityGraphService
 
 logger = get_logger(__name__)
 
@@ -65,6 +66,7 @@ class ChatSessionManager:
         summarization_service: "SummarizationService",
         summary_storage_service: "SummaryStorageService",
         intelligent_interrupter: "IntelligentInterrupter",
+        entity_graph_service: "EntityGraphService",
         thought_storage_service: "ThoughtStorageService",
         internal_info_builder: "InternalInfoBuilder",
         core_logic: Optional["CoreLogicFlow"] = None,
@@ -80,6 +82,7 @@ class ChatSessionManager:
         self.summary_storage_service = summary_storage_service
         self.thought_storage_service = thought_storage_service
         self.internal_info_builder = internal_info_builder
+        self.entity_graph_service = entity_graph_service
 
         self.intelligent_interrupter = intelligent_interrupter
 
@@ -185,6 +188,7 @@ class ChatSessionManager:
                 thought_storage_service=self.thought_storage_service,
                 internal_info_builder=self.internal_info_builder,
                 initial_last_processed_timestamp=conversation_info_obj.last_processed_timestamp,
+                entity_graph_service=self.entity_graph_service,
             )
 
             return self.sessions[conversation_id]

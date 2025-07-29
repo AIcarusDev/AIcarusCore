@@ -16,8 +16,8 @@ from src.core_communication.action_sender import ActionSender
 from src.database import (
     ActionLogStorageService,
     ConversationStorageService,
+    EntityGraphService,
     EventStorageService,
-    PersonStorageService,
     ThoughtStorageService,
 )
 from src.llmrequest.llm_processor import Client as ProcessorClient
@@ -50,7 +50,7 @@ class ActionHandler:
         self.pending_action_manager: PendingActionManager | None = None
         self.chat_session_manager: ChatSessionManager | None = None
         self.core_logic: CoreLogic | None = None
-        self.person_service: PersonStorageService | None = None
+        self.entity_service: EntityGraphService | None = None
         logger.info(f"{self.__class__.__name__} instance created.")
         self._workspace_root: Path | None = None
         logger.info(f"{self.__class__.__name__} instance created (等待依赖注入).")
@@ -129,7 +129,7 @@ class ActionHandler:
         action_log_service: ActionLogStorageService,
         conversation_service: ConversationStorageService,
         action_sender: ActionSender,
-        person_service: PersonStorageService,
+        entity_service: EntityGraphService,
         chat_session_manager: "ChatSessionManager",
         core_logic: "CoreLogic",
     ) -> None:
@@ -137,7 +137,7 @@ class ActionHandler:
         self.thought_storage_service = thought_service
         self.action_log_service = action_log_service
         self.action_sender = action_sender
-        self.person_service = person_service
+        self.entity_service = entity_service
         self.chat_session_manager = chat_session_manager
         self.core_logic = core_logic
         # 关键：将 ActionHandler 自身的实例传递给 PendingActionManager
@@ -528,20 +528,21 @@ class ActionHandler:
             logger.error(f"找不到平台 '{platform_id}' 的翻译官。")
             return
 
-        if not self.person_service:
-            logger.error("PersonStorageService 未注入到 ActionHandler，无法获取祂的ID！")
+        if not self.entity_service:
+            logger.error("EntityGraphService 未注入到 ActionHandler，无法获取祂的ID！")
             return
 
-        self_account = await self.person_service.get_self_account_for_platform(platform_id)
-        if not self_account or not self_account.get("platform_id"):
-            logger.error(f"无法为平台 '{platform_id}' 获取已安检的祂的ID。动作无法执行。")
+        self_entity = await self.entity_service.get_self_entity_for_platform(platform_id)
+
+        if not self_entity or not self_entity.get("platform_id"):  # <--- (±) 使用新的变量
+            logger.error(f"无法为平台 '{platform_id}' 获取已安检的祂的客观实体ID。动作无法执行。")
             await self.thought_storage_service.save_action_result_to_thought(
                 thought_key=doc_key_for_updates,
                 result_text=f"动作执行失败：我找不到自己在这个平台({platform_id})上的身份信息。",
             )
             return
 
-        correct_bot_id = self_account["platform_id"]
+        correct_bot_id = self_entity["platform_id"]  # <--- (±) 从新的变量中获取ID
         action_event = builder.build_action_event(action_name, params, bot_id=correct_bot_id)
         if not action_event:
             logger.error(f"平台 '{platform_id}' 的翻译官不会翻译动作 '{action_name}'。")
