@@ -29,9 +29,10 @@ if TYPE_CHECKING:
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 
 logger = get_logger(__name__)
+
 ACTION_RESPONSE_TIMEOUT_SECONDS = 30
-MAX_CONTENT_PREVIEW_SIZE = 4096
-MAX_AGGREGATE_SIZE = 32768  # 32KB 应该是个比较安全的上限
+MAX_CONTENT_PREVIEW_SIZE = 32768
+MAX_AGGREGATE_SIZE = 65535
 
 
 class ActionHandler:
