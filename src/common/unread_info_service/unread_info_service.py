@@ -5,6 +5,7 @@ from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
 from src.database import ConversationStorageService, EventStorageService
+from src.common.time_utils import format_relative_time
 
 logger = get_logger(__name__)
 
@@ -262,11 +263,13 @@ class UnreadInfoService:
             conv_name = conv_doc.get("name") or sender_display_name
 
             timestamp = latest_event.get("timestamp", 0)
-            time_str = datetime.fromtimestamp(timestamp / 1000.0).strftime("%H:%M")
+            # 使用我们新的相对时间函数
+            time_str = format_relative_time(timestamp)
             message_preview = self._create_message_preview(latest_event, sender_display_name)
 
             # 4. 根据 unread_count 决定状态文本
             if unread_count > 0:
+
                 status_line = f"(时间：{time_str}/共 {unread_count} 条未读信息)"
             else:
                 status_line = f"(时间：{time_str}/全部已读)"
@@ -315,9 +318,8 @@ class UnreadInfoService:
 
         conv_type = conv_doc.get("type", "private")
         sender_name = self._get_sender_display_name(event_for_preview, conv_type)
-        time_str = datetime.fromtimestamp(event_for_preview.get("timestamp", 0) / 1000.0).strftime(
-            "%H:%M"
-        )
+        # 在这里也使用相对时间
+        time_str = format_relative_time(event_for_preview.get("timestamp", 0))
         preview = self._create_message_preview(event_for_preview, sender_name)
 
         summary_lines = []
@@ -437,11 +439,18 @@ class UnreadInfoService:
         if not unread_convs:
             return "所有平台均无新消息。"
 
-        platforms_with_news = defaultdict(lambda: {"has_high_priority": False})
+        # 结构增强，现在不仅记录高优，还记录最新事件的时间戳
+        platforms_with_news = defaultdict(lambda: {"has_high_priority": False, "latest_timestamp": 0})
         for item in unread_convs:
             if platform := item["conv_doc"].get("platform"):
                 if item["has_high_priority"]:
                     platforms_with_news[platform]["has_high_priority"] = True
+
+                # 更新最新时间戳
+                event_ts = item.get("latest_event", {}).get("timestamp", 0)
+                if event_ts > platforms_with_news[platform]["latest_timestamp"]:
+                    platforms_with_news[platform]["latest_timestamp"] = event_ts
+
                 # 只要有未读，就标记一下，方便后续统一处理
                 platforms_with_news[platform]["has_any_news"] = True
 
@@ -449,12 +458,14 @@ class UnreadInfoService:
             return "所有平台均无新消息。"
 
         summary_lines = []
+        # 使用新的数据结构来构建更丰富的摘要
         for platform, info in sorted(platforms_with_news.items()):
+            relative_time_str = format_relative_time(info["latest_timestamp"])
             if info["has_high_priority"]:
-                summary_lines.append(f"你的 '{platform}' 上似乎有人找你。")
-            elif info["has_any_news"]:  # 现在这个判断才会生效
+                summary_lines.append(f"你的 '{platform}' 上似乎有人在 {relative_time_str} 找你。")
+            elif info.get("has_any_news"):
                 summary_lines.append(
-                    f"你的 '{platform}' 上似乎有未读消息, 不过大概率与你无关, 你可以选择无视。"
+                    f"你的 '{platform}' 上在 {relative_time_str} 有未读消息, 不过大概率与你无关, 你可以选择无视。"
                 )
 
         return "\n".join(summary_lines) or "所有平台均无新消息。"

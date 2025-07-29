@@ -301,6 +301,7 @@ class ConversationStorageService:
 
         bot_ids_map = self_bot_ids_map if self_bot_ids_map is not None else {}
 
+        # 优化AQL查询，让私聊也成为高优先级事件
         query = """
         LET conversations_with_latest_event_time = (
             FOR conv IN @@conv_collection
@@ -344,26 +345,29 @@ class ConversationStorageService:
                     RETURN 1
             )
             LET has_high_priority = (
-                FOR event IN @@event_collection
-                    FILTER event.conversation_id_extracted == conv_doc.conversation_id
-                    AND event.timestamp > last_read_ts
-                    LET bot_ids = VALUES(@self_bot_ids_map)
-                    LET is_at_or_reply_to_me = (
-                        FOR seg IN event.content
-                            FILTER (seg.type == 'at' OR seg.type == 'quote') AND seg.data.user_id IN bot_ids
-                            LIMIT 1
-                            RETURN true
-                    )[0]
-                    FILTER is_at_or_reply_to_me
-                    LIMIT 1
-                    RETURN true
-            )[0] OR false
+                conv_doc.type == 'private' OR
+                (
+                    FOR event IN @@event_collection
+                        FILTER event.conversation_id_extracted == conv_doc.conversation_id
+                        AND event.timestamp > last_read_ts
+                        LET bot_ids = VALUES(@self_bot_ids_map)
+                        LET is_at_or_reply_to_me = (
+                            FOR seg IN event.content
+                                FILTER (seg.type == 'at' OR seg.type == 'quote') AND seg.data.user_id IN bot_ids
+                                LIMIT 1
+                                RETURN true
+                        )[0]
+                        FILTER is_at_or_reply_to_me
+                        LIMIT 1
+                        RETURN true
+                )[0]
+            ) OR false
             SORT latest_event.timestamp DESC
             RETURN {
                 conv_doc: conv_doc,
                 latest_event: latest_event,
                 unread_count: unread_count,
-                has_high_priority: has_high_priority  // 确保这一行在RETURN中
+                has_high_priority: has_high_priority
             }
         """
         bind_vars = {
