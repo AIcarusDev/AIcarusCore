@@ -1,9 +1,9 @@
 # src/common/unread_info_service/unread_info_service.py
 from collections import defaultdict
-from datetime import datetime
 from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
+from src.common.time_utils import format_relative_time
 from src.database import ConversationStorageService, EventStorageService
 
 logger = get_logger(__name__)
@@ -262,7 +262,8 @@ class UnreadInfoService:
             conv_name = conv_doc.get("name") or sender_display_name
 
             timestamp = latest_event.get("timestamp", 0)
-            time_str = datetime.fromtimestamp(timestamp / 1000.0).strftime("%H:%M")
+            # 使用我们新的相对时间函数
+            time_str = format_relative_time(timestamp)
             message_preview = self._create_message_preview(latest_event, sender_display_name)
 
             # 4. 根据 unread_count 决定状态文本
@@ -284,7 +285,7 @@ class UnreadInfoService:
         summary_parts.append("</conversation_list>")
         return "\n".join(summary_parts).strip()
 
-    def _format_single_conversation_summary(self, item: dict[str, Any]) -> list[str]:
+    async def _format_single_conversation_summary(self, item: dict[str, Any]) -> list[str]:
         """辅助函数: 将单个会话的信息格式化为多行摘要文本列表.
 
         Args:
@@ -293,18 +294,35 @@ class UnreadInfoService:
         Returns:
             list[str]: 格式化后的多行文本列表，包含会话的摘要信息.
         """
-        conv_doc, latest_event, unread_count = (
+        conv_doc, latest_event, unread_count, has_high_priority = (
             item["conv_doc"],
             item["latest_event"],
             item["unread_count"],
+            item["has_high_priority"],
         )
-        conv_type = conv_doc.get("type", "private")
 
-        sender_name = self._get_sender_display_name(latest_event, conv_type)
-        time_str = datetime.fromtimestamp(latest_event.get("timestamp", 0) / 1000.0).strftime(
-            "%H:%M"
-        )
-        preview = self._create_message_preview(latest_event, sender_name)
+        event_for_preview = latest_event
+
+        if has_high_priority:
+            logger.debug(
+                f"检测到会话 '{conv_doc.get('conversation_id')}' 存在高优先级消息，尝试精确查找..."
+            )
+            last_read_ts = conv_doc.get("last_processed_timestamp", 0)
+            # 调用我们刚刚在 EventStorageService 中添加的新方法
+            high_priority_event = await self.event_storage.get_latest_high_priority_unread_event(
+                conv_doc.get("conversation_id"), last_read_ts, self.self_bot_ids
+            )
+            if high_priority_event:
+                logger.debug(
+                    f"已找到高优先级事件 '{high_priority_event.get('_key')}' 用于生成预览。"
+                )
+                event_for_preview = high_priority_event
+
+        conv_type = conv_doc.get("type", "private")
+        sender_name = self._get_sender_display_name(event_for_preview, conv_type)
+        # 在这里也使用相对时间
+        time_str = format_relative_time(event_for_preview.get("timestamp", 0))
+        preview = self._create_message_preview(event_for_preview, sender_name)
 
         summary_lines = []
         is_temporary = conv_doc.get("extra", {}).get("is_temporary", False)
@@ -326,7 +344,9 @@ class UnreadInfoService:
 
         return summary_lines
 
-    def _format_chat_type_section(self, chat_type: str, items: list[dict[str, Any]]) -> list[str]:
+    async def _format_chat_type_section(
+        self, chat_type: str, items: list[dict[str, Any]]
+    ) -> list[str]:
         """辅助函数: 格式化特定聊天类型（群聊/私聊）的整个XML块.
 
         Args:
@@ -343,12 +363,15 @@ class UnreadInfoService:
         section_parts = [f"<{tag}>"]
 
         for item in items:
-            section_parts.extend(self._format_single_conversation_summary(item))
+            summary_lines = await self._format_single_conversation_summary(item)
+            section_parts.extend(summary_lines)
 
         section_parts.append(f"</{tag}>")
         return section_parts
 
-    def _format_platform_section(self, platform: str, items: list[dict[str, Any]]) -> list[str]:
+    async def _format_platform_section(
+        self, platform: str, items: list[dict[str, Any]]
+    ) -> list[str]:
         """辅助函数: 格式化单个平台的完整XML块.
 
         Args:
@@ -366,8 +389,8 @@ class UnreadInfoService:
         group_chats = [c for c in items if c["conv_doc"].get("type") == "group"]
         private_chats = [c for c in items if c["conv_doc"].get("type") == "private"]
 
-        section_parts.extend(self._format_chat_type_section("group", group_chats))
-        section_parts.extend(self._format_chat_type_section("private", private_chats))
+        section_parts.extend(await self._format_chat_type_section("group", group_chats))
+        section_parts.extend(await self._format_chat_type_section("private", private_chats))
 
         section_parts.append(f"</from_{platform}>")
         return section_parts
@@ -407,7 +430,7 @@ class UnreadInfoService:
         # --- 步骤 3: 委托构建并合并结果 ---
         summary_parts = []
         for platform, items in grouped_by_platform.items():
-            summary_parts.extend(self._format_platform_section(platform, items))
+            summary_parts.extend(await self._format_platform_section(platform, items))
 
         return "\n".join(summary_parts).strip()
 
@@ -423,11 +446,20 @@ class UnreadInfoService:
         if not unread_convs:
             return "所有平台均无新消息。"
 
-        platforms_with_news = defaultdict(lambda: {"has_high_priority": False})
+        # 结构增强，现在不仅记录高优，还记录最新事件的时间戳
+        platforms_with_news = defaultdict(
+            lambda: {"has_high_priority": False, "latest_timestamp": 0}
+        )
         for item in unread_convs:
             if platform := item["conv_doc"].get("platform"):
                 if item["has_high_priority"]:
                     platforms_with_news[platform]["has_high_priority"] = True
+
+                # 更新最新时间戳
+                event_ts = item.get("latest_event", {}).get("timestamp", 0)
+                if event_ts > platforms_with_news[platform]["latest_timestamp"]:
+                    platforms_with_news[platform]["latest_timestamp"] = event_ts
+
                 # 只要有未读，就标记一下，方便后续统一处理
                 platforms_with_news[platform]["has_any_news"] = True
 
@@ -435,12 +467,14 @@ class UnreadInfoService:
             return "所有平台均无新消息。"
 
         summary_lines = []
+        # 使用新的数据结构来构建更丰富的摘要
         for platform, info in sorted(platforms_with_news.items()):
+            relative_time_str = format_relative_time(info["latest_timestamp"])
+
+            # 将相对时间移动到句首，并用方括号包裹
             if info["has_high_priority"]:
-                summary_lines.append(f"你的 '{platform}' 上似乎有人找你。")
-            elif info["has_any_news"]:  # 现在这个判断才会生效
-                summary_lines.append(
-                    f"你的 '{platform}' 上似乎有未读消息, 不过大概率与你无关, 你可以选择无视。"
-                )
+                summary_lines.append(f"[{relative_time_str}] 你的 '{platform}' 上似乎有人找你。")
+            elif info.get("has_any_news"):
+                summary_lines.append(f"[{relative_time_str}] 你的 '{platform}' 上似乎有未读消息。")
 
         return "\n".join(summary_lines) or "所有平台均无新消息。"

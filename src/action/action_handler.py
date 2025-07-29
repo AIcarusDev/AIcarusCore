@@ -29,9 +29,10 @@ if TYPE_CHECKING:
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 
 logger = get_logger(__name__)
+
 ACTION_RESPONSE_TIMEOUT_SECONDS = 30
-MAX_CONTENT_PREVIEW_SIZE = 4096
-MAX_AGGREGATE_SIZE = 32768  # 32KB 应该是个比较安全的上限
+MAX_CONTENT_PREVIEW_SIZE = 32768
+MAX_AGGREGATE_SIZE = 65535
 
 
 class ActionHandler:
@@ -402,6 +403,7 @@ class ActionHandler:
             return (
                 f"成功！已编辑文件 '{path_str}'，"
                 f"将所有 '{search_pattern}' 替换为 '{replace_string}'。"
+                f"\n目前文件的内容为:\n---\n{final_content_preview}\n---"
             )
         except Exception as e:
             logger.error(f"编辑文件时出错 ({path_str}): {e}", exc_info=True)

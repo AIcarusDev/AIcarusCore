@@ -1,5 +1,5 @@
 # src/common/time_utils.py
-from datetime import datetime
+from datetime import UTC, datetime
 
 
 def get_formatted_time_for_llm(now: datetime | None = None) -> str:
@@ -51,3 +51,49 @@ def get_formatted_time_for_llm(now: datetime | None = None) -> str:
         f"现在是{now.year}年的{season}，{now.month}月{now.day}日，"
         f"{period}{now.hour}点{now.minute}分"
     )
+
+
+def format_relative_time(past_timestamp_ms: int) -> str:
+    """将过去的毫秒时间戳转换为易于理解的相对时间字符串.
+
+    Args:
+        past_timestamp_ms: 过去的毫秒级时间戳 (UTC)。
+
+    Returns:
+        一个描述相对时间的字符串，例如 "刚刚", "5分钟前", "3小时前", "昨天"。
+    """
+    if past_timestamp_ms <= 0:
+        return "很久以前"
+
+    now_utc = datetime.now(UTC)
+    past_time_utc = datetime.fromtimestamp(past_timestamp_ms / 1000.0, tz=UTC)
+
+    delta = now_utc - past_time_utc
+
+    seconds = delta.total_seconds()
+
+    if seconds < 10:
+        return "刚刚"
+    if seconds < 60:
+        return f"{int(seconds)}秒前"
+
+    minutes = seconds / 60
+    if minutes < 60:
+        return f"{int(minutes)}分钟前"
+
+    hours = minutes / 60
+    if hours < 24:
+        return f"{int(hours)}小时前"
+
+    days = hours / 24
+    if days < 2:
+        return "昨天"
+    if days < 30:
+        return f"{int(days)}天前"
+
+    months = days / 30
+    if months < 12:
+        return f"{int(months)}个月前"
+
+    years = days / 365
+    return f"{int(years)}年前"

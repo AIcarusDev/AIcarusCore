@@ -29,10 +29,7 @@ class InternalInfoBuilder:
         try:
             latest_thought = await self.thought_storage_service.get_latest_thought_document()
             if not latest_thought:
-                return (
-                    "<internal_info>\n<!-- 你刚刚开始思考，还没有任何内部状态历史。 -->\n"
-                    "</internal_info>"
-                )
+                return "\n<!-- 你刚刚开始思考，还没有任何内部状态历史。 -->\n"
 
             snapshot_lines = []
 
@@ -57,11 +54,11 @@ class InternalInfoBuilder:
 
             # 使用缩进美化输出
             indented_lines = "\n".join(f"    {line}" for line in snapshot_lines)
-            return f"<internal_info>\n{indented_lines}\n</internal_info>"
+            return f"\n{indented_lines}\n"
 
         except Exception as e:
             logger.error(f"构建内部信息块时发生严重错误: {e}", exc_info=True)
-            return "<internal_info>\n<!-- 内部信息构建失败 -->\n</internal_info>"
+            return "\n<!-- 内部信息构建失败 -->\n"
 
     def _format_thought_content(self, thought_doc: dict) -> list[str]:
         """格式化思想内容（心情、想法、目标）."""

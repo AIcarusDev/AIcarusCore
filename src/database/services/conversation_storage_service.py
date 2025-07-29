@@ -301,6 +301,7 @@ class ConversationStorageService:
 
         bot_ids_map = self_bot_ids_map if self_bot_ids_map is not None else {}
 
+        # 优化AQL查询，让私聊也成为高优先级事件
         query = """
         LET conversations_with_latest_event_time = (
             FOR conv IN @@conv_collection
@@ -344,25 +345,23 @@ class ConversationStorageService:
                     RETURN 1
             )
             LET has_high_priority = (
-                FOR event IN @@event_collection
-                    FILTER event.conversation_id_extracted == conv_doc.conversation_id
-                    AND event.timestamp > last_read_ts
-                    LET is_at_me = (
-                        FOR seg IN event.content
-                            FILTER seg.type == 'at' AND seg.data.user_id == @self_bot_ids_map[conv_doc.platform]
-                            LIMIT 1
-                            RETURN true
-                    )[0]
-                    LET is_reply_to_me = (
-                        FOR seg IN event.content
-                            FILTER seg.type == 'quote' AND seg.data.user_id == @self_bot_ids_map[conv_doc.platform]
-                            LIMIT 1
-                            RETURN true
-                    )[0]
-                    FILTER is_at_me OR is_reply_to_me
-                    LIMIT 1
-                    RETURN true
-            )[0] OR false
+                conv_doc.type == 'private' OR
+                (
+                    LET bot_ids = VALUES(@self_bot_ids_map)
+                    FOR event IN @@event_collection
+                        FILTER event.conversation_id_extracted == conv_doc.conversation_id
+                        AND event.timestamp > last_read_ts
+                        LET is_at_or_reply_to_me = (
+                            FOR seg IN event.content
+                                FILTER (seg.type == 'at' OR seg.type == 'quote') AND seg.data.user_id IN bot_ids
+                                LIMIT 1
+                                RETURN true
+                        )[0]
+                        FILTER is_at_or_reply_to_me
+                        LIMIT 1
+                        RETURN true
+                )[0]
+            ) OR false
             SORT latest_event.timestamp DESC
             RETURN {
                 conv_doc: conv_doc,
@@ -375,7 +374,7 @@ class ConversationStorageService:
             "@conv_collection": self.COLLECTION_NAME,
             "@event_collection": EventStorageService.COLLECTION_NAME,
             "exclude_conv_id": exclude_conversation_id,
-            "self_bot_ids_map": bot_ids_map,  # 【修复点5】: 绑定变量
+            "self_bot_ids_map": bot_ids_map,
         }
         try:
             results = await self.conn_manager.execute_query(query, bind_vars)
