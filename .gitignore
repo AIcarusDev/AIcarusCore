@@ -177,3 +177,4 @@ config/old/
 logs/
 data/
 start.bat
+tmp/
