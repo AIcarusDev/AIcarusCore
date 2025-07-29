@@ -347,10 +347,10 @@ class ConversationStorageService:
             LET has_high_priority = (
                 conv_doc.type == 'private' OR
                 (
+                    LET bot_ids = VALUES(@self_bot_ids_map)
                     FOR event IN @@event_collection
                         FILTER event.conversation_id_extracted == conv_doc.conversation_id
                         AND event.timestamp > last_read_ts
-                        LET bot_ids = VALUES(@self_bot_ids_map)
                         LET is_at_or_reply_to_me = (
                             FOR seg IN event.content
                                 FILTER (seg.type == 'at' OR seg.type == 'quote') AND seg.data.user_id IN bot_ids
