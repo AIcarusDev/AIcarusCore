@@ -661,8 +661,7 @@ class ActionHandler:
 
         if not url or not self.url_context_agent_client:
             result_text = (
-                "动作执行失败：LLM想访问URL但没提供网址，"
-                "或者URL上下文代理客户端未初始化。"
+                "动作执行失败：LLM想访问URL但没提供网址，或者URL上下文代理客户端未初始化。"
             )
             logger.warning(result_text)
             return result_text
@@ -679,6 +678,6 @@ class ActionHandler:
             prompt=user_prompt,
             system_prompt=system_prompt,
             is_stream=False,
-            use_url_context=True  # 关键！开启 URL 上下文功能
+            use_url_context=True,  # 关键！开启 URL 上下文功能
         )
         return response.get("text", "访问URL失败或未返回任何信息。")

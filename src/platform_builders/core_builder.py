@@ -88,7 +88,7 @@ class CoreBuilder(BasePlatformBuilder):
             "description": "访问一个指定的网页URL。",
             "properties": {
                 "url": {"type": "string", "description": "需要访问和总结的完整网页URL。"},
-                "motivation": {"type": "string"}
+                "motivation": {"type": "string"},
             },
             "required": ["url", "motivation"],
         },
