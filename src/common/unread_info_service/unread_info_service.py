@@ -461,11 +461,13 @@ class UnreadInfoService:
         # 使用新的数据结构来构建更丰富的摘要
         for platform, info in sorted(platforms_with_news.items()):
             relative_time_str = format_relative_time(info["latest_timestamp"])
+
+            # 将相对时间移动到句首，并用方括号包裹
             if info["has_high_priority"]:
-                summary_lines.append(f"你的 '{platform}' 上似乎有人在 {relative_time_str} 找你。")
+                summary_lines.append(f"[{relative_time_str}] 你的 '{platform}' 上似乎有人找你。")
             elif info.get("has_any_news"):
                 summary_lines.append(
-                    f"你的 '{platform}' 上在 {relative_time_str} 有未读消息, 不过大概率与你无关, 你可以选择无视。"
+                    f"[{relative_time_str}] 你的 '{platform}' 上有未读消息, 不过大概率与你无关, 你可以选择无视。"
                 )
 
         return "\n".join(summary_lines) or "所有平台均无新消息。"
