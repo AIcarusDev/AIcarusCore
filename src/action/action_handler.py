@@ -402,6 +402,7 @@ class ActionHandler:
             return (
                 f"成功！已编辑文件 '{path_str}'，"
                 f"将所有 '{search_pattern}' 替换为 '{replace_string}'。"
+                f"\n目前文件的内容为:\n---\n{final_content_preview}\n---"
             )
         except Exception as e:
             logger.error(f"编辑文件时出错 ({path_str}): {e}", exc_info=True)
