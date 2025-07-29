@@ -467,7 +467,7 @@ class UnreadInfoService:
                 summary_lines.append(f"[{relative_time_str}] 你的 '{platform}' 上似乎有人找你。")
             elif info.get("has_any_news"):
                 summary_lines.append(
-                    f"[{relative_time_str}] 你的 '{platform}' 上有未读消息, 不过大概率与你无关, 你可以选择无视。"
+                    f"[{relative_time_str}] 你的 '{platform}' 上似乎有未读消息。"
                 )
 
         return "\n".join(summary_lines) or "所有平台均无新消息。"
