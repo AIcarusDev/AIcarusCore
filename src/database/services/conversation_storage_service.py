@@ -347,19 +347,14 @@ class ConversationStorageService:
                 FOR event IN @@event_collection
                     FILTER event.conversation_id_extracted == conv_doc.conversation_id
                     AND event.timestamp > last_read_ts
-                    LET is_at_me = (
+                    LET bot_ids = VALUES(@self_bot_ids_map)
+                    LET is_at_or_reply_to_me = (
                         FOR seg IN event.content
-                            FILTER seg.type == 'at' AND seg.data.user_id == @self_bot_ids_map[conv_doc.platform]
+                            FILTER (seg.type == 'at' OR seg.type == 'quote') AND seg.data.user_id IN bot_ids
                             LIMIT 1
                             RETURN true
                     )[0]
-                    LET is_reply_to_me = (
-                        FOR seg IN event.content
-                            FILTER seg.type == 'quote' AND seg.data.user_id == @self_bot_ids_map[conv_doc.platform]
-                            LIMIT 1
-                            RETURN true
-                    )[0]
-                    FILTER is_at_me OR is_reply_to_me
+                    FILTER is_at_or_reply_to_me
                     LIMIT 1
                     RETURN true
             )[0] OR false
@@ -368,14 +363,14 @@ class ConversationStorageService:
                 conv_doc: conv_doc,
                 latest_event: latest_event,
                 unread_count: unread_count,
-                has_high_priority: has_high_priority
+                has_high_priority: has_high_priority  // 确保这一行在RETURN中
             }
-        """  # noqa: E501
+        """
         bind_vars = {
             "@conv_collection": self.COLLECTION_NAME,
             "@event_collection": EventStorageService.COLLECTION_NAME,
             "exclude_conv_id": exclude_conversation_id,
-            "self_bot_ids_map": bot_ids_map,  # 【修复点5】: 绑定变量
+            "self_bot_ids_map": bot_ids_map,
         }
         try:
             results = await self.conn_manager.execute_query(query, bind_vars)

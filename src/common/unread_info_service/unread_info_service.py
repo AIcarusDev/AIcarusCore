@@ -38,7 +38,7 @@ class UnreadInfoService:
         logger.info(f"UnreadInfoService 已更新自身ID列表: {self.self_bot_ids}")
 
     async def _get_recently_active_conversations_with_details(
-        self, exclude_conversation_id: str | None = None
+        self,exclude_conversation_id: str | None = None
     ) -> list[dict[str, Any]]:
         """【全新核心方法】获取所有最近活跃的会话及其详细信息.
 
@@ -284,7 +284,7 @@ class UnreadInfoService:
         summary_parts.append("</conversation_list>")
         return "\n".join(summary_parts).strip()
 
-    def _format_single_conversation_summary(self, item: dict[str, Any]) -> list[str]:
+    async def _format_single_conversation_summary(self, item: dict[str, Any]) -> list[str]:
         """辅助函数: 将单个会话的信息格式化为多行摘要文本列表.
 
         Args:
@@ -293,18 +293,32 @@ class UnreadInfoService:
         Returns:
             list[str]: 格式化后的多行文本列表，包含会话的摘要信息.
         """
-        conv_doc, latest_event, unread_count = (
+        conv_doc, latest_event, unread_count, has_high_priority = (
             item["conv_doc"],
             item["latest_event"],
             item["unread_count"],
+            item["has_high_priority"],
         )
-        conv_type = conv_doc.get("type", "private")
 
-        sender_name = self._get_sender_display_name(latest_event, conv_type)
-        time_str = datetime.fromtimestamp(latest_event.get("timestamp", 0) / 1000.0).strftime(
+        event_for_preview = latest_event
+
+        if has_high_priority:
+            logger.debug(f"检测到会话 '{conv_doc.get('conversation_id')}' 存在高优先级消息，尝试精确查找...")
+            last_read_ts = conv_doc.get("last_processed_timestamp", 0)
+            # 调用我们刚刚在 EventStorageService 中添加的新方法
+            high_priority_event = await self.event_storage.get_latest_high_priority_unread_event(
+                conv_doc.get("conversation_id"), last_read_ts, self.self_bot_ids
+            )
+            if high_priority_event:
+                logger.debug(f"已找到高优先级事件 '{high_priority_event.get('_key')}' 用于生成预览。")
+                event_for_preview = high_priority_event
+
+        conv_type = conv_doc.get("type", "private")
+        sender_name = self._get_sender_display_name(event_for_preview, conv_type)
+        time_str = datetime.fromtimestamp(event_for_preview.get("timestamp", 0) / 1000.0).strftime(
             "%H:%M"
         )
-        preview = self._create_message_preview(latest_event, sender_name)
+        preview = self._create_message_preview(event_for_preview, sender_name)
 
         summary_lines = []
         is_temporary = conv_doc.get("extra", {}).get("is_temporary", False)
