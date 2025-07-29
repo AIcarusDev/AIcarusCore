@@ -96,9 +96,11 @@ class AllModelPurposesConfig(ConfigBase):
     focused_chat: ModelParams | None = None
     """专注聊天模型，用于处理专注聊天相关的思维."""
 
-    # 哼，给你那个破搜索功能占个坑位
     web_search_agent: ModelParams | None = None
     """网页搜索代理模型，用于处理web_search动作并总结结果."""
+
+    url_context_agent: ModelParams | None = None
+    """URL 上下文代理模型，用于访问特定网址并总结内容。"""
 
 
 @dataclass
