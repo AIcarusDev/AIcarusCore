@@ -133,7 +133,7 @@ class ThoughtPromptBuilder:
         if not self.chat_session_manager or len(self.chat_session_manager.focus_history) <= 1:
             return ""
 
-        log_lines = ["<navigation_log>", "<!-- 这是你最近的意识焦点移动轨迹 -->"]
+        log_lines = ["<!-- 这是你最近的意识焦点移动轨迹 -->"]
 
         history = list(self.chat_session_manager.focus_history)  # 创建副本以安全迭代
         history_len = len(history)
@@ -151,7 +151,6 @@ class ThoughtPromptBuilder:
 
             log_lines.append(f"[T{relative_index}] 聚焦于 {desc} (动机: {motivation})")
 
-        log_lines.append("</navigation_log>")
         return "\n".join(log_lines)
 
     async def build_prompts_components(
