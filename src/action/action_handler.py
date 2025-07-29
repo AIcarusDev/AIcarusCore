@@ -1,12 +1,17 @@
 # 文件: src/action/action_handler.py (竞速模式适配版 V1.0)
 import asyncio
+import io
+import os
 import time
 import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from src.action.components.pending_action_manager import PendingActionManager
 from src.common.custom_logging.logging_config import get_logger
+from src.common.utils import find_files, generate_file_tree
 from src.config import config
+from src.config.config_paths import PROJECT_ROOT
 from src.core_communication.action_sender import ActionSender
 from src.database import (
     ActionLogStorageService,
@@ -25,6 +30,8 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 ACTION_RESPONSE_TIMEOUT_SECONDS = 30
+MAX_CONTENT_PREVIEW_SIZE = 4096
+MAX_AGGREGATE_SIZE = 32768  # 32KB 应该是个比较安全的上限
 
 
 class ActionHandler:
@@ -44,6 +51,75 @@ class ActionHandler:
         self.core_logic: CoreLogic | None = None
         self.person_service: PersonStorageService | None = None
         logger.info(f"{self.__class__.__name__} instance created.")
+        self._workspace_root: Path | None = None
+        logger.info(f"{self.__class__.__name__} instance created (等待依赖注入).")
+
+    def _initialize_workspace(self) -> None:
+        """一个全新的、专门用来初始化工作区路径的私有方法.
+
+        它必须在所有依赖注入完成后被调用!
+        """
+        if self._workspace_root is not None:
+            return  # 防止重复初始化
+
+        workspace_path_from_config = config.runtime_environment.workspace_root
+        sanitized_workspace_path = workspace_path_from_config.lstrip("/\\")
+        if sanitized_workspace_path != workspace_path_from_config:
+            logger.warning(
+                f"检测到工作区路径 '{workspace_path_from_config}' 以斜杠开头，"
+                f"已自动修正为 '{sanitized_workspace_path}'。建议直接修改 config.toml。"
+            )
+
+        self._workspace_root = (PROJECT_ROOT / workspace_path_from_config).resolve()
+        self._workspace_root.mkdir(parents=True, exist_ok=True)
+        logger.info(f"文件操作沙箱已通过延迟初始化成功定位，根目录: {self._workspace_root}")
+
+    def _get_safe_workspace_root(self) -> Path:
+        """一个安全的获取器，确保在使用 _workspace_root 之前它一定被初始化了."""
+        if self._workspace_root is None:
+            # 这是我们的保险丝！
+            self._initialize_workspace()
+        return self._workspace_root
+
+    def _resolve_safe_path(self, user_path: str) -> Path | None:
+        """解析用户提供的相对路径，并确保它在安全的工作区内.
+
+        这是防止路径遍历攻击 (../) 和根目录解析问题的关键！
+        """
+        # 1. 通过安全的获取器
+        workspace_root = self._get_safe_workspace_root()
+
+        sanitized_path_str = user_path.strip().lstrip("/\\")
+        candidate_path = workspace_root.joinpath(sanitized_path_str)
+
+        # 2. 严防死守！使用 os.path.commonpath 来进行最严格的检查。
+        #    这个函数会告诉我们两个路径的共同祖先是谁。
+        #    如果共同祖先不是我们的工作区根目录，那绝对有问题！
+        #    这能完美防御 "../" 这种越狱小花招。
+        try:
+            # os.path.realpath 会解析所有符号链接，确保我们得到的是物理真实路径
+            real_workspace_root = os.path.realpath(self._workspace_root)
+            real_candidate_path = os.path.realpath(candidate_path)
+
+            common_prefix = os.path.commonpath([real_workspace_root, real_candidate_path])
+
+            if os.path.realpath(common_prefix) == real_workspace_root:
+                # 只有当共同前缀就是我们的工作区时，才证明这个路径是安全的
+                return Path(real_candidate_path)
+            else:
+                # 如果共同前缀不是工作区，说明路径已经跑到外面去了！
+                logger.error(
+                    f"路径遍历攻击尝试被阻止！目标路径 '{real_candidate_path}' "
+                    f"超出工作区 '{real_workspace_root}'。"
+                )
+                return None
+        except ValueError:
+            # 如果两个路径在不同盘符（比如 C: 和 D:），commonpath 会抛出 ValueError
+            logger.error(f"路径 '{candidate_path}' 与工作区不在同一驱动器上，操作被拒绝。")
+            return None
+        except Exception as e:
+            logger.error(f"解析安全路径时发生未知错误: {e}", exc_info=True)
+            return None
 
     def set_dependencies(
         self,
@@ -71,6 +147,7 @@ class ActionHandler:
             conversation_service=conversation_service,
             action_handler_instance=self,  # 把自己传进去
         )
+        self._initialize_workspace()
         logger.info("ActionHandler 的依赖已成功设置。")
 
     def set_thought_trigger(self, trigger_event: asyncio.Event | None) -> None:
@@ -143,28 +220,48 @@ class ActionHandler:
         platform_id = platform_id_from_action if platform_actions else "core"
         action_name, params = next(iter(actions_to_process.items()))
 
-        if platform_id == "core" and action_name == "web_search":
-            # 调用内部的“智能搜索代理”方法
-            logger.info("检测到 web_search 动作，正在激活智能搜索代理...")
-            result_text = await self._execute_core_web_search(params)
+        if platform_id == "core":
+            result_text = await self._execute_core_action(action_name, params)
 
-            # 将代理返回的高信息密度结果写回到思想点
+            # 将结果写回思想点
             if self.thought_storage_service:
                 await self.thought_storage_service.save_action_result_to_thought(
                     thought_key=doc_key_for_updates,
                     result_text=result_text,
                 )
 
-            # 搜索完成后，立即触发思考，让AI能够处理结果！
+            # 核心动作执行完，立即触发思考！
             if self.thought_trigger:
-                logger.info(f"智能搜索代理完成任务 (Action ID: {action_id})，立即触发新一轮思考。")
+                logger.info(
+                    f"核心动作 '{action_name}' 完成 (Action ID: {action_id})，立即触发新一轮思考。"
+                )
                 self.thought_trigger.set()
-
-        # --- END: 修改结束 ---
         else:
             await self._execute_platform_action_flow(
                 platform_id, action_name, params, doc_key_for_updates
             )
+
+    async def _execute_core_action(self, action_name: str, params: dict) -> str:
+        """核心动作的统一分发中心."""
+        if action_name == "web_search":
+            return await self._execute_core_web_search(params)
+
+        file_op_handlers = {
+            "list_files": self._execute_core_list_files,
+            "read_file": self._execute_core_read_file,
+            "write_file": self._execute_core_write_file,
+            "edit_file": self._execute_core_edit_file,
+            "get_aggregated_content": self._execute_core_get_aggregated_content,
+        }
+
+        handler = file_op_handlers.get(action_name)
+        if handler:
+            logger.info(f"检测到核心文件操作 '{action_name}'，正在后台线程中执行...")
+            # 将同步的文件操作函数放到独立的线程中运行，防止阻塞主事件循环
+            return await asyncio.to_thread(handler, params)
+
+        logger.error(f"收到了一个未知的核心动作: '{action_name}'")
+        return f"错误：未知核心动作 '{action_name}'。"
 
     async def _execute_core_web_search(self, params: dict) -> str:
         """执行核心的网页搜索动作，并直接返回结果字符串."""
@@ -189,6 +286,226 @@ class ActionHandler:
         # if self.thought_trigger:
         #     logger.info(f"行动流程处理完毕 (Action ID: {action_id})，触发思考。")
         #     self.thought_trigger.set()
+
+    def _execute_core_list_files(self, params: dict) -> str:
+        path_str = params.get("path", ".")
+        safe_path = self._resolve_safe_path(path_str)
+        if not safe_path:
+            return f"错误：路径 '{path_str}' 不安全或无效。"
+
+        try:
+            if not safe_path.exists():
+                return f"错误：路径 '{path_str}' 不存在。"
+            if not safe_path.is_dir():
+                return f"错误：'{path_str}' 不是一个目录。"
+
+            items = []
+            for item in safe_path.iterdir():
+                item_type = "DIR" if item.is_dir() else "FILE"
+                items.append(f"[{item_type}] {item.name}")
+
+            if not items:
+                return f"目录 '{path_str}' 是空的。"
+            return f"目录 '{path_str}' 下的内容：\n" + "\n".join(items)
+        except Exception as e:
+            logger.error(f"列出文件时出错 ({path_str}): {e}", exc_info=True)
+            return f"错误：列出文件时发生未知错误: {e}"
+
+    def _execute_core_read_file(self, params: dict) -> str:
+        path_str = params.get("path")
+        if not path_str:
+            return "错误：未提供要读取的文件路径。"
+
+        safe_path = self._resolve_safe_path(path_str)
+        if not safe_path:
+            return f"错误：路径 '{path_str}' 不安全或无效。"
+
+        try:
+            if not safe_path.is_file():
+                return f"错误：路径 '{path_str}' 不是一个文件或不存在。"
+
+            content = safe_path.read_text(encoding="utf-8")
+            return f"文件 '{path_str}' 的内容如下：\n---\n{content}\n---"
+        except Exception as e:
+            logger.error(f"读取文件时出错 ({path_str}): {e}", exc_info=True)
+            return f"错误：读取文件时发生未知错误: {e}"
+
+    def _execute_core_write_file(self, params: dict) -> str:
+        path_str = params.get("path")
+        content = params.get("content")
+        append = params.get("append", True)  # 默认为追加模式
+
+        if not path_str or content is None:
+            return "错误：未提供文件路径或写入内容。"
+
+        safe_path = self._resolve_safe_path(path_str)
+        if not safe_path:
+            return f"错误：路径 '{path_str}' 不安全或无效。"
+
+        try:
+            # 确保父目录存在
+            safe_path.parent.mkdir(parents=True, exist_ok=True)
+
+            mode = "a" if append else "w"
+            with safe_path.open(mode, encoding="utf-8") as f:
+                f.write(content)
+            final_content = safe_path.read_text(encoding="utf-8")
+
+            # 检查内容长度，如果太长就截断
+            if len(final_content.encode("utf-8")) > MAX_CONTENT_PREVIEW_SIZE:
+                # 按字符截断，而不是字节，避免截断半个汉字
+                final_content = final_content[:MAX_CONTENT_PREVIEW_SIZE] + "\n... [内容已截断]"
+
+            action_desc = "追加内容到" if params.get("append", True) else "覆写"
+            return (
+                f"成功！已{action_desc}文件 '{params.get('path')}'。\n"
+                f"目前文件的内容为:\n---\n{final_content}\n---"
+            )
+        except Exception as e:
+            logger.error(f"写入文件时出错 ({path_str}): {e}", exc_info=True)
+            return f"错误：写入文件时发生未知错误: {e}"
+
+    def _execute_core_edit_file(self, params: dict) -> str:
+        path_str = params.get("path")
+        search_pattern = params.get("search_pattern")
+        replace_string = params.get("replace_string")
+
+        if not all([path_str, search_pattern, replace_string is not None]):
+            return "错误：缺少编辑文件所需的参数。"
+
+        safe_path = self._resolve_safe_path(path_str)
+        if not safe_path:
+            return f"错误：路径 '{path_str}' 不安全或无效。"
+
+        try:
+            if not safe_path.is_file():
+                return f"错误：路径 '{path_str}' 不是一个文件或不存在。"
+
+            original_content = safe_path.read_text(encoding="utf-8")
+            if search_pattern not in original_content:
+                return (
+                    f"操作完成，但在文件 '{params.get('path')}' "
+                    f"中未找到要替换的文本 '{search_pattern}'。\n"
+                    f"目前文件内容未改变:\n---\n{original_content[:MAX_CONTENT_PREVIEW_SIZE]}\n---"
+                )
+
+            new_content = original_content.replace(search_pattern, replace_string)
+
+            safe_path.write_text(new_content, encoding="utf-8")
+
+            final_content_preview = new_content
+            if len(final_content_preview.encode("utf-8")) > MAX_CONTENT_PREVIEW_SIZE:
+                final_content_preview = (
+                    final_content_preview[:MAX_CONTENT_PREVIEW_SIZE] + "\n... [内容已截断]"
+                )
+
+            return (
+                f"成功！已编辑文件 '{path_str}'，"
+                f"将所有 '{search_pattern}' 替换为 '{replace_string}'。"
+            )
+        except Exception as e:
+            logger.error(f"编辑文件时出错 ({path_str}): {e}", exc_info=True)
+            return f"错误：编辑文件时发生未知错误: {e}"
+
+    def _execute_core_get_aggregated_content(self, params: dict) -> str:
+        if find_files is None or generate_file_tree is None:
+            return "错误：代码聚合功能的核心模块未能加载，无法执行此操作。"
+
+        source_path_str = params.get("source_path")
+        if not source_path_str:
+            return "错误：缺少源路径参数。"
+
+        safe_source_path = self._resolve_safe_path(source_path_str)
+        if not safe_source_path:
+            return f"错误：源路径 '{source_path_str}' 不安全或无效。"
+
+        # 使用 io.StringIO 作为内存中的“日志队列”，避免打印到控制台
+        log_buffer = io.StringIO()
+
+        class FakeQueue:
+            def put(self, msg: str) -> None:
+                log_buffer.write(str(msg) + "\n")
+
+        fake_log_queue = FakeQueue()
+
+        try:
+            # 借用 CodeAggregatorAPI 的默认配置
+            api_defaults = {
+                "extensions": [".py", ".md", ".txt", ".json", ".toml", ".yaml"],
+                "ignore_items": {
+                    "venv",
+                    "__pycache__",
+                    ".git",
+                    ".vscode",
+                    "node_modules",
+                    "dist",
+                    "build",
+                    ".pytest_cache",
+                    "output",
+                },
+            }
+
+            extensions = params.get("extensions", api_defaults["extensions"])
+            ignore_items = set(params.get("ignore_items", [])) | api_defaults["ignore_items"]
+
+            # 1. 查找文件
+            found_files = find_files(
+                str(safe_source_path), extensions, ignore_items, fake_log_queue
+            )
+
+            if not found_files:
+                return f"在 '{source_path_str}' 路径下未找到符合条件的文件。"
+
+            # 2. 在内存中构建聚合内容
+            # 我们使用 StringIO 来模拟一个文件对象
+            output_buffer = io.StringIO()
+
+            # --- 写入头部信息 ---
+            output_buffer.write("=" * 80 + "\n")
+            output_buffer.write(f"根目录: {safe_source_path}\n")
+            output_buffer.write(f"共 {len(found_files)} 个文件\n")
+            output_buffer.write("=" * 80 + "\n\n")
+
+            # --- 写入文件树 ---
+            tree_structure = generate_file_tree(str(safe_source_path), found_files, fake_log_queue)
+            output_buffer.write("文件结构树:\n")
+            output_buffer.write(tree_structure)
+            output_buffer.write("\n\n" + "=" * 80 + "\n\n")
+
+            # --- 写入每个文件的内容 ---
+            for file_path in found_files:
+                output_buffer.write("-" * 80 + "\n")
+                output_buffer.write(f"文件路径: {file_path}\n")
+                output_buffer.write("-" * 80 + "\n\n")
+                try:
+                    with open(file_path, encoding="utf-8", errors="ignore") as input_file:
+                        content = input_file.read()
+                        lang = os.path.splitext(file_path)[1].lstrip(".")
+                        output_buffer.write(f"```{lang}\n")
+                        output_buffer.write(content)
+                        output_buffer.write("\n```\n\n")
+                except Exception as e:
+                    output_buffer.write(f"!!! 读取文件时出错: {file_path} -> {e} !!!\n\n")
+
+            # 3. 从内存中获取最终的字符串
+            final_content = output_buffer.getvalue()
+
+            # 对最终内容进行截断，防止撑爆LLM的上下文窗口
+            if len(final_content.encode("utf-8")) > MAX_AGGREGATE_SIZE:
+                # 智能截断：从末尾开始找，找到一个文件分隔符，从那里截断
+                # 这样可以保证最后一个文件是完整的
+                safe_cut_pos = final_content.rfind("\n" + "-" * 80, 0, MAX_AGGREGATE_SIZE)
+                if safe_cut_pos != -1:
+                    final_content = final_content[:safe_cut_pos]
+                else:  # 如果找不到，就硬截断
+                    final_content = final_content[:MAX_AGGREGATE_SIZE]
+                final_content += "\n... [聚合内容过长，已在末尾截断]"
+
+            return f"成功聚合了 '{source_path_str}' 的内容：\n{final_content}"
+
+        except Exception as e:
+            logger.error(f"聚合内容时出错 ({source_path_str}): {e}", exc_info=True)
+            return f"错误：聚合内容时发生未知错误: {e}"
 
     async def _execute_platform_action_flow(
         self, platform_id: str, action_name: str, params: dict, doc_key_for_updates: str

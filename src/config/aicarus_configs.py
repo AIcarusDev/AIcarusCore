@@ -239,8 +239,11 @@ class RuntimeEnvironmentSettings(ConfigBase):
     这些设置用于配置 Aicarus 在运行时的环境参数.
     """
 
-    temp_file_directory: str = "/tmp/aicarus_temp_images"
-    """临时文件目录，用于存储运行时生成的临时文件。默认值为 /tmp/aicarus_temp_images."""
+    temp_file_directory: str = "tmp/aicarus_temp_images"
+    """临时文件目录，用于存储运行时生成的临时文件。默认值为 tmp/aicarus_temp_images."""
+
+    workspace_root: str = "data/workspace"
+    """定义工作区根目录."""
 
 
 @dataclass

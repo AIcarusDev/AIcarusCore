@@ -82,10 +82,98 @@ class CoreBuilder(BasePlatformBuilder):
             "type": "object",
             "properties": {"query": {"type": "string"}, "motivation": {"type": "string"}},
             "required": ["query", "motivation"],
-        }
+        },
+        "list_files": {
+            "type": "object",
+            "description": "列出指定路径下的文件和文件夹。",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "要查看的路径，相对于工作区根目录。使用'/'作为分隔符。'.' 代表当前目录。",
+                },
+                "motivation": {"type": "string"},
+            },
+            "required": ["path", "motivation"],
+        },
+        "read_file": {
+            "type": "object",
+            "description": "读取指定文件的内容。",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "要读取的文件的路径，相对于工作区根目录。",
+                },
+                "motivation": {"type": "string"},
+            },
+            "required": ["path", "motivation"],
+        },
+        "write_file": {
+            "type": "object",
+            "description": "向指定文件写入内容。如果文件不存在，会自动创建。",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "要写入的文件的路径，相对于工作区根目录。",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "要写入的内容。这是一个标准的JSON字符串，换行符请使用'\\n'进行转义。",
+                },
+                "append": {
+                    "type": "boolean",
+                    "description": "是否以追加模式写入。True为追加到末尾，False为覆盖整个文件。默认为True。",
+                    "default": True,
+                },
+                "motivation": {"type": "string"},
+            },
+            "required": ["path", "content", "motivation"],
+        },
+        "edit_file": {
+            "type": "object",
+            "description": "在指定文件中搜索并替换内容。",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "要编辑的文件的路径，相对于工作区根目录。",
+                },
+                "search_pattern": {"type": "string", "description": "要查找并替换的文本内容。"},
+                "replace_string": {"type": "string", "description": "用来替换的新文本内容。"},
+                "motivation": {"type": "string"},
+            },
+            "required": ["path", "search_pattern", "replace_string", "motivation"],
+        },
+        "get_aggregated_content": {
+            "type": "object",
+            "description": "扫描工作区内指定路径，将所有符合条件的文件内容聚合后，直接作为字符串返回。",
+            "properties": {
+                "source_path": {
+                    "type": "string",
+                    "description": "要扫描的源路径，相对于工作区根目录。例如 '.' 代表整个工作区。",
+                },
+                "extensions": {
+                    "type": "array",
+                    "description": "（可选）一个只包含指定文件扩展名的列表。如果省略，将使用默认配置。",
+                    "items": {"type": "string"},
+                },
+                "ignore_items": {
+                    "type": "array",
+                    "description": "（可选）一个要忽略的文件或文件夹名称的列表。如果省略，将使用默认配置。",
+                    "items": {"type": "string"},
+                },
+                "motivation": {"type": "string"},
+            },
+            "required": ["source_path", "motivation"],
+        },
     }
+
+    # --- 同样，更新自然语言描述，让LLM更容易理解 ---
     _ACTIONS_DESCRIPTIONS: ClassVar = {
-        "web_search": "    - `web_search`: 进行一次互联网搜索，以获取外部信息。"
+        "web_search": "    - `web_search`: 进行一次互联网搜索，以获取外部信息。",
+        "list_files": "    - `list_files`: 列出工作区内指定路径的文件和目录。",
+        "read_file": "    - `read_file`: 读取工作区内指定文件的内容。",
+        "write_file": "    - `write_file`: 向工作区内的文件写入内容(可追加或覆盖)。",
+        "edit_file": "    - `edit_file`: 替换文件内的指定文本。",
+        "get_aggregated_content": "    - `get_aggregated_content`: 扫描并聚合工作区内的文件内容，直接返回一个包含所有内容的字符串。",
     }
 
     @property
@@ -137,12 +225,13 @@ class CoreBuilder(BasePlatformBuilder):
 
         return "\n".join(descs)
 
-    def get_level_actions_definitions(self, level: str) -> tuple[dict[str, Any], dict[str, Any]]:
-        """核心平台的动作定义保持不变，只提供 web_search 动作."""
-        props = {"web_search": self._ACTIONS_DEFINITIONS["web_search"]}
-        schema = {"type": "object", "properties": props}
-        return schema, {}
-
     def get_level_actions_descriptions(self, level: str) -> str:
         """返回核心平台的动作描述."""
-        return self._ACTIONS_DESCRIPTIONS["web_search"]
+        all_descs = "\n".join(self._ACTIONS_DESCRIPTIONS.values())
+        return all_descs
+
+    def get_level_actions_definitions(self, level: str) -> tuple[dict[str, Any], dict[str, Any]]:
+        """核心平台的动作定义，现在包含所有工具."""
+        props = self._ACTIONS_DEFINITIONS
+        schema = {"type": "object", "properties": props}
+        return schema, {}
