@@ -1,5 +1,6 @@
 # src/common/time_utils.py
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime
+
 
 def get_formatted_time_for_llm(now: datetime | None = None) -> str:
     """获取格式化的时间字符串，包含季节信息.
@@ -51,9 +52,9 @@ def get_formatted_time_for_llm(now: datetime | None = None) -> str:
         f"{period}{now.hour}点{now.minute}分"
     )
 
+
 def format_relative_time(past_timestamp_ms: int) -> str:
-    """
-    将过去的毫秒时间戳转换为易于理解的相对时间字符串。
+    """将过去的毫秒时间戳转换为易于理解的相对时间字符串.
 
     Args:
         past_timestamp_ms: 过去的毫秒级时间戳 (UTC)。
@@ -64,8 +65,8 @@ def format_relative_time(past_timestamp_ms: int) -> str:
     if past_timestamp_ms <= 0:
         return "很久以前"
 
-    now_utc = datetime.now(timezone.utc)
-    past_time_utc = datetime.fromtimestamp(past_timestamp_ms / 1000.0, tz=timezone.utc)
+    now_utc = datetime.now(UTC)
+    past_time_utc = datetime.fromtimestamp(past_timestamp_ms / 1000.0, tz=UTC)
 
     delta = now_utc - past_time_utc
 

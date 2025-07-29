@@ -519,13 +519,10 @@ class EventStorageService:
             return False
 
     async def get_latest_high_priority_unread_event(
-        self,
-        conversation_id: str,
-        last_read_timestamp: float,
-        self_bot_ids_map: dict[str, str]
+        self, conversation_id: str, last_read_timestamp: float, self_bot_ids_map: dict[str, str]
     ) -> dict[str, Any] | None:
-        """
-        获取指定会话中，在给定时间戳之后最新的、高优先级的未读消息。
+        """获取指定会话中，在给定时间戳之后最新的、高优先级的未读消息.
+
         高优先级定义为 @机器人 或 回复机器人。
         """
         if not conversation_id or not self_bot_ids_map:
@@ -553,13 +550,11 @@ class EventStorageService:
             "@collection": self.COLLECTION_NAME,
             "conversation_id": conversation_id,
             "last_read_ts": last_read_timestamp,
-            "self_bot_ids_map": self_bot_ids_map
+            "self_bot_ids_map": self_bot_ids_map,
         }
         try:
             results = await self.conn_manager.execute_query(query, bind_vars)
             return results[0] if results else None
         except Exception as e:
-            logger.error(
-                f"获取会话 '{conversation_id}' 的最新高优先级事件失败: {e}", exc_info=True
-            )
+            logger.error(f"获取会话 '{conversation_id}' 的最新高优先级事件失败: {e}", exc_info=True)
             return None

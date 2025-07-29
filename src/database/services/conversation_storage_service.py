@@ -369,7 +369,7 @@ class ConversationStorageService:
                 unread_count: unread_count,
                 has_high_priority: has_high_priority
             }
-        """
+        """  # noqa: E501
         bind_vars = {
             "@conv_collection": self.COLLECTION_NAME,
             "@event_collection": EventStorageService.COLLECTION_NAME,

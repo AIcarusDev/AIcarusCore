@@ -29,9 +29,7 @@ class InternalInfoBuilder:
         try:
             latest_thought = await self.thought_storage_service.get_latest_thought_document()
             if not latest_thought:
-                return (
-                    "\n<!-- 你刚刚开始思考，还没有任何内部状态历史。 -->\n"
-                )
+                return "\n<!-- 你刚刚开始思考，还没有任何内部状态历史。 -->\n"
 
             snapshot_lines = []
 

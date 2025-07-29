@@ -1,11 +1,10 @@
 # src/common/unread_info_service/unread_info_service.py
 from collections import defaultdict
-from datetime import datetime
 from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
-from src.database import ConversationStorageService, EventStorageService
 from src.common.time_utils import format_relative_time
+from src.database import ConversationStorageService, EventStorageService
 
 logger = get_logger(__name__)
 
@@ -39,7 +38,7 @@ class UnreadInfoService:
         logger.info(f"UnreadInfoService 已更新自身ID列表: {self.self_bot_ids}")
 
     async def _get_recently_active_conversations_with_details(
-        self,exclude_conversation_id: str | None = None
+        self, exclude_conversation_id: str | None = None
     ) -> list[dict[str, Any]]:
         """【全新核心方法】获取所有最近活跃的会话及其详细信息.
 
@@ -269,7 +268,6 @@ class UnreadInfoService:
 
             # 4. 根据 unread_count 决定状态文本
             if unread_count > 0:
-
                 status_line = f"(时间：{time_str}/共 {unread_count} 条未读信息)"
             else:
                 status_line = f"(时间：{time_str}/全部已读)"
@@ -306,14 +304,18 @@ class UnreadInfoService:
         event_for_preview = latest_event
 
         if has_high_priority:
-            logger.debug(f"检测到会话 '{conv_doc.get('conversation_id')}' 存在高优先级消息，尝试精确查找...")
+            logger.debug(
+                f"检测到会话 '{conv_doc.get('conversation_id')}' 存在高优先级消息，尝试精确查找..."
+            )
             last_read_ts = conv_doc.get("last_processed_timestamp", 0)
             # 调用我们刚刚在 EventStorageService 中添加的新方法
             high_priority_event = await self.event_storage.get_latest_high_priority_unread_event(
                 conv_doc.get("conversation_id"), last_read_ts, self.self_bot_ids
             )
             if high_priority_event:
-                logger.debug(f"已找到高优先级事件 '{high_priority_event.get('_key')}' 用于生成预览。")
+                logger.debug(
+                    f"已找到高优先级事件 '{high_priority_event.get('_key')}' 用于生成预览。"
+                )
                 event_for_preview = high_priority_event
 
         conv_type = conv_doc.get("type", "private")
@@ -440,7 +442,9 @@ class UnreadInfoService:
             return "所有平台均无新消息。"
 
         # 结构增强，现在不仅记录高优，还记录最新事件的时间戳
-        platforms_with_news = defaultdict(lambda: {"has_high_priority": False, "latest_timestamp": 0})
+        platforms_with_news = defaultdict(
+            lambda: {"has_high_priority": False, "latest_timestamp": 0}
+        )
         for item in unread_convs:
             if platform := item["conv_doc"].get("platform"):
                 if item["has_high_priority"]:
@@ -466,8 +470,6 @@ class UnreadInfoService:
             if info["has_high_priority"]:
                 summary_lines.append(f"[{relative_time_str}] 你的 '{platform}' 上似乎有人找你。")
             elif info.get("has_any_news"):
-                summary_lines.append(
-                    f"[{relative_time_str}] 你的 '{platform}' 上似乎有未读消息。"
-                )
+                summary_lines.append(f"[{relative_time_str}] 你的 '{platform}' 上似乎有未读消息。")
 
         return "\n".join(summary_lines) or "所有平台均无新消息。"
