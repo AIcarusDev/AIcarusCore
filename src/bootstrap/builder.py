@@ -102,6 +102,7 @@ class ServiceBuilder:
 
         action_sender = ActionSender()
         action_handler.web_search_agent_client = llm_clients["web_search_agent_client"]
+        action_handler.url_context_agent_client = llm_clients["url_context_agent_client"]
         event_receiver = EventReceiver(
             event_handler_callback=message_processor.process_event,
             action_handler_instance=action_handler,
@@ -153,6 +154,7 @@ class ServiceBuilder:
             intrusive_thoughts_llm_client=llm_clients["intrusive_thoughts_llm_client"],
             focused_chat_llm_client=llm_clients["focused_chat_llm_client"],
             web_search_agent_client=llm_clients["web_search_agent_client"],
+            url_context_agent_client=llm_clients["url_context_agent_client"],
             conn_manager=db_services["conn_manager"],
             event_storage_service=db_services["event_storage_service"],
             conversation_storage_service=db_services["conversation_storage_service"],
@@ -229,6 +231,10 @@ class ServiceBuilder:
             ),
             "summary_llm_client": _create_client(models.information_summary, "information_summary"),
             "web_search_agent_client": _create_client(models.web_search_agent, "web_search_agent"),
+            "url_context_agent_client": _create_client(
+                models.url_context_agent,
+                "url_context_agent"
+            ),
             "intrusive_thoughts_llm_client": None,
             "focused_chat_llm_client": None,
         }

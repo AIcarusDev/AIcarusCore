@@ -22,6 +22,7 @@ from src.database import (
 )
 from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.platform_builders.registry import platform_builder_registry
+from src.prompt_templates.url_context import URL_CONTEXT_SYSTEM_PROMPT, URL_CONTEXT_USER_PROMPT
 from src.prompt_templates.web_search import WEB_SEARCH_SYSTEM_PROMPT, WEB_SEARCH_USER_PROMPT
 
 if TYPE_CHECKING:
@@ -43,6 +44,7 @@ class ActionHandler:
 
     def __init__(self) -> None:
         self.web_search_agent_client: ProcessorClient | None = None
+        self.url_context_agent_client: ProcessorClient | None = None
         self.action_sender: ActionSender | None = None
         self.thought_storage_service: ThoughtStorageService | None = None
         self.action_log_service: ActionLogStorageService | None = None
@@ -159,14 +161,20 @@ class ActionHandler:
 
     async def initialize_llm_clients(self) -> None:
         """按需初始化LLM客户端."""
-        if self.web_search_agent_client:
+        if self.web_search_agent_client and self.url_context_agent_client:
             return
         from src.action.components.llm_client_factory import LLMClientFactory
 
         factory = LLMClientFactory()
         try:
-            self.web_search_agent_client = factory.create_client(purpose_key="web_search_agent")
-            logger.info("ActionHandler 的 web_search_agent_client 初始化成功。")
+            if not self.web_search_agent_client:
+                self.web_search_agent_client = factory.create_client(purpose_key="web_search_agent")
+                logger.info("ActionHandler 的 web_search_agent_client 初始化成功。")
+            if not self.url_context_agent_client:
+                self.url_context_agent_client = factory.create_client(
+                    purpose_key="url_context_agent"
+                )
+                logger.info("ActionHandler 的 url_context_agent_client 初始化成功。")
         except RuntimeError as e:
             logger.critical(f"为 ActionHandler 初始化LLM客户端失败: {e}")
             raise
@@ -246,6 +254,8 @@ class ActionHandler:
         """核心动作的统一分发中心."""
         if action_name == "web_search":
             return await self._execute_core_web_search(params)
+        if action_name == "summarize_url":
+            return await self._execute_core_summarize_url(params)
 
         file_op_handlers = {
             "list_files": self._execute_core_list_files,
@@ -642,3 +652,33 @@ class ActionHandler:
             result_payload["action_id"] = core_action_id
 
         return success, result_payload
+
+    async def _execute_core_summarize_url(self, params: dict) -> str:
+        """执行核心的 URL 总结动作，并直接返回结果字符串."""
+        await self.initialize_llm_clients()
+        url = params.get("url")
+        motivation = params.get("motivation", "没有明确动机")
+
+        if not url or not self.url_context_agent_client:
+            result_text = (
+                "动作执行失败：LLM想访问URL但没提供网址，"
+                "或者URL上下文代理客户端未初始化。"
+            )
+            logger.warning(result_text)
+            return result_text
+
+        logger.info(f"正在调用 URL 上下文代理LLM，目标URL: '{url}'")
+
+        # 使用新的 prompt 模板
+        system_prompt = URL_CONTEXT_SYSTEM_PROMPT
+        # 在用户 prompt 中直接嵌入 URL，Gemini 会自动识别并提取
+        user_prompt = URL_CONTEXT_USER_PROMPT.format(url=url, motivation=motivation)
+
+        # 调用 LLM，并开启 use_url_context 功能
+        response = await self.url_context_agent_client.make_llm_request(
+            prompt=user_prompt,
+            system_prompt=system_prompt,
+            is_stream=False,
+            use_url_context=True  # 关键！开启 URL 上下文功能
+        )
+        return response.get("text", "访问URL失败或未返回任何信息。")

@@ -83,6 +83,15 @@ class CoreBuilder(BasePlatformBuilder):
             "properties": {"query": {"type": "string"}, "motivation": {"type": "string"}},
             "required": ["query", "motivation"],
         },
+        "summarize_url": {
+            "type": "object",
+            "description": "访问一个指定的网页URL。",
+            "properties": {
+                "url": {"type": "string", "description": "需要访问和总结的完整网页URL。"},
+                "motivation": {"type": "string"}
+            },
+            "required": ["url", "motivation"],
+        },
         "list_files": {
             "type": "object",
             "description": "列出指定路径下的文件和文件夹。",
@@ -169,6 +178,7 @@ class CoreBuilder(BasePlatformBuilder):
     # --- 同样，更新自然语言描述，让LLM更容易理解 ---
     _ACTIONS_DESCRIPTIONS: ClassVar = {
         "web_search": "    - `web_search`: 进行一次互联网搜索，以获取外部信息。",
+        "summarize_url": "    - `summarize_url`: 访问一个指定的网页URL，获取其中信息，需要提供网址（url）。",
         "list_files": "    - `list_files`: 列出工作区内指定路径的文件和目录。",
         "read_file": "    - `read_file`: 读取工作区内指定文件的内容。",
         "write_file": "    - `write_file`: 向工作区内的文件写入内容(可追加或覆盖)。",

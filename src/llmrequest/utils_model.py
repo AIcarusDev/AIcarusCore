@@ -740,8 +740,9 @@ class LLMClient:
         tools: list[dict[str, Any]] | None = None,
         tool_choice: str | dict | None = None,
         text_to_embed: str | None = None,
-        model_name_override: str | None = None,  # <-- 看这里！我加了一个淫荡的小后门！
+        model_name_override: str | None = None,
         enable_google_search: bool = False,
+        enable_url_context: bool = False,
     ) -> tuple[str, dict[str, Any], dict[str, Any]]:
         headers = {"Content-Type": "application/json"}
         payload: dict[str, Any] = {}
@@ -813,23 +814,24 @@ class LLMClient:
                                 f"Google Vision: Removed unsupported parameter '{param}' "
                                 f"from generationConfig."
                             )
+                active_tools = []
                 if enable_google_search:
-                    logger.debug("为 Google API 请求启用 Google 搜索依据功能。")
-                    # 这是启用Google搜索的特定工具格式
-                    google_search_tool = {"google_search": {}}
-                    # 如果已有其他工具（例如函数调用），则将搜索工具追加进去
-                    # 否则，创建一个新的工具列表
-                    if "tools" in payload and isinstance(payload.get("tools"), list):
-                        payload["tools"].append(google_search_tool)
-                    else:
-                        payload["tools"] = [google_search_tool]
-                # 6. 处理工具
+                    logger.debug("为 Google API 请求添加 Google 搜索工具。")
+                    active_tools.append({"google_search": {}})
+
+                if enable_url_context:
+                    logger.debug("为 Google API 请求添加 URL 上下文工具。")
+                    # 根据文档，`url_context` 的值应该是一个空的 message/object，
+                    # 在Python SDK中是 types.UrlContext，在REST API中是 {}
+                    active_tools.append({"url_context": {}})
+
                 if request_type == "tool_call" and tools:
-                    # 如果已经因为 Google Search 创建了 "tools", 我们需要合并而不是覆盖
-                    if "tools" in payload and isinstance(payload.get("tools"), list):
-                        payload["tools"].extend(tools)
-                    else:
-                        payload["tools"] = tools
+                    logger.debug(f"为 Google API 请求添加 {len(tools)} 个自定义函数调用工具。")
+                    active_tools.extend(tools)
+
+                if active_tools:
+                    payload["tools"] = active_tools
+
 
             # 这里也用 effective_model_name！
             url_path = f"/{effective_model_name.strip('/')}{url_path}"
@@ -1261,6 +1263,7 @@ class LLMClient:
         max_retries: int = 3,
         interruption_event: asyncio.Event | None = None,
         enable_google_search: bool = False,
+        enable_url_context: bool = False,
     ) -> dict[str, Any]:
         async with aiohttp.ClientSession() as session:
             all_initial_keys = self.api_keys_config[:]
@@ -1379,6 +1382,7 @@ class LLMClient:
                             tool_choice=tool_choice,
                             text_to_embed=text_to_embed,
                             enable_google_search=enable_google_search,
+                            enable_url_context=enable_url_context,
                         )
                         logger.info(
                             f"尝试轮 {attempt_pass + 1}/{max_retries + 1}, "
@@ -1634,6 +1638,7 @@ class LLMClient:
         max_retries: int = 3,
         interruption_event: asyncio.Event | None = None,
         use_google_search: bool = False,
+        use_url_context: bool = False,
         **kwargs: Unpack[GenerationParams],
     ) -> dict[str, Any]:
         """发送请求到 LLM API 并返回响应.
@@ -1652,6 +1657,7 @@ class LLMClient:
             max_retries (int): 最大重试次数（默认为3）.
             interruption_event (asyncio.Event | None): 中断事件（如果需要中断支持）.
             use_google_search (bool): 是否启用 Google 搜索功能（默认为 False）.
+            use_url_context (bool): 是否启用 URL 上下文功能（默认为 False）.
             **kwargs: 其他生成参数.
 
         Returns:
@@ -1685,6 +1691,7 @@ class LLMClient:
             max_retries=max_retries,
             interruption_event=interruption_event,
             enable_google_search=use_google_search,
+            enable_url_context=use_url_context,
         )
 
     async def generate_text_completion(

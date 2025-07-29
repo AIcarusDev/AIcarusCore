@@ -44,6 +44,7 @@ class ServiceContainer:
     intrusive_thoughts_llm_client: ProcessorClient | None
     focused_chat_llm_client: ProcessorClient | None
     web_search_agent_client: ProcessorClient | None
+    url_context_agent_client: ProcessorClient | None
 
     # 数据库与核心服务
     conn_manager: ArangoDBConnectionManager
