@@ -344,7 +344,9 @@ class UnreadInfoService:
 
         return summary_lines
 
-    def _format_chat_type_section(self, chat_type: str, items: list[dict[str, Any]]) -> list[str]:
+    async def _format_chat_type_section(
+        self, chat_type: str, items: list[dict[str, Any]]
+    ) -> list[str]:
         """辅助函数: 格式化特定聊天类型（群聊/私聊）的整个XML块.
 
         Args:
@@ -361,12 +363,15 @@ class UnreadInfoService:
         section_parts = [f"<{tag}>"]
 
         for item in items:
-            section_parts.extend(self._format_single_conversation_summary(item))
+            summary_lines = await self._format_single_conversation_summary(item)
+            section_parts.extend(summary_lines)
 
         section_parts.append(f"</{tag}>")
         return section_parts
 
-    def _format_platform_section(self, platform: str, items: list[dict[str, Any]]) -> list[str]:
+    async def _format_platform_section(
+        self, platform: str, items: list[dict[str, Any]]
+    ) -> list[str]:
         """辅助函数: 格式化单个平台的完整XML块.
 
         Args:
@@ -384,8 +389,8 @@ class UnreadInfoService:
         group_chats = [c for c in items if c["conv_doc"].get("type") == "group"]
         private_chats = [c for c in items if c["conv_doc"].get("type") == "private"]
 
-        section_parts.extend(self._format_chat_type_section("group", group_chats))
-        section_parts.extend(self._format_chat_type_section("private", private_chats))
+        section_parts.extend(await self._format_chat_type_section("group", group_chats))
+        section_parts.extend(await self._format_chat_type_section("private", private_chats))
 
         section_parts.append(f"</from_{platform}>")
         return section_parts
@@ -425,7 +430,7 @@ class UnreadInfoService:
         # --- 步骤 3: 委托构建并合并结果 ---
         summary_parts = []
         for platform, items in grouped_by_platform.items():
-            summary_parts.extend(self._format_platform_section(platform, items))
+            summary_parts.extend(await self._format_platform_section(platform, items))
 
         return "\n".join(summary_parts).strip()
 
