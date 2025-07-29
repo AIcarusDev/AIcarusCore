@@ -255,7 +255,7 @@ class QQBuilder(BasePlatformBuilder):
                 "user_id": {"type": "string", "description": "（可选）要删除的好友的QQ号。"},
                 "motivation": {"type": "string", "description": "你为什么要删除这个好友？"},
             },
-            "required": ["motivation"], # motivation 仍然是必须的
+            "required": ["motivation"],  # motivation 仍然是必须的
         }
         cellular_leave_conversation_schema = {
             "type": "object",
@@ -264,7 +264,7 @@ class QQBuilder(BasePlatformBuilder):
                 "group_id": {"type": "string", "description": "（可选）要退出的群的群号。"},
                 "motivation": {"type": "string", "description": "你为什么要退出这个群？"},
             },
-            "required": ["motivation"], # motivation 仍然是必须的
+            "required": ["motivation"],  # motivation 仍然是必须的
         }
 
         level_to_props_map = {
