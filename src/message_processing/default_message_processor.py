@@ -9,6 +9,7 @@ from src.common.utils import parse_focus_path
 from src.database import (
     ActionLogStorageService,  # 引入ActionLogStorageService
     ConversationStorageService,
+    CoreDBCollections,
     DBEventDocument,
     EnrichedConversationInfo,
     EntityGraphService,
@@ -179,24 +180,70 @@ class DefaultMessageProcessor:
     async def _associate_person_and_update_membership(
         self, event: ProtocolEvent, platform_id: str
     ) -> tuple[str | None, str | None]:
-        """封装身份关联和成员信息更新的逻辑."""
-        if event.user_info and event.user_info.user_id:
-            # 1. 调用新的服务和方法来查找或创建 Profile 和 Entity
-            profile_id, entity_uid = await self.entity_service.find_or_create_profile_and_entity(
-                user_info=event.user_info, platform=platform_id
+        """封装身份关联和成员信息更新的逻辑.
+
+        - 优先处理好友请求事件，更新实体的待处理状态。
+        - 对于所有事件，查找或创建实体，并用好友备注丰富事件信息。
+        - 对于会话内事件，更新成员关系。
+        """
+        # 如果事件没有用户信息，则无法进行关联
+        if not (event.user_info and event.user_info.user_id):
+            return None, None
+
+        # --- 步骤 1: 查找或创建核心的 Profile 和 Entity ---
+        # 这是所有后续操作的基础
+        profile_id, entity_uid = await self.entity_service.find_or_create_profile_and_entity(
+            user_info=event.user_info, platform=platform_id
+        )
+
+        if not entity_uid:
+            # 如果连最基础的实体都无法创建或找到，后续操作无法进行
+            logger.error(f"无法为事件 {event.event_id} 找到或创建 entity_uid，身份关联中止。")
+            return profile_id, None
+
+        # --- 步骤 2: 根据事件类型执行特定的数据库更新 ---
+        entities_collection = await self.entity_service._get_collection(CoreDBCollections.ENTITIES)
+
+        # <!-- 新增逻辑：专门处理好友请求 -->
+        if event.event_type.endswith("request.friend.add"):
+            request_data = event.content[0].data if event.content else {}
+            flag = request_data.get("request_flag")
+            comment = request_data.get("comment")
+
+            # 将好友请求信息更新到实体的 'friend_request_pending' 字段
+            await entities_collection.update(
+                {
+                    "_key": entity_uid,
+                    "friend_request_pending": {
+                        "flag": flag,
+                        "comment": comment,
+                        "timestamp": event.time
+                    }
+                }
+            )
+            logger.info(f"已将实体 '{entity_uid}' 的好友请求标记为待处理。")
+
+        # --- 步骤 3: 丰富事件信息（注入好友备注） ---
+        # 这个逻辑对所有类型的事件都适用
+        entity_doc = await entities_collection.get(entity_uid)
+        if entity_doc and (remark := entity_doc.get("friend_remark")):
+            # 如果数据库中有备注，就把它“塞”进当前事件的 user_info 里
+            if event.user_info.extra is None:
+                event.user_info.extra = {}
+            event.user_info.extra['friend_remark'] = remark
+            logger.debug(f"已为事件 '{event.event_id}' (来自 {entity_uid}) 注入好友备注。")
+
+        # --- 步骤 4: 更新在会话中的存在信息 (Membership) ---
+        # 这个逻辑只对发生在具体会话中的事件有效
+        if event.conversation_info:
+            await self.entity_service.update_presence_in_conversation(
+                entity_uid=entity_uid,
+                conversation_id=event.conversation_info.conversation_id,
+                user_info=event.user_info,
+                conversation_name=event.conversation_info.name,
             )
 
-            # 2. 如果成功获取了实体，并且事件发生在某个会话中，就更新其'存在于'关系
-            if profile_id and entity_uid and event.conversation_info:
-                # 调用新的方法来更新存在关系！
-                await self.entity_service.update_presence_in_conversation(
-                    entity_uid=entity_uid,
-                    conversation_id=event.conversation_info.conversation_id,
-                    user_info=event.user_info,
-                    conversation_name=event.conversation_info.name,
-                )
-            return profile_id, entity_uid
-        return None, None
+        return profile_id, entity_uid
 
     async def _dispatch_event_action(self, event: ProtocolEvent) -> None:
         """专门负责根据事件类型和当前状态，决定是否触发核心逻辑."""

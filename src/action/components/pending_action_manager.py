@@ -4,10 +4,12 @@ import json
 import time
 from typing import TYPE_CHECKING, Any
 
+from aicarus_protocols import find_seg_by_type
 from src.common.custom_logging.logging_config import get_logger
 from src.database import (
     ActionLogStorageService,
     ConversationStorageService,
+    CoreDBCollections,
     EnrichedConversationInfo,
     ThoughtStorageService,
 )
@@ -169,6 +171,48 @@ class PendingActionManager:
         # 2. get_list 成功后主动创建会话档案
         if original_action_type.endswith(".get_list"):
             await self._proactively_create_conversation_docs_from_list(details, sent_dict)
+
+        # 3. handle_friend_request 的后续处理
+        if original_action_type.endswith(".handle_friend_request"):
+            # 从原始发送的事件中解析出参数
+            # 确保导入
+            params_seg = find_seg_by_type(sent_dict.get("content", []), "action_params")
+
+            if params_seg and isinstance(params_seg.data, dict) and (params := params_seg.data):
+                user_id = params.get("user_id")
+                platform = sent_dict.get("platform")
+
+                if not user_id or not platform:
+                    logger.error("处理 handle_friend_request 后续时，缺少 user_id 或 platform。")
+                    return
+
+                entity_uid = f"{platform}_{user_id}"
+
+                # 准备要更新的字段
+                update_fields = {"friend_request_pending": None} # 无论同意还是拒绝，清除待处理标记
+
+                # 如果是同意，并且提供了备注，就更新备注字段
+                if (
+                    params.get("approve") is True
+                    and (remark := params.get("remark"))
+                    and isinstance(remark, str)
+                    and remark.strip()
+                ):
+                    update_fields["friend_remark"] = remark.strip()
+
+                # 执行数据库更新
+                try:
+                    # 我们需要 entity_service，它已经在 ActionHandler 中了
+                    entities_collection = await self.action_handler.entity_service._get_collection(
+                        CoreDBCollections.ENTITIES
+                    )
+                    await entities_collection.update({"_key": entity_uid, **update_fields})
+                    logger.info(f"好友请求处理完毕，已更新实体 '{entity_uid}' 的数据库状态。")
+                except Exception as e:
+                    logger.error(
+                        f"更新实体 '{entity_uid}' 的好友请求状态时失败: {e}",
+                        exc_info=True
+                    )
 
     async def _signal_echo_to_session(self, sent_dict: dict[str, Any]) -> None:
         """为 send_message 动作向对应的 ChatSession 发送回声信号.

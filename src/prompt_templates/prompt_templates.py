@@ -89,6 +89,8 @@ CORE_CYCLE_USER_PROMPT = """
 
 {external_info_block}
 
+{friend_request_block}
+
 {meta_info_block}
 
 </reality_update>

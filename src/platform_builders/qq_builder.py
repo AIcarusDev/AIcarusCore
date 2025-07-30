@@ -267,6 +267,19 @@ class QQBuilder(BasePlatformBuilder):
             "required": ["motivation"],  # motivation 仍然是必须的
         }
 
+        handle_friend_request_schema = {
+        "type": "object",
+        "description": "处理一个好友请求。你可以选择同意、拒绝或忽略。",
+        "properties": {
+            "user_id": {"type": "string", "description": "请求者的QQ号。"},
+            "flag": {"type": "string", "description": "从 <friend_request> 块中获取到的请求 flag 标识。"},
+            "approve": {"type": "boolean", "description": "是否同意请求。True为同意，False为拒绝。"},
+            "remark": {"type": "string", "description": "（可选）同意好友请求后，为对方设置的备注。"},
+            "motivation": {"type": "string", "description": "你为什么要这样做？"}
+        },
+        "required": ["user_id", "flag", "approve", "motivation"]
+    }
+
         level_to_props_map = {
             "platform": {
                 "get_list": {
@@ -279,6 +292,7 @@ class QQBuilder(BasePlatformBuilder):
                 },
                 "delete_friend": platform_delete_friend_schema,
                 "leave_conversation": platform_leave_conversation_schema,
+                "handle_friend_request": handle_friend_request_schema,
             },
             "cellular": {
                 "send_message": {
@@ -342,6 +356,7 @@ class QQBuilder(BasePlatformBuilder):
                 },
                 "delete_friend": cellular_delete_friend_schema,
                 "leave_conversation": cellular_leave_conversation_schema,
+                "handle_friend_request": handle_friend_request_schema,
             },
         }
 
@@ -356,6 +371,7 @@ class QQBuilder(BasePlatformBuilder):
                 "    - `get_list`: 获取本平台的好友或群聊列表。",
                 "    - `delete_friend(user_id, motivation)`: 删除指定ID的好友。",
                 "    - `leave_conversation(group_id, motivation)`: 退出指定ID的群聊。",
+                "    - `handle_friend_request(user_id, flag, approve, remark, motivation)`: 处理好友请求。",
             ],
             "cellular": [
                 "    - `send_message`: 在当前会话中发送消息。",
@@ -363,6 +379,7 @@ class QQBuilder(BasePlatformBuilder):
                 "    - `get_list`: 获取本平台的好友或群聊列表。",
                 "    - `delete_friend(user_id, motivation)`: 删除指定ID的好友（如果想删除的好友就是对方，可省略user_id）。",
                 "    - `leave_conversation(group_id, motivation)`: 退出指定ID的群聊（如果当前就在想退出的群聊中，可省略group_id）。",
+                "    - `handle_friend_request(user_id, flag, approve, remark, motivation)`: 处理好友请求。",
             ],
         }
 

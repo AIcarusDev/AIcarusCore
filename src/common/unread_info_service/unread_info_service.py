@@ -71,10 +71,8 @@ class UnreadInfoService:
         if not isinstance(user_info, dict):
             return "未知用户"
 
-        # TODO: 未来在这里加入好友备注的逻辑
-        # remark = get_friend_remark(user_info.get("user_id"))
-        # if remark:
-        #     return remark
+        if (remark := user_info.get("extra", {}).get("friend_remark")):
+            return remark
 
         if conversation_type == "group":
             card = user_info.get("user_cardname")

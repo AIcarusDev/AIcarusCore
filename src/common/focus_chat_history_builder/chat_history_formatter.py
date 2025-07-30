@@ -161,11 +161,22 @@ async def format_chat_history_for_llm(
                 uid_counter += 1
                 uid_str = f"U{uid_counter}"
                 platform_id_to_uid_str[p_user_id] = uid_str
+
+                remark = (
+                    event_data.user_info.extra.get("friend_remark")
+                    if event_data.user_info.extra
+                    else None
+                )
+
+
                 user_map[p_user_id] = {
                     "uid_str": uid_str,
                     "nick": event_data.user_info.user_nickname or f"用户{p_user_id[:4]}",
-                    "card": event_data.user_info.user_cardname
-                    or (event_data.user_info.user_nickname or f"用户{p_user_id[:4]}"),
+                    "card": (
+                        remark
+                        or event_data.user_info.user_cardname
+                        or (event_data.user_info.user_nickname or f"用户{p_user_id[:4]}")
+                    ),
                     "title": event_data.user_info.user_titlename or "",
                     "perm": event_data.user_info.permission_level or "成员",
                 }

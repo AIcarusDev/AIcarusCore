@@ -5,7 +5,7 @@ from aicarus_protocols import Event
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logging_config import get_logger
 from src.common.focus_chat_history_builder.chat_history_formatter import format_chat_history_for_llm
-from src.common.time_utils import get_formatted_time_for_llm
+from src.common.time_utils import format_relative_time, get_formatted_time_for_llm
 from src.common.utils import parse_focus_path
 from src.config import config
 from src.core_logic.internal_info_builder import InternalInfoBuilder
@@ -187,6 +187,27 @@ class ThoughtPromptBuilder:
             logger.error(f"读取 self_prompt.md 时发生意外错误: {e}", exc_info=True)
             return "<!-- 读取 self_prompt.md 时发生内部错误。 -->"
 
+    async def _build_friend_request_block(self, platform_id: str) -> str:
+        requests = await self.action_handler.entity_service.get_pending_friend_requests(platform_id)
+        """构建好友请求块，展示当前平台的未处理好友请求."""
+        if not requests:
+            return "<friend_request>\n你在该平台暂时没有来自他人的未处理好友请求。\n</friend_request>"  # noqa: E501
+
+
+        lines = [
+            "<friend_request>",
+            "你在该平台有以下来自他人的未处理好友请求："
+        ]
+        for req in sorted(requests, key=lambda r: r.get('timestamp', 0), reverse=True):
+            time_str = format_relative_time(req.get('timestamp', 0))
+            lines.append(
+                f"- 来自“{req.get('nickname', '未知用户')}”(ID: {req.get('user_id')})的请求, "
+                f"flag: `{req.get('flag')}` ({time_str}): "
+                f"“验证消息：{req.get('comment', '无验证消息')}”"
+            )
+        lines.append("</friend_request>")
+        return "\n".join(lines)
+
     async def build_prompts_components(
         self,
         focus_path: str | None,
@@ -279,6 +300,9 @@ class ThoughtPromptBuilder:
 
         action_response_block = await self._build_action_response_desc(handover_result)
         navigation_log_block = await self._build_navigation_log_block()
+        friend_request_block = ""  # 初始化为空字符串，如果在顶层，那么就是空字符。
+        if current_level in ["platform", "cellular"]:  # 仅在平台或细胞层级构建好友请求块
+            friend_request_block = await self._build_friend_request_block(current_platform_id)
 
         system_prompt_blocks = {
             "aicarus_rule_block": AICARUS_RULE,
@@ -305,6 +329,7 @@ class ThoughtPromptBuilder:
             "action_response_block": action_response_block,
             "meta_info_block": meta_info_block,
             "external_info_block": external_info_block,
+            "friend_request_block": friend_request_block,
         }
 
         prompt_components_obj = PromptComponents(

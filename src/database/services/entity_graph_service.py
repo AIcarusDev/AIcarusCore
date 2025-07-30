@@ -459,3 +459,28 @@ class EntityGraphService:
         # 3. Updating the SELF_PROFILE_ID document in the ENTITY_PROFILES collection.
         logger.info("初始化自身 Profile 的功能将在未来实现。")
         pass
+
+    async def get_pending_friend_requests(self, platform: str) -> list[dict[str, Any]]:
+        """获取指定平台所有待处理的好友请求."""
+        query = """
+            FOR doc IN @@entities_coll
+                FILTER doc.platform == @platform
+                FILTER doc.friend_request_pending != null
+                RETURN {
+                    user_id: doc.platform_id,
+                    nickname: doc.last_known_nickname,
+                    flag: doc.friend_request_pending.flag,
+                    comment: doc.friend_request_pending.comment,
+                    timestamp: doc.friend_request_pending.timestamp
+                }
+        """
+        bind_vars = {
+            "@entities_coll": CoreDBCollections.ENTITIES,
+            "platform": platform,
+        }
+        try:
+            results = await self.conn_manager.execute_query(query, bind_vars)
+            return results if results is not None else []
+        except Exception as e:
+            logger.error(f"查询平台 '{platform}' 的待处理好友请求失败: {e}", exc_info=True)
+            return []

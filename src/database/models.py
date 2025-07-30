@@ -216,6 +216,8 @@ class EntityDocument:
     avatar: str | None = None
     created_at: int = field(default_factory=lambda: int(time.time() * 1000))
     last_known_nickname: str | None = None
+    friend_remark: str | None = None  # 好友备注
+    friend_request_pending: dict[str, Any] | None = None  # 待处理的好友请求信息
 
     @classmethod
     def from_user_info(cls, user_info: ProtocolUserInfo, platform: str) -> "EntityDocument":
