@@ -832,7 +832,6 @@ class LLMClient:
                 if active_tools:
                     payload["tools"] = active_tools
 
-
             # 这里也用 effective_model_name！
             url_path = f"/{effective_model_name.strip('/')}{url_path}"
 

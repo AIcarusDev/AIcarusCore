@@ -67,6 +67,7 @@ class QQBuilder(BasePlatformBuilder):
             "get_recent_contacts",
             "get_ai_characters",
             "send_ai_voice",
+            "delete_friend",
         }
 
         self._special_action_handlers = {
@@ -226,6 +227,46 @@ class QQBuilder(BasePlatformBuilder):
 
     def get_level_actions_definitions(self, level: str) -> tuple[dict[str, Any], dict[str, Any]]:
         """根据层级，提供QQ平台专属动作的JSON Schema."""
+        # 平台层级的Schema，ID是必须的
+        platform_delete_friend_schema = {
+            "type": "object",
+            "description": "删除一个好友。",
+            "properties": {
+                "user_id": {"type": "string", "description": "要删除的好友的QQ号。"},
+                "motivation": {"type": "string", "description": "你为什么要删除这个好友？"},
+            },
+            "required": ["user_id", "motivation"],
+        }
+        platform_leave_conversation_schema = {
+            "type": "object",
+            "description": "退出一个群聊。",
+            "properties": {
+                "group_id": {"type": "string", "description": "要退出的群的群号。"},
+                "motivation": {"type": "string", "description": "你为什么要退出这个群？"},
+            },
+            "required": ["group_id", "motivation"],
+        }
+
+        # 会话层级的Schema，ID是可选的
+        cellular_delete_friend_schema = {
+            "type": "object",
+            "description": "删除一个好友。如果当前就在与该好友的私聊中，可以不提供user_id。",
+            "properties": {
+                "user_id": {"type": "string", "description": "（可选）要删除的好友的QQ号。"},
+                "motivation": {"type": "string", "description": "你为什么要删除这个好友？"},
+            },
+            "required": ["motivation"],  # motivation 仍然是必须的
+        }
+        cellular_leave_conversation_schema = {
+            "type": "object",
+            "description": "退出一个群聊。如果当前就在该群聊中，可以不提供group_id。",
+            "properties": {
+                "group_id": {"type": "string", "description": "（可选）要退出的群的群号。"},
+                "motivation": {"type": "string", "description": "你为什么要退出这个群？"},
+            },
+            "required": ["motivation"],  # motivation 仍然是必须的
+        }
+
         level_to_props_map = {
             "platform": {
                 "get_list": {
@@ -235,7 +276,9 @@ class QQBuilder(BasePlatformBuilder):
                         "motivation": {"type": "string"},
                     },
                     "required": ["list_type", "motivation"],
-                }
+                },
+                "delete_friend": platform_delete_friend_schema,
+                "leave_conversation": platform_leave_conversation_schema,
             },
             "cellular": {
                 "send_message": {
@@ -297,6 +340,8 @@ class QQBuilder(BasePlatformBuilder):
                     },
                     "required": ["list_type", "motivation"],
                 },
+                "delete_friend": cellular_delete_friend_schema,
+                "leave_conversation": cellular_leave_conversation_schema,
             },
         }
 
@@ -307,11 +352,17 @@ class QQBuilder(BasePlatformBuilder):
     def get_level_actions_descriptions(self, level: str) -> str:
         """根据层级，提供QQ平台专属动作的自然语言描述."""
         level_to_descs_map = {
-            "platform": ["    - `get_list`: 获取本平台的好友或群聊列表。"],
+            "platform": [
+                "    - `get_list`: 获取本平台的好友或群聊列表。",
+                "    - `delete_friend(user_id, motivation)`: 删除指定ID的好友。",
+                "    - `leave_conversation(group_id, motivation)`: 退出指定ID的群聊。",
+            ],
             "cellular": [
                 "    - `send_message`: 在当前会话中发送消息。",
                 "    - `poke_user`: 在当前会话中戳一戳某人。",
                 "    - `get_list`: 获取本平台的好友或群聊列表。",
+                "    - `delete_friend(user_id, motivation)`: 删除指定ID的好友（如果想删除的好友就是对方，可省略user_id）。",
+                "    - `leave_conversation(group_id, motivation)`: 退出指定ID的群聊（如果当前就在想退出的群聊中，可省略group_id）。",
             ],
         }
 

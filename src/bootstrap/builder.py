@@ -232,8 +232,7 @@ class ServiceBuilder:
             "summary_llm_client": _create_client(models.information_summary, "information_summary"),
             "web_search_agent_client": _create_client(models.web_search_agent, "web_search_agent"),
             "url_context_agent_client": _create_client(
-                models.url_context_agent,
-                "url_context_agent"
+                models.url_context_agent, "url_context_agent"
             ),
             "intrusive_thoughts_llm_client": None,
             "focused_chat_llm_client": None,
