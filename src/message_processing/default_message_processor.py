@@ -217,8 +217,8 @@ class DefaultMessageProcessor:
                     "friend_request_pending": {
                         "flag": flag,
                         "comment": comment,
-                        "timestamp": event.time
-                    }
+                        "timestamp": event.time,
+                    },
                 }
             )
             logger.info(f"已将实体 '{entity_uid}' 的好友请求标记为待处理。")
@@ -230,7 +230,7 @@ class DefaultMessageProcessor:
             # 如果数据库中有备注，就把它“塞”进当前事件的 user_info 里
             if event.user_info.extra is None:
                 event.user_info.extra = {}
-            event.user_info.extra['friend_remark'] = remark
+            event.user_info.extra["friend_remark"] = remark
             logger.debug(f"已为事件 '{event.event_id}' (来自 {entity_uid}) 注入好友备注。")
 
         # --- 步骤 4: 更新在会话中的存在信息 (Membership) ---

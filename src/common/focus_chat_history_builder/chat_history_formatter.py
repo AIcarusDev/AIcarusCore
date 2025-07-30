@@ -168,7 +168,6 @@ async def format_chat_history_for_llm(
                     else None
                 )
 
-
                 user_map[p_user_id] = {
                     "uid_str": uid_str,
                     "nick": event_data.user_info.user_nickname or f"用户{p_user_id[:4]}",

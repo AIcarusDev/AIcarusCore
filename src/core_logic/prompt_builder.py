@@ -191,15 +191,13 @@ class ThoughtPromptBuilder:
         requests = await self.action_handler.entity_service.get_pending_friend_requests(platform_id)
         """构建好友请求块，展示当前平台的未处理好友请求."""
         if not requests:
-            return "<friend_request>\n你在该平台暂时没有来自他人的未处理好友请求。\n</friend_request>"  # noqa: E501
+            return (
+                "<friend_request>\n你在该平台暂时没有来自他人的未处理好友请求。\n</friend_request>"
+            )
 
-
-        lines = [
-            "<friend_request>",
-            "你在该平台有以下来自他人的未处理好友请求："
-        ]
-        for req in sorted(requests, key=lambda r: r.get('timestamp', 0), reverse=True):
-            time_str = format_relative_time(req.get('timestamp', 0))
+        lines = ["<friend_request>", "你在该平台有以下来自他人的未处理好友请求："]
+        for req in sorted(requests, key=lambda r: r.get("timestamp", 0), reverse=True):
+            time_str = format_relative_time(req.get("timestamp", 0))
             lines.append(
                 f"- 来自“{req.get('nickname', '未知用户')}”(ID: {req.get('user_id')})的请求, "
                 f"flag: `{req.get('flag')}` ({time_str}): "

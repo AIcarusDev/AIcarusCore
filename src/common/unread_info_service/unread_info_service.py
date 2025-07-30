@@ -71,7 +71,7 @@ class UnreadInfoService:
         if not isinstance(user_info, dict):
             return "未知用户"
 
-        if (remark := user_info.get("extra", {}).get("friend_remark")):
+        if remark := user_info.get("extra", {}).get("friend_remark"):
             return remark
 
         if conversation_type == "group":

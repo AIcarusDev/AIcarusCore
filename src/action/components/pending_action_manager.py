@@ -189,7 +189,7 @@ class PendingActionManager:
                 entity_uid = f"{platform}_{user_id}"
 
                 # 准备要更新的字段
-                update_fields = {"friend_request_pending": None} # 无论同意还是拒绝，清除待处理标记
+                update_fields = {"friend_request_pending": None}  # 无论同意还是拒绝，清除待处理标记
 
                 # 如果是同意，并且提供了备注，就更新备注字段
                 if (
@@ -210,8 +210,7 @@ class PendingActionManager:
                     logger.info(f"好友请求处理完毕，已更新实体 '{entity_uid}' 的数据库状态。")
                 except Exception as e:
                     logger.error(
-                        f"更新实体 '{entity_uid}' 的好友请求状态时失败: {e}",
-                        exc_info=True
+                        f"更新实体 '{entity_uid}' 的好友请求状态时失败: {e}", exc_info=True
                     )
 
     async def _signal_echo_to_session(self, sent_dict: dict[str, Any]) -> None:

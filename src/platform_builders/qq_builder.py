@@ -268,17 +268,26 @@ class QQBuilder(BasePlatformBuilder):
         }
 
         handle_friend_request_schema = {
-        "type": "object",
-        "description": "处理一个好友请求。你可以选择同意、拒绝或忽略。",
-        "properties": {
-            "user_id": {"type": "string", "description": "请求者的QQ号。"},
-            "flag": {"type": "string", "description": "从 <friend_request> 块中获取到的请求 flag 标识。"},
-            "approve": {"type": "boolean", "description": "是否同意请求。True为同意，False为拒绝。"},
-            "remark": {"type": "string", "description": "（可选）同意好友请求后，为对方设置的备注。"},
-            "motivation": {"type": "string", "description": "你为什么要这样做？"}
-        },
-        "required": ["user_id", "flag", "approve", "motivation"]
-    }
+            "type": "object",
+            "description": "处理一个好友请求。你可以选择同意、拒绝或忽略。",
+            "properties": {
+                "user_id": {"type": "string", "description": "请求者的QQ号。"},
+                "flag": {
+                    "type": "string",
+                    "description": "从 <friend_request> 块中获取到的请求 flag 标识。",
+                },
+                "approve": {
+                    "type": "boolean",
+                    "description": "是否同意请求。True为同意，False为拒绝。",
+                },
+                "remark": {
+                    "type": "string",
+                    "description": "（可选）同意好友请求后，为对方设置的备注。",
+                },
+                "motivation": {"type": "string", "description": "你为什么要这样做？"},
+            },
+            "required": ["user_id", "flag", "approve", "motivation"],
+        }
 
         level_to_props_map = {
             "platform": {
