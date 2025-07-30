@@ -6,6 +6,7 @@
 {aicarus_rule_block}: Aicarus 规则的内容
 {current_time}: 当前时间
 {persona_block}: 角色设定
+{self_prompt_block}: 自我提示块的内容, 祂可以通过修改特定文件进行持久化注入该块
 {available_platforms_block}: 可用平台，也包含了祂自身的客观平台信息（网名，id等）
 {current_state_block}: 祂当前的状态，例如：发呆，聊天等
 {behavior_guidelines_block}: 行为准则指导
@@ -25,6 +26,11 @@ CORE_CYCLE_SYSTEM_PROMPT = """
 <persona>
 {persona_block}
 </persona>
+
+<self_prompt>
+<!-- 工作区根目录中的 `self_prompt.md` 文件内容, 你可以自行编辑其中的内容. -->
+{self_prompt_block}
+</self_prompt>
 
 <current_state>
 {current_state_block}

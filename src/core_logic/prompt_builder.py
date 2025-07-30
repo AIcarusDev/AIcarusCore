@@ -1,7 +1,8 @@
-# 文件: src/core_logic/prompt_builder.py (构造函数修复版 V1.3)
+# src/core_logic/prompt_builder.py
 from typing import TYPE_CHECKING, Any, Optional
 
 from aicarus_protocols import Event
+from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logging_config import get_logger
 from src.common.focus_chat_history_builder.chat_history_formatter import format_chat_history_for_llm
 from src.common.time_utils import get_formatted_time_for_llm
@@ -24,6 +25,7 @@ from src.prompt_templates.focus_chat_prompts import (
 from src.prompt_templates.platform_prompts import PLATFORM_INPUT_XML_DESCRIPTION
 
 if TYPE_CHECKING:
+    from src.action.action_handler import ActionHandler
     from src.common.unread_info_service.unread_info_service import UnreadInfoService
     from src.core_communication.core_ws_server import CoreWebsocketServer
     from src.database.services.event_storage_service import EventStorageService
@@ -49,6 +51,7 @@ class ThoughtPromptBuilder:
         event_storage_service: "EventStorageService",
         thought_storage_service: "ThoughtStorageService",
         conversation_service: "ConversationStorageService",
+        action_handler: "ActionHandler",
         chat_session_manager: Optional["ChatSessionManager"] = None,
         core_ws_server: Optional["CoreWebsocketServer"] = None,
     ) -> None:
@@ -57,6 +60,7 @@ class ThoughtPromptBuilder:
         self.event_storage = event_storage_service
         self.thought_storage = thought_storage_service
         self.conversation_service = conversation_service
+        self.action_handler = action_handler
         self.chat_session_manager = chat_session_manager
         self.core_ws_server = core_ws_server
         self.is_context_switch_flag: bool = False
@@ -152,6 +156,36 @@ class ThoughtPromptBuilder:
             log_lines.append(f"[T{relative_index}] 聚焦于 {desc} (动机: {motivation})")
 
         return "\n".join(log_lines)
+
+    async def _build_self_prompt_block(self) -> str:
+        """构建 <self_prompt> 块，从工作区读取 self_prompt.md 文件.
+
+        如果文件不存在，就返回一个友好的提示.
+        """
+        if not self.action_handler:
+            logger.error(
+                "在读取 self_prompt.md 时，ThoughtPromptBuilder 的 action_handler 未被初始化！"
+            )
+            return "<!-- 错误：ActionHandler未初始化，无法读取 self_prompt.md -->"
+
+        try:
+            # // 从 action_handler 那里借用我们已经写好的、绝对安全的工作区路径解析逻辑！
+            # // 这样可以保证我们绝对不会读到工作区外面的文件！
+            workspace_root = self.action_handler._get_safe_workspace_root()
+            prompt_file_path = workspace_root / "self_prompt.md"
+
+            if prompt_file_path.exists() and prompt_file_path.is_file():
+                content = prompt_file_path.read_text(encoding="utf-8")
+                # // 如果文件是空的，也给个提示，免得LLM以为是出错了
+                if not content.strip():
+                    return "<!-- `self_prompt.md` 文件是空的，你可以在其中写入任何想让自己记住的设定或规则。 -->"  # noqa: E501
+                return content
+            else:
+                # // 文件不存在，就返回你设计的那个超棒的 fallback 提示！
+                return "<!-- `self_prompt.md` 文件尚不存在, 如希望编辑此处内容, 请在工作区根目录中创建并编辑该文件。 -->"  # noqa: E501
+        except Exception as e:
+            logger.error(f"读取 self_prompt.md 时发生意外错误: {e}", exc_info=True)
+            return "<!-- 读取 self_prompt.md 时发生内部错误。 -->"
 
     async def build_prompts_components(
         self,
@@ -264,6 +298,7 @@ class ThoughtPromptBuilder:
             "available_actions": self._get_actions_descriptions(
                 current_level, builder, core_builder
             ),
+            "self_prompt_block": await self._build_self_prompt_block(),
         }
 
         user_prompt_blocks = {

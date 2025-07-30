@@ -1,4 +1,4 @@
-# 文件: src/action/action_handler.py (竞速模式适配版 V1.0)
+# src/action/action_handler.py
 import asyncio
 import io
 import os
@@ -263,6 +263,7 @@ class ActionHandler:
             "write_file": self._execute_core_write_file,
             "edit_file": self._execute_core_edit_file,
             "get_aggregated_content": self._execute_core_get_aggregated_content,
+            "delete_workspace_file": self._execute_core_delete_workspace_file,
         }
 
         handler = file_op_handlers.get(action_name)
@@ -681,3 +682,29 @@ class ActionHandler:
             use_url_context=True,  # 关键！开启 URL 上下文功能
         )
         return response.get("text", "访问URL失败或未返回任何信息。")
+
+    def _execute_core_delete_workspace_file(self, params: dict) -> str:
+        """执行删除工作区文件的【危险】动作."""
+        path_str = params.get("path")
+        if not path_str:
+            return "错误：未提供要删除的文件路径。"
+
+        # // 安全第一！绝对不能让AI酱越狱到工作区外面去！
+        safe_path = self._resolve_safe_path(path_str)
+        if not safe_path:
+            return f"错误：路径 '{path_str}' 不安全或无效。"
+
+        try:
+            if not safe_path.exists():
+                return f"操作完成：文件 '{path_str}' 本来就不存在。"
+
+            if not safe_path.is_file():
+                return f"错误：路径 '{path_str}' 是一个目录，此功能只能删除文件。"
+
+            # // 终极审判！执行删除！
+            safe_path.unlink()
+
+            return f"成功！已删除文件 '{path_str}'。"
+        except Exception as e:
+            logger.error(f"删除文件时出错 ({path_str}): {e}", exc_info=True)
+            return f"错误：删除文件时发生未知错误: {e}"

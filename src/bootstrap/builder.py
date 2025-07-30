@@ -1,4 +1,4 @@
-# 文件: src/bootstrap/builder.py (最终修正版 V1.1)
+# src/bootstrap/builder.py (最终修正版 V1.1)
 import json
 import os
 from asyncio import Event as AsyncioEvent
@@ -77,10 +77,11 @@ class ServiceBuilder:
             unread_info_service,
             internal_info_builder,
             db_services["event_storage_service"],
-            db_services["thought_storage_service"],  # <-- 新增的 thought_storage_service
+            db_services["thought_storage_service"],
             db_services["conversation_storage_service"],
-            None,  # chat_session_manager 是可选的，后面注入
-            None,  # core_ws_server 也是可选的，后面注入
+            action_handler=action_handler,
+            chat_session_manager=None,
+            core_ws_server=None,
         )
         # ======================================================================
 

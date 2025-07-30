@@ -1,5 +1,5 @@
 # ruff: noqa: E501
-# src/platform_builders/core_builder.py (修改后的完整文件)
+# src/platform_builders/core_builder.py
 from typing import Any, ClassVar
 
 from aicarus_protocols import Event
@@ -173,6 +173,18 @@ class CoreBuilder(BasePlatformBuilder):
             },
             "required": ["source_path", "motivation"],
         },
+        "delete_workspace_file": {
+            "type": "object",
+            "description": "【危险操作】删除工作区内的指定文件。请谨慎使用！",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "要删除的文件的路径，【必须】相对于工作区根目录。",
+                },
+                "motivation": {"type": "string"},
+            },
+            "required": ["path", "motivation"],
+        },
     }
 
     # --- 同样，更新自然语言描述，让LLM更容易理解 ---
@@ -184,6 +196,7 @@ class CoreBuilder(BasePlatformBuilder):
         "write_file": "    - `write_file`: 向工作区内的文件写入内容(可追加或覆盖)。",
         "edit_file": "    - `edit_file`: 替换文件内的指定文本。",
         "get_aggregated_content": "    - `get_aggregated_content`: 扫描并聚合工作区内的文件内容，直接返回一个包含所有内容的字符串。",
+        "delete_workspace_file": "    - `delete_workspace_file`: 【危险】删除工作区内的指定文件。",
     }
 
     @property
