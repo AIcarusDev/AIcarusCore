@@ -28,7 +28,6 @@ CORE_CYCLE_SYSTEM_PROMPT = """
 </persona>
 
 <self_prompt>
-<!-- 工作区根目录中的 `self_prompt.md` 文件内容, 你可以自行编辑其中的内容. -->
 {self_prompt_block}
 </self_prompt>
 
