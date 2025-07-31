@@ -8,10 +8,8 @@ from src.common.intelligent_interrupt_system.models import SemanticModel
 from src.common.utils import parse_focus_path
 from src.database import (
     ActionLogStorageService,  # 引入ActionLogStorageService
-    ConversationStorageService,
     CoreDBCollections,
     DBEventDocument,
-    EnrichedConversationInfo,
     EntityGraphService,
 )
 from src.database.services.event_storage_service import EventStorageService
@@ -34,7 +32,6 @@ class DefaultMessageProcessor:
     def __init__(
         self,
         event_service: EventStorageService,
-        conversation_service: ConversationStorageService,
         entity_service: EntityGraphService,
         action_log_service: ActionLogStorageService,  # 注入 ActionLog 服务
         semantic_model: "SemanticModel",
@@ -42,7 +39,6 @@ class DefaultMessageProcessor:
         qq_chat_session_manager: Optional["ChatSessionManager"] = None,
     ) -> None:
         self.event_service: EventStorageService = event_service
-        self.conversation_service: ConversationStorageService = conversation_service
         self.entity_service: EntityGraphService = entity_service
         self.action_log_service: ActionLogStorageService = (
             action_log_service  # 保存 ActionLog 服务实例
@@ -168,13 +164,13 @@ class DefaultMessageProcessor:
 
         # 3. 更新 Conversation 档案
         if event.conversation_info and event.conversation_info.conversation_id:
-            enriched_info = EnrichedConversationInfo.from_protocol_and_event_context(
-                proto_conv_info=event.conversation_info,
-                event_platform=platform_id,
-                event_bot_id=event.bot_id,
-            )
-            await self.conversation_service.upsert_conversation_document(
-                enriched_info.to_db_document()
+            # 直接调用新服务，让它处理会话实体的创建或获取
+            await self.entity_service.get_or_create_conversation_entity(
+                conversation_id=event.conversation_info.conversation_id,
+                platform=platform_id,
+                conv_type=event.conversation_info.type,
+                name=event.conversation_info.name,
+                extra=event.conversation_info.extra,
             )
 
     async def _associate_person_and_update_membership(
@@ -192,8 +188,10 @@ class DefaultMessageProcessor:
 
         # --- 步骤 1: 查找或创建核心的 Profile 和 Entity ---
         # 这是所有后续操作的基础
-        profile_id, entity_uid = await self.entity_service.find_or_create_profile_and_entity(
-            user_info=event.user_info, platform=platform_id
+        profile_id, entity_uid = (
+            await self.entity_service.find_or_create_profile_and_account_entity(
+                user_info=event.user_info, platform=platform_id
+            )
         )
 
         if not entity_uid:
@@ -202,7 +200,9 @@ class DefaultMessageProcessor:
             return profile_id, None
 
         # --- 步骤 2: 根据事件类型执行特定的数据库更新 ---
-        entities_collection = await self.entity_service._get_collection(CoreDBCollections.ENTITIES)
+        entities_collection = await self.entity_service._get_collection(
+            CoreDBCollections.ENTITIES
+        )
 
         # <!-- 新增逻辑：专门处理好友请求 -->
         if event.event_type.endswith("request.friend.add"):
@@ -284,52 +284,68 @@ class DefaultMessageProcessor:
         self.core_logic.trigger_immediate_thought_cycle()
 
     async def _handle_bot_profile_update(self, event: ProtocolEvent) -> None:
-        # (这个方法的逻辑保持不变)
+        """处理机器人自身档案（如群名片）的更新事件."""
         try:
             if not event.content:
                 return
             report_data = event.content[0].data
-            conversation_id = report_data.get("conversation_id")
+            # 在新架构中，这里的 conversation_id 就是 conversation entity 的 UID
+            conversation_entity_uid = report_data.get("conversation_id")
             update_type = report_data.get("update_type")
             new_value = report_data.get("new_value")
-            if not conversation_id or not update_type:
+
+            if not all([conversation_entity_uid, update_type]):
                 return
 
             logger.info(
-                f"收到会话 '{conversation_id}' 中祂的档案更新通知: '{update_type}' -> '{new_value}'"
+                f"收到会话实体 '{conversation_entity_uid}' 中祂的档案更新通知: "
+                f"'{update_type}' -> '{new_value}'"
             )
+
+            # 获取 Entities 集合的句柄
+            entities_collection = await self.entity_service._get_collection(
+                CoreDBCollections.ENTITIES
+            )
+
+            # 获取当前的会话实体文档
+            conv_entity_doc = await entities_collection.get(conversation_entity_uid)
+            if not conv_entity_doc:
+                logger.warning(f"无法更新档案，因为找不到会话实体 '{conversation_entity_uid}'")
+                return
+
+            # 更新 bot_profile_in_this_conversation 字段
+            profile_to_update = conv_entity_doc.get("bot_profile_in_this_conversation", {})
+            if not isinstance(profile_to_update, dict): # 健壮性检查
+                profile_to_update = {}
+
+            if update_type == "card_change":
+                profile_to_update["card"] = new_value
+
+            profile_to_update["updated_at"] = int(time.time() * 1000)
+
+            # 将更新后的字段写回数据库
+            await entities_collection.update(
+                {
+                    "_key": conversation_entity_uid,
+                    "bot_profile_in_this_conversation": profile_to_update,
+                }
+            )
+
+            # 如果会话当前处于激活状态，也更新内存中的缓存
             session = (
-                self.qq_chat_session_manager.sessions.get(conversation_id)
+                self.qq_chat_session_manager.sessions.get(conversation_entity_uid)
                 if self.qq_chat_session_manager
                 else None
             )
             if session:
-                logger.info(f"会话 '{conversation_id}' 处于激活状态，正在实时更新其祂的档案缓存。")
+                logger.info(
+                    f"会话 '{conversation_entity_uid}' 处于激活状态，正在实时更新其档案缓存。"
+                )
+                if "bot_profile_cache" not in session or not session.bot_profile_cache:
+                    session.bot_profile_cache = {}
                 if update_type == "card_change":
                     session.bot_profile_cache["card"] = new_value
                 session.last_profile_update_time = time.time()
-                profile_to_save = session.bot_profile_cache.copy()
-                profile_to_save["updated_at"] = int(time.time() * 1000)
-                await self.conversation_service.update_conversation_field(
-                    conversation_id, "bot_profile_in_this_conversation", profile_to_save
-                )
-            else:
-                logger.info(f"会话 '{conversation_id}' 不活跃，仅更新其在数据库中祂的档案。")
-                conv_doc = await self.conversation_service.get_conversation_document_by_id(
-                    conversation_id
-                )
-                profile_to_update = {}
-                if (
-                    conv_doc
-                    and conv_doc.get("bot_profile_in_this_conversation")
-                    and isinstance(conv_doc["bot_profile_in_this_conversation"], dict)
-                ):
-                    profile_to_update = conv_doc["bot_profile_in_this_conversation"]
-                if update_type == "card_change":
-                    profile_to_update["card"] = new_value
-                profile_to_update["updated_at"] = int(time.time() * 1000)
-                await self.conversation_service.update_conversation_field(
-                    conversation_id, "bot_profile_in_this_conversation", profile_to_update
-                )
+
         except Exception as e:
             logger.error(f"处理祂的档案更新通知时出错: {e}", exc_info=True)

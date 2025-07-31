@@ -1,4 +1,4 @@
-# 文件: src/focus_chat_mode/chat_session.py (本体论重构适配版)
+# 文件: src/focus_chat_mode/chat_session.py
 import asyncio
 import time
 from typing import TYPE_CHECKING, Any
@@ -6,8 +6,6 @@ from typing import TYPE_CHECKING, Any
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
-
-# (-) 不再需要 ConversationStorageService
 from src.database import EnrichedConversationInfo
 from src.database.services.event_storage_service import EventStorageService
 from src.database.services.thought_storage_service import ThoughtStorageService
@@ -23,8 +21,6 @@ if TYPE_CHECKING:
     from src.common.summarization_observation.summarization_service import SummarizationService
     from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
     from src.core_logic.internal_info_builder import InternalInfoBuilder
-
-    # (+) 导入新的服务
     from src.database.services.entity_graph_service import EntityGraphService
     from src.database.services.summary_storage_service import SummaryStorageService
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
@@ -48,13 +44,12 @@ class ChatSession:
         bot_id: str,
         core_logic: "CoreLogicFlow",
         chat_session_manager: "ChatSessionManager",
-        # (--) conversation_service: ConversationStorageService,
         summarization_service: "SummarizationService",
         summary_storage_service: "SummaryStorageService",
         internal_info_builder: "InternalInfoBuilder",
         intelligent_interrupter: "IntelligentInterrupter",
         thought_storage_service: "ThoughtStorageService",
-        entity_graph_service: "EntityGraphService",  # <--- (+) 注入新的服务
+        entity_graph_service: "EntityGraphService",
         initial_last_processed_timestamp: float | None = None,
     ) -> None:
         # --- 模块化组件 ---
@@ -69,13 +64,12 @@ class ChatSession:
         self.conversation_name: str | None = conversation_info.name
         self.core_logic = core_logic
         self.chat_session_manager = chat_session_manager
-        # (--) self.conversation_service = conversation_service
         self.summarization_service = summarization_service
         self.summary_storage_service = summary_storage_service
         self.internal_info_builder = internal_info_builder
         self.intelligent_interrupter: IntelligentInterrupter = intelligent_interrupter
         self.thought_storage_service: ThoughtStorageService = thought_storage_service
-        self.entity_graph_service = entity_graph_service  # <--- (+) 存储服务实例
+        self.entity_graph_service = entity_graph_service  # 存储服务实例
 
         # --- 功能组件初始化 ---
         self.summarization_manager = SummarizationManager(self)
@@ -142,32 +136,51 @@ class ChatSession:
                 )
 
     async def get_bot_profile(self) -> dict[str, Any]:
-        """[核心改造] 智能获取祂的档案，现在从客观实体表获取!"""
+        """智能获取祂的档案，如果缓存有效则直接返回，否则从数据库加载最新的客观数据."""
         if self.bot_profile_cache and (
             time.time() - self.last_profile_update_time < CACHE_EXPIRATION_SECONDS
         ):
             return self.bot_profile_cache
 
-        # 直接调用新的服务，从 Entities 表获取客观数据
-        # (旧的 get_self_entity_for_platform 依然可用)
-        entity_doc = await self.entity_graph_service.get_self_entity_for_platform(self.platform)
+        # 1. 获取全局身份信息 (user_id, nickname)
+        all_self_entities = await self.entity_graph_service.get_all_self_entities()
+        entity_doc = next(
+            (
+                entity
+                for entity in all_self_entities
+                if entity.get("details", {}).get("platform") == self.platform
+            ),
+            None
+        )
 
-        if entity_doc and isinstance(entity_doc, dict):
-            # 从客观实体文档构建返回的 profile
-            # 注意：card 信息需要从 is_present_in 边的属性获取，此处暂时不获取
-            # 如果需要，可以扩展 EntityGraphService 提供一个专门的方法
-            db_profile = {
-                "user_id": entity_doc.get("details", {}).get("platform_id"),
-                "nickname": entity_doc.get("details", {}).get("nickname"),
-                "platform": self.platform,
-            }
-            self.bot_profile_cache = db_profile
-            self.last_profile_update_time = time.time()
-            logger.debug(f"[{self.conversation_id}] 从客观实体库加载了祂的档案并放入缓存。")
-            return self.bot_profile_cache
+        if not (entity_doc and isinstance(entity_doc, dict)):
+            logger.warning(f"[{self.conversation_id}] 未找到祂有效的全局档案。将使用临时基础档案。")
+            return {"user_id": self.bot_id, "nickname": config.persona.bot_name}
 
-        logger.warning(f"[{self.conversation_id}] 未找到祂有效的档案。将使用临时基础档案。")
-        return {"user_id": self.bot_id, "nickname": config.persona.bot_name}
+        # 2. 构建基础档案
+        base_profile = {
+            "user_id": entity_doc.get("details", {}).get("platform_id"),
+            "nickname": entity_doc.get("details", {}).get("nickname"),
+            "platform": self.platform,
+        }
+
+        # 3. 获取特定于本会话的身份信息 (card, role)
+        #    只有群聊才有 card 和 role 的概念
+        if self.conversation_type == "group":
+            presence_info = await self.entity_graph_service.get_self_presence_in_conversation(
+                platform=self.platform,
+                conversation_entity_uid=self.conversation_id,
+            )
+            if presence_info and isinstance(presence_info, dict):
+                base_profile["card"] = presence_info.get("cardname")
+                base_profile["role"] = presence_info.get("permission_level")
+                logger.debug(f"[{self.conversation_id}] 成功获取到祂在本会话的群名片和权限。")
+
+        # 4. 缓存并返回合并后的完整档案
+        self.bot_profile_cache = base_profile
+        self.last_profile_update_time = time.time()
+        logger.debug(f"[{self.conversation_id}] 已加载并缓存祂的完整档案。")
+        return self.bot_profile_cache
 
     def reset_consecutive_bot_message_count(self) -> None:
         """一个专门重置连续发言计数器的方法."""

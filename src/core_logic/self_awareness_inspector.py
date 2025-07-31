@@ -42,8 +42,16 @@ async def inspect_and_initialize_self_profile(
     if await profiles_collection.has(SELF_PROFILE_ID):
         logger.info(f"核心 Profile '{SELF_PROFILE_ID}' 已存在。将从数据库加载现有档案。")
 
-        # 如果存在，就检查是否已经有关联的该平台的客观实体
-        existing_entity = await entity_service.get_self_entity_for_platform(platform_id)
+        # 如果存在，就获取所有自身实体，然后从中筛选出当前平台的实体
+        all_self_entities = await entity_service.get_all_self_entities()
+        existing_entity = next(
+            (
+                entity
+                for entity in all_self_entities
+                if entity.get("details", {}).get("platform") == platform_id
+            ),
+            None
+        )
         if existing_entity:
             logger.success(f"成功从数据库为平台 '{platform_id}' 加载到自身客观实体信息。")
             # 基于已存在的实体信息构建返回数据
@@ -89,10 +97,9 @@ async def inspect_and_initialize_self_profile(
 
     logger.success(f"获取到自身ID: {bot_platform_id_str}, 昵称: {bot_nickname}")
 
-    # [核心修改]
-    # 获取到档案后，调用 _create_new_profile_with_entity 创建客观实体，并将其与 SELF_PROFILE_ID 关联
+    # 获取到档案后，调用 _create_new_profile_with_account_entity 创建客观实体
     bot_user_info = ProtocolUserInfo(user_id=str(bot_platform_id_str), user_nickname=bot_nickname)
-    profile_id, entity_uid = await entity_service._create_new_profile_with_entity(
+    profile_id, entity_uid = await entity_service._create_new_profile_with_account_entity(
         user_info=bot_user_info,
         platform=platform_id,
         is_self=True,  # <--- 关键！这会使用 SELF_PROFILE_ID
@@ -140,25 +147,46 @@ async def inspect_and_initialize_self_profile(
 
 
 async def _update_single_group_info(
-    entity_service: "EntityGraphService",  # <--- 参数名和类型已更改
-    entity_uid: str,  # <--- 参数名已更改
-    conversation_id: str,
+    entity_service: "EntityGraphService",
+    entity_uid: str,  # 这是“祂”自己的账户实体UID, e.g., "qq_123456"
+    conversation_id: str, # 这是群号, e.g., "98765"
     platform: str,
     group_profile: dict,
     bot_profile_for_conv: dict,
 ) -> None:
-    """一个辅助函数，用于原子化地更新单个群聊的信息."""
-    # 1. 更新 'is_present_in' 关系边
-    # 调用新的方法 update_robot_presence_in_conversation
-    await entity_service.update_robot_presence_in_conversation(
-        entity_uid=entity_uid,  # <--- 传递 entity_uid
-        conversation_id=conversation_id,
-        platform=platform,
-        conversation_name=group_profile.get("group_name"),
-        card_name=group_profile.get("card"),
-        role=group_profile.get("role"),
-    )
-    # 2. 将机器人的档案直接更新到会话文档中
-    await entity_service.conn_manager.db.collection(CoreDBCollections.CONVERSATIONS).update(
-        {"_key": conversation_id, "bot_profile_in_this_conversation": bot_profile_for_conv}
-    )
+    """[重构后] 一个辅助函数，用于原子化地更新单个群聊的信息."""
+    try:
+        # 1. 获取或创建这个群聊的客观实体 (Entity)。
+        conversation_entity = await entity_service.get_or_create_conversation_entity(
+            conversation_id=conversation_id,
+            platform=platform,
+            conv_type="group",
+            name=group_profile.get("group_name"),
+        )
+        conversation_entity_uid = conversation_entity._key # 获取这个群聊实体的UID
+
+        # 2. 更新“祂”在这个会话实体中的存在关系 (is_present_in 边)。
+        from aicarus_protocols import UserInfo as ProtocolUserInfo
+        temp_user_info_for_edge = ProtocolUserInfo(
+            user_cardname=group_profile.get("card"),
+            permission_level=group_profile.get("role"),
+        )
+        await entity_service.update_presence_in_conversation(
+            account_entity_uid=entity_uid, # “祂”的账户实体
+            conversation_entity_uid=conversation_entity_uid, # 群聊的实体
+            user_info=temp_user_info_for_edge,
+            conversation_name=group_profile.get("group_name")
+        )
+
+        # 3. 将“祂”在该群的具体档案，更新到“群聊实体”的文档中。
+        entities_collection = await entity_service._get_collection(CoreDBCollections.ENTITIES)
+        await entities_collection.update(
+            {
+                "_key": conversation_entity_uid,
+                "bot_profile_in_this_conversation": bot_profile_for_conv,
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"更新群聊 '{conversation_id}' 的实体信息时失败: {e}", exc_info=True)
+

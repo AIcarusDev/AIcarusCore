@@ -20,12 +20,9 @@ if TYPE_CHECKING:
     from src.core_logic.state_manager import AIStateManager
     from src.core_logic.thought_generator import ThoughtGenerator
     from src.core_logic.thought_persistor import ThoughtPersistor
-
-    # (±) 导入列表调整，再见了 ConversationStorageService
     from src.database import (
         ActionLogStorageService,
         ArangoDBConnectionManager,
-        # (--) ConversationStorageService,
         EntityGraphService,
         EventStorageService,
         SummaryStorageService,
@@ -48,10 +45,9 @@ class ServiceContainer:
     web_search_agent_client: ProcessorClient | None
     url_context_agent_client: ProcessorClient | None
 
-    # (±) 数据库与核心服务列表更新，旧神退位
+    # 核心数据存储服务
     conn_manager: ArangoDBConnectionManager
     event_storage_service: EventStorageService
-    # (--) conversation_storage_service: ConversationStorageService,
     thought_storage_service: ThoughtStorageService
     action_log_service: ActionLogStorageService
     summary_storage_service: SummaryStorageService

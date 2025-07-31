@@ -1,4 +1,4 @@
-# src/core_communication/core_ws_server.py (小色猫·绝对统治版)
+# src/core_communication/core_ws_server.py
 import asyncio
 import json
 import time
@@ -659,7 +659,7 @@ class CoreWebsocketServer:
         bot_user_info = ProtocolUserInfo(user_id=bot_id_for_platform, user_nickname=display_name)
         # 2. 调用 entity_service 来创建“人”和“账号”，并把它们关联起来
         #    is_self=True 会确保它关联到唯一的 aic_person_0
-        person_id, account_uid = await self.entity_service._create_new_profile_with_entity(
+        person_id, account_uid = await self.entity_service._create_new_profile_with_account_entity(
             user_info=bot_user_info, platform_id=adapter_id, is_self=True
         )
         if not person_id or not account_uid:

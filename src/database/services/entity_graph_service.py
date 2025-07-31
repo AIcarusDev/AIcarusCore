@@ -42,9 +42,7 @@ class EntityGraphService:
         """一个懒人工具，用来获取集合实例."""
         return await self.conn_manager.get_collection(name, is_edge=is_edge)
 
-    # ==============================================================================
-    # (+) 新增的核心方法：会话实体的创世纪！
-    # ==============================================================================
+
     async def get_or_create_conversation_entity(
         self,
         conversation_id: str,
@@ -91,9 +89,7 @@ class EntityGraphService:
         logger.info(f"成功创建了新的会话实体: {entity_uid}")
         return new_entity
 
-    # ==============================================================================
-    # (±) 重构的核心方法：账户实体与侧写的查找与创建
-    # ==============================================================================
+
     async def find_or_create_profile_and_account_entity(
         self, user_info: ProtocolUserInfo, platform: str
     ) -> tuple[str | None, str | None]:
@@ -239,9 +235,7 @@ class EntityGraphService:
             logger.error(f"创建 Profile 和 Account Entity 的AQL事务执行失败: {e}", exc_info=True)
             return None, None
 
-    # ==============================================================================
-    # (±) 重构的核心方法：关系管理
-    # ==============================================================================
+
     async def update_presence_in_conversation(
         self,
         account_entity_uid: str,
@@ -286,9 +280,6 @@ class EntityGraphService:
             logger.error(f"更新存在关系时失败: {e}", exc_info=True)
             return False
 
-    # ==============================================================================
-    # (±) 重构的图谱查询方法
-    # ==============================================================================
     async def get_profile_details_by_entity(
         self, platform: str, platform_id: str
     ) -> dict[str, Any] | None:
@@ -338,9 +329,7 @@ class EntityGraphService:
         results = await self.conn_manager.execute_query(query, bind_vars)
         return results[0] if results else None
 
-    # ==============================================================================
-    # (->) 其他方法保持或微调以适应新世界
-    # ==============================================================================
+
     async def get_all_self_entities(self) -> list[dict[str, Any]]:
         """获取祂自身（SELF_PROFILE_ID）关联的所有平台实体信息."""
         query = """
@@ -384,3 +373,162 @@ class EntityGraphService:
         except Exception as e:
             logger.error(f"查询平台 '{platform}' 的待处理好友请求失败: {e}", exc_info=True)
             return []
+
+    async def get_self_presence_in_conversation(
+        self, platform: str, conversation_entity_uid: str
+    ) -> dict[str, Any] | None:
+        """获取'祂'在特定会话中的存在信息 (is_present_in 边的属性).
+
+        Args:
+            platform (str): 当前平台ID.
+            conversation_entity_uid (str): 目标会话实体的UID.
+
+        Returns:
+            一个包含群名片、权限等信息的字典，如果不存在则返回 None.
+        """
+        query = """
+            LET self_profile = DOCUMENT(@@profiles_coll, @self_profile_key)
+            FILTER self_profile != null
+
+            LET self_account_entity = (
+                FOR entity IN 1..1 OUTBOUND self_profile @@represents_coll
+                    FILTER entity.details.platform == @platform
+                    AND entity.entity_type == 'account'
+                    LIMIT 1
+                    RETURN entity
+            )[0]
+            FILTER self_account_entity != null
+
+            FOR conv, edge IN 1..1 OUTBOUND self_account_entity @@is_present_in_coll
+                FILTER conv._key == @conv_uid
+                LIMIT 1
+                RETURN UNSET(edge, "_key", "_id", "_rev", "_from", "_to")
+        """
+        bind_vars = {
+            "@profiles_coll": CoreDBCollections.ENTITY_PROFILES,
+            "self_profile_key": SELF_PROFILE_ID,
+            "@represents_coll": CoreDBCollections.REPRESENTS,
+            "@is_present_in_coll": CoreDBCollections.IS_PRESENT_IN,
+            "platform": platform,
+            "conv_uid": conversation_entity_uid,
+        }
+        try:
+            results = await self.conn_manager.execute_query(query, bind_vars)
+            return results[0] if results else None
+        except Exception as e:
+            logger.error(
+                f"查询自身在会话 '{conversation_entity_uid}' 的存在信息时失败: {e}",
+                exc_info=True
+            )
+            return None
+
+    async def get_recently_active_conversation_entities_with_details(
+        self, exclude_conversation_id: str | None, self_bot_ids: dict[str, str]
+    ) -> list[dict[str, Any]]:
+        """通过一次AQL查询，获取所有活跃会話的完整聚合信息."""
+        query = """
+            LET bot_ids = VALUES(@self_bot_ids)
+            LET twenty_four_hours_ago = DATE_TIMESTAMP(DATE_SUBTRACT(DATE_NOW(), 24, "h"))
+
+            FOR conv IN @@entities_coll
+                FILTER conv.entity_type == 'conversation'
+                AND conv._key != @exclude_conv_id
+
+                LET events_in_conv = (
+                    FOR e IN @@events_coll
+                        FILTER e.conversation_id_extracted == conv.details.conversation_id
+                        AND e.timestamp >= twenty_four_hours_ago
+                        SORT e.timestamp DESC
+                        RETURN e
+                )
+
+                FILTER LENGTH(events_in_conv) > 0
+                LET latest_event = events_in_conv[0]
+
+                LET last_read_ts = conv.last_read_timestamp || 0
+
+                LET unread_events = (
+                    FOR e IN events_in_conv
+                        FILTER e.timestamp > last_read_ts
+                        AND e.user_info.user_id NOT IN bot_ids
+                        RETURN e
+                )
+
+                LET unread_count = LENGTH(unread_events)
+
+                LET latest_high_priority_event = (
+                    FOR e IN unread_events
+                        LET is_high_priority = (
+                            FOR seg IN e.content
+                                FILTER (seg.type == 'at' OR seg.type == 'quote')
+                                AND seg.data.user_id IN bot_ids
+                                LIMIT 1
+                                RETURN true
+                        )[0]
+                        FILTER is_high_priority == true
+                        SORT e.timestamp DESC
+                        LIMIT 1
+                        RETURN e
+                )[0]
+
+                SORT latest_event.timestamp DESC
+                RETURN {
+                    conv_doc: conv,
+                    latest_event: latest_high_priority_event || latest_event,
+                    unread_count: unread_count,
+                    has_high_priority: latest_high_priority_event != null
+                }
+        """
+        bind_vars = {
+            "@entities_coll": CoreDBCollections.ENTITIES,
+            "@events_coll": CoreDBCollections.EVENTS,
+            "exclude_conv_id": exclude_conversation_id,
+            "self_bot_ids": self_bot_ids,
+        }
+        try:
+            results = await self.conn_manager.execute_query(query, bind_vars)
+            return results if results is not None else []
+        except Exception as e:
+            logger.error(f"查询最近活跃会话详情时失败: {e}", exc_info=True)
+            return []
+
+    async def get_conversation_last_read_timestamp(self, conversation_entity_uid: str) -> float:
+        """获取一个会话的最后已读时间戳."""
+        entity = await self.get_entity_by_key(conversation_entity_uid)
+        # 如果实体存在且有时间戳，则返回它，否则返回0
+        return entity.get("last_read_timestamp", 0.0) if entity else 0.0
+
+    async def update_conversation_last_read_timestamp(
+            self,
+            conversation_entity_uid: str,
+            timestamp: float
+    ) -> bool:
+        """更新一个会话的最后已读时间戳."""
+        try:
+            entities_collection = await self._get_collection(CoreDBCollections.ENTITIES)
+            await entities_collection.update(
+                {"_key": conversation_entity_uid, "last_read_timestamp": timestamp}
+            )
+            logger.info(f"已更新会话实体 '{conversation_entity_uid}' 的最后已读时间戳。")
+            return True
+        except Exception as e:
+            logger.error(
+                f"更新会话实体 '{conversation_entity_uid}' 的时间戳失败: {e}",
+                exc_info=True
+            )
+            return False
+
+    async def get_entity_by_key(self, entity_uid: str) -> EntityDocument | None:
+        """根据 entity_uid (_key) 获取单个实体文档，并将其转换为 EntityDocument 对象."""
+        if not entity_uid:
+            return None
+        try:
+            entities_collection = await self._get_collection(CoreDBCollections.ENTITIES)
+            doc = await entities_collection.get(entity_uid)
+            if doc:
+                # 使用 from_dict 类方法将原始字典转换为强类型的 dataclass 对象
+                return EntityDocument.from_dict(doc)
+            return None
+        except Exception as e:
+            logger.error(f"根据 key '{entity_uid}' 获取实体时失败: {e}", exc_info=True)
+            return None

@@ -15,7 +15,6 @@ from src.config.config_paths import PROJECT_ROOT
 from src.core_communication.action_sender import ActionSender
 from src.database import (
     ActionLogStorageService,
-    ConversationStorageService,
     EntityGraphService,
     EventStorageService,
     ThoughtStorageService,
@@ -129,7 +128,6 @@ class ActionHandler:
         thought_service: ThoughtStorageService,
         event_service: EventStorageService,
         action_log_service: ActionLogStorageService,
-        conversation_service: ConversationStorageService,
         action_sender: ActionSender,
         entity_service: EntityGraphService,
         chat_session_manager: "ChatSessionManager",
@@ -147,7 +145,6 @@ class ActionHandler:
             action_log_service=action_log_service,
             thought_storage_service=thought_service,
             event_storage_service=event_service,
-            conversation_service=conversation_service,
             action_handler_instance=self,  # 把自己传进去
         )
         self._initialize_workspace()
@@ -543,9 +540,20 @@ class ActionHandler:
             logger.error("EntityGraphService 未注入到 ActionHandler，无法获取祂的ID！")
             return
 
-        self_entity = await self.entity_service.get_self_entity_for_platform(platform_id)
+        # 1. 调用正确的方法获取所有自身实体
+        all_self_entities = await self.entity_service.get_all_self_entities()
+        # 2. 从列表中筛选出当前平台的实体
+        self_entity = next(
+            (
+                entity
+                for entity in all_self_entities
+                if entity.get("details", {}).get("platform") == platform_id
+            ),
+            None,
+        )
 
-        if not self_entity or not self_entity.get("platform_id"):  # <--- (±) 使用新的变量
+        # 3. 修正后续代码对 platform_id 的获取路径
+        if not self_entity or not self_entity.get("details", {}).get("platform_id"):
             logger.error(f"无法为平台 '{platform_id}' 获取已安检的祂的客观实体ID。动作无法执行。")
             await self.thought_storage_service.save_action_result_to_thought(
                 thought_key=doc_key_for_updates,
@@ -553,7 +561,7 @@ class ActionHandler:
             )
             return
 
-        correct_bot_id = self_entity["platform_id"]  # <--- (±) 从新的变量中获取ID
+        correct_bot_id = self_entity["details"]["platform_id"]  # <--- 从 "details" 字段中获取ID
         action_event = builder.build_action_event(action_name, params, bot_id=correct_bot_id)
         if not action_event:
             logger.error(f"平台 '{platform_id}' 的翻译官不会翻译动作 '{action_name}'。")

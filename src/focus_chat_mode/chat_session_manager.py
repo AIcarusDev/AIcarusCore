@@ -7,11 +7,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logging_config import get_logger
 from src.config.aicarus_configs import FocusChatModeSettings
-
-# (+) 导入我们的新模型，方便进行类型检查
 from src.database.models import ConversationDetails
-
-# (-) 不再需要 ConversationStorageService
 from src.database.services.event_storage_service import EventStorageService
 from src.database.services.summary_storage_service import SummaryStorageService
 from src.database.services.thought_storage_service import ThoughtStorageService
@@ -43,11 +39,10 @@ class ChatSessionManager:
         event_storage: EventStorageService,
         action_handler: ActionHandler,
         self_bot_ids_map: dict[str, str],
-        # (--) conversation_service: ConversationStorageService,
         summarization_service: "SummarizationService",
         summary_storage_service: "SummaryStorageService",
         intelligent_interrupter: "IntelligentInterrupter",
-        entity_graph_service: "EntityGraphService",  # <--- (±) 确保这个在这里
+        entity_graph_service: "EntityGraphService",
         thought_storage_service: "ThoughtStorageService",
         internal_info_builder: "InternalInfoBuilder",
         core_logic: Optional["CoreLogicFlow"] = None,
@@ -131,9 +126,11 @@ class ChatSessionManager:
             if not self.core_logic:
                 raise RuntimeError("CoreLogic未注入，ChatSessionManager无法创建会话。")
 
-            # TODO: last_processed_timestamp 需要从一个新地方获取，例如一个专门的“会话状态”集合
-            # 目前暂时设为当前时间，表示会话从现在开始处理
-            initial_last_processed_timestamp = time.time() * 1000.0
+            # 从会话实体文档中读取上次处理的时间戳，如果没有则使用当前时间
+            initial_last_processed_timestamp = (
+                conv_entity_doc.get("last_read_timestamp")
+                or time.time() * 1000.0
+            )
 
             self.sessions[conversation_id] = ChatSession(
                 conversation_info=conversation_info_obj,
@@ -162,11 +159,11 @@ class ChatSessionManager:
             if session := self.sessions.pop(conversation_id, None):
                 logger.info(f"[SessionManager] 会话实体 '{conversation_id}' 的档案正在被移除。")
 
-                # TODO: 将会话的最终处理时间戳持久化到数据库
-                # final_timestamp = time.time() * 1000.0
-                # await self.entity_graph_service.update_conversation_state(
-                #     conversation_id, {"last_processed_timestamp": final_timestamp}
-                # )
+                # 将会话的最终处理时间戳持久化到数据库
+                final_timestamp = session.last_processed_timestamp
+                await self.entity_graph_service.update_conversation_last_read_timestamp(
+                    conversation_id, final_timestamp
+    )
 
                 context = handover_context or {}
                 await session.summarization_manager.create_and_save_final_summary(

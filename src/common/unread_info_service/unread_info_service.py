@@ -211,24 +211,11 @@ class UnreadInfoService:
     async def _format_single_conversation_summary(self, item: dict[str, Any]) -> list[str]:
         """辅助函数: 将单个会话实体的信息格式化为摘要文本."""
         conv_doc = item["conv_doc"]
-        latest_event = item["latest_event"]
+        # AQL查询已经智能地选择了要显示的事件 (高优优先)
+        event_for_preview = item["latest_event"]
         unread_count = item["unread_count"]
-        has_high_priority = item["has_high_priority"]
 
-        event_for_preview = latest_event
-        # (±) 核心适配点：所有会话信息都从 entity.details 中来
         conv_details = conv_doc.get("details", {})
-        conv_id_for_query = conv_details.get("conversation_id")
-
-        if has_high_priority and conv_id_for_query:
-            logger.debug(f"会话 '{conv_id_for_query}' 存在高优消息，精确查找...")
-            # TODO: last_read_ts 应该从一个专门的状态管理服务获取，暂时用0
-            high_priority_event = await self.event_storage.get_latest_high_priority_unread_event(
-                conv_id_for_query, 0, self.self_bot_ids
-            )
-            if high_priority_event:
-                event_for_preview = high_priority_event
-
         conv_type = conv_details.get("type", "private")
         sender_name = self._get_sender_display_name(event_for_preview, conv_type)
         time_str = format_relative_time(event_for_preview.get("timestamp", 0))

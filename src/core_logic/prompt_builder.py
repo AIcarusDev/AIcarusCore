@@ -9,7 +9,8 @@ from src.common.time_utils import format_relative_time, get_formatted_time_for_l
 from src.common.utils import parse_focus_path
 from src.config import config
 from src.core_logic.internal_info_builder import InternalInfoBuilder
-from src.database import ConversationStorageService, ThoughtStorageService
+from src.database import EntityGraphService, ThoughtStorageService
+from src.database.models import ConversationDetails
 from src.focus_chat_mode.behavioral_guidance_generator import BehavioralGuidanceGenerator
 from src.focus_chat_mode.components import PromptComponents
 from src.platform_builders.base_builder import BasePlatformBuilder
@@ -50,7 +51,7 @@ class ThoughtPromptBuilder:
         internal_info_builder: "InternalInfoBuilder",
         event_storage_service: "EventStorageService",
         thought_storage_service: "ThoughtStorageService",
-        conversation_service: "ConversationStorageService",
+        entity_graph_service: "EntityGraphService",
         action_handler: "ActionHandler",
         chat_session_manager: Optional["ChatSessionManager"] = None,
         core_ws_server: Optional["CoreWebsocketServer"] = None,
@@ -59,7 +60,7 @@ class ThoughtPromptBuilder:
         self.internal_info_builder = internal_info_builder
         self.event_storage = event_storage_service
         self.thought_storage = thought_storage_service
-        self.conversation_service = conversation_service
+        self.entity_service = entity_graph_service
         self.action_handler = action_handler
         self.chat_session_manager = chat_session_manager
         self.core_ws_server = core_ws_server
@@ -448,12 +449,19 @@ class ThoughtPromptBuilder:
         source_group_id = session.conversation_info.extra.get("source_group_id")
         source_group_name = "未知群聊"  # 默认值
         if source_group_id:
-            # 使用注入的 service 查询数据库
-            source_group_doc = await self.conversation_service.get_conversation_document_by_id(
-                source_group_id
+
+            # 1. 根据约定，构建群聊实体的 UID
+            #    临时会话的来源必然是群聊，所以 conv_type 硬编码为 "group"
+            source_group_entity_uid = f"{session.platform}_group_{source_group_id}"
+
+            # 2. 通过 UID 获取群聊实体
+            source_group_entity = await self.entity_service.get_entity_by_key(
+                source_group_entity_uid
             )
-            if source_group_doc:
-                source_group_name = source_group_doc.get("name", source_group_id)
+
+            # 3. 从实体文档中安全地提取名称
+            if source_group_entity and isinstance(source_group_entity.details, ConversationDetails):
+                source_group_name = source_group_entity.details.name or source_group_id
 
         return (
             f"你当前正在 qq 上处理来自“{source_group_name}”群聊中"

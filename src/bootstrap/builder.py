@@ -26,8 +26,6 @@ from src.core_logic.prompt_builder import ThoughtPromptBuilder
 from src.core_logic.state_manager import AIStateManager
 from src.core_logic.thought_generator import ThoughtGenerator
 from src.core_logic.thought_persistor import ThoughtPersistor
-
-# (±) 导入列表调整，再见了 ConversationStorageService
 from src.database import (
     ActionLogStorageService,
     ArangoDBConnectionManager,
@@ -83,7 +81,7 @@ class ServiceBuilder:
             internal_info_builder=internal_info_builder,
             event_storage_service=db_services["event_storage_service"],
             thought_storage_service=db_services["thought_storage_service"],
-            # (--) conversation_storage_service 已被移除
+            entity_graph_service=db_services["entity_graph_service"],
             action_handler=action_handler,
             chat_session_manager=None,
             core_ws_server=None,
@@ -263,10 +261,9 @@ class ServiceBuilder:
         if not conn_manager or not conn_manager.db:
             raise RuntimeError("数据库连接管理器初始化失败。")
 
-        # (±) 从待创建服务列表中移除旧服务
+        # 初始化核心数据存储服务
         services_to_create = {
             "event_storage_service": EventStorageService,
-            # (--) "conversation_storage_service": ConversationStorageService,
             "thought_storage_service": ThoughtStorageService,
             "action_log_service": ActionLogStorageService,
             "entity_graph_service": EntityGraphService,

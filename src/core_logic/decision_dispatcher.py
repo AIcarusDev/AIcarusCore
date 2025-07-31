@@ -148,7 +148,7 @@ async def process_llm_decision(
                 if not session:
                     logger.error("send_message 动作只能在专注会话中执行，但当前会话实例为空！")
                 else:
-                    # // 委托给专业的特种小队处理！
+                    # 处理 send_message 动作
                     await _handle_send_message_action(
                         session, action_params, core_logic, processed_events_this_turn
                     )

@@ -188,15 +188,15 @@ class ArangoDBConnectionManager:
             logger.info(f"主认知图 '{main_graph_name}' 不存在，正在创建...")
             main_edge_definitions = [
                 {
-                    "collection": CoreDBCollections.REPRESENTS,  # <-- 使用新名字！
-                    "from": [CoreDBCollections.ENTITY_PROFILES],  # <-- 使用新名字！
-                    "to": [CoreDBCollections.ENTITIES],  # <-- 使用新名字！
+                    "collection": CoreDBCollections.REPRESENTS,  # 实体与档案之间的关系
+                    "from": [CoreDBCollections.ENTITY_PROFILES],
+                    "to": [CoreDBCollections.ENTITIES],
                 },
                 {
-                    "collection": CoreDBCollections.IS_PRESENT_IN,  # <-- 使用新名字！
-                    "from": [CoreDBCollections.ENTITIES],  # <-- 使用新名字！
-                    # 实体可以存在于实体或会话中
-                    "to": [CoreDBCollections.ENTITIES, CoreDBCollections.CONVERSATIONS],
+                    "collection": CoreDBCollections.IS_PRESENT_IN,
+                    "from": [CoreDBCollections.ENTITIES],
+                    # 实体（人）现在只能存在于另一种实体（会话）中
+                    "to": [CoreDBCollections.ENTITIES],
                 },
             ]
             try:
