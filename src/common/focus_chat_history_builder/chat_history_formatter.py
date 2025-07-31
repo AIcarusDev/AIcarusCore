@@ -162,11 +162,9 @@ async def format_chat_history_for_llm(
                 uid_str = f"U{uid_counter}"
                 platform_id_to_uid_str[p_user_id] = uid_str
 
-                remark = (
-                    event_data.user_info.extra.get("friend_remark")
-                    if event_data.user_info.extra
-                    else None
-                )
+                remark = None
+                if hasattr(event_data.user_info, "extra") and event_data.user_info.extra:
+                    remark = event_data.user_info.extra.get("friend_remark")
 
                 user_map[p_user_id] = {
                     "uid_str": uid_str,
