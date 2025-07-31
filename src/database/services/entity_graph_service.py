@@ -1,4 +1,4 @@
-# src/database/services/entity_graph_service.py (本体论重构 V1.0)
+# src/database/services/entity_graph_service.py (本体论重构 V1.1 - 究极进化版)
 import time
 from typing import Any
 
@@ -8,6 +8,12 @@ from src.common.custom_logging.logging_config import get_logger
 from src.database import (
     ArangoDBConnectionManager,
     CoreDBCollections,
+)
+
+# // (+) 导入我们刚刚创造的新神之卡组！
+from src.database.models import (
+    AccountDetails,
+    ConversationDetails,
     EntityDocument,
     EntityProfileDocument,
     MembershipProperties,
@@ -22,12 +28,8 @@ SELF_PROFILE_ID = "aic_person_0"
 class EntityGraphService:
     """此类负责管理实体(Entity)与实体侧写(EntityProfile)之间的关系图谱.
 
-    它提供了查找或创建客观实体(Entity)和主观侧写(Profile)的方法，
-    并确保它们之间存在正确的'represents'（表征）关系。
-    同时，它也管理实体在会话中的存在（is_present_in）关系。
-
-    Attributes:
-        conn_manager (ArangoDBConnectionManager): 数据库连接管理器实例，用于获取集合。
+    (究极进化版) 它现在是所有客观实体（包括账户和会话）的唯一管理者。
+    它处理所有实体的创建、查找，以及它们之间的关系（如 represents, is_present_in）。
     """
 
     def __init__(self, conn_manager: ArangoDBConnectionManager) -> None:
@@ -37,73 +39,115 @@ class EntityGraphService:
     async def _get_collection(
         self, name: str, is_edge: bool = False
     ) -> StandardCollection | EdgeCollection:
-        """一个懒人工具，用来获取集合实例。现在它知道边集合要特殊对待了."""
+        """一个懒人工具，用来获取集合实例."""
         return await self.conn_manager.get_collection(name, is_edge=is_edge)
 
-    async def find_or_create_profile_and_entity(
+    # ==============================================================================
+    # (+) 新增的核心方法：会话实体的创世纪！
+    # ==============================================================================
+    async def get_or_create_conversation_entity(
+        self,
+        conversation_id: str,
+        platform: str,
+        conv_type: str,
+        name: str | None = None,
+        extra: dict | None = None,
+    ) -> EntityDocument:
+        """获取或创建一个会话实体(Entity).
+
+        这是新架构的核心，所有对“会话”的操作都将通过这里。
+        它确保了每个会话在我们的知识图谱中都有一个唯一的、客观的实体代表。
+        """
+        # // 构造一个全局唯一的UID，比如 "qq_group_123456"
+        entity_uid = f"{platform}_{conv_type}_{conversation_id}"
+        entities_collection = await self._get_collection(CoreDBCollections.ENTITIES)
+
+        doc = await entities_collection.get(entity_uid)
+        if doc:
+            # // 找到了！直接从数据库读档，然后用我们的 from_dict 复活成强类型老婆！
+            logger.debug(f"成功找到已存在的会话实体: {entity_uid}")
+            return EntityDocument.from_dict(doc)
+
+        # // 没找到？那就创造一个新的！
+        logger.info(f"未找到会话实体 '{entity_uid}'，将为其创建新的实体档案。")
+        details = ConversationDetails(
+            platform=platform,
+            conversation_id=conversation_id,
+            type=conv_type,
+            name=name,
+            parent_id=None,  # parent_id 暂时不在这里处理，需要更复杂的逻辑
+            avatar=None,
+            extra=extra or {},
+        )
+        new_entity = EntityDocument(
+            _key=entity_uid,
+            entity_uid=entity_uid,
+            entity_type="conversation",
+            details=details,
+        )
+        # // 用 UPSERT 更安全，万一在高并发下有另一个协程刚刚创建了它呢 (虽然概率很小)
+        # // 这叫防御性编程，就像游戏里随时准备按翻滚键一样！
+        await entities_collection.upsert(new_entity.to_dict())
+        logger.info(f"成功创建了新的会话实体: {entity_uid}")
+        return new_entity
+
+    # ==============================================================================
+    # (±) 重构的核心方法：账户实体与侧写的查找与创建
+    # ==============================================================================
+    async def find_or_create_profile_and_account_entity(
         self, user_info: ProtocolUserInfo, platform: str
     ) -> tuple[str | None, str | None]:
-        """根据用户信息，查找或创建客观实体(Entity)和主观侧写(Profile)，并确保它们'represents'关系.
+        """根据用户信息，查找或创建客观的“账户”实体(Entity)和主观侧写(Profile)，并确保它们'represents'关系.
 
-        Args:
-            user_info (ProtocolUserInfo): 包含用户信息的协议对象。
-            platform (str): 用户所在的平台标识。
-
-        Returns:
-            tuple[str | None, str | None]: 返回 (profile_id, entity_uid)。
+        这个方法现在明确只处理 'account' 类型的实体。
         """
         if not user_info or not user_info.user_id:
-            logger.warning("提供的UserInfo不完整，无法查找或创建Profile/Entity。")
+            logger.warning("提供的UserInfo不完整，无法查找或创建Profile/Account Entity。")
             return None, None
 
         entities_collection = await self._get_collection(CoreDBCollections.ENTITIES)
         entity_uid = f"{platform}_{user_info.user_id}"
 
-        # 1. 先找客观实体
         entity_doc = await entities_collection.get(entity_uid)
 
         if entity_doc:
-            # 找到了客观实体，现在反向查找它被哪个主观侧写所'表征'
-            logger.debug(f"找到了已存在的客观实体: {entity_uid}")
-
-            # 更新一下实体昵称
+            logger.debug(f"找到了已存在的账户实体: {entity_uid}")
             if (
                 user_info.user_nickname
-                and entity_doc.get("last_known_nickname") != user_info.user_nickname
+                and entity_doc.get("details", {}).get("last_known_nickname")
+                != user_info.user_nickname
             ):
-                await entities_collection.update(
-                    {"_key": entity_uid, "last_known_nickname": user_info.user_nickname}
-                )
+                patch_data = {"details.last_known_nickname": user_info.user_nickname}
+                await entities_collection.update_by_key(entity_uid, patch_data, merge=True)
 
-            # AQL图遍历查询，从实体节点出发，反向查找表征它的“侧写”
             query = """
                 FOR p IN 1..1 INBOUND @entity_id @@represents_edge_coll
-                    RETURN { profile_id: p._key }
+                    RETURN p._key
             """
             bind_vars = {
                 "entity_id": f"{CoreDBCollections.ENTITIES}/{entity_uid}",
                 "@represents_edge_coll": CoreDBCollections.REPRESENTS,
             }
-            profile_results = await self.conn_manager.execute_query(query, bind_vars)
+            profile_ids = await self.conn_manager.execute_query(query, bind_vars)
 
-            if profile_results and (profile_id := profile_results[0].get("profile_id")):
+            if profile_ids:
+                profile_id = profile_ids[0]
                 logger.debug(f"实体 {entity_uid} 已被 Profile '{profile_id}' 所表征。")
                 return profile_id, entity_uid
 
-            # 数据不一致的警告，为现有实体创建一个新的侧写并关联
             logger.warning(
                 f"数据不一致！实体 {entity_uid} 存在但没有关联的Profile。将为其创建新的Profile。"
             )
             return await self._create_profile_for_existing_entity(entity_doc)
         else:
-            # 没找到实体，创建新的侧写和实体，并关联它们
-            logger.debug(f"未找到实体: {entity_uid}，将创建新的 Profile 和 Entity。")
-            return await self._create_new_profile_with_entity(user_info, platform)
+            logger.debug(f"未找到账户实体: {entity_uid}，将创建新的 Profile 和 Entity。")
+            return await self._create_new_profile_with_account_entity(user_info, platform)
 
     async def _create_profile_for_existing_entity(
         self, entity_doc: dict[str, Any]
     ) -> tuple[str | None, str | None]:
         """内部工具：为一个已存在的实体创建一个新的侧写，并用'represents'边连接."""
+        # ... (此方法逻辑基本不变，因为它是通用的) ...
         profile = EntityProfileDocument.create_new()
         entity_uid = entity_doc["_key"]
         entity_id = entity_doc["_id"]
@@ -111,21 +155,14 @@ class EntityGraphService:
         query = """
             LET profile_doc = @profile_doc
             LET timestamp = @timestamp
-
-            LET profile_result = (
-                INSERT profile_doc IN @@profiles_coll
-                RETURN NEW
-            )[0]
-
+            LET profile_result = (INSERT profile_doc IN @@profiles_coll RETURN NEW)[0]
             LET edge_doc = {
                 _key: CONCAT(profile_result._key, "_represents_", @entity_key),
                 _from: profile_result._id,
                 _to: @entity_id,
                 created_at: timestamp
             }
-
             INSERT edge_doc IN @@represents_coll
-
             RETURN { profile_id: profile_result._key, entity_uid: @entity_key }
         """
         bind_vars = {
@@ -136,65 +173,53 @@ class EntityGraphService:
             "@profiles_coll": CoreDBCollections.ENTITY_PROFILES,
             "@represents_coll": CoreDBCollections.REPRESENTS,
         }
-
         try:
             results = await self.conn_manager.execute_query(query, bind_vars)
-            if results and isinstance(results, list) and len(results) > 0:
-                result = results[0]
-                profile_id = result.get("profile_id")
-                returned_entity_uid = result.get("entity_uid")
-                if profile_id and returned_entity_uid:
-                    logger.info(
-                        f"AQL事务成功：为现有实体 '{returned_entity_uid}' "
-                        f"创建并关联了新的 Profile '{profile_id}'。"
-                    )
-                    return profile_id, returned_entity_uid
-
-            logger.error(
-                f"为现有实体创建Profile的AQL事务执行后未能返回有效的ID, 返回结果: {results}"
-            )
+            if results:
+                return results[0].get("profile_id"), results[0].get("entity_uid")
             return None, None
-
         except Exception as e:
             logger.error(f"为现有实体创建Profile的AQL事务执行失败: {e}", exc_info=True)
             return None, None
 
-    async def _create_new_profile_with_entity(
+    async def _create_new_profile_with_account_entity(
         self,
         user_info: ProtocolUserInfo,
         platform: str,
         is_self: bool = False,
     ) -> tuple[str | None, str | None]:
-        """内部工具：创建一个新的Profile，一个新的Entity，并用'represents'边连接."""
+        """(内部重构) 创建一个新的Profile和一个新的“账户”Entity，并连接它们."""
         profile = (
             EntityProfileDocument.create_new()
             if not is_self
             else EntityProfileDocument(_key=SELF_PROFILE_ID, profile_id=SELF_PROFILE_ID)
         )
-        entity = EntityDocument.from_user_info(user_info, platform)
+
+        # // 核心区别：现在创建的是一个完整的 EntityDocument，类型是 account
+        account_details = AccountDetails(
+            platform=platform,
+            platform_id=user_info.user_id,
+            nickname=user_info.user_nickname,
+            last_known_nickname=user_info.user_nickname,
+        )
+        entity_uid = f"{platform}_{user_info.user_id}"
+        entity = EntityDocument(
+            _key=entity_uid, entity_uid=entity_uid, entity_type="account", details=account_details
+        )
 
         query = """
             LET profile_doc = @profile_doc
             LET entity_doc = @entity_doc
             LET timestamp = @timestamp
-
-            LET profile_result = (
-                UPSERT { _key: profile_doc._key } INSERT profile_doc UPDATE {} IN @@profiles_coll RETURN NEW
-            )[0]
-
-            LET entity_result = (
-                UPSERT { _key: entity_doc._key } INSERT entity_doc UPDATE {} IN @@entities_coll RETURN NEW
-            )[0]
-
+            LET profile_result = (UPSERT { _key: profile_doc._key } INSERT profile_doc UPDATE {} IN @@profiles_coll RETURN NEW)[0]
+            LET entity_result = (UPSERT { _key: entity_doc._key } INSERT entity_doc UPDATE {} IN @@entities_coll RETURN NEW)[0]
             LET edge_doc = {
                 _key: CONCAT(profile_result._key, "_represents_", entity_result._key),
                 _from: profile_result._id,
                 _to: entity_result._id,
                 created_at: timestamp
             }
-
             UPSERT { _key: edge_doc._key } INSERT edge_doc UPDATE {} IN @@represents_coll
-
             RETURN { profile_id: profile_result._key, entity_uid: entity_result._key }
         """  # noqa: E501
         bind_vars = {
@@ -205,101 +230,37 @@ class EntityGraphService:
             "@entities_coll": CoreDBCollections.ENTITIES,
             "@represents_coll": CoreDBCollections.REPRESENTS,
         }
-
         try:
             results = await self.conn_manager.execute_query(query, bind_vars)
-            if results and isinstance(results, list) and len(results) > 0:
-                result = results[0]
-                profile_id = result.get("profile_id")
-                entity_uid = result.get("entity_uid")
-                if profile_id and entity_uid:
-                    logger.info(
-                        f"AQL事务成功：创建/关联了 Profile '{profile_id}' "
-                        f"和 Entity '{entity_uid}'。"
-                    )
-                    return profile_id, entity_uid
-
-            logger.error(f"AQL事务执行后未能返回有效的ID, 返回结果: {results}")
+            if results:
+                return results[0].get("profile_id"), results[0].get("entity_uid")
+            return None, None
+        except Exception as e:
+            logger.error(f"创建 Profile 和 Account Entity 的AQL事务执行失败: {e}", exc_info=True)
             return None, None
 
-        except Exception as e:
-            logger.error(f"创建 Profile 和 Entity 的AQL事务执行失败: {e}", exc_info=True)
-            return None, None
-
-    async def update_robot_presence_in_conversation(
-        self,
-        entity_uid: str,
-        conversation_id: str,
-        platform: str,
-        conversation_name: str | None,
-        card_name: str | None,
-        role: str | None,
-    ) -> bool:
-        """专门更新祂在某个群里的存在信息（主要是群名片）."""
-        from_vertex = f"{CoreDBCollections.ENTITIES}/{entity_uid}"
-        to_vertex = f"{CoreDBCollections.CONVERSATIONS}/{conversation_id}"
-        edge_key = f"{entity_uid}_in_{conversation_id}"
-
-        # 确保会话文档存在
-        conv_collection = await self._get_collection(CoreDBCollections.CONVERSATIONS)
-        if not await conv_collection.has(conversation_id):
-            await conv_collection.insert(
-                {
-                    "_key": conversation_id,
-                    "conversation_id": conversation_id,
-                    "platform": platform,
-                    "name": conversation_name,
-                    "type": "group",
-                    "created_at": int(time.time() * 1000),
-                    "updated_at": int(time.time() * 1000),
-                }
-            )
-            logger.info(f"发现未知会话 '{conversation_id}'，已为其创建档案。")
-
-        props = MembershipProperties(
-            group_name=conversation_name,
-            cardname=card_name,
-            permission_level=role,
-            last_active_timestamp=int(time.time() * 1000),
-        )
-
-        edge_doc = {"_key": edge_key, "_from": from_vertex, "_to": to_vertex, **props.to_dict()}
-
-        query = """
-            UPSERT { _key: @key }
-            INSERT @doc
-            UPDATE @doc
-            IN @@collection
-            RETURN NEW
-        """
-        bind_vars = {
-            "key": edge_key,
-            "doc": edge_doc,
-            "@collection": CoreDBCollections.IS_PRESENT_IN,  # 假设关系名为 is_present_in
-        }
-
-        try:
-            await self.conn_manager.execute_query(query, bind_vars)
-            logger.debug(
-                f"成功更新祂的存在关系: Entity '{entity_uid}' in Conversation '{conversation_id}'"
-            )
-            return True
-        except Exception as e:
-            logger.error(f"更新祂的存在关系时失败: {e}", exc_info=True)
-            return False
-
+    # ==============================================================================
+    # (±) 重构的核心方法：关系管理
+    # ==============================================================================
     async def update_presence_in_conversation(
         self,
-        entity_uid: str,
-        conversation_id: str,
+        account_entity_uid: str,
+        conversation_entity_uid: str,
         user_info: ProtocolUserInfo,
         conversation_name: str | None,
-    ) -> None:
-        """更新实体在会话中的存在信息（边属性）."""
-        await self._get_collection(CoreDBCollections.IS_PRESENT_IN, is_edge=True)
-        from_vertex = f"{CoreDBCollections.ENTITIES}/{entity_uid}"
-        to_vertex = f"{CoreDBCollections.CONVERSATIONS}/{conversation_id}"
-        edge_key = f"{entity_uid}_in_{conversation_id}"
+    ) -> bool:
+        """更新一个账户实体在某个会话实体中的存在关系（is_present_in 边）.
+
+        Args:
+            account_entity_uid (str): 账户实体的 _key (e.g., "qq_123456")
+            conversation_entity_uid (str): 会话实体的 _key (e.g., "qq_group_98765")
+            user_info (ProtocolUserInfo): 用户在会话中的信息
+            conversation_name (str | None): 会话的名称
+        """
+        # // 就像设定游戏角色的出场地点一样，from 是角色，to 是场景！
+        from_vertex = f"{CoreDBCollections.ENTITIES}/{account_entity_uid}"
+        to_vertex = f"{CoreDBCollections.ENTITIES}/{conversation_entity_uid}"
+        edge_key = f"{account_entity_uid}_in_{conversation_entity_uid}"
 
         props = MembershipProperties(
             group_name=conversation_name,
@@ -310,77 +271,63 @@ class EntityGraphService:
         )
 
         edge_doc = {"_key": edge_key, "_from": from_vertex, "_to": to_vertex, **props.to_dict()}
-
-        query = """
-            UPSERT { _key: @key }
-            INSERT @doc
-            UPDATE @doc
-            IN @@collection
-            RETURN NEW
-        """
-        bind_vars = {
-            "key": edge_key,
-            "doc": edge_doc,
-            "@collection": CoreDBCollections.IS_PRESENT_IN,
-        }
+        is_present_in_coll = await self._get_collection(
+            CoreDBCollections.IS_PRESENT_IN, is_edge=True
+        )
 
         try:
-            await self.conn_manager.execute_query(query, bind_vars)
+            await is_present_in_coll.upsert(edge_doc)
             logger.debug(
-                f"成功更新存在关系: Entity '{entity_uid}' in Conversation '{conversation_id}'"
+                f"成功更新存在关系: Entity '{account_entity_uid}' "
+                f"in Conversation Entity '{conversation_entity_uid}'"
             )
+            return True
         except Exception as e:
             logger.error(f"更新存在关系时失败: {e}", exc_info=True)
+            return False
 
+    # ==============================================================================
+    # (±) 重构的图谱查询方法
+    # ==============================================================================
     async def get_profile_details_by_entity(
         self, platform: str, platform_id: str
     ) -> dict[str, Any] | None:
-        """根据平台和平台ID，获取这个“侧写”的完整信息，包括其表征的所有实体."""
+        """根据平台和平台ID，获取这个“侧写”的完整信息，包括其表征的所有实体和存在关系."""
         entity_uid = f"{platform}_{platform_id}"
 
+        # // 这段AQL就像是在浩瀚的星海（数据库）中，定位一颗星（Profile），
+        # // 然后描绘出它的所有卫星（Entities）以及卫星的航行轨迹（Presences）
         query = """
             LET entity = DOCUMENT(@@entities_coll, @entity_uid)
             FILTER entity != null
 
-            // 找到这个实体被哪个侧写所表征
-            LET profile = (
-                FOR p IN 1..1 INBOUND entity @@represents_coll
-                    RETURN p
-            )[0]
+            LET profile = (FOR p IN 1..1 INBOUND entity @@represents_coll RETURN p)[0]
             FILTER profile != null
 
-            // 找到这个侧写表征的所有实体
-            LET all_entities = (
-                FOR e IN 1..1 OUTBOUND profile @@represents_coll
-                    RETURN e
-            )
+            LET all_account_entities = (FOR e IN 1..1 OUTBOUND profile @@represents_coll RETURN e)
 
-            // 找到这些实体在所有会话中的存在信息
             LET all_presences = (
-                FOR e IN all_entities
-                    FOR conv, edge IN 1..1 OUTBOUND e @@is_present_in_coll
+                FOR acc_entity IN all_account_entities
+                    // acc_entity (账户) -> is_present_in -> conv_entity (会话)
+                    FOR conv_entity, edge IN 1..1 OUTBOUND acc_entity @@is_present_in_coll
+                        FILTER conv_entity.entity_type == 'conversation'
                         RETURN {
                             presence_id: edge._key,
-                            entity_uid: e.entity_uid,
-                            group_id: conv.conversation_id,
-                            platform: conv.platform,
-                            group_name: edge.group_name,
-                            cardname: edge.cardname,
-                            permission_level: edge.permission_level
+                            account_uid: acc_entity.entity_uid,
+                            conversation_uid: conv_entity.entity_uid,
+                            conversation_details: conv_entity.details,
+                            membership_properties: UNSET(edge, "_key", "_id", "_rev", "_from", "_to")
                         }
             )
 
             RETURN {
                 profile_id: profile.profile_id,
                 profile_data: profile.profile,
-                entities: all_entities,
+                entities: all_account_entities,
                 presences: all_presences,
-                metadata: {
-                    created_at: profile.created_at,
-                    updated_at: profile.updated_at
-                }
+                metadata: { created_at: profile.created_at, updated_at: profile.updated_at }
             }
-        """
+        """  # noqa: E501
         bind_vars = {
             "entity_uid": entity_uid,
             "@entities_coll": CoreDBCollections.ENTITIES,
@@ -391,17 +338,17 @@ class EntityGraphService:
         results = await self.conn_manager.execute_query(query, bind_vars)
         return results[0] if results else None
 
+    # ==============================================================================
+    # (->) 其他方法保持或微调以适应新世界
+    # ==============================================================================
     async def get_all_self_entities(self) -> list[dict[str, Any]]:
         """获取祂自身（SELF_PROFILE_ID）关联的所有平台实体信息."""
         query = """
             LET self_profile = DOCUMENT(@@profiles_coll, @self_profile_key)
             FILTER self_profile != null
             FOR entity IN 1..1 OUTBOUND self_profile @@represents_coll
-                RETURN {
-                    platform: entity.platform,
-                    platform_id: entity.platform_id,
-                    nickname: entity.nickname
-                }
+                FILTER entity.entity_type == 'account'
+                RETURN UNSET(entity.details, "friend_remark", "friend_request_pending")
         """
         bind_vars = {
             "@profiles_coll": CoreDBCollections.ENTITY_PROFILES,
@@ -415,69 +362,22 @@ class EntityGraphService:
             logger.error(f"获取自身所有平台实体信息时失败: {e}", exc_info=True)
             return []
 
-    async def get_self_entity_for_platform(self, platform_id: str) -> dict[str, Any] | None:
-        """[核心重构] 根据平台ID，获取祂自身在该平台上的客观实体(Entity)信息."""
-        if not platform_id:
-            return None
-
-        query = """
-            LET self_profile = DOCUMENT(@@profiles_coll, @self_profile_key)
-            FILTER self_profile != null
-            FOR entity IN 1..1 OUTBOUND self_profile @@represents_coll
-                FILTER entity.platform == @platform_id
-                LIMIT 1
-                RETURN {
-                    platform: entity.platform,
-                    platform_id: entity.platform_id,
-                    nickname: entity.nickname,
-                    entity_uid: entity.entity_uid
-                }
-        """
-        bind_vars = {
-            "@profiles_coll": CoreDBCollections.ENTITY_PROFILES,
-            "self_profile_key": SELF_PROFILE_ID,
-            "@represents_coll": CoreDBCollections.REPRESENTS,
-            "platform_id": platform_id,
-        }
-        try:
-            results = await self.conn_manager.execute_query(query, bind_vars)
-            if results and isinstance(results, list) and len(results) > 0:
-                logger.debug(f"成功为平台 '{platform_id}' 获取到祂自身客观实体信息。")
-                return results[0]
-            logger.warning(f"未能为平台 '{platform_id}' 找到祂自身客观实体信息。")
-            return None
-        except Exception as e:
-            logger.error(f"为平台 '{platform_id}' 获取自身客观实体信息时失败: {e}", exc_info=True)
-            return None
-
-    def _initialize_self_profile_from_persona(self) -> None:
-        """[未来接口] 基于<persona>配置，通过LLM调用来填充 SELF_PROFILE_ID 的主观侧写."""
-        # TODO: Implement the logic to populate the self profile based on persona settings.
-        # This might involve:
-        # 1. Reading a persona configuration file.
-        # 2. Making a call to an LLM to generate descriptive profile data.
-        # 3. Updating the SELF_PROFILE_ID document in the ENTITY_PROFILES collection.
-        logger.info("初始化自身 Profile 的功能将在未来实现。")
-        pass
-
     async def get_pending_friend_requests(self, platform: str) -> list[dict[str, Any]]:
         """获取指定平台所有待处理的好友请求."""
         query = """
             FOR doc IN @@entities_coll
                 FILTER doc.platform == @platform
-                FILTER doc.friend_request_pending != null
+                AND doc.entity_type == 'account'
+                AND doc.details.friend_request_pending != null
                 RETURN {
-                    user_id: doc.platform_id,
-                    nickname: doc.last_known_nickname,
-                    flag: doc.friend_request_pending.flag,
-                    comment: doc.friend_request_pending.comment,
-                    timestamp: doc.friend_request_pending.timestamp
+                    user_id: doc.details.platform_id,
+                    nickname: doc.details.last_known_nickname,
+                    flag: doc.details.friend_request_pending.flag,
+                    comment: doc.details.friend_request_pending.comment,
+                    timestamp: doc.details.friend_request_pending.timestamp
                 }
         """
-        bind_vars = {
-            "@entities_coll": CoreDBCollections.ENTITIES,
-            "platform": platform,
-        }
+        bind_vars = {"@entities_coll": CoreDBCollections.ENTITIES, "platform": platform}
         try:
             results = await self.conn_manager.execute_query(query, bind_vars)
             return results if results is not None else []
