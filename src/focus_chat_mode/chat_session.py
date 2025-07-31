@@ -6,7 +6,9 @@ from typing import TYPE_CHECKING, Any
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
-from src.database import ConversationStorageService, EnrichedConversationInfo
+
+# (-) 不再需要 ConversationStorageService
+from src.database import EnrichedConversationInfo
 from src.database.services.event_storage_service import EventStorageService
 from src.database.services.thought_storage_service import ThoughtStorageService
 from src.llmrequest.llm_processor import Client as LLMProcessorClient
@@ -22,7 +24,7 @@ if TYPE_CHECKING:
     from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
     from src.core_logic.internal_info_builder import InternalInfoBuilder
 
-    # 导入新的服务
+    # (+) 导入新的服务
     from src.database.services.entity_graph_service import EntityGraphService
     from src.database.services.summary_storage_service import SummaryStorageService
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
@@ -34,10 +36,7 @@ logger = get_logger(__name__)
 
 
 class ChatSession:
-    """管理单个专注聊天会话的状态和逻辑.
-
-    这个类现在拥有一个更健壮的回声等待机制来处理异步消息确认.
-    """
+    """管理单个专注聊天会话的状态和逻辑."""
 
     def __init__(
         self,
@@ -49,34 +48,34 @@ class ChatSession:
         bot_id: str,
         core_logic: "CoreLogicFlow",
         chat_session_manager: "ChatSessionManager",
-        conversation_service: ConversationStorageService,
+        # (--) conversation_service: ConversationStorageService,
         summarization_service: "SummarizationService",
         summary_storage_service: "SummaryStorageService",
         internal_info_builder: "InternalInfoBuilder",
         intelligent_interrupter: "IntelligentInterrupter",
         thought_storage_service: "ThoughtStorageService",
-        entity_graph_service: "EntityGraphService",  # <--- 注入新的服务
+        entity_graph_service: "EntityGraphService",  # <--- (+) 注入新的服务
         initial_last_processed_timestamp: float | None = None,
     ) -> None:
         # --- 模块化组件 ---
         self.conversation_info = conversation_info
-        self.conversation_id: str = conversation_id
+        self.conversation_id: str = conversation_id  # 注意：这里的 ID 是 entity_uid
         self.llm_client: LLMProcessorClient = llm_client
         self.event_storage: EventStorageService = event_storage
         self.action_handler: ActionHandler = action_handler
         self.bot_id: str = bot_id
         self.platform: str = conversation_info.platform
-        self.conversation_type: str = conversation_info.type
+        self.conversation_type: str | None = conversation_info.type
         self.conversation_name: str | None = conversation_info.name
         self.core_logic = core_logic
         self.chat_session_manager = chat_session_manager
-        self.conversation_service = conversation_service
+        # (--) self.conversation_service = conversation_service
         self.summarization_service = summarization_service
         self.summary_storage_service = summary_storage_service
         self.internal_info_builder = internal_info_builder
         self.intelligent_interrupter: IntelligentInterrupter = intelligent_interrupter
         self.thought_storage_service: ThoughtStorageService = thought_storage_service
-        self.entity_graph_service = entity_graph_service  # <--- 存储服务实例
+        self.entity_graph_service = entity_graph_service  # <--- (+) 存储服务实例
 
         # --- 功能组件初始化 ---
         self.summarization_manager = SummarizationManager(self)
@@ -99,19 +98,13 @@ class ChatSession:
         # --- 中断相关 ---
         self.interruption_context: dict | None = None
         self.sent_action_ids_this_turn: list[str] = []
-
-        # --- 上下文与记忆属性 ---
-        self.pending_handover_result: dict | None = None
+        self.current_handover_summary: str | None = None
 
         # --- 缓存 ---
         self.bot_profile_cache: dict[str, Any] = {}
         self.last_profile_update_time: float = 0.0
-        self.conversation_details_cache: dict[str, Any] = {}
-        self.last_details_update_time: float = 0.0
 
         logger.info(f"[ChatSession][{self.conversation_id}] 实例已创建。")
-
-        self.current_handover_summary: str | None = None
 
     async def wait_for_echo(self, action_id: str, timeout: float = 20.0) -> bool:
         """智能等待方法！它现在拥有一个“暂存器”来处理信号提前到达的竞态问题."""
@@ -119,23 +112,15 @@ class ChatSession:
             if action_id in self._received_echo_ids:
                 self._received_echo_ids.remove(action_id)
                 logger.success(
-                    f"[{self.conversation_id}] 回声等待: "
-                    f"动作 '{action_id}' 在暂存器中命中！立即确认成功。"
+                    f"[{self.conversation_id}] 回声等待: 动作 '{action_id}' 在暂存器中命中！"
                 )
                 return True
-
             wake_up_event = asyncio.Event()
             self._echo_wait_events[action_id] = wake_up_event
-            logger.info(
-                f"[{self.conversation_id}] 回声等待: "
-                f"动作 '{action_id}' 未命中暂存器，开始正式等待..."
-            )
-
+            logger.info(f"[{self.conversation_id}] 回声等待: 动作 '{action_id}' 开始正式等待...")
         try:
             await asyncio.wait_for(wake_up_event.wait(), timeout=timeout)
-            logger.success(
-                f"[{self.conversation_id}] 回声等待: 动作 '{action_id}' 在等待过程中被成功唤醒！"
-            )
+            logger.success(f"[{self.conversation_id}] 回声等待: 动作 '{action_id}' 被成功唤醒！")
             return True
         except TimeoutError:
             logger.warning(f"[{self.conversation_id}] 回声等待: 动作 '{action_id}' 等待超时！")
@@ -149,56 +134,50 @@ class ChatSession:
         async with self._echo_lock:
             if event_to_wake := self._echo_wait_events.get(action_id):
                 event_to_wake.set()
-                logger.info(
-                    f"[{self.conversation_id}] 回声信号: 信号命中等待者，已唤醒动作 '{action_id}'。"
-                )
+                logger.info(f"[{self.conversation_id}] 回声信号: 已唤醒动作 '{action_id}'。")
             else:
                 self._received_echo_ids.add(action_id)
                 logger.info(
-                    f"[{self.conversation_id}] 回声信号: 信号提前到达！"
-                    f"已将 '{action_id}' 存入暂存器。"
+                    f"[{self.conversation_id}] 回声信号: 信号提前到达！已暂存 '{action_id}'。"
                 )
 
     async def get_bot_profile(self) -> dict[str, Any]:
-        """智能获取祂的档案，现在从客观实体表获取!"""
+        """[核心改造] 智能获取祂的档案，现在从客观实体表获取!"""
         if self.bot_profile_cache and (
             time.time() - self.last_profile_update_time < CACHE_EXPIRATION_SECONDS
         ):
             return self.bot_profile_cache
 
-        # [核心] 直接调用新的服务，从 Entities 表获取客观数据
+        # 直接调用新的服务，从 Entities 表获取客观数据
+        # (旧的 get_self_entity_for_platform 依然可用)
         entity_doc = await self.entity_graph_service.get_self_entity_for_platform(self.platform)
 
-        if entity_doc:
+        if entity_doc and isinstance(entity_doc, dict):
             # 从客观实体文档构建返回的 profile
+            # 注意：card 信息需要从 is_present_in 边的属性获取，此处暂时不获取
+            # 如果需要，可以扩展 EntityGraphService 提供一个专门的方法
             db_profile = {
-                "user_id": entity_doc.get("platform_id"),
-                "nickname": entity_doc.get("nickname"),
+                "user_id": entity_doc.get("details", {}).get("platform_id"),
+                "nickname": entity_doc.get("details", {}).get("nickname"),
                 "platform": self.platform,
-                # card 信息需要从 is_present_in 边的属性获取，此处暂时不获取
-                # 如果需要，可以扩展 EntityGraphService 提供一个专门的方法
             }
             self.bot_profile_cache = db_profile
             self.last_profile_update_time = time.time()
             logger.debug(f"[{self.conversation_id}] 从客观实体库加载了祂的档案并放入缓存。")
             return self.bot_profile_cache
 
-        logger.warning(
-            f"[{self.conversation_id}] 缓存和客观实体库中均未找到祂有效的档案。"
-            f"将使用初始化时提供的 ID '{self.bot_id}' 构建一个临时的基础档案。"
-        )
-        return {
-            "user_id": self.bot_id,
-            "nickname": config.persona.bot_name,
-            "card": config.persona.bot_name,  # 临时档案中的 card
-        }
+        logger.warning(f"[{self.conversation_id}] 未找到祂有效的档案。将使用临时基础档案。")
+        return {"user_id": self.bot_id, "nickname": config.persona.bot_name}
 
     def reset_consecutive_bot_message_count(self) -> None:
         """一个专门重置连续发言计数器的方法."""
         if self.consecutive_bot_messages_count > 0:
-            logger.debug(
-                f"[{self.conversation_id}] 检测到他人发言，"
-                f"重置 consecutive_bot_messages_count "
-                f"(之前是 {self.consecutive_bot_messages_count})。"
-            )
+            logger.debug(f"[{self.conversation_id}] 检测到他人发言，重置连续发言计数器。")
             self.consecutive_bot_messages_count = 0
+
+    async def shutdown(self) -> None:
+        """关闭会话前的清理工作."""
+        logger.info(f"[{self.conversation_id}] 开始执行关闭清理...")
+        # 在这里可以添加其他需要清理的逻辑，比如保存最终状态等
+        # 目前主要逻辑在 deactivate_session 中，这里作为一个预留接口
+        logger.info(f"[{self.conversation_id}] 关闭清理完成。")
