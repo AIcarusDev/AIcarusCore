@@ -1,4 +1,4 @@
-# src/bootstrap/container.py
+# src/bootstrap/container.py (本体论重构 V1.2 - 封神版)
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -20,15 +20,17 @@ if TYPE_CHECKING:
     from src.core_logic.state_manager import AIStateManager
     from src.core_logic.thought_generator import ThoughtGenerator
     from src.core_logic.thought_persistor import ThoughtPersistor
+
+    # (±) 导入列表调整，再见了 ConversationStorageService
     from src.database import (
         ActionLogStorageService,
         ArangoDBConnectionManager,
-        ConversationStorageService,
+        # (--) ConversationStorageService,
         EntityGraphService,
+        EventStorageService,
+        SummaryStorageService,
         ThoughtStorageService,
     )
-    from src.database.services.event_storage_service import EventStorageService
-    from src.database.services.summary_storage_service import SummaryStorageService
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
     from src.llmrequest.llm_processor import Client as ProcessorClient
     from src.message_processing.default_message_processor import DefaultMessageProcessor
@@ -36,7 +38,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class ServiceContainer:
-    """一个存放所有核心服务实例的容器."""
+    """一个存放所有核心服务实例的容器，定义了系统的基本组件结构."""
 
     # LLM 客户端
     main_consciousness_llm_client: ProcessorClient
@@ -46,10 +48,10 @@ class ServiceContainer:
     web_search_agent_client: ProcessorClient | None
     url_context_agent_client: ProcessorClient | None
 
-    # 数据库与核心服务
+    # (±) 数据库与核心服务列表更新，旧神退位
     conn_manager: ArangoDBConnectionManager
     event_storage_service: EventStorageService
-    conversation_storage_service: ConversationStorageService
+    # (--) conversation_storage_service: ConversationStorageService,
     thought_storage_service: ThoughtStorageService
     action_log_service: ActionLogStorageService
     summary_storage_service: SummaryStorageService
