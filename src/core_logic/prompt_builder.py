@@ -78,7 +78,7 @@ class ThoughtPromptBuilder:
             action_result_text = handover_result.get("result_text")
         elif thought_action_result := latest_thought.get("action_result"):
             action_result_text = thought_action_result
-            action_payload = latest_thought.get("action_payload", {})
+            action_payload = latest_thought.get("action_payload") or {}
 
         if not action_result_text or "决策中未包含任何行动指令" in action_result_text:
             return ""
