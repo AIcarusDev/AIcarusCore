@@ -309,7 +309,9 @@ class EntityGraphService:
             FILTER self_profile != null
             FOR entity IN 1..1 OUTBOUND self_profile @@represents_coll
                 FILTER entity.entity_type == 'account'
-                RETURN UNSET(entity.details, "friend_remark", "friend_request_pending")
+                RETURN MERGE(entity, {
+                    details: UNSET(entity.details, "friend_remark", "friend_request_pending")
+                })
         """
         bind_vars = {
             "@profiles_coll": CoreDBCollections.ENTITY_PROFILES,

@@ -133,11 +133,19 @@ class DefaultMessageProcessor:
     async def _route_echo_to_session(self, event: ProtocolEvent, original_action_id: str) -> None:
         """专门负责将回声信号路由到正确的 ChatSession."""
         if self.qq_chat_session_manager and event.conversation_info:
-            conv_id = event.conversation_info.conversation_id
-            if session := self.qq_chat_session_manager.sessions.get(conv_id):
-                await session.signal_echo_received(original_action_id)
+            conv_info = event.conversation_info
+            platform = event.get_platform()
+
+            # 根据平台、类型和原生ID，正确地构造会话实体UID
+            if platform and conv_info.type and conv_info.conversation_id:
+                session_key = f"{platform}_{conv_info.type}_{conv_info.conversation_id}"
+
+                if session := self.qq_chat_session_manager.sessions.get(session_key):
+                    await session.signal_echo_received(original_action_id)
+                else:
+                    logger.warning(f"收到回声但找不到会话实体UID '{session_key}' 来接收信号。")
             else:
-                logger.warning(f"收到回声但找不到会话 '{conv_id}' 来接收信号。")
+                logger.error(f"回声事件缺少构建会话实体UID的必要信息: {event}")
 
     async def _handle_event_persistence(
         self, event: ProtocolEvent, platform_id: str, needs_persistence: bool

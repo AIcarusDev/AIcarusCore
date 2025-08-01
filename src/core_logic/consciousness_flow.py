@@ -394,13 +394,19 @@ class CoreLogic:
         current_context_for_this_batch = context_text
 
         for event_doc in new_events:
-            sender_id = event_doc.get("user_info", {}).get("user_id")
+            user_info = event_doc.get("user_info") or {}  # 如果是 None，就替换为空字典
+            sender_id = user_info.get("user_id")
             if sender_id and str(sender_id) == current_bot_id:
                 continue
 
-            text_content = extract_text_from_content(
-                [Seg.from_dict(c) for c in event_doc.get("content", [])]
-            )
+            content_list = event_doc.get("content", []) or []  # 确保 content_list 是列表
+            text_content = extract_text_from_content([
+                [
+                    Seg(type=c.get("type"), data=c.get("data", {}))
+                    for c in content_list
+                    if isinstance(c, dict)
+                ]
+            ])
 
             message_to_check = {"speaker_id": str(sender_id), "text": text_content}
             if not message_to_check.get("text"):

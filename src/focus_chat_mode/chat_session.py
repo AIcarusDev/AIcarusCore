@@ -149,14 +149,16 @@ class ChatSession:
             (
                 entity
                 for entity in all_self_entities
-                if entity.get("details").get("platform") == self.platform
+                if (details := entity.get("details")) and details.get("platform") == self.platform
             ),
-            None
+            None,
         )
 
         if not (entity_doc and isinstance(entity_doc, dict)):
             logger.warning(f"[{self.conversation_id}] 未找到祂有效的全局档案。将使用临时基础档案。")
             return {"user_id": self.bot_id, "nickname": config.persona.bot_name}
+
+        details = entity_doc.get("details") or {}
 
         # 2. 构建基础档案
         base_profile = {
