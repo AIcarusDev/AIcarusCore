@@ -251,11 +251,11 @@ class ChatSessionManager:
                 self.core_logic.trigger_immediate_thought_cycle()
 
     def _is_platform_id(self, target_id: str) -> bool:
-        """[新增] 辅助函数，判断一个ID是否为平台ID."""
+        """辅助函数，判断一个ID是否为平台ID."""
         return target_id in platform_builder_registry.get_all_builders()
 
     def _is_partial_conversation_id(self, target_id: str) -> bool:
-        """[新增] 辅助函数，判断一个ID是否为部分会话ID（如 "group.123"）."""
+        """辅助函数，判断一个ID是否为部分会话ID（如 "group.123"）."""
         return (
             '.' in target_id
             and (
@@ -284,59 +284,44 @@ class ChatSessionManager:
         )
         level, platform_id, _ = parse_focus_path(current_path)
 
-        # 场景1: 目标是平台 (e.g., target_id='qq')
-        if self._is_platform_id(target_id):
-            if level != 'core':
-                logger.error(f"只能从 'core' 层级聚焦到平台，当前层级为 '{level}'。")
-                return False
-            new_path = target_id
-            self.focus_history.append({**history_entry_base, "target_path": new_path})
-            logger.info(f"[堆栈 PUSH] 焦点下潜至平台: {new_path}")
-            return True
-
-        # 统一处理会话ID
+        # --- 场景1: 从 Core 层聚焦到 Platform 层 ---
         if level == 'core':
-            logger.info(f"当前层级为 '{level}', 即将直接聚焦至会话层级。")
-            platform_id = target_id.split('_', 1)[0] if '_' in target_id else target_id
-            if self._handle_push_focus({"target_id": f"{platform_id}"}, history_entry_base):
-                logger.info(f"已将焦点推送至默认会话层级: {platform_id}")
+            if self._is_platform_id(target_id):
+                new_path = target_id
+                self.focus_history.append({**history_entry_base, "target_path": new_path})
+                logger.info(f"[堆栈 PUSH] 焦点下潜至平台: {new_path}")
+                return True
             else:
-                logger.error(f"无法处理 'push_focus' 指令，目标ID '{target_id}' 无效, "
-                             f"越级聚焦失败。")
-                return False
-
-        # 场景2: 目标是完整的 entity_uid (e.g., 'qq_group_123')
-        if target_id.startswith(f"{platform_id}_"):
-            # 从完整的UID中反向构建出部分路径
-            try:
-                conv_entity = await self.entity_graph_service.get_entity_by_key(
-                    target_id
-                )
-                if not conv_entity or not isinstance(conv_entity.details, ConversationDetails):
-                    logger.error(
-                        f"找到了实体 '{target_id}' 但它不是一个有效的会话实体。"
-                    )
-                    return False
-            except ValueError:
-                logger.error(f"无法从 entity_uid '{target_id}' 解析出部分路径。")
-                return False
-
-        else:
-            logger.error(f"未知的 'push_focus' 目标ID格式: '{target_id}'")
-            return False
-
-        # --- 后续逻辑统一处理 ---
-        if target_id:
-            if not await self.get_or_create_session(target_id):
                 logger.error(
-                    f"无法 'push_focus'，创建或获取会话实体 '{target_id}' 失败。"
+                    "无效操作：只能从 'core' 层级聚焦到已知的平台ID。"
+                    f"收到的目标是 '{target_id}'。"
                 )
                 return False
 
-            self.focus_history.append({**history_entry_base, "target_path": target_id})
-            logger.info(f"[堆栈 PUSH] 焦点下潜至会话: {target_id}")
+        # --- 场景2: 从 Platform 层聚焦到 Cellular 层 ---
+        if level == 'platform':
+            # 在平台层，target_id 必须是一个会话实体的UID (e.g., 'qq_group_123456')
+            if not await self.get_or_create_session(target_id):
+                logger.error(f"无法 'push_focus'，创建或获取会话实体 '{target_id}' 失败。")
+                return False
+
+            # 从实体UID (e.g., "qq_group_123456") 解析出组件，构建正确的结构化路径
+            try:
+                # 使用下划线分割实体UID，最多分割两次
+                p_id, conv_type, actual_id = target_id.split('_', 2)
+                # 用点号（.）组装成正确的路径格式 (e.g., "qq.group.123456")
+                new_path = f"{p_id}.{conv_type}.{actual_id}"
+            except ValueError:
+                logger.error(f"无法从实体UID '{target_id}' 解析出结构化路径所需组件。")
+                return False
+
+            # 将【正确格式】的路径压入堆栈
+            self.focus_history.append({**history_entry_base, "target_path": new_path})
+            logger.info(f"[堆栈 PUSH] 焦点下潜至会话: {new_path} (源ID: {target_id})")
             return True
 
+        # --- 其他情况 (如在细胞层再次push) ---
+        logger.error(f"无效操作：不能从 '{level}' 层级执行 'push_focus'。")
         return False
 
     async def _handle_pop_focus(self, params: dict, history_entry_base: dict) -> bool:
