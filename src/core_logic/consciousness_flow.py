@@ -71,24 +71,16 @@ class CoreLogic:
         if not self.chat_session_manager:
             return None
 
-        # 1. 从历史记录中获取当前的焦点条目（它现在是一个字典）
         focus_entry = self.chat_session_manager.current_focus_path
-
-        # 2. 健壮性检查：确保它是一个字典
         if not isinstance(focus_entry, dict):
-            # 如果历史记录的格式不对，这本身就是个问题
-            logger.debug("当前焦点条目不是预期的字典格式，无法获取会话。")
             return None
 
-        # 3. 从字典中提取出真正的路径字符串
         focus_path_str = focus_entry.get("target_path")
         if not focus_path_str or not isinstance(focus_path_str, str):
             return None
 
-        # 4. 使用工具函数来解析路径
         level, platform_id, conv_id_part = parse_focus_path(focus_path_str)
 
-        # 只有在会话层才查找 session
         if level != "cellular" or not platform_id or not conv_id_part:
             return None
 

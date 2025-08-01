@@ -347,54 +347,59 @@ class ChatSessionManager:
         return True
 
     async def _handle_swap_focus(self, params: dict, history_entry_base: dict) -> bool:
-        """处理 'swap_focus' 指令，现在支持路径替换."""
+        """处理 'swap_focus' 指令，现在会停用旧会话并正确激活新会话."""
         if not (target_id := params.get("target_id")):
             logger.error("'swap_focus' 指令缺少 'target_id'。")
-            return False
-
-        if not self._is_partial_conversation_id(target_id):
-            logger.error(
-                f"'swap_focus' 的目标必须是会话ID (e.g., 'group.123'), 收到: '{target_id}'"
-            )
             return False
 
         current_path = (
             self.current_focus_path.get("target_path", "core")
             if self.current_focus_path else "core"
         )
-        level, platform_id, _ = parse_focus_path(current_path)
+        level, platform_id, current_conv_part = parse_focus_path(current_path)
 
         if level != 'cellular':
             logger.error(f"'swap_focus' 只能在会话层级使用，当前层级为 '{level}'。")
             return False
 
-        # 停用旧会话
+        # 1. 停用旧会话
         leaving_entry = self.focus_history.pop()
-        leaving_path = leaving_entry.get("target_path")
-        _, leaving_platform, leaving_conv_part = parse_focus_path(leaving_path)
-        if leaving_platform and leaving_conv_part:
-            conv_type, actual_id = leaving_conv_part.split('.', 1)
-            leaving_entity_uid = f"{leaving_platform}_{conv_type}_{actual_id}"
-            await self.deactivate_session(
-                leaving_entity_uid,
-                {"motivation": history_entry_base["motivation"], "target_id": target_id},
-            )
+        # 确保 leaving_path 和 current_conv_part 是有效的
+        if leaving_path := leaving_entry.get("target_path") and current_conv_part:
+            # 从当前路径中安全地解析出旧的会话实体UID
+                try:
+                    conv_type, actual_id = current_conv_part.split('.', 1)
+                    leaving_entity_uid = f"{platform_id}_{conv_type}_{actual_id}"
+                    await self.deactivate_session(
+                        leaving_entity_uid,
+                        {"motivation": history_entry_base["motivation"], "target_id": target_id},
+                    )
+                except (ValueError, IndexError):
+                    logger.warning(f"无法从旧路径 '{leaving_path}' 中解析并停用会话。")
 
-        # 激活新会话
-        new_conv_type, new_actual_id = target_id.split('.', 1)
-        new_entity_uid = f"{platform_id}_{new_conv_type}_{new_actual_id}"
-        # 如果无法创建或获取新会话，则返回错误
+        #    激活新会话前，先从目标部分路径 (e.g., 'group.123') 组装出完整的实体UID
+        try:
+            new_conv_type, new_actual_id = target_id.split('.', 1)
+            new_entity_uid = f"{platform_id}_{new_conv_type}_{new_actual_id}"
+        except (ValueError, IndexError):
+            logger.error(f"无法从目标ID '{target_id}' 解析出实体UID。")
+            # 切换失败时，应该回到平台层，而不是让堆栈为空
+            platform_path_entry = {"target_path": platform_id, "motivation": "切换失败后返回"}
+            self.focus_history.append(platform_path_entry)
+            return True  # 切换本身是失败了，但焦点移动是成功了（回到了平台）
+
+        # 3. 使用新的实体UID激活新会话
         if not await self.get_or_create_session(new_entity_uid):
             logger.error(f"无法 'swap_focus'，目标实体 '{new_entity_uid}' 无法创建会话。切换中止。")
-            # [修复] 切换失败时，应该回到平台层，而不是让堆栈为空
-            platform_path = {"target_path": platform_id, "motivation": "切换失败后返回"}
-            self.focus_history.append(platform_path)
+            # 切换失败时，回到平台层
+            platform_path_entry = {"target_path": platform_id, "motivation": "切换失败后返回"}
+            self.focus_history.append(platform_path_entry)
             return True
 
-        # 构建新路径
+        # 4. 构建并压入新的结构化路径
         new_path = f"{platform_id}.{target_id}"
         self.focus_history.append({**history_entry_base, "target_path": new_path})
-        logger.info(f"[堆栈 SWAP] 焦点切换至: {new_path}")
+        logger.info(f"[堆栈 SWAP] 焦点切换至: {new_path} (源ID: {new_entity_uid})")
         return True
 
     async def _handle_back(self, params: dict, history_entry_base: dict) -> bool:

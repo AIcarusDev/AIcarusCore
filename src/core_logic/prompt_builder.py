@@ -402,16 +402,7 @@ class ThoughtPromptBuilder:
     async def _get_current_state_block(
         self, level: str, platform_id: str, conv_id: str | None
     ) -> str:
-        """获取当前状态块.
-
-        Args:
-            level (str): 当前层级，可能是 'core', 'platform' 或 'cellular'.
-            platform_id (str): 当前平台的唯一标识符.
-            conv_id (str | None): 当前会话的唯一标识符，如果有的话.
-
-        Returns:
-            str: 描述当前状态的字符串.
-        """
+        """获取当前状态块."""
         if not self.chat_session_manager:
             raise PromptBuilderError("会话管理器尚未准备就绪，无法构建当前状态块。")
 
@@ -421,14 +412,32 @@ class ThoughtPromptBuilder:
         if level == "platform":
             return f"你当前专注于：{platform_id} 平台。"
 
-        # 如果不是 'cellular' 层级或者没有 conv_id，直接返回未知状态
         if level != "cellular" or not conv_id:
             return "未知状态"
 
-        # 主逻辑 (现在只处理 cellular 层级)
-        session = self.chat_session_manager.sessions.get(conv_id)
+        try:
+            # 1. 将路径的会话部分 (e.g., 'group.123456') 分割成类型和ID
+            conv_type, actual_id = conv_id.split('.', 1)
+
+            # 2. 根据平台ID、类型和真实ID，重新组装出完整的实体UID
+            #    这与 ChatSessionManager.sessions 字典的 key 格式完全匹配
+            session_key = f"{platform_id}_{conv_type}_{actual_id}"
+
+        except (ValueError, IndexError):
+            # 如果 conv_id 格式不正确 (例如不包含'.')，则无法组装key，直接抛出错误
+            raise PromptBuilderError(
+                f"无法从会话部分 '{conv_id}' 解析出类型和ID，"
+                "无法构建当前状态块。"
+            ) from None
+
+        # 3. 使用这个正确的 key 进行查找
+        session = self.chat_session_manager.sessions.get(session_key)
         if not session:
-            raise PromptBuilderError(f"找不到会话 {conv_id} 的档案，无法构建当前状态块。")
+            # 这里的错误信息现在会显示正确的、我们尝试查找的key，方便调试
+            raise PromptBuilderError(
+                f"找不到会话实体UID '{session_key}' 的档案，"
+                "无法构建当前状态块。"
+            )
 
         bot_profile = await session.get_bot_profile()
 
@@ -533,27 +542,30 @@ class ThoughtPromptBuilder:
                 platform_id
             )
         elif level == "cellular" and conv_id:
-            # 根据 platform_id 和 conv_id (格式如 'group.123') 重新组装正确的 entity_uid
             try:
+                # 1. 将路径的会话部分 (e.g., 'group.123') 分割成类型和ID
                 conv_type, actual_id = conv_id.split('.', 1)
+                # 2. 重新组装出完整的实体UID
                 session_key = f"{platform_id}_{conv_type}_{actual_id}"
-            except ValueError:
-                # 如果 conv_id 格式不正确，记录错误并抛出异常
+            except (ValueError, IndexError):
+                # 如果 conv_id 格式不正确，则无法组装key，直接抛出错误
                 raise PromptBuilderError(
-                    f"无法从 conv_id '{conv_id}' 中解析出会话类型和ID。"
+                    f"无法从会话部分 '{conv_id}' 解析出类型和ID，无法构建外部信息块。"
                 ) from None
 
+            # 3. 使用这个正确的 key 进行查找
             session = self.chat_session_manager.sessions.get(session_key)
             if not session:
                 # 错误信息现在会显示我们尝试使用的正确key，方便调试
                 raise PromptBuilderError(
                     f"找不到会话实体UID '{session_key}' 的档案，无法构建外部信息块。"
                 )
+
             # 获取会话的历史记录和元信息
             bot_profile = await session.get_bot_profile()
             history_components, processed_raw_events = await format_chat_history_for_llm(
                 event_storage=self.event_storage,
-                conversation_id=session.conversation_info.conversation_id,
+                conversation_id=session.conversation_info.conversation_id, # 修正：这里用平台原生ID
                 bot_id=session.bot_id,
                 platform=session.platform,
                 bot_profile=bot_profile,
