@@ -104,6 +104,7 @@ async def inspect_and_initialize_self_profile(
     profile_id, entity_uid = await entity_service._create_new_profile_with_account_entity(
         user_info=bot_user_info,
         platform=platform_id,
+        is_self=True,
     )
 
     if not profile_id or not entity_uid:
