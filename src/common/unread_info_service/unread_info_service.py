@@ -156,9 +156,12 @@ class UnreadInfoService:
             exclude_conversation_id
         )
         if not all_active_convs:
-            return f"<conversation_list>\n  <!-- 在平台 '{platform_id}' 下，没有发现任何其他会话有未读消息。 -->\n</conversation_list>"  # noqa: E501
+            return (
+                f"<conversation_list>\n"
+                f"  <!-- 在平台 '{platform_id}' 下，没有发现任何新消息。 -->\n"
+                f"</conversation_list>"
+            )
 
-        # (±) 核心适配点：从 entity.details 中获取 platform
         platform_convs = [
             c
             for c in all_active_convs
@@ -166,29 +169,30 @@ class UnreadInfoService:
         ][:10]
 
         if not platform_convs:
-            return f"<conversation_list>\n  <!-- 在平台 '{platform_id}' 下，没有发现任何其他会话有未读消息。 -->\n</conversation_list>"  # noqa: E501
+            return (
+                f"<conversation_list>\n"
+                f"  <!-- 在平台 '{platform_id}' 下，没有发现任何新消息。 -->\n"
+                f"</conversation_list>"
+            )
 
         summary_parts = ["<conversation_list>"]
         for item in platform_convs:
             conv_doc = item["conv_doc"]
             latest_event = item["latest_event"]
             unread_count = item["unread_count"]
-            # (±) 核心适配点：所有会话信息都从 entity.details 中来
             conv_details = conv_doc.get("details", {})
 
+            # 使用 conv_doc['_key'] (即 entity_uid) 作为聚焦ID
+            entity_uid = conv_doc.get("_key", "unknown_entity_uid")
+
             is_temporary = conv_details.get("extra", {}).get("is_temporary", False)
-            conv_id = conv_details.get("conversation_id", "unknown_id")
             conv_type = conv_details.get("type")
             sender_display_name = self._get_sender_display_name(latest_event, conv_type)
             conv_name = conv_details.get("name") or sender_display_name
             time_str = format_relative_time(latest_event.get("timestamp", 0))
             message_preview = self._create_message_preview(latest_event, sender_display_name)
 
-            status_line = (
-                f"(时间：{time_str}/共 {unread_count} 条未读信息)"
-                if unread_count > 0
-                else f"(时间：{time_str}/全部已读)"
-            )
+            status_line = f"(时间：{time_str}/共 {unread_count} 条未读信息)"
 
             if conv_type == "group":
                 summary_parts.append(f"- [群名称]：{conv_name}")
@@ -197,9 +201,10 @@ class UnreadInfoService:
                     f"- [{'临时会话' if is_temporary else '用户名称'}]：{conv_name}"
                 )
 
+            # 明确告诉 AI 应该使用哪个 ID
             summary_parts.extend(
                 [
-                    f"  - [ID]：{conv_id}",
+                    f"  - [ID]：{entity_uid}",
                     f"  - [最新消息]：{message_preview}",
                     f"  - {status_line}",
                     "",
@@ -209,11 +214,13 @@ class UnreadInfoService:
         return "\n".join(summary_parts).strip()
 
     async def _format_single_conversation_summary(self, item: dict[str, Any]) -> list[str]:
-        """辅助函数: 将单个会话实体的信息格式化为摘要文本."""
+        """辅助函数: 将单个会话实体的信息格式化为摘要文本，使用 entity_uid."""
         conv_doc = item["conv_doc"]
-        # AQL查询已经智能地选择了要显示的事件 (高优优先)
         event_for_preview = item["latest_event"]
         unread_count = item["unread_count"]
+
+        # [修改] 使用 conv_doc['_key'] (即 entity_uid) 作为聚焦ID
+        entity_uid = conv_doc.get("_key", "unknown_entity_uid")
 
         conv_details = conv_doc.get("details", {})
         conv_type = conv_details.get("type", "private")
@@ -228,9 +235,10 @@ class UnreadInfoService:
             prefix = "[临时会话]" if is_temporary else "[用户名称]"
             header = f"- {prefix}：{conv_details.get('name') or sender_name}"
 
+        # 明确告诉 AI 应该使用哪个 ID
         return [
             header,
-            f"  - [ID]：{conv_details.get('conversation_id')}",
+            f"  - [ID]：{entity_uid}",
             f"  - [最新消息]：{preview}",
             f"  - (时间：{time_str}/共 {unread_count} 条未读信息)",
             "",

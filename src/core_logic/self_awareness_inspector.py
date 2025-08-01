@@ -113,7 +113,7 @@ async def inspect_and_initialize_self_profile(
         group_list_data, dict
     ):
         logger.warning("自身档案中未包含任何群聊信息。")
-        logger.info(f"--- 平台 '{platform_id}' 的自我检查完成（部分成功） ---")
+        logger.info(f"--- 平台 '{platform_id}' 的自我检查完成（无群聊信息） ---")
         return True, profile_data
 
     logger.info(f"获取到 {len(group_list_data)} 个群聊的档案，开始更新存在关系及会话档案...")
@@ -129,8 +129,8 @@ async def inspect_and_initialize_self_profile(
                 "updated_at": int(time.time() * 1000),
             }
             task = _update_single_group_info(
-                entity_service,  # <--- 传递新的服务实例
-                entity_uid=entity_uid,  # <--- 传递 entity_uid
+                entity_service,
+                entity_uid=entity_uid,
                 conversation_id=str(group_id),
                 platform=platform_id,
                 group_profile=group_profile,
@@ -138,12 +138,36 @@ async def inspect_and_initialize_self_profile(
             )
             update_tasks.append(task)
 
+    all_updates_successful = True
     if update_tasks:
-        await asyncio.gather(*update_tasks)
+        # 使用 return_exceptions=True 来捕获所有任务的结果
+        results = await asyncio.gather(*update_tasks, return_exceptions=True)
+        for i, result in enumerate(results):
+            if isinstance(result, Exception):
+                all_updates_successful = False
+                # 从原始任务列表中找到对应的任务以获取上下文信息
+                failed_task_coro = update_tasks[i]
+                # 这是一种获取协程参数的方式，虽然有点 hack，但在这里很有效
+                # 我们从协程的 frame 中查找局部变量
+                try:
+                    failed_group_id = (
+                        failed_task_coro.cr_frame.f_locals.get('conversation_id', '未知')
+                    )
+                    logger.error(f"更新群聊 '{failed_group_id}' 的实体信息时失败: {result}")
+                except AttributeError:
+                    logger.error(f"更新一个群聊信息时失败: {result}")
 
-    logger.success("检查完成！所有群聊存在关系及会话档案已更新。")
-    logger.info(f"--- 在平台 '{platform_id}' 的自我客观信息检查圆满完成并记录 ---")
-    return True, profile_data
+    # 根据最终的成功状态来决定日志内容和返回值
+    if all_updates_successful:
+        logger.success("检查完成！所有群聊存在关系及会话档案已成功更新。")
+        logger.info(f"--- 在平台 '{platform_id}' 的自我客观信息检查圆满完成并记录 ---")
+        return True, profile_data
+    else:
+        logger.error("检查失败！在更新部分群聊信息时发生错误，请检查上面的日志。")
+        logger.warning(f"--- 在平台 '{platform_id}' 的自我客观信息检查完成，但存在错误 ---")
+        # 即使部分失败，基础档案还是获取到了，所以返回 True 和 profile_data，
+        # 但日志会明确指出问题。
+        return False, profile_data
 
 
 async def _update_single_group_info(

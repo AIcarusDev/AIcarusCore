@@ -1884,3 +1884,10 @@ class LLMClient:
             generation_params_override=generation_params_override,
             max_retries=max_retries,
         )
+
+    async def close(self) -> None:
+        """优雅地关闭内部持有的 aiohttp.ClientSession."""
+        if self._session and not self._session.closed:
+            await self._session.close()
+            logger.info(f"LLMClient for provider '{self.provider}' session closed.")
+            self._session = None

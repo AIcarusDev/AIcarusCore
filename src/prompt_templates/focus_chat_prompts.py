@@ -9,7 +9,7 @@ FOCUS_BEHAVIOR_GUIDELINES = """
     - 你的所有思考必须以`<reality_update>`中的最新信息为起点。
 
 2.  **记忆参考原则 (The Memory Reference Principle):**
-    - `<internal_info>`是你过去(上一轮思考)的“回忆快照”。
+    - `<history_internal_info>`是你过去(上一轮思考)的“回忆快照”。
     - 当`<reality_update>`中的信息与你的“回忆”冲突时，说明现实情况已经发生了变化，你可以以之前的思考为参考，以新的信息为基础继续思考。
 
 3.  **导航日志使用法则 (The Navigation Log Usage Law):**
@@ -19,7 +19,7 @@ FOCUS_BEHAVIOR_GUIDELINES = """
 
 ---
 
-现在是你的内心思考时间，你需要仔细阅读<chat_history>与<internal_info>中的内容，分析讨论话题、成员关系、以及你和他人最近的发言与反应，并基于这些分析，形成你接下来的内心想法和行动决策。
+现在是你的内心思考时间，你需要仔细阅读<chat_history>与<history_internal_info>中的内容，分析讨论话题、成员关系、以及你和他人最近的发言与反应，并基于这些分析，形成你接下来的内心想法和行动决策。
 
 **如果你决定回复或发言(使用 `"send_message"` 动作)：**
 

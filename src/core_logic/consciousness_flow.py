@@ -82,35 +82,35 @@ class CoreLogic:
 
         # 3. 从字典中提取出真正的路径字符串
         focus_path_str = focus_entry.get("target_path")
-        focus_path_str = focus_entry.get("target_path")
         if not focus_path_str or not isinstance(focus_path_str, str):
-            # 如果路径本身就是空的或者类型不对，直接判定无效！
-            logger.debug(f"从焦点条目中获取的路径无效: {focus_path_str}，无法获取会话。")
             return None
 
         # 4. 使用工具函数来解析路径
-        level, _, conv_id = parse_focus_path(focus_path_str)
+        level, platform_id, conv_id_part = parse_focus_path(focus_path_str)
 
-        # 5. 严格的条件判断，确保我们只在正确的情况下查找会话
-        if level != "cellular":
-            # 只有在 'cellular' (会话) 层级才可能有 session 对象。
-            # 如果是 'core' 或 'platform' 层，直接返回 None 是正确的行为。
-            logger.debug(f"当前焦点层级为 '{level}'，不属于会话层，因此没有当前会话。")
+        # 只有在会话层才查找 session
+        if level != "cellular" or not platform_id or not conv_id_part:
             return None
 
-        if not conv_id:
-            # 如果路径解析出来是 'cellular' 层，但没有有效的 conv_id，说明路径格式有问题。
-            logger.warning(f"焦点路径 '{focus_path_str}' 解析为会话层，但未能提取有效的会话ID。")
-            return None
+        try:
+            # 1. 将路径的会话部分 (e.g., 'group.123456') 分割成类型和ID
+            conv_type, actual_id = conv_id_part.split('.', 1)
 
-        # 6. 只有通过所有检查，才去会话字典里查找
-        session = self.chat_session_manager.sessions.get(conv_id)
-        if not session:
-            # 这种情况可能发生在：会话刚刚被停用，但焦点还没来得及切换。
-            logger.debug(f"根据会话ID '{conv_id}' 在当前激活的会话池中未找到实例。")
-            return None
+            # 2. 根据平台ID、类型和真实ID，重新组装出完整的实体UID
+            #    这与 ChatSessionManager.sessions 字典的 key 格式完全匹配
+            session_key = f"{platform_id}_{conv_type}_{actual_id}"
 
-        return session
+            # 3. 使用这个正确的 key 进行查找
+            session = self.chat_session_manager.sessions.get(session_key)
+
+            if not session:
+                logger.debug(f"根据会话实体UID '{session_key}' 在当前激活的会话池中未找到实例。")
+                return None
+
+            return session
+        except (ValueError, IndexError) as e:
+            logger.warning(f"解析会话路径部分 '{conv_id_part}' 失败: {e}")
+            return None
 
     async def _core_thinking_loop(self) -> None:
         """核心思考循环.

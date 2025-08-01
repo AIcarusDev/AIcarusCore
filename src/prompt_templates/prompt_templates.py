@@ -40,9 +40,9 @@ CORE_CYCLE_SYSTEM_PROMPT = """
 {navigation_log_block}
 </navigation_log>
 
-<internal_info>
+<history_internal_info>
 {internal_info_block}
-</internal_info>
+</history_internal_info>
 
 <available_platforms>
 {available_platforms_block}
@@ -63,8 +63,8 @@ JSON 对象包含三个顶级键: `"internal_state"`, `"consciousness_control"`,
 以下是所有可用字段介绍：
 
 - **"internal_state"**: (必需) 描述你的内心状态，包含以下键：
-    - `"mood"`: 这是你当前的情绪状态和原因，是你的第一本能反应，可以适当衔接`<internal_info>`中你之前的心情
-    - `"think"`: 这是你的内心想法。它应该是对当前所有情况的反应和思考，你的思考过程应该**自然、连贯且丰富**。在这里，你可以分析自己的情绪，揣测他人的意图，对未来的行动进行规划或犹豫。且应该衔接`<internal_info>`中你之前的内心想法
+    - `"mood"`: 这是你当前的情绪状态和原因，是你的第一本能反应，可以适当衔接`<history_internal_info>`中你之前的心情
+    - `"think"`: 这是你的内心想法。它应该是对当前所有情况的反应和思考，你的思考过程应该**自然、连贯且丰富**。在这里，你可以分析自己的情绪，揣测他人的意图，对未来的行动进行规划或犹豫。且应该衔接`<history_internal_info>`中你之前的内心想法
     - `"goal"`: 可以在此处写下你当前的目标。可以很明确，也可以很模糊（例如"没什么目标"，"发呆"），即使当前存在目标，你也可以在这里更新它,如果不需要，可以为"null"。
 
 - **"consciousness_control"**: (可选) 用于转移你的注意力焦点，当前有以下键可用：

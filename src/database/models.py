@@ -50,9 +50,9 @@ class CoreDBCollections:
         ],
         ENTITIES: [
             (["entity_uid"], True, False),  # 原 account_uid
-            (["platform", "platform_id"], True, False),  # 旧索引依然有用
-            (["entity_type"], False, False),  # 为实体类型添加索引，完美！
-            (["details.type"], False, True),  # 为会话类型添加稀疏索引，天才！
+            (["details.platform", "details.platform_id"], True, True),
+            (["entity_type"], False, False),  # 为实体类型添加索引
+            (["details.type"], False, True),  # 为会话类型添加稀疏索引
         ],
         THOUGHTS_LEGACY: [
             (["timestamp"], False, False),
@@ -176,42 +176,42 @@ class EntityDocument:
     # 它们应该由更高层的逻辑或专门的“状态”集合来管理
 
     def to_dict(self) -> dict[str, Any]:
-        """将实例序列化为可存入DB的字典，哼，看我一招 asdict大法!"""
+        """将实例序列化为可存入DB的字典."""
         data = asdict(self)
         # 别忘了把 details 这个小妖精也变成字典哦
-        data["details"] = asdict(data["details"])
+        # data["details"] = asdict(data["details"])
         return data
 
     @classmethod
     def from_dict(cls, data: dict) -> "EntityDocument":
-        """从数据库字典反序列化为强类型对象，就像从存档里读取老婆一样精准!"""
+        """从数据库字典反序列化为强类型对象."""
         entity_type = data.get("entity_type")
         details_data = data.get("details", {})
         details_obj: DetailsUnion | None = None
 
-        # // 就像一个 switch-case，根据不同的类型，召唤不同的老婆！
         if entity_type == "account":
-            # 为了健壮性，只传入 AccountDetails 定义的字段
             known_fields = {f.name for f in fields(AccountDetails)}
             filtered_details_data = {k: v for k, v in details_data.items() if k in known_fields}
             details_obj = AccountDetails(**filtered_details_data)
         elif entity_type == "conversation":
-            # 同上，只传入 ConversationDetails 定义的字段
             known_fields = {f.name for f in fields(ConversationDetails)}
             filtered_details_data = {k: v for k, v in details_data.items() if k in known_fields}
             details_obj = ConversationDetails(**filtered_details_data)
         else:
-            # // 遇到不认识的类型？直接掀桌！(╯°□°）╯︵ ┻━┻
             raise ValueError(f"从数据库加载实体时遇到未知的 entity_type: {entity_type}")
 
-        # // 关键一步：把旧的 details 字典从 data 里踢出去，不然会跟构造函数里的 details 对象打架
-        data.pop("details", None)
-        return cls(details=details_obj, **data)
+        # 1. 获取 EntityDocument 类自身定义的所有字段名称。
+        defined_fields = {f.name for f in fields(cls)}
 
+        # 2. 从数据库返回的 data 字典中，只筛选出那些我们类中定义过的字段。
+        #    这样就能自动忽略掉数据库附带的 _id, _rev 等元数据。
+        constructor_args = {k: v for k, v in data.items() if k in defined_fields}
 
-# ==============================================================================
-# 旧时代的遗物们，有些还需要保留，有些将被新神取代
-# ==============================================================================
+        # 3. 用我们手动创建的 details_obj 替换掉筛选后的参数字典中可能存在的旧 details 字典。
+        constructor_args['details'] = details_obj
+
+        # 4. 使用这个干净、安全的参数字典来创建实例。
+        return cls(**constructor_args)
 
 
 @dataclass

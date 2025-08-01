@@ -291,10 +291,6 @@ class ActionHandler:
         )
         return response.get("text", "搜索失败或未返回任何信息。")
 
-        # 4. 【移除】不再从此触发思考
-        # if self.thought_trigger:
-        #     logger.info(f"行动流程处理完毕 (Action ID: {action_id})，触发思考。")
-        #     self.thought_trigger.set()
 
     def _execute_core_list_files(self, params: dict) -> str:
         path_str = params.get("path", ".")

@@ -43,52 +43,6 @@ class EntityGraphService:
         return await self.conn_manager.get_collection(name, is_edge=is_edge)
 
 
-    async def get_or_create_conversation_entity(
-        self,
-        conversation_id: str,
-        platform: str,
-        conv_type: str,
-        name: str | None = None,
-        extra: dict | None = None,
-    ) -> EntityDocument:
-        """获取或创建一个会话实体(Entity).
-
-        这是新架构的核心，所有对“会话”的操作都将通过这里。
-        它确保了每个会话在我们的知识图谱中都有一个唯一的、客观的实体代表。
-        """
-        # // 构造一个全局唯一的UID，比如 "qq_group_123456"
-        entity_uid = f"{platform}_{conv_type}_{conversation_id}"
-        entities_collection = await self._get_collection(CoreDBCollections.ENTITIES)
-
-        doc = await entities_collection.get(entity_uid)
-        if doc:
-            # // 找到了！直接从数据库读档，然后用我们的 from_dict 复活成强类型老婆！
-            logger.debug(f"成功找到已存在的会话实体: {entity_uid}")
-            return EntityDocument.from_dict(doc)
-
-        # // 没找到？那就创造一个新的！
-        logger.info(f"未找到会话实体 '{entity_uid}'，将为其创建新的实体档案。")
-        details = ConversationDetails(
-            platform=platform,
-            conversation_id=conversation_id,
-            type=conv_type,
-            name=name,
-            parent_id=None,  # parent_id 暂时不在这里处理，需要更复杂的逻辑
-            avatar=None,
-            extra=extra or {},
-        )
-        new_entity = EntityDocument(
-            _key=entity_uid,
-            entity_uid=entity_uid,
-            entity_type="conversation",
-            details=details,
-        )
-        # // 用 UPSERT 更安全，万一在高并发下有另一个协程刚刚创建了它呢 (虽然概率很小)
-        # // 这叫防御性编程，就像游戏里随时准备按翻滚键一样！
-        await entities_collection.upsert(new_entity.to_dict())
-        logger.info(f"成功创建了新的会话实体: {entity_uid}")
-        return new_entity
-
 
     async def find_or_create_profile_and_account_entity(
         self, user_info: ProtocolUserInfo, platform: str
@@ -235,7 +189,6 @@ class EntityGraphService:
             logger.error(f"创建 Profile 和 Account Entity 的AQL事务执行失败: {e}", exc_info=True)
             return None, None
 
-
     async def update_presence_in_conversation(
         self,
         account_entity_uid: str,
@@ -250,8 +203,9 @@ class EntityGraphService:
             conversation_entity_uid (str): 会话实体的 _key (e.g., "qq_group_98765")
             user_info (ProtocolUserInfo): 用户在会话中的信息
             conversation_name (str | None): 会话的名称
+        Returns:
+            bool: 更新是否成功
         """
-        # // 就像设定游戏角色的出场地点一样，from 是角色，to 是场景！
         from_vertex = f"{CoreDBCollections.ENTITIES}/{account_entity_uid}"
         to_vertex = f"{CoreDBCollections.ENTITIES}/{conversation_entity_uid}"
         edge_key = f"{account_entity_uid}_in_{conversation_entity_uid}"
@@ -264,13 +218,31 @@ class EntityGraphService:
             last_active_timestamp=int(time.time() * 1000),
         )
 
-        edge_doc = {"_key": edge_key, "_from": from_vertex, "_to": to_vertex, **props.to_dict()}
-        is_present_in_coll = await self._get_collection(
-            CoreDBCollections.IS_PRESENT_IN, is_edge=True
-        )
+        edge_doc_insert = {
+            "_key": edge_key,
+            "_from": from_vertex,
+            "_to": to_vertex,
+            **props.to_dict(),
+        }
+        edge_doc_update = props.to_dict() # 更新时只需要更新属性
+
+        # 使用 AQL 的 UPSERT 语句
+        query = """
+            UPSERT { _key: @key }
+            INSERT @doc_insert
+            UPDATE @doc_update IN @@collection
+        """
+        # 这里的 @collection 是一个占位符，用于指定集合名称
+        # 这样可以避免硬编码集合名，增加灵活性和可维护性
+        bind_vars = {
+            "key": edge_key,
+            "doc_insert": edge_doc_insert,
+            "doc_update": edge_doc_update,
+            "@collection": CoreDBCollections.IS_PRESENT_IN,
+        }
 
         try:
-            await is_present_in_coll.upsert(edge_doc)
+            await self.conn_manager.execute_query(query, bind_vars)
             logger.debug(
                 f"成功更新存在关系: Entity '{account_entity_uid}' "
                 f"in Conversation Entity '{conversation_entity_uid}'"
@@ -532,3 +504,81 @@ class EntityGraphService:
         except Exception as e:
             logger.error(f"根据 key '{entity_uid}' 获取实体时失败: {e}", exc_info=True)
             return None
+
+    async def get_or_create_conversation_entity(
+        self,
+        conversation_id: str,
+        platform: str,
+        conv_type: str,
+        name: str | None = None,
+        extra: dict | None = None,
+    ) -> EntityDocument:
+        """获取或创建一个会话实体(Entity).
+
+        这是新架构的核心，所有对“会话”的操作都将通过这里。
+        它确保了每个会话在我们的知识图谱中都有一个唯一的、客观的实体代表。
+        """
+        entity_uid = f"{platform}_{conv_type}_{conversation_id}"
+
+        # 使用 AQL 的 UPSERT 语句来保证原子性
+        query = """
+            UPSERT { _key: @uid }
+            INSERT @doc_to_insert
+            UPDATE {} IN @@collection
+            RETURN NEW
+        """
+
+        details = ConversationDetails(
+            platform=platform,
+            conversation_id=conversation_id,
+            type=conv_type,
+            name=name,
+            parent_id=None,
+            avatar=None,
+            extra=extra or {},
+        )
+        new_entity = EntityDocument(
+            _key=entity_uid,
+            entity_uid=entity_uid,
+            entity_type="conversation",
+            details=details,
+        )
+
+        bind_vars = {
+            "uid": entity_uid,
+            "doc_to_insert": new_entity.to_dict(),
+            "@collection": CoreDBCollections.ENTITIES,
+        }
+
+        results = await self.conn_manager.execute_query(query, bind_vars)
+
+        if results and results[0]:
+            logger.debug(f"成功获取或创建了会话实体: {entity_uid}")
+            return EntityDocument.from_dict(results[0])
+        else:
+            raise RuntimeError(f"创建或更新会话实体 '{entity_uid}' 时数据库未能返回文档。")
+
+    async def find_conversation_entity_by_platform_and_id(
+        self, platform: str, conversation_id: str
+    ) -> EntityDocument | None:
+        """根据平台和裸的会话ID（如纯数字群号），查找对应的会话实体.
+
+        它会尝试匹配 group 和 private 两种可能性。
+        """
+        # 尝试匹配 group 类型
+        group_entity_uid = f"{platform}_group_{conversation_id}"
+        entity_doc = await self.get_entity_by_key(group_entity_uid)
+        if entity_doc:
+            return entity_doc
+
+        # 如果不是 group，再尝试匹配 private 类型
+        private_entity_uid = f"{platform}_private_{conversation_id}"
+        entity_doc = await self.get_entity_by_key(private_entity_uid)
+        if entity_doc:
+            return entity_doc
+
+        logger.warning(
+            f"在平台 '{platform}' 下，未能通过裸ID '{conversation_id}' "
+            f"找到任何 group 或 private 类型的会话实体。"
+        )
+        return None

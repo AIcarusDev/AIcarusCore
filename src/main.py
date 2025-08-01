@@ -88,7 +88,24 @@ async def start_core_system() -> None:
                 await container.core_comm_layer.stop()
             if container.conn_manager:
                 await container.conn_manager.close_client()
-        logger.info("AIcarus Core 系统关闭流程执行完毕。")
+            logger.info("AIcarus Core 系统关闭流程执行完毕。")
+            # 关闭所有 LLM 客户端
+            llm_clients_to_close = [
+                container.main_consciousness_llm_client,
+                container.summary_llm_client,
+                container.intrusive_thoughts_llm_client,
+                container.focused_chat_llm_client,
+                container.web_search_agent_client,
+                container.url_context_agent_client,
+            ]
+            for client in llm_clients_to_close:
+                if client and hasattr(client, 'llm_client') and hasattr(client.llm_client, 'close'):
+                    try:
+                        # 注意：我们要关闭的是底层的 UnderlyingLLMClient 实例
+                        await client.llm_client.close()
+                    except Exception as e_close:
+                        logger.error(f"关闭一个 LLM 客户端时出错: {e_close}")
+            logger.info("所有 LLM 客户端已处理完毕。")
 
 
 async def main() -> None:

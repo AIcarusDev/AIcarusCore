@@ -188,15 +188,17 @@ class DefaultMessageProcessor:
 
         # --- 步骤 1: 查找或创建核心的 Profile 和 Entity ---
         # 这是所有后续操作的基础
-        profile_id, entity_uid = (
+        profile_id, account_entity_uid = (
             await self.entity_service.find_or_create_profile_and_account_entity(
                 user_info=event.user_info, platform=platform_id
             )
         )
 
-        if not entity_uid:
+        if not account_entity_uid:
             # 如果连最基础的实体都无法创建或找到，后续操作无法进行
-            logger.error(f"无法为事件 {event.event_id} 找到或创建 entity_uid，身份关联中止。")
+            logger.error(
+                f"无法为事件 {event.event_id} 找到或创建 account_entity_uid，身份关联中止。"
+            )
             return profile_id, None
 
         # --- 步骤 2: 根据事件类型执行特定的数据库更新 ---
@@ -213,7 +215,7 @@ class DefaultMessageProcessor:
             # 将好友请求信息更新到实体的 'friend_request_pending' 字段
             await entities_collection.update(
                 {
-                    "_key": entity_uid,
+                    "_key": account_entity_uid,
                     "friend_request_pending": {
                         "flag": flag,
                         "comment": comment,
@@ -221,29 +223,32 @@ class DefaultMessageProcessor:
                     },
                 }
             )
-            logger.info(f"已将实体 '{entity_uid}' 的好友请求标记为待处理。")
+            logger.info(f"已将实体 '{account_entity_uid}' 的好友请求标记为待处理。")
 
         # --- 步骤 3: 丰富事件信息（注入好友备注） ---
         # 这个逻辑对所有类型的事件都适用
-        entity_doc = await entities_collection.get(entity_uid)
-        if entity_doc and (remark := entity_doc.get("friend_remark")):
+        entity_doc = await entities_collection.get(account_entity_uid)
+        if entity_doc and (remark := entity_doc.get("details", {}).get("friend_remark")):
             # 如果数据库中有备注，就把它“塞”进当前事件的 user_info 里
-            if event.user_info.extra is None:
+            if not event.user_info.extra:
                 event.user_info.extra = {}
             event.user_info.extra["friend_remark"] = remark
-            logger.debug(f"已为事件 '{event.event_id}' (来自 {entity_uid}) 注入好友备注。")
+            logger.debug(f"已为事件 '{event.event_id}' (来自 {account_entity_uid}) 注入好友备注。")
 
         # --- 步骤 4: 更新在会话中的存在信息 (Membership) ---
         # 这个逻辑只对发生在具体会话中的事件有效
-        if event.conversation_info:
+        if event.conversation_info and event.conversation_info.conversation_id:
+            conv_info = event.conversation_info
+            conversation_entity_uid = f"{platform_id}_{conv_info.type}_{conv_info.conversation_id}"
+
             await self.entity_service.update_presence_in_conversation(
-                entity_uid=entity_uid,
-                conversation_id=event.conversation_info.conversation_id,
+                account_entity_uid=account_entity_uid,
+                conversation_entity_uid=conversation_entity_uid,
                 user_info=event.user_info,
                 conversation_name=event.conversation_info.name,
             )
 
-        return profile_id, entity_uid
+        return profile_id, account_entity_uid
 
     async def _dispatch_event_action(self, event: ProtocolEvent) -> None:
         """专门负责根据事件类型和当前状态，决定是否触发核心逻辑."""

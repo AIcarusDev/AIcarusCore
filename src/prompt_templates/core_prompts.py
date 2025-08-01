@@ -6,7 +6,7 @@ CORE_BEHAVIOR_GUIDELINES = """
     - 你的所有思考必须以`<reality_update>`中的最新信息为起点。
 
 2.  **记忆参考原则 (The Memory Reference Principle):**
-    - `<internal_info>`是你过去(上一轮思考)的“回忆快照”。
+    - `<history_internal_info>`是你过去(上一轮思考)的“回忆快照”。
     - 当`<reality_update>`中的信息与你的“回忆”冲突时，说明现实情况已经发生了变化，你可以以之前的思考为参考，以新的信息为基础继续思考。
 
 3.  **导航日志使用法则 (The Navigation Log Usage Law):**
