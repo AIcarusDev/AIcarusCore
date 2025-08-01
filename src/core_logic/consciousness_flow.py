@@ -278,7 +278,6 @@ class CoreLogic:
                 focus_path=focus_path_str,
                 session=session,
                 handover_result=session.pending_handover_result if session else None,
-                # TODO:这里的pending_handover_result没有任何定义，暂时不处理，等待解决。
             )
         except PromptBuilderError as e:
             # 如果构建Prompt的过程中出了问题（比如 session manager 还没好）

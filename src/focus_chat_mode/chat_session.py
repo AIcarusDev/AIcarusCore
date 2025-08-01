@@ -84,6 +84,7 @@ class ChatSession:
         self._echo_wait_events: dict[str, asyncio.Event] = {}
         self._received_echo_ids: set[str] = set()
         self._echo_lock = asyncio.Lock()
+        self.pending_handover_result: dict | None = None
 
         # --- 行为计数器 ---
         self.no_action_count: int = 0

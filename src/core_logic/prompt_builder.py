@@ -533,9 +533,23 @@ class ThoughtPromptBuilder:
                 platform_id
             )
         elif level == "cellular" and conv_id:
-            session = self.chat_session_manager.sessions.get(conv_id)
+            # 根据 platform_id 和 conv_id (格式如 'group.123') 重新组装正确的 entity_uid
+            try:
+                conv_type, actual_id = conv_id.split('.', 1)
+                session_key = f"{platform_id}_{conv_type}_{actual_id}"
+            except ValueError:
+                # 如果 conv_id 格式不正确，记录错误并抛出异常
+                raise PromptBuilderError(
+                    f"无法从 conv_id '{conv_id}' 中解析出会话类型和ID。"
+                ) from None
+
+            session = self.chat_session_manager.sessions.get(session_key)
             if not session:
-                raise PromptBuilderError(f"找不到会话 {conv_id} 的档案，无法构建外部信息块。")
+                # 错误信息现在会显示我们尝试使用的正确key，方便调试
+                raise PromptBuilderError(
+                    f"找不到会话实体UID '{session_key}' 的档案，无法构建外部信息块。"
+                )
+            # 获取会话的历史记录和元信息
             bot_profile = await session.get_bot_profile()
             history_components, processed_raw_events = await format_chat_history_for_llm(
                 event_storage=self.event_storage,
