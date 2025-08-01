@@ -44,13 +44,14 @@ async def inspect_and_initialize_self_profile(
 
         # 如果存在，就获取所有自身实体，然后从中筛选出当前平台的实体
         all_self_entities = await entity_service.get_all_self_entities()
+
         existing_entity = next(
             (
                 entity
                 for entity in all_self_entities
-                if entity.get("details", {}).get("platform") == platform_id
+                if entity.get("platform") == platform_id
             ),
-            None
+            None,
         )
         if existing_entity:
             logger.success(f"成功从数据库为平台 '{platform_id}' 加载到自身客观实体信息。")
@@ -99,10 +100,10 @@ async def inspect_and_initialize_self_profile(
 
     # 获取到档案后，调用 _create_new_profile_with_account_entity 创建客观实体
     bot_user_info = ProtocolUserInfo(user_id=str(bot_platform_id_str), user_nickname=bot_nickname)
+
     profile_id, entity_uid = await entity_service._create_new_profile_with_account_entity(
         user_info=bot_user_info,
         platform=platform_id,
-        is_self=True,  # <--- 关键！这会使用 SELF_PROFILE_ID
     )
 
     if not profile_id or not entity_uid:
