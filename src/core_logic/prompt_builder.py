@@ -134,11 +134,11 @@ class ThoughtPromptBuilder:
         return f"<action_response>\n{action_desc}\n{action_result_text}\n</action_response>"
 
     async def _build_navigation_log_block(self) -> str:
-        """构建导航日志块，展示最近的焦点移动轨迹."""
+        """构建导航日志块，展示最近的注意力焦点历史."""
         if not self.chat_session_manager or len(self.chat_session_manager.focus_history) <= 1:
             return ""
 
-        log_lines = ["<!-- 这是你最近的意识焦点移动轨迹 -->"]
+        log_lines = ["<!-- 这是你最近的注意力焦点历史 -->"]
 
         history = list(self.chat_session_manager.focus_history)  # 创建副本以安全迭代
         history_len = len(history)
@@ -154,7 +154,7 @@ class ThoughtPromptBuilder:
             # [优化点] 调用异步方法获取丰富描述
             desc = await self.chat_session_manager._get_focus_description(entry)
 
-            log_lines.append(f"[T{relative_index}] 聚焦于 {desc} (动机: {motivation})")
+            log_lines.append(f"[T{relative_index}] 专注于 {desc} (动机: {motivation})")
 
         return "\n".join(log_lines)
 
@@ -216,7 +216,7 @@ class ThoughtPromptBuilder:
         """构建系统和用户提示组件.
 
         Args:
-            focus_path (str | None): 当前的焦点路径，用于确定上下文.
+            focus_path (str | None): 当前的注意力焦点路径，用于确定上下文.
             session (ChatSession | None): 可选的会话对象，用于获取会话相关信息.
             handover_result (dict | None): 可选的动作结果，用于构建动作响应描述.
 

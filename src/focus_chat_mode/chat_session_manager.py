@@ -73,11 +73,11 @@ class ChatSessionManager:
             "jump_to_history": self._handle_jump_to_history,
         }
 
-        logger.info("ChatSessionManager 初始化完成 (嵌套焦点修复版)。")
+        logger.info("ChatSessionManager 初始化完成。")
 
     @property
     def current_focus_path(self) -> dict[str, Any] | None:
-        """属性：返回当前焦点路径（堆栈顶部）."""
+        """属性：返回当前注意力焦点路径（堆栈顶部）."""
         return self.focus_history[-1] if self.focus_history else None
 
     async def get_or_create_session(self, conversation_entity_uid: str) -> ChatSession | None:
@@ -213,7 +213,7 @@ class ChatSessionManager:
         return f"一个未知的地方: {focus_path}"
 
     def get_last_switch_description(self) -> str:
-        """获取上次焦点切换的格式化描述."""
+        """获取上次注意力切换的格式化描述."""
         return self._last_switch_description
 
     async def handle_consciousness_control(self, control_json: dict) -> None:
@@ -224,10 +224,10 @@ class ChatSessionManager:
             logger.warning(f"收到的意识控制指令格式不正确或为空: {control_json}")
             return
 
-        logger.info(f"焦点管理器收到指令: {command}, 参数: {params}")
+        logger.info(f"注意力管理器收到指令: {command}, 参数: {params},正在试图处理...")
         handler = self._command_handlers.get(command)
         if not handler:
-            logger.error(f"收到未知的意识控制指令: '{command}'，无法处理。")
+            logger.error(f"收到未知的注意力管理指令: '{command}'，无法处理。")
             return
 
         previous_path_for_desc = self.current_focus_path
@@ -289,7 +289,7 @@ class ChatSessionManager:
             if self._is_platform_id(target_id):
                 new_path = target_id
                 self.focus_history.append({**history_entry_base, "target_path": new_path})
-                logger.info(f"[堆栈 PUSH] 焦点下潜至平台: {new_path}")
+                logger.info(f"[PUSH] 注意力转移至平台: {new_path}")
                 return True
             else:
                 logger.error(
@@ -317,7 +317,7 @@ class ChatSessionManager:
 
             # 将【正确格式】的路径压入堆栈
             self.focus_history.append({**history_entry_base, "target_path": new_path})
-            logger.info(f"[堆栈 PUSH] 焦点下潜至会话: {new_path} (源ID: {target_id})")
+            logger.info(f"[PUSH] 注意力转移至会话: {new_path} (源ID: {target_id})")
             return True
 
         # --- 其他情况 (如在细胞层再次push) ---
@@ -332,7 +332,7 @@ class ChatSessionManager:
 
         leaving_entry = self.focus_history.pop()
         leaving_path = leaving_entry.get("target_path")
-        logger.info(f"[堆栈 POP] 焦点从 '{leaving_path}' 上浮。")
+        logger.info(f"[POP] 注意力从 '{leaving_path}' 离开，正在处理停用会话...")
 
         level, platform_id, conv_id_part = parse_focus_path(leaving_path)
 
@@ -386,7 +386,7 @@ class ChatSessionManager:
             # 切换失败时，应该回到平台层，而不是让堆栈为空
             platform_path_entry = {"target_path": platform_id, "motivation": "切换失败后返回"}
             self.focus_history.append(platform_path_entry)
-            return True  # 切换本身是失败了，但焦点移动是成功了（回到了平台）
+            return True  # 切换本身是失败了，但注意力转移是成功了（回到了平台）
 
         # 3. 使用新的实体UID激活新会话
         if not await self.get_or_create_session(new_entity_uid):
@@ -399,7 +399,7 @@ class ChatSessionManager:
         # 4. 构建并压入新的结构化路径
         new_path = f"{platform_id}.{target_id}"
         self.focus_history.append({**history_entry_base, "target_path": new_path})
-        logger.info(f"[堆栈 SWAP] 焦点切换至: {new_path} (源ID: {new_entity_uid})")
+        logger.info(f"[SWAP] 注意力切换至: {new_path} (源ID: {new_entity_uid})")
         return True
 
     async def _handle_back(self, params: dict, history_entry_base: dict) -> bool:
@@ -435,7 +435,7 @@ class ChatSessionManager:
         return True
 
     async def _handle_jump_to_history(self, params: dict, history_entry_base: dict) -> bool:
-        """处理 'jump_to_history' 指令，跳转到指定的历史焦点."""
+        """处理 'jump_to_history' 指令，跳转到指定的历史注意力焦点."""
         try:
             history_index = int(params.get("history_index", -1))
             history_len = len(self.focus_history)

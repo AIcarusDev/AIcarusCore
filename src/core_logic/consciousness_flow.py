@@ -110,7 +110,7 @@ class CoreLogic:
         只负责维持循环和处理顶层异常.
         """
         thinking_interval_sec = config.core_logic_settings.thinking_interval_seconds
-        logger.info(f"=== {config.persona.bot_name} 的统一意识流【竞速模式】开始运行 ===")
+        logger.info(f"=== {config.persona.bot_name} 苏醒了 ===")
 
         while not self.stop_event.is_set():
             try:

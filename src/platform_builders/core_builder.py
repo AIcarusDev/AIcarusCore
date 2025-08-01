@@ -16,11 +16,11 @@ class CoreBuilder(BasePlatformBuilder):
     _CONSCIOUSNESS_CONTROLS_DEFINITIONS: ClassVar = {
         "push_focus": {
             "type": "object",
-            "description": "将注意力聚焦到指定的目标（平台或会话）。",
+            "description": "专注于指定的目标（平台或会话）。",
             "properties": {
                 "target_id": {
                     "type": "string",
-                    "description": "要聚焦的目标ID。例如平台ID 'qq' 或会话ID '123456'。",
+                    "description": "要专注的目标ID。例如平台ID 'qq' 或会话ID '123456'。",
                 },
                 "motivation": {"type": "string"},
             },
@@ -46,11 +46,11 @@ class CoreBuilder(BasePlatformBuilder):
         },
         "teleport_focus": {
             "type": "object",
-            "description": "直接将你的注意力聚焦到指定的目标。",
+            "description": "直接专注于指定的目标。",
             "properties": {
                 "target_path": {
                     "type": "string",
-                    "description": "要聚焦的绝对路径，必须是使用'.'作为分隔符的完整路径，例如`qq.123456`。",
+                    "description": "要专注的绝对路径，必须是使用'.'作为分隔符的完整路径，例如`qq.123456`。",
                 },
                 "motivation": {"type": "string"},
             },
@@ -70,7 +70,7 @@ class CoreBuilder(BasePlatformBuilder):
                     "type": "integer",
                     "description": "导航日志中的时间索引 (例如 T-2 的索引是 -2)。",
                 },
-                "motivation": {"type": "string", "description": "你为什么要进行这次“跳跃”？"},
+                "motivation": {"type": "string"},
             },
             "required": ["history_index", "motivation"],
         },
