@@ -265,7 +265,15 @@ class ChatSessionManager:
         )
 
     async def _handle_push_focus(self, params: dict, history_entry_base: dict) -> bool:
-        """处理 'push_focus'，优先处理 entity_uid，并兼容裸ID和部分路径."""
+        """处理 'push_focus'，优先处理 entity_uid，并兼容裸ID和部分路径.
+
+        Args:
+            params (dict): 包含 'target_id' 的参数字典.
+            history_entry_base (dict): 用于记录堆栈历史的基础条目.
+
+        Returns:
+            bool: 是否成功处理焦点推送.
+        """
         if not (target_id := params.get("target_id")):
             logger.error("'push_focus' 指令缺少 'target_id'。")
             return False
@@ -287,78 +295,46 @@ class ChatSessionManager:
             return True
 
         # 统一处理会话ID
-        if level != 'platform':
-            logger.error(f"只能从 'platform' 层级聚焦到会话，当前层级为 '{level}'。")
-            return False
+        if level == 'core':
+            logger.info(f"当前层级为 '{level}', 即将直接聚焦至会话层级。")
+            platform_id = target_id.split('_', 1)[0] if '_' in target_id else target_id
+            if self._handle_push_focus({"target_id": f"{platform_id}"}, history_entry_base):
+                logger.info(f"已将焦点推送至默认会话层级: {platform_id}")
+            else:
+                logger.error(f"无法处理 'push_focus' 指令，目标ID '{target_id}' 无效, "
+                             f"越级聚焦失败。")
+                return False
 
-        conversation_entity_uid: str | None = None
-        partial_conv_path: str | None = None
-
-        # 场景2 (主要场景): 目标是完整的 entity_uid (e.g., 'qq_group_123')
+        # 场景2: 目标是完整的 entity_uid (e.g., 'qq_group_123')
         if target_id.startswith(f"{platform_id}_"):
-            conversation_entity_uid = target_id
             # 从完整的UID中反向构建出部分路径
             try:
                 conv_entity = await self.entity_graph_service.get_entity_by_key(
-                    conversation_entity_uid
+                    target_id
                 )
-                if conv_entity and isinstance(conv_entity.details, ConversationDetails):
-                    details = conv_entity.details
-                    partial_conv_path = f"{details.type}.{details.conversation_id}"
-                else:
+                if not conv_entity or not isinstance(conv_entity.details, ConversationDetails):
                     logger.error(
-                        f"找到了实体 '{conversation_entity_uid}' 但它不是一个有效的会话实体。"
+                        f"找到了实体 '{target_id}' 但它不是一个有效的会话实体。"
                     )
                     return False
             except ValueError:
                 logger.error(f"无法从 entity_uid '{target_id}' 解析出部分路径。")
                 return False
 
-        # 场景3 (后备方案): 目标是裸ID (e.g., '123456')
-        elif target_id.isdigit():
-            logger.info(f"收到裸ID '{target_id}'，正在尝试从数据库推断会话实体...")
-            conv_entity = (
-                await self.entity_graph_service.find_conversation_entity_by_platform_and_id(
-                    platform=platform_id,
-                    conversation_id=target_id,
-                )
-            )
-            if conv_entity and isinstance(conv_entity.details, ConversationDetails):
-                conversation_entity_uid = conv_entity._key
-                details = conv_entity.details
-                partial_conv_path = f"{details.type}.{details.conversation_id}"
-                logger.success(
-                    f"成功推断出裸ID '{target_id}' 对应的实体UID为: "
-                    f"'{conversation_entity_uid}'"
-                )
-            else:
-                logger.error(
-                    f"无法为裸ID '{target_id}' 在平台 '{platform_id}' "
-                    f"下找到对应的会话实体。"
-                )
-                return False
-
-        # 场景4 (兼容旧格式): 目标是部分路径 (e.g., 'group.123456')
-        elif self._is_partial_conversation_id(target_id):
-            conv_type, actual_id = target_id.split('.', 1)
-            conversation_entity_uid = f"{platform_id}_{conv_type}_{actual_id}"
-            partial_conv_path = target_id
-
         else:
             logger.error(f"未知的 'push_focus' 目标ID格式: '{target_id}'")
             return False
 
         # --- 后续逻辑统一处理 ---
-        if conversation_entity_uid and partial_conv_path:
-            if not await self.get_or_create_session(conversation_entity_uid):
+        if target_id:
+            if not await self.get_or_create_session(target_id):
                 logger.error(
-                    f"无法 'push_focus'，创建或获取会话实体 '{conversation_entity_uid}' 失败。"
+                    f"无法 'push_focus'，创建或获取会话实体 '{target_id}' 失败。"
                 )
                 return False
 
-            new_path = f"{current_path}.{partial_conv_path}"
-            self.focus_history.append({**history_entry_base, "target_path": new_path})
-            logger.info(f"[堆栈 PUSH] 焦点下潜至会话: {new_path}")
+            self.focus_history.append({**history_entry_base, "target_path": target_id})
+            logger.info(f"[堆栈 PUSH] 焦点下潜至会话: {target_id}")
             return True
 
         return False
