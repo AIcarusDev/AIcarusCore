@@ -553,7 +553,7 @@ class ThoughtPromptBuilder:
             bot_profile = await session.get_bot_profile()
             history_components, processed_raw_events = await format_chat_history_for_llm(
                 event_storage=self.event_storage,
-                conversation_id=session.conversation_id,
+                conversation_id=session.conversation_info.conversation_id,
                 bot_id=session.bot_id,
                 platform=session.platform,
                 bot_profile=bot_profile,
