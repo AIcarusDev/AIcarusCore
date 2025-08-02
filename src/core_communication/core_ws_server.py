@@ -503,7 +503,18 @@ class CoreWebsocketServer:
         """构建并返回所有平台的信息字符串，现在它能感知在线、离线和安检中的状态了!"""
         # 从数据库获取所有已知的机器人账号
         all_known_bots = await self.entity_service.get_all_self_entities()
-        known_platforms = {bot["platform"]: bot for bot in all_known_bots}
+        # 使用安全的方式从嵌套结构中提取 platform 并构建字典
+        known_platforms = {}
+        for bot in all_known_bots:
+            # 安全地访问 details 字典，然后再安全地访问 platform 键
+            details = bot.get("details")
+            if isinstance(details, dict) and (platform_id := details.get("platform")):
+                known_platforms[platform_id] = bot
+            else:
+                logger.warning(
+                    f"在 'get_all_self_entities' 返回的机器人档案中缺少 'details.platform'，"
+                    f"已跳过: {bot}"
+                )
 
         # 获取当前正连着网线的平台
         connected_platforms_info = self.adapter_clients_info

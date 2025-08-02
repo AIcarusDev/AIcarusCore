@@ -62,7 +62,18 @@ class ChatSessionManager:
         self.core_logic = core_logic
         self.sessions: dict[str, ChatSession] = {}
         self.lock = asyncio.Lock()
-        self.focus_history = deque([{"target_path": "core", "motivation": "初始化"}], maxlen=10)
+
+        # 1. focus_history 现在是纯粹的历史日志
+        self.focus_history = deque(maxlen=10)
+
+        # 2. current_focus 是一个字典，包含当前的注意力焦点状态
+        self.current_focus: dict[str, Any] = {
+            "target_path": "core",
+            "motivation": "初始化",
+            "timestamp": int(time.time() * 1000),
+        }
+        self.focus_history.append(self.current_focus)  # 初始化时，日志和状态一致
+
         self._last_switch_description: str = "你刚刚从发呆的状态中回过神来"
         self._command_handlers = {
             "push_focus": self._handle_push_focus,
@@ -77,8 +88,8 @@ class ChatSessionManager:
 
     @property
     def current_focus_path(self) -> dict[str, Any] | None:
-        """属性：返回当前注意力焦点路径（堆栈顶部）."""
-        return self.focus_history[-1] if self.focus_history else None
+        """属性：返回当前的注意力焦点状态字典."""
+        return self.current_focus
 
     async def get_or_create_session(self, conversation_entity_uid: str) -> ChatSession | None:
         """根据会话实体的UID获取或创建ChatSession."""
@@ -250,6 +261,59 @@ class ChatSessionManager:
             if self.core_logic:
                 self.core_logic.trigger_immediate_thought_cycle()
 
+    async def _switch_focus(self, new_path: str, history_entry_base: dict) -> bool:
+        """核心切换逻辑：停用旧会话，激活新会话，更新状态和日志.
+
+        Args:
+            new_path (str): 新的注意力焦点路径，必须是一个有效的绝对路径.
+            history_entry_base (dict): 用于记录堆栈历史的基础条目.
+
+        Returns:
+            bool: 是否成功切换焦点，True 表示成功，False 表示失败或回退.
+        """
+        old_focus_entry = self.current_focus
+        old_path = old_focus_entry.get("target_path")
+
+        if old_path == new_path:
+            logger.info(f"目标焦点 '{new_path}' 与当前焦点相同，无需切换。")
+            return False # 返回 False 表示没有发生实际的切换
+
+        # 步骤 1: 激活新会话（如果需要）
+        new_level, new_platform, new_conv_part = parse_focus_path(new_path)
+        if new_level == 'cellular' and new_platform and new_conv_part:
+            try:
+                new_conv_type, new_actual_id = new_conv_part.split('.', 1)
+                new_entity_uid = f"{new_platform}_{new_conv_type}_{new_actual_id}"
+                if not await self.get_or_create_session(new_entity_uid):
+                    logger.error(
+                        f"激活新会话 '{new_entity_uid}' 失败！将回退到上一焦点 '{old_path}'。"
+                    )
+                    # 激活失败，回退路径，但不更新历史日志，让AI知道它的指令失败了
+                    # 返回 True 是因为状态最终还是变了（虽然是变回去）
+                    # 我们这里不修改 self.current_focus，等于状态没变
+                    # TODO:这里逻辑可能需要进一步细化，但是当前暂时不做复杂处理
+                    return False
+            except (ValueError, IndexError):
+                logger.error(f"无法从新路径 '{new_path}' 中解析并激活会话。将回退。")
+                return False
+
+        # 步骤 2: 停用旧会话（如果需要）
+        old_level, old_platform, old_conv_part = parse_focus_path(old_path)
+        if old_level == 'cellular' and old_platform and old_conv_part:
+            try:
+                old_conv_type, old_actual_id = old_conv_part.split('.', 1)
+                old_entity_uid = f"{old_platform}_{old_conv_type}_{old_actual_id}"
+                await self.deactivate_session(old_entity_uid, history_entry_base)
+            except (ValueError, IndexError):
+                logger.warning(f"无法从旧路径 '{old_path}' 中解析并停用会话。")
+
+        # 步骤 3: 成功切换，更新状态指针和历史日志
+        new_focus_entry = {**history_entry_base, "target_path": new_path}
+        self.current_focus = new_focus_entry
+        self.focus_history.append(new_focus_entry)
+
+        return True # 返回 True 表示发生了切换
+
     def _is_platform_id(self, target_id: str) -> bool:
         """辅助函数，判断一个ID是否为平台ID."""
         return target_id in platform_builder_registry.get_all_builders()
@@ -257,7 +321,7 @@ class ChatSessionManager:
     def _is_partial_conversation_id(self, target_id: str) -> bool:
         """辅助函数，判断一个ID是否为部分会话ID（如 "group.123"）."""
         return (
-            '.' in target_id
+            "." in target_id
             and (
                 target_id.startswith('group.')
                 or target_id.startswith('private.')
@@ -265,208 +329,123 @@ class ChatSessionManager:
         )
 
     async def _handle_push_focus(self, params: dict, history_entry_base: dict) -> bool:
-        """处理 'push_focus'，优先处理 entity_uid，并兼容裸ID和部分路径.
-
-        Args:
-            params (dict): 包含 'target_id' 的参数字典.
-            history_entry_base (dict): 用于记录堆栈历史的基础条目.
-
-        Returns:
-            bool: 是否成功处理焦点推送.
-        """
-        if not (target_id := params.get("target_id")):
-            logger.error("'push_focus' 指令缺少 'target_id'。")
+        """处理 'push_focus' 指令，现在会根据目标ID的类型来决定如何切换焦点."""
+        target_id = params.get("target_id")
+        if not target_id:
             return False
 
-        current_path = (
-            self.current_focus_path.get("target_path", "core")
-            if self.current_focus_path else "core"
-        )
+        current_path = self.current_focus.get("target_path", "core")
         level, platform_id, _ = parse_focus_path(current_path)
 
-        # --- 场景1: 从 Core 层聚焦到 Platform 层 ---
-        if level == 'core':
-            if self._is_platform_id(target_id):
-                new_path = target_id
-                self.focus_history.append({**history_entry_base, "target_path": new_path})
-                logger.info(f"[PUSH] 注意力转移至平台: {new_path}")
-                return True
-            else:
-                logger.error(
-                    "无效操作：只能从 'core' 层级聚焦到已知的平台ID。"
-                    f"收到的目标是 '{target_id}'。"
-                )
-                return False
-
-        # --- 场景2: 从 Platform 层聚焦到 Cellular 层 ---
-        if level == 'platform':
-            # 在平台层，target_id 必须是一个会话实体的UID (e.g., 'qq_group_123456')
-            if not await self.get_or_create_session(target_id):
-                logger.error(f"无法 'push_focus'，创建或获取会话实体 '{target_id}' 失败。")
-                return False
-
-            # 从实体UID (e.g., "qq_group_123456") 解析出组件，构建正确的结构化路径
+        new_path = None
+        if level == 'core' and self._is_platform_id(target_id):
+            new_path = target_id
+        elif level == 'platform':
             try:
-                # 使用下划线分割实体UID，最多分割两次
                 p_id, conv_type, actual_id = target_id.split('_', 2)
-                # 用点号（.）组装成正确的路径格式 (e.g., "qq.group.123456")
-                new_path = f"{p_id}.{conv_type}.{actual_id}"
+                if p_id == platform_id:
+                    new_path = f"{p_id}.{conv_type}.{actual_id}"
+                else:
+                    logger.error(
+                        f"无效操作: 不能从平台 '{platform_id}' "
+                        f"push_focus 到另一个平台 '{p_id}' 的会话。"
+                    )
             except ValueError:
-                logger.error(f"无法从实体UID '{target_id}' 解析出结构化路径所需组件。")
-                return False
+                logger.error(
+                    f"在平台 '{platform_id}' 层，"
+                    f"push_focus 的 target_id '{target_id}' 不是有效的会话实体UID。"
+                )
 
-            # 将【正确格式】的路径压入堆栈
-            self.focus_history.append({**history_entry_base, "target_path": new_path})
-            logger.info(f"[PUSH] 注意力转移至会话: {new_path} (源ID: {target_id})")
-            return True
+        if new_path:
+            return await self._switch_focus(new_path, history_entry_base)
 
-        # --- 其他情况 (如在细胞层再次push) ---
-        logger.error(f"无效操作：不能从 '{level}' 层级执行 'push_focus'。")
+        logger.error(f"在层级 '{level}' 执行 push_focus(target_id='{target_id}') 失败。")
         return False
 
     async def _handle_pop_focus(self, params: dict, history_entry_base: dict) -> bool:
-        """处理 'pop_focus' 指令，现在会停用会话."""
-        if len(self.focus_history) <= 1:
+        """处理 'pop_focus' 指令，现在会返回到上一个层级或核心层."""
+        current_path = self.current_focus.get("target_path", "core")
+        if current_path == "core":
             logger.warning("在顶层Core-Level尝试执行 'pop_focus'，无效操作，已忽略。")
             return False
-
-        leaving_entry = self.focus_history.pop()
-        leaving_path = leaving_entry.get("target_path")
-        logger.info(f"[POP] 注意力从 '{leaving_path}' 离开，正在处理停用会话...")
-
-        level, platform_id, conv_id_part = parse_focus_path(leaving_path)
-
-        # 只有当离开的是会话层时，才需要停用 session
-        if level == 'cellular' and platform_id and conv_id_part:
-            conv_type, actual_id = conv_id_part.split('.', 1)
-            conversation_entity_uid = f"{platform_id}_{conv_type}_{actual_id}"
-            await self.deactivate_session(
-                conversation_entity_uid, {"motivation": history_entry_base["motivation"]}
-            )
-
-        return True
+        # 1. 清空当前消息段列表
+        parts = current_path.split('.')
+        parent_path = ".".join(parts[:-1]) or "core"
+        # 2. 如果当前路径是平台层级，直接返回到核心层
+        return await self._switch_focus(parent_path, history_entry_base)
 
     async def _handle_swap_focus(self, params: dict, history_entry_base: dict) -> bool:
-        """处理 'swap_focus' 指令，现在会停用旧会话并正确激活新会话."""
-        if not (target_id := params.get("target_id")):
-            logger.error("'swap_focus' 指令缺少 'target_id'。")
+        """处理 'swap_focus' 指令，切换到指定的会话实体UID.
+
+        如果 target_id 是会话实体UID，则切换到该会话。
+        """
+        target_id = params.get("target_id") # target_id 是会话实体UID
+        if not target_id:
             return False
 
-        current_path = (
-            self.current_focus_path.get("target_path", "core")
-            if self.current_focus_path else "core"
-        )
-        level, platform_id, current_conv_part = parse_focus_path(current_path)
+        current_path = self.current_focus.get("target_path", "core")
+        level, platform_id, _ = parse_focus_path(current_path)
 
         if level != 'cellular':
             logger.error(f"'swap_focus' 只能在会话层级使用，当前层级为 '{level}'。")
             return False
 
-        # 1. 停用旧会话
-        leaving_entry = self.focus_history.pop()
-        # 确保 leaving_path 和 current_conv_part 是有效的
-        if leaving_path := leaving_entry.get("target_path") and current_conv_part:
-            # 从当前路径中安全地解析出旧的会话实体UID
-                try:
-                    conv_type, actual_id = current_conv_part.split('.', 1)
-                    leaving_entity_uid = f"{platform_id}_{conv_type}_{actual_id}"
-                    await self.deactivate_session(
-                        leaving_entity_uid,
-                        {"motivation": history_entry_base["motivation"], "target_id": target_id},
-                    )
-                except (ValueError, IndexError):
-                    logger.warning(f"无法从旧路径 '{leaving_path}' 中解析并停用会话。")
-
-        #    激活新会话前，先从目标部分路径 (e.g., 'group.123') 组装出完整的实体UID
         try:
-            new_conv_type, new_actual_id = target_id.split('.', 1)
-            new_entity_uid = f"{platform_id}_{new_conv_type}_{new_actual_id}"
-        except (ValueError, IndexError):
-            logger.error(f"无法从目标ID '{target_id}' 解析出实体UID。")
-            # 切换失败时，应该回到平台层，而不是让堆栈为空
-            platform_path_entry = {"target_path": platform_id, "motivation": "切换失败后返回"}
-            self.focus_history.append(platform_path_entry)
-            return True  # 切换本身是失败了，但注意力转移是成功了（回到了平台）
-
-        # 3. 使用新的实体UID激活新会话
-        if not await self.get_or_create_session(new_entity_uid):
-            logger.error(f"无法 'swap_focus'，目标实体 '{new_entity_uid}' 无法创建会话。切换中止。")
-            # 切换失败时，回到平台层
-            platform_path_entry = {"target_path": platform_id, "motivation": "切换失败后返回"}
-            self.focus_history.append(platform_path_entry)
-            return True
-
-        # 4. 构建并压入新的结构化路径
-        new_path = f"{platform_id}.{target_id}"
-        self.focus_history.append({**history_entry_base, "target_path": new_path})
-        logger.info(f"[SWAP] 注意力切换至: {new_path} (源ID: {new_entity_uid})")
-        return True
-
-    async def _handle_back(self, params: dict, history_entry_base: dict) -> bool:
-        """处理 'back' 指令，直接跳转到堆栈顶部的历史焦点."""
-        return await self._handle_jump_to_history(
-            {"history_index": -1, **params}, history_entry_base
-        )
-
-    async def _handle_teleport_focus(self, params: dict, history_entry_base: dict) -> bool:
-        """处理 'teleport_focus' 指令，直接跳转到指定路径."""
-        if not (target_path := params.get("target_path")):
+            p_id, conv_type, actual_id = target_id.split('_', 2)
+            if p_id != platform_id:
+                logger.error(
+                    f"无法在平台 '{platform_id}' 切换到另一个平台 '{p_id}' 的会话。"
+                    "请使用 teleport_focus。"
+                )
+                return False
+            new_path = f"{p_id}.{conv_type}.{actual_id}"
+            return await self._switch_focus(new_path, history_entry_base)
+        except ValueError:
+            logger.error(f"swap_focus 的 target_id '{target_id}' 不是有效的会话实体UID。")
             return False
 
-        current_entry = self.current_focus_path
-        if current_entry and current_entry.get("target_path") != "core":
-            level, platform, conv_part = parse_focus_path(current_entry.get("target_path"))
-            if level == 'cellular' and platform and conv_part:
-                conv_type, actual_id = conv_part.split('.', 1)
-                entity_uid = f"{platform}_{conv_type}_{actual_id}"
-                await self.deactivate_session(entity_uid, {"motivation": f"传送到 {target_path}"})
+    async def _handle_teleport_focus(self, params: dict, history_entry_base: dict) -> bool:
+        """处理 'teleport_focus' 指令，直接专注于指定的目标."""
+        target_path = params.get("target_path")
+        if not target_path:
+            return False
+        return await self._switch_focus(target_path, history_entry_base)
 
-        self.focus_history.clear()
-        self.focus_history.append({"target_path": "core", "motivation": "传送起点"})
+    async def _handle_back(self, params: dict, history_entry_base: dict) -> bool:
+        """处理 'back' 指令，返回到上一个注意力焦点.
 
-        if target_path != "core":
-            self.focus_history.append({**history_entry_base, "target_path": target_path})
-            level, platform, conv_part = parse_focus_path(target_path)
-            if level == 'cellular' and platform and conv_part:
-                conv_type, actual_id = conv_part.split('.', 1)
-                entity_uid = f"{platform}_{conv_type}_{actual_id}"
-                await self.get_or_create_session(entity_uid)
+        如果当前焦点是核心层，则返回 False。
+        """
+        if len(self.focus_history) < 2:
+            logger.warning("历史记录不足，'back' 操作无法执行。")
+            return False
+        # 1. 如果当前焦点是核心层，直接返回 False
+        target_entry = self.focus_history[-2] # T-1 是倒数第二个元素
+        target_path = target_entry.get("target_path", "core")
 
-        return True
+        return await self._switch_focus(target_path, history_entry_base)
 
     async def _handle_jump_to_history(self, params: dict, history_entry_base: dict) -> bool:
-        """处理 'jump_to_history' 指令，跳转到指定的历史注意力焦点."""
+        """处理 'jump_to_history' 指令，跳转到指定的历史条目.
+
+        这里的 history_index 是 T-n 的 n，表示从 T-1 开始的偏移量。
+        """
         try:
-            history_index = int(params.get("history_index", -1))
+            history_index = int(params.get("history_index", 0)) # 注意，这里history_index是T-n的n
             history_len = len(self.focus_history)
-            if not (1 <= abs(history_index) < history_len):
+
+            # 将 T-n 转换为 deque 的负数索引 (-n)
+            deque_index = -history_index
+
+            # 验证索引是否在有效范围内 (T-1 到 T-(len-1))
+            if not (1 <= history_index < history_len):
+                logger.error(f"历史索引 T-{history_index} 超出范围 [T-1, T-{history_len-1}]。")
                 return False
+            # 获取目标历史条目
+            target_entry = self.focus_history[deque_index]
+            target_path = target_entry.get("target_path", "core")
 
-            target_deque_index = history_index if history_index < 0 else history_index - history_len
-            target_entry = self.focus_history[target_deque_index]
-            target_path = target_entry.get("target_path")
-
-            current_entry = self.current_focus_path
-            if current_entry and current_entry.get("target_path") != "core":
-                level, platform, conv_part = parse_focus_path(current_entry.get("target_path"))
-                if level == 'cellular' and platform and conv_part:
-                    conv_type, actual_id = conv_part.split('.', 1)
-                    entity_uid = f"{platform}_{conv_type}_{actual_id}"
-                    await self.deactivate_session(
-                        entity_uid,
-                        {"motivation": f"跳跃到历史焦点 {target_path}"}
-                    )
-
-            while len(self.focus_history) > abs(target_deque_index):
-                self.focus_history.pop()
-
-            if target_path and target_path != "core":
-                level, platform, conv_part = parse_focus_path(target_path)
-                if level == 'cellular' and platform and conv_part:
-                    conv_type, actual_id = conv_part.split('.', 1)
-                    entity_uid = f"{platform}_{conv_type}_{actual_id}"
-                    await self.get_or_create_session(entity_uid)
-            return True
+            return await self._switch_focus(target_path, history_entry_base)
         except (IndexError, TypeError, ValueError) as e:
             logger.error(f"处理 'jump_to_history' 时发生错误: {e}")
             return False
