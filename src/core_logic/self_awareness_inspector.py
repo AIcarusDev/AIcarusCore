@@ -42,33 +42,60 @@ async def inspect_and_initialize_self_profile(
     if await profiles_collection.has(SELF_PROFILE_ID):
         logger.info(f"核心 Profile '{SELF_PROFILE_ID}' 已存在。将从数据库加载现有档案。")
 
+        # 添加调试：检查Profile的详细内容
+        try:
+            profile_doc = await profiles_collection.get(SELF_PROFILE_ID)
+            logger.debug(f"[调试] 核心Profile内容: {profile_doc}")
+        except Exception as e:
+            logger.debug(f"[调试] 获取核心Profile详情失败: {e}")
+
         # 如果存在，就获取所有自身实体，然后从中筛选出当前平台的实体
         all_self_entities = await entity_service.get_all_self_entities()
+        logger.debug(f"[调试] get_all_self_entities() 返回了: {all_self_entities}")
+
+        # 添加调试：直接查询数据库中的所有实体，查看是否有遗漏的
+        try:
+            entities_collection = await entity_service._get_collection(CoreDBCollections.ENTITIES)
+            # 查询所有可能的自身实体 - 修复查询条件
+            all_entities_cursor = await entities_collection.find({
+                "entity_type": "account",
+                "details.platform": platform_id  # 修复：查询 details.platform
+            })
+            all_platform_entities = [doc async for doc in all_entities_cursor]
+            logger.debug(f"[调试] 数据库中平台 '{platform_id}' 的所有账户实体: {all_platform_entities}")
+            
+            # 查询标记为自身的实体 - 这个查询条件需要根据实际数据结构调整
+            self_entities_cursor = await entities_collection.find({
+                "entity_type": "account"
+                # 注意：根据日志，实体中可能没有直接的 is_self 字段
+                # 自身实体可能是通过与 SELF_PROFILE_ID 的关联关系来标识的
+            })
+            all_marked_self_entities = [doc async for doc in self_entities_cursor]
+            logger.debug(f"[调试] 数据库中所有账户类型的实体: {all_marked_self_entities}")
+            
+        except Exception as e:
+            logger.debug(f"[调试] 直接查询数据库实体失败: {e}")
 
         existing_entity = next(
             (
                 entity
                 for entity in all_self_entities
-                if entity.get("platform") == platform_id
+                if entity.get("details", {}).get("platform") == platform_id  # 修复：从 details 中获取平台信息
             ),
             None,
         )
         if existing_entity:
             logger.success(f"成功从数据库为平台 '{platform_id}' 加载到自身客观实体信息。")
             # 基于已存在的实体信息构建返回数据
+            entity_details = existing_entity.get("details", {})
             profile_data = {
-                "user_id": existing_entity.get("platform_id"),
-                "nickname": existing_entity.get("nickname"),
+                "user_id": entity_details.get("platform_id"),
+                "nickname": entity_details.get("nickname"),
                 "platform": platform_id,
-                "groups": {},  # 注意：此处未加载群组信息，可根据需要扩展
+                "groups": {},
                 "status": "existing_and_loaded",
             }
             return True, profile_data
-        else:
-            logger.warning(
-                f"数据库中存在核心Profile，但未找到平台 '{platform_id}' 的实体信息。"
-                f"将尝试重新获取。"
-            )
 
     logger.info("未发现自身核心Profile或特定平台实体，启动首次检查流程。")
 
