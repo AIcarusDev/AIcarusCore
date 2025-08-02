@@ -136,37 +136,48 @@ async def process_llm_decision(
         return
 
     logger.info(f"决策分发器开始处理LLM决策: {decision_json}")
-    _, current_platform_id, current_conv_id = parse_focus_path(current_focus_path)
+    _, current_platform_id, _ = parse_focus_path(current_focus_path)
 
-    if action_payload := normalize_action_payload(decision_json.get("action"), current_platform_id):
-        if (platform_key := next(iter(action_payload), None)) and (
-            action_name := next(iter(action_payload[platform_key]), None)
-        ):
-            action_params = action_payload[platform_key].get(action_name, {})
+    action_payload = normalize_action_payload(decision_json.get("action"), current_platform_id)
+    control_payload = decision_json.get("consciousness_control")
 
-            if action_name == "send_message":
-                if not session:
-                    logger.error("send_message 动作只能在专注会话中执行，但当前会话实例为空！")
-                else:
-                    # 处理 send_message 动作
-                    await _handle_send_message_action(
-                        session, action_params, core_logic, processed_events_this_turn
-                    )
-            else:
-                logger.info(f"检测到 [即做即走类] 动作 ({platform_key}.{action_name})。")
-                await action_handler.process_action_flow(
-                    action_id=source_action_id,
-                    doc_key_for_updates=source_thought_key,
-                    action_json=action_payload,
+    # --- 步骤 1: 优先处理 Action (如果有)，并等待其完成 ---
+    if action_payload:
+        platform_key = next(iter(action_payload), None)
+        action_name = next(iter(action_payload.get(platform_key, {})), None)
+        # 特殊处理 send_message 动作
+        if action_name == "send_message":
+            logger.info("检测到 [send_message] 动作，将完整执行并等待回声，然后再继续。")
+            action_params = action_payload.get(platform_key, {}).get("send_message", {})
+
+            if session:
+                await _handle_send_message_action(
+                    session, action_params, core_logic, processed_events_this_turn
                 )
-        else:
-            logger.warning(f"行动指令格式不正确，无法处理: {action_payload}")
+            else:
+                logger.error("send_message 动作只能在专注会话中执行，但当前会话实例为空！")
 
-    if control_payload := decision_json.get("consciousness_control"):
-        logger.info("处理 [意识控制] 指令。")
+        else:  # 如果是其他即做即走的动作
+            logger.info(f"检测到 [即做即走类] 动作 ({platform_key}.{action_name})，将立即执行。")
+            await action_handler.process_action_flow(
+                action_id=source_action_id,
+                doc_key_for_updates=source_thought_key,
+                action_json=action_payload,
+            )
+
+    # --- 步骤 2: 在所有 Action 处理完毕后，再处理 Consciousness Control (如果有) ---
+    if control_payload:
+        logger.info("所有 Action 已处理完毕，现在开始处理 [意识控制] 指令。")
         await focus_manager.handle_consciousness_control(control_payload)
 
-    if not decision_json.get("action") and not decision_json.get("consciousness_control"):
+    # --- 步骤 3: 检查是否无任何指令 ---
+    if not action_payload and not control_payload:
         logger.info("本轮决策中无任何有效动作或意识控制指令。")
+        if core_logic and core_logic.immediate_thought_trigger:
+            level, _, _ = parse_focus_path(current_focus_path)
+            if level != 'cellular':
+                logger.info("AI决定保持沉默，且不在专注聊天中，将在常规间隔后进行下一轮思考。")
+                # 这里不需要手动触发，让主循环的 timeout 机制自然触发即可。
+                pass
 
     logger.info("决策分发处理完毕。")

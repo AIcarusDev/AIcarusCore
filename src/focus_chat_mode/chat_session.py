@@ -149,7 +149,15 @@ class ChatSession:
             (
                 entity
                 for entity in all_self_entities
-                if (details := entity.get("details", {})) and details.get("platform") == self.platform
+                if (
+                    details := entity.get(
+                        "details",
+                        {
+                        }
+                    )
+                ) and details.get(
+                    "platform"
+                ) == self.platform
             ),
             None,
         )

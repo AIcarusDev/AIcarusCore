@@ -226,6 +226,25 @@ class ActionHandler:
         platform_id = platform_id_from_action if platform_actions else "core"
         action_name, params = next(iter(actions_to_process.items()))
 
+        if platform_id == 'qq' and action_name == 'scroll':
+            result_text = self._execute_local_scroll_action(platform_id, params)
+
+            # 将结果写回思想点
+            if self.thought_storage_service:
+                await self.thought_storage_service.save_action_result_to_thought(
+                    thought_key=doc_key_for_updates,
+                    result_text=result_text,
+                )
+
+            # 本地动作执行完，立即触发思考！
+            if self.thought_trigger:
+                logger.info(
+                    f"本地平台动作 '{platform_id}.{action_name}' 完成 "
+                    f"(Action ID: {action_id})，立即触发新一轮思考。"
+                )
+                self.thought_trigger.set()
+            return # 任务完成，直接返回
+
         if platform_id == "core":
             result_text = await self._execute_core_action(action_name, params)
 
@@ -657,6 +676,36 @@ class ActionHandler:
             result_payload["action_id"] = core_action_id
 
         return success, result_payload
+
+    def _execute_local_scroll_action(self, platform_id: str, params: dict) -> str:
+        """执行本地的 scroll 动作，直接修改 ChatSessionManager 的状态."""
+        params = params.get("params")
+        if not params or params not in ["up", "down"]:
+            return f"错误：收到无效的滚动方向 '{params}'。"
+
+        if not self.chat_session_manager:
+            return "错误：会话管理器未就绪，无法执行滚动。"
+
+        # 从 ChatSessionManager 获取平台视图状态
+        if platform_id not in self.chat_session_manager.platform_view_states:
+            # 这种情况理论上不应该发生，因为进入平台层时会初始化
+            return f"错误：找不到平台 '{platform_id}' 的视图状态。"
+
+        state = self.chat_session_manager.platform_view_states[platform_id]
+        current_offset = state.get('scroll_offset', 0)
+        page_size = 10  # 与 unread_info_service 中的 page_size 保持一致
+
+        if params == "down":
+            state['scroll_offset'] = current_offset + page_size
+            action_desc = "向下"
+        elif params == "up":
+            state['scroll_offset'] = max(0, current_offset - page_size)
+            action_desc = "向上"
+
+        logger.info(f"平台 '{platform_id}' 视图已滚动, "
+                    f"新偏移量: {state['scroll_offset']}")
+
+        return f"成功地将列表 {action_desc} 滚动了一页。"
 
     async def _execute_core_summarize_url(self, params: dict) -> str:
         """执行核心的 URL 总结动作，并直接返回结果字符串."""

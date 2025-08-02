@@ -1,4 +1,5 @@
 # src/core_logic/prompt_builder.py
+import json
 from typing import TYPE_CHECKING, Any, Optional
 
 from aicarus_protocols import Event
@@ -72,13 +73,12 @@ class ThoughtPromptBuilder:
             return ""
 
         action_result_text = None
-        action_payload = {}
+        action_payload = latest_thought.get("action_payload") or {}
 
         if handover_result:
             action_result_text = handover_result.get("result_text")
         elif thought_action_result := latest_thought.get("action_result"):
             action_result_text = thought_action_result
-            action_payload = latest_thought.get("action_payload") or {}
 
         if not action_result_text or "决策中未包含任何行动指令" in action_result_text:
             return ""
@@ -114,15 +114,46 @@ class ThoughtPromptBuilder:
                     action_params = platform_actions.get(action_name, {}) if action_name else {}
 
                     # 根据解析出的动作名，构建不同的描述
-                    if action_name == "web_search":
-                        if query := action_params.get("query"):
-                            # 特例：为 web_search 构建包含关键词的丰富描述
-                            action_desc = (
-                                f"你刚才执行了网页搜索，搜索的关键词是“{query}”，得到了以下结果："
-                            )
+                    if action_name == "web_search" and (query := action_params.get("query")):
+                        # 特例：为 web_search 构建包含关键词的丰富描述
+                        action_desc = (
+                            f"你刚才执行了网页搜索，搜索的关键词是“{query}”，得到了以下结果："
+                        )
+
+                    # 特例：为 get_list 修正实体ID格式
+                    if action_name == "get_list" and action_result_text:
+                        try:
+                            # action_result_text 此时是一个JSON字符串，我们先解析它
+                            result_list = json.loads(action_result_text)
+                            if isinstance(result_list, list):
+                                list_type = action_params.get("list_type") # 获取列表类型
+                                # 根据 list_type 修复实体ID格式
+                                for item in result_list:
+                                    if list_type == "friend" and "user_id" in item:
+                                        # 修复好友ID
+                                        raw_id = item["user_id"]
+                                        item["user_id"] = f"{platform_key}_private_{raw_id}"
+                                    elif list_type == "group" and "group_id" in item:
+                                        # 修复群聊ID
+                                        raw_id = item["group_id"]
+                                        item["group_id"] = f"{platform_key}_group_{raw_id}"
+
+                                # 将修复后的列表重新序列化为格式化的JSON字符串
+                                action_result_text = json.dumps(
+                                    result_list,
+                                    indent=4,
+                                    ensure_ascii=False
+                                )
+                                logger.info(
+                                    f"已成功对 get_list (type: {list_type}) "
+                                    f"的返回结果进行实体ID格式化。"
+                                )
+                        except Exception as e_postprocess:
+                            logger.warning(f"后处理 get_list 动作结果时失败: {e_postprocess}")
+                            # 如果失败，就保持原始结果不变
                     elif action_name:
                         # 通用情况：为所有其他动作构建清晰的描述
-                        # 例如: "你刚才执行了动作 “qq.get_list”，得到了以下结果："
+                        # 例如: "你刚才执行了动作 “xxx”，得到了以下结果："
                         action_desc = (
                             f"你刚才执行了动作 “{platform_key}.{action_name}”，得到了以下结果："
                         )
@@ -209,6 +240,7 @@ class ThoughtPromptBuilder:
 
     async def build_prompts_components(
         self,
+        level: str,
         focus_path: str | None,
         session: Optional["ChatSession"] = None,
         handover_result: dict | None = None,
@@ -216,6 +248,7 @@ class ThoughtPromptBuilder:
         """构建系统和用户提示组件.
 
         Args:
+            level (str): 当前的层级（如 'core', 'platform', 'cellular'），用于确定上下文。
             focus_path (str | None): 当前的注意力焦点路径，用于确定上下文.
             session (ChatSession | None): 可选的会话对象，用于获取会话相关信息.
             handover_result (dict | None): 可选的动作结果，用于构建动作响应描述.
@@ -248,14 +281,31 @@ class ThoughtPromptBuilder:
             focus_properties = final_ctrl_schema_props["focus"].get("properties", {})
             if "platform_id" in focus_properties:
                 focus_properties["platform_id"]["enum"] = all_platform_ids
-        plat_act_schema, _ = (
-            builder.get_level_actions_definitions(current_level) if builder else ({}, {})
-        )
+
+        final_act_schema_props = {}
+
+        # 1. 获取核心动作，这是永远可用的
         core_act_schema, _ = core_builder.get_level_actions_definitions(current_level)
-        final_act_schema_props = {
-            **core_act_schema.get("properties", {}),
-            **plat_act_schema.get("properties", {}),
-        }
+        final_act_schema_props.update(core_act_schema.get("properties", {}))
+
+        # 2. 如果在平台层或细胞层，获取该平台的动作
+        if builder and level != "core":
+            plat_act_schema, _ = builder.get_level_actions_definitions(current_level)
+            final_act_schema_props.update(plat_act_schema.get("properties", {}))
+
+        # 3. 【关键修改】如果是在核心层，动态查找所有在线的工具平台并添加它们的动作
+        if level == "core" and self.core_ws_server:
+            # 从 ActionSender 获取当前已连接的适配器ID列表
+            connected_adapter_ids = self.core_ws_server.action_sender.connected_adapters.keys()
+            for platform_id in connected_adapter_ids:
+                p_builder = platform_builder_registry.get_builder(platform_id)
+                if p_builder and p_builder.is_tool_platform:
+                    # 工具平台在顶层展示其 'platform' 级别的动作定义
+                    tool_schema, _ = p_builder.get_level_actions_definitions("platform")
+                    # 将工具平台的动作属性合并到总的 schema 中
+                    final_act_schema_props.update(tool_schema.get("properties", {}))
+
+
         response_schema = {
             "type": "object",
             "properties": {
@@ -504,29 +554,46 @@ class ThoughtPromptBuilder:
         return "\n".join(filter(None, [core_desc, plat_desc])) or "你当前没有可用的导航指令。"
 
     def _get_actions_descriptions(
-        self, level: str, builder: BasePlatformBuilder, core_builder: CoreBuilder
+        self, level: str, builder: BasePlatformBuilder | None, core_builder: CoreBuilder
     ) -> str:
         """获取当前层级的行动描述."""
-        core_desc = core_builder.get_level_actions_descriptions(level)
-        plat_desc = (
-            builder.get_level_actions_descriptions(level) if level != "core" and builder else ""
-        )
-        final_descs = [core_desc, plat_desc]
+        descs = []
 
-        # [通用化改造]
-        if level == "core":
-            # 遍历所有已注册的平台
-            for platform_id, p_builder in platform_builder_registry.get_all_builders().items():
-                # 如果这个平台自称是“工具平台”
-                if p_builder.is_tool_platform and (
-                    tool_actions_desc := p_builder.get_level_actions_descriptions("platform")
+        # 1. 核心动作描述永远存在
+        if core_desc := core_builder.get_level_actions_descriptions(level):
+            descs.append(core_desc)
+
+        # 2. 如果在平台/细胞层，添加当前平台的动作描述
+        if level != "core" and builder and (
+            plat_desc := builder.get_level_actions_descriptions(level)
+        ):
+            descs.append(plat_desc)
+
+        # 3. 如果是在核心层，动态查找在线的工具平台并添加它们的描述
+        if level == "core" and self.core_ws_server:
+            # 从 ActionSender 获取当前已连接的适配器ID列表
+            connected_adapter_ids = self.core_ws_server.action_sender.connected_adapters.keys()
+            # 遍历所有在线的工具平台，获取它们的动作描述
+            tool_descs = []
+            for platform_id in connected_adapter_ids:
+                if (
+                    (p_builder := platform_builder_registry.get_builder(platform_id))
+                    and p_builder.is_tool_platform
                 ):
-                    tool_block = (
-                        f"\n- 工具平台 '{platform_id}' 提供了以下特殊工具:\n{tool_actions_desc}"
+                    # 工具平台在顶层展示其 'platform' 级别的动作描述
+                    tool_actions_desc = p_builder.get_level_actions_descriptions(
+                        "platform"
                     )
-                    final_descs.append(tool_block)
+                    if tool_actions_desc:
+                        # 更新描述格式，使其更清晰
+                        tool_descs.append(f"    - 平台 '{platform_id}':\n{tool_actions_desc}")
 
-        return "\n".join(filter(None, final_descs)) or "你当前没有可用的外部行动。"
+            if tool_descs:
+                # 将所有在线工具的描述组合成一个块
+                tool_block = "\n- 当前已连接的工具平台提供了以下特殊能力:\n" + "\n".join(tool_descs)
+                descs.append(tool_block)
+
+        return "\n".join(filter(None, descs)).strip() or "你当前没有可用的外部行动。"
 
     async def _get_external_and_meta_info_blocks(
         self, level: str, platform_id: str, conv_id: str | None
@@ -538,8 +605,19 @@ class ThoughtPromptBuilder:
         if level == "core":
             external_info = await self.unread_info_service.get_platform_summary()
         elif level == "platform":
-            external_info = await self.unread_info_service.get_conversation_list_summary(
+            # 从 ChatSessionManager 获取当前平台的滚动偏移量
+            scroll_offset = 0
+            if self.chat_session_manager and self.chat_session_manager.platform_view_states.get(
                 platform_id
+            ):
+                scroll_offset = self.chat_session_manager.platform_view_states[platform_id].get(
+                    'scroll_offset', 0
+                )
+
+            # 将获取到的偏移量传递给 unread_info_service
+            external_info = await self.unread_info_service.get_conversation_list_summary(
+                platform_id,
+                scroll_offset=scroll_offset
             )
         elif level == "cellular" and conv_id:
             try:

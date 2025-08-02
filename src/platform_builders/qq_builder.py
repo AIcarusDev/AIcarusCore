@@ -299,6 +299,15 @@ class QQBuilder(BasePlatformBuilder):
                     },
                     "required": ["list_type", "motivation"],
                 },
+                "scroll": {
+                    "type": "object",
+                    "description": "像使用鼠标滚轮一样，向上或向下翻阅当前看到的会话列表。",
+                    "properties": {
+                        "params": {"type": "string", "enum": ["up", "down"], "description": "向上或向下滚动。"},
+                        "motivation": {"type": "string"},
+                    },
+                    "required": ["params", "motivation"],
+                },
                 "delete_friend": platform_delete_friend_schema,
                 "leave_conversation": platform_leave_conversation_schema,
                 "handle_friend_request": handle_friend_request_schema,
@@ -377,7 +386,8 @@ class QQBuilder(BasePlatformBuilder):
         """根据层级，提供QQ平台专属动作的自然语言描述."""
         level_to_descs_map = {
             "platform": [
-                "    - `get_list`: 获取本平台的好友或群聊列表。",
+                "    - `get_list(type, motivation)`: 直接获取完整的本平台的好友或群聊列表。",
+                "    - `scroll(params, motivation)`: 向上('up')或向下('down')翻阅会话列表。",
                 "    - `delete_friend(user_id, motivation)`: 删除指定ID的好友。",
                 "    - `leave_conversation(group_id, motivation)`: 退出指定ID的群聊。",
                 "    - `handle_friend_request(user_id, flag, approve, remark, motivation)`: 处理好友请求。",

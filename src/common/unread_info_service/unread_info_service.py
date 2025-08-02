@@ -149,12 +149,16 @@ class UnreadInfoService:
         return final_preview
 
     async def get_conversation_list_summary(
-        self, platform_id: str, exclude_conversation_id: str | None = None
+        self,
+        platform_id: str,
+        scroll_offset: int = 0,
+        page_size: int = 10
     ) -> str:
-        """生成中层所需的、特定平台的会话列表摘要."""
-        all_active_convs = await self._get_recently_active_conversations_with_details(
-            exclude_conversation_id
-        )
+        """生成特定平台的会话列表摘要，支持分页和头尾提示.
+
+        这个方法现在会从 EntityGraphService 获取所有会话实体，并生成一个 XML 格式的摘要。
+        """
+        all_active_convs = await self._get_recently_active_conversations_with_details()
         if not all_active_convs:
             return (
                 f"<conversation_list>\n"
@@ -166,8 +170,11 @@ class UnreadInfoService:
             c
             for c in all_active_convs
             if c.get("conv_doc", {}).get("details", {}).get("platform") == platform_id
-        ][:10]
+        ]
 
+        total_count = len(platform_convs)
+
+        # 如果没有找到任何会话，直接返回提示信息
         if not platform_convs:
             return (
                 f"<conversation_list>\n"
@@ -176,7 +183,40 @@ class UnreadInfoService:
             )
 
         summary_parts = ["<conversation_list>"]
-        for item in platform_convs:
+
+        # 1. 处理边界情况：总数小于等于页面大小
+        if total_count <= page_size:
+            summary_parts.append("--- 已经到顶了 ---")
+            convs_to_display = platform_convs
+            summary_parts.append("--- 没有更多会话 ---")
+        else:
+            # 2. 计算分页和头尾提示
+            start_index = scroll_offset
+            end_index = start_index + page_size
+            convs_to_display = platform_convs[start_index:end_index]
+
+            # 构造头部提示
+            if start_index > 0:
+                summary_parts.append(
+                    f"<!-- 提示：你可以使用 scroll(params='up') 来查看更多 -->\n"
+                    f"--- 上方还有 {start_index} 条未展示的对话 ---"
+                    )
+            else:
+                summary_parts.append("--- 已经到顶了 ---")
+
+            # 构造尾部提示 (在添加完会话内容后再添加)
+            footer_text = ""
+            remaining_count = total_count - end_index
+            if remaining_count > 0:
+                footer_text = (
+                    f"--- 下方还有 {remaining_count} 条未展示的对话 ---"
+                    f"\n<!-- 提示：你可以使用 scroll(params='down') 来查看更多 -->"
+                )
+            else:
+                footer_text = "--- 已经到底了 ---"
+
+        # 3. 渲染当前页的会话列表
+        for item in convs_to_display:
             conv_doc = item["conv_doc"]
             latest_event = item["latest_event"]
             unread_count = item["unread_count"]
@@ -201,7 +241,7 @@ class UnreadInfoService:
                     f"- [{'临时会话' if is_temporary else '用户名称'}]：{conv_name}"
                 )
 
-            # 明确告诉 AI 应该使用哪个 ID
+            # 添加会话的详细信息
             summary_parts.extend(
                 [
                     f"  - [ID]：{entity_uid}",
@@ -210,6 +250,11 @@ class UnreadInfoService:
                     "",
                 ]
             )
+
+        # 如果尾部有未读消息提示，添加到摘要中
+        if 'footer_text' in locals() and footer_text:
+            summary_parts.append(footer_text)
+
         summary_parts.append("</conversation_list>")
         return "\n".join(summary_parts).strip()
 
@@ -219,7 +264,7 @@ class UnreadInfoService:
         event_for_preview = item["latest_event"]
         unread_count = item["unread_count"]
 
-        # [修改] 使用 conv_doc['_key'] (即 entity_uid) 作为聚焦ID
+        # 使用 conv_doc['_key'] (即 entity_uid) 作为聚焦ID
         entity_uid = conv_doc.get("_key", "unknown_entity_uid")
 
         conv_details = conv_doc.get("details", {})
@@ -235,7 +280,7 @@ class UnreadInfoService:
             prefix = "[临时会话]" if is_temporary else "[用户名称]"
             header = f"- {prefix}：{conv_details.get('name') or sender_name}"
 
-        # 明确告诉 AI 应该使用哪个 ID
+        # 生成单个会话的摘要文本列表
         return [
             header,
             f"  - [ID]：{entity_uid}",

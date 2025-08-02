@@ -68,7 +68,8 @@ class EntityGraphService:
                 != user_info.user_nickname
             ):
                 patch_data = {"details.last_known_nickname": user_info.user_nickname}
-                await entities_collection.update_by_key(entity_uid, patch_data, merge=True)
+                patch_doc = {"_key": entity_uid, **patch_data}
+                await entities_collection.update(patch_doc, merge=True)
 
             query = """
                 FOR p IN 1..1 INBOUND @entity_id @@represents_edge_coll

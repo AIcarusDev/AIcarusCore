@@ -263,10 +263,13 @@ class CoreLogic:
         # 如果 focus_entry 是 None，则 focus_path_str 保持为 None
 
         try:
+            # 在调用前，使用工具函数从 focus_path_str 解析出 level
+            level, _, _ = parse_focus_path(focus_path_str)
             (
                 prompt_components,
                 processed_raw_events,
             ) = await self.prompt_builder.build_prompts_components(
+                level=level,
                 focus_path=focus_path_str,
                 session=session,
                 handover_result=session.pending_handover_result if session else None,

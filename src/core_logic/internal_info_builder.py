@@ -76,26 +76,31 @@ class InternalInfoBuilder:
         """专门解析action的“行动组”.
 
         如果 payload 为空或不是字典，返回 "None" 字符串。
+        现在使用 CDATA 来包裹 JSON，避免过度转义。
         """
         if not payload or not isinstance(payload, dict):
             return "None"
         try:
-            if payload.get("core", {}).get("do_nothing"):
+            # 检查是否是 do_nothing 动作
+            # 注意：这里的 payload 可能是 {"core": {"do_nothing": ...}} 或直接是 {"do_nothing": ...}
+            if payload.get("do_nothing") or payload.get("core", {}).get("do_nothing"):
                 return "None"
-            # 使用 json.dumps 将动作的 JSON 载荷格式化为带缩进的字符串
-            # ensure_ascii=False 确保中文字符能正常显示
-            formatted_payload = json.dumps(payload, indent=4, ensure_ascii=False)
 
-            # 对格式化后的 JSON 字符串进行 XML 转义，防止破坏外部结构
-            return self._escape_xml_text(formatted_payload)
-        except Exception:
-            return self._escape_xml_text(str(payload)) # Fallback
+            # 格式化 JSON 字符串
+            formatted_payload = json.dumps(payload, indent=2, ensure_ascii=False)
+
+            # 使用 CDATA 块包裹，这是处理 XML 中大段文本的最佳实践
+            return f"<![CDATA[\n{formatted_payload}\n]]>"
+        except Exception as e:
+            logger.error(f"格式化 payload 为 JSON CDATA 时出错: {e}")
+            # Fallback 时也使用 CDATA
+            return f"<![CDATA[\n{payload!r}\n]]>"
 
     def _format_completed_action(self, action_payload: dict) -> str:
         """从完整的 payload 中提取 'action' 部分并格式化."""
         action_part = action_payload.get("action")
         formatted_json = self._format_payload_as_json_string(action_part)
-        return f"<completed_action>{self._escape_xml_text(formatted_json)}</completed_action>"
+        return f"<completed_action>{formatted_json}</completed_action>"
 
     def _format_completed_consciousness_control(self, action_payload: dict) -> str:
         """从完整的 payload 中提取 'consciousness_control' 部分并格式化."""
@@ -103,7 +108,7 @@ class InternalInfoBuilder:
         formatted_json = self._format_payload_as_json_string(control_part)
         return (
             f"<completed_consciousness_control>"
-            f"{self._escape_xml_text(formatted_json)}"
+            f"{formatted_json}"
             f"</completed_consciousness_control>"
         )
 

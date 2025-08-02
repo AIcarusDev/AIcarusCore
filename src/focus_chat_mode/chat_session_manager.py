@@ -62,6 +62,7 @@ class ChatSessionManager:
         self.core_logic = core_logic
         self.sessions: dict[str, ChatSession] = {}
         self.lock = asyncio.Lock()
+        self.platform_view_states: dict[str, dict[str, Any]] = {}
 
         # 1. focus_history 现在是纯粹的历史日志
         self.focus_history = deque(maxlen=10)
@@ -357,7 +358,14 @@ class ChatSessionManager:
                 )
 
         if new_path:
-            return await self._switch_focus(new_path, history_entry_base)
+            switched = await self._switch_focus(new_path, history_entry_base)
+            if switched:
+                # 如果是进入平台层，则初始化其视图状态
+                new_level, _, _ = parse_focus_path(new_path)
+                if new_level == 'platform':
+                    self.platform_view_states[target_id] = {'scroll_offset': 0}
+                    logger.info(f"已为平台 '{target_id}' 初始化视图状态。")
+            return switched
 
         logger.error(f"在层级 '{level}' 执行 push_focus(target_id='{target_id}') 失败。")
         return False
@@ -365,13 +373,24 @@ class ChatSessionManager:
     async def _handle_pop_focus(self, params: dict, history_entry_base: dict) -> bool:
         """处理 'pop_focus' 指令，现在会返回到上一个层级或核心层."""
         current_path = self.current_focus.get("target_path", "core")
+        level, platform_id, _ = parse_focus_path(current_path)
+
         if current_path == "core":
             logger.warning("在顶层Core-Level尝试执行 'pop_focus'，无效操作，已忽略。")
             return False
-        # 1. 清空当前消息段列表
-        parts = current_path.split('.')
-        parent_path = ".".join(parts[:-1]) or "core"
-        # 2. 如果当前路径是平台层级，直接返回到核心层
+
+        parent_path = "core" # 默认返回到核心层
+        if level == 'cellular':
+            # 如果在细胞层 (e.g., qq.group.123), 父路径就是平台层 (e.g., qq)
+            parent_path = platform_id
+        elif level == 'platform':
+            # 如果在平台层 (e.g., qq), 父路径就是核心层
+            parent_path = "core"
+            # 清除该平台的视图状态
+            if platform_id in self.platform_view_states:
+                del self.platform_view_states[platform_id]
+                logger.info(f"已清除平台 '{platform_id}' 的视图状态。")
+
         return await self._switch_focus(parent_path, history_entry_base)
 
     async def _handle_swap_focus(self, params: dict, history_entry_base: dict) -> bool:
