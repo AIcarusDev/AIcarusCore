@@ -1141,7 +1141,7 @@ class LLMClient:
             prepared_data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         except TypeError as e:
             logger.error(f"Payload序列化为JSON时失败: {e}", exc_info=True)
-            logger.critical(f"【小色猫的探针】失败的Payload结构: {payload}")
+            logger.critical(f"失败的Payload结构: {payload}")
             raise LLMClientError(f"Payload序列化失败: {e}") from e
 
         http_response: aiohttp.ClientResponse | None = None

@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Optional
 from aicarus_protocols import Event as ProtocolEvent
 from src.common.custom_logging.logging_config import get_logger
 from src.common.intelligent_interrupt_system.models import SemanticModel
-from src.common.utils import parse_focus_path
+from src.common.interruption_broker import InterruptionEventBroker
 from src.database import (
     ActionLogStorageService,  # 引入ActionLogStorageService
     CoreDBCollections,
@@ -35,6 +35,7 @@ class DefaultMessageProcessor:
         entity_service: EntityGraphService,
         action_log_service: ActionLogStorageService,  # 注入 ActionLog 服务
         semantic_model: "SemanticModel",
+        interruption_broker: "InterruptionEventBroker",
         core_websocket_server: Optional["CoreWebsocketServer"] = None,
         qq_chat_session_manager: Optional["ChatSessionManager"] = None,
     ) -> None:
@@ -44,6 +45,7 @@ class DefaultMessageProcessor:
             action_log_service  # 保存 ActionLog 服务实例
         )
         self.semantic_model: SemanticModel = semantic_model
+        self.interruption_broker = interruption_broker
         self.core_comm_layer: CoreWebsocketServer | None = core_websocket_server
         self.qq_chat_session_manager = qq_chat_session_manager
         self.core_logic: CoreLogicFlow | None = None
@@ -76,20 +78,14 @@ class DefaultMessageProcessor:
         logger.debug(f"开始处理事件: {proto_event.event_type}, ID: {proto_event.event_id}")
 
         try:
-            # --- 步骤 1: 检查消息来源 ---
-            _sender_id = proto_event.user_info.user_id if proto_event.user_info else None
-            _bot_id_on_platform = (
-                self.qq_chat_session_manager.self_bot_ids_map.get(platform_id)
-                if self.qq_chat_session_manager
-                else None
+            # --- 步骤 1: 持久化并获取保存后的文档 ---
+            saved_event_doc = await self._handle_event_persistence(
+                proto_event, platform_id, needs_persistence
             )
 
-            # --- 步骤 2: 正常事件处理流程 (适用于所有非回声的事件) ---
-            # 档案管理员 - 处理身份关联和数据持久化
-            await self._handle_event_persistence(proto_event, platform_id, needs_persistence)
-
-            # 任务分发员 - 根据事件类型和当前状态决定后续操作
-            await self._dispatch_event_action(proto_event)
+            # --- 步骤 2: 分发事件 ---
+            if saved_event_doc:  # 只有成功保存的事件才会被分发
+                await self._dispatch_event_action(saved_event_doc)
 
         except Exception as e:
             logger.error(
@@ -98,12 +94,13 @@ class DefaultMessageProcessor:
 
     async def _handle_event_persistence(
         self, event: ProtocolEvent, platform_id: str, needs_persistence: bool
-    ) -> None:
+    ) -> dict | None:
         """专门负责事件的身份关联、持久化和会话档案更新."""
         # 1. 关联 Person 和 Account
         person_id, _ = await self._associate_person_and_update_membership(event, platform_id)
 
         # 2. 持久化 Event 文档
+        saved_doc = None
         if needs_persistence:
             db_event_doc = DBEventDocument.from_protocol(event)
             db_event_doc.person_id_associated = person_id
@@ -116,8 +113,10 @@ class DefaultMessageProcessor:
                 embedding_vector = self.semantic_model.encode([text_content])[0]
                 db_event_doc.embedding = embedding_vector.tolist()
 
-            await self.event_service.save_event_document(db_event_doc.to_dict())
-            logger.debug(f"事件文档 '{event.event_id}' 已保存。")
+            saved_doc_dict = db_event_doc.to_dict()  # <-- 获取要保存的字典
+            if await self.event_service.save_event_document(saved_doc_dict):
+                logger.debug(f"事件文档 '{event.event_id}' 已保存。")
+                saved_doc = saved_doc_dict  # <-- 保存下来
 
         # 3. 更新 Conversation 档案
         if event.conversation_info and event.conversation_info.conversation_id:
@@ -129,6 +128,7 @@ class DefaultMessageProcessor:
                 name=event.conversation_info.name,
                 extra=event.conversation_info.extra,
             )
+        return saved_doc
 
     async def _associate_person_and_update_membership(
         self, event: ProtocolEvent, platform_id: str
@@ -206,66 +206,18 @@ class DefaultMessageProcessor:
 
         return profile_id, account_entity_uid
 
-    async def _dispatch_event_action(self, event: ProtocolEvent) -> None:
+    async def _dispatch_event_action(self, event_doc: dict) -> None:
         """专门负责根据事件类型和当前状态，决定是否触发核心逻辑."""
-        # 1. 检查新消息是否来自当前专注的会话，如果是，则触发思考
-        if self.core_logic and self.core_logic.chat_session_manager and event.conversation_info:
-            focus_entry = self.core_logic.chat_session_manager.current_focus_path
-            current_focus_path_str = (
-                focus_entry.get("target_path") if isinstance(focus_entry, dict) else focus_entry
-            )
+        if event_doc.get("event_type", "").startswith("message."):
+            await self.interruption_broker.publish(event_doc)
+            logger.debug(f"事件 '{event_doc.get('_key')}' 已发布到中断代理。")
 
-            # 从事件信息中构建出标准的实体 UID
-            event_conv_info = event.conversation_info
-            event_entity_uid = (
-                f"{event.get_platform()}_{event_conv_info.type}_{event_conv_info.conversation_id}"
-            )
-
-            # 从焦点路径中解析出当前专注的实体 UID
-            level, platform_id, conv_part = parse_focus_path(current_focus_path_str)
-            current_focus_entity_uid = None
-            if level == "cellular" and platform_id and conv_part:
-                try:
-                    conv_type, actual_id = conv_part.split(".", 1)
-                    current_focus_entity_uid = f"{platform_id}_{conv_type}_{actual_id}"
-                except (ValueError, IndexError):
-                    logger.warning(f"无法从焦点路径 '{current_focus_path_str}' 解析出实体UID。")
-
-            # 使用实体 UID 进行比较
-            if (
-                event_entity_uid
-                and current_focus_entity_uid
-                and event_entity_uid == current_focus_entity_uid
-            ):
-                await self._handle_focused_conversation_event(event, current_focus_entity_uid)
-                return  # 处理完毕，直接返回，避免执行下面的else逻辑
-
-        # 2. 处理其他需要主动处理的特殊事件
-        if event.event_type.endswith(".bot.profile_update"):
-            await self._handle_bot_profile_update(event)
+        # 处理其他需要主动处理的特殊事件
+        if event_doc.get("event_type", "").endswith(".bot.profile_update"):
+            event_obj = ProtocolEvent.from_dict(event_doc)  # 做一次转换
+            await self._handle_bot_profile_update(event_obj)
         else:
-            logger.debug(f"事件类型 '{event.event_type}' 无需在此主动处理，交由核心循环自行发现。")
-
-    async def _handle_focused_conversation_event(
-        self, event: ProtocolEvent, conversation_entity_uid: str
-    ) -> None:
-        """处理来自当前专注会话的事件."""
-        if session := self.core_logic.chat_session_manager.sessions.get(conversation_entity_uid):
-            bot_profile = await session.get_bot_profile()
-            current_bot_id = str(bot_profile.get("user_id") or session.bot_id)
-
-            sender_id = (
-                str(event.user_info.user_id)
-                if event.user_info and event.user_info.user_id
-                else None
-            )
-
-            # 如果是别人发的消息，就重置我方连续发言计数器
-            if sender_id and sender_id != current_bot_id:
-                session.reset_consecutive_bot_message_count()
-
-        logger.info(f"收到当前专注会话 '{conversation_entity_uid}' 的新消息，触发立即思考。")
-        self.core_logic.trigger_immediate_thought_cycle()
+            logger.debug(f"事件类型 '{event_doc.get('event_type')}' 无需在此主动处理。")
 
     async def _handle_bot_profile_update(self, event: ProtocolEvent) -> None:
         """处理机器人自身档案（如群名片）的更新事件."""

@@ -60,8 +60,9 @@ class IntelligentInterrupter:
     def _calculate_objective_importance(self, message_text: str) -> float:
         for keyword in self.objective_keywords:
             if keyword in message_text:
-                logger.info(f"**[阶段一]** 检测到霸道关键词 '{keyword}'！客观重要性极高！")
+                logger.info(f"**[IIS-阶段一]** 检测到霸道关键词 '{keyword}'！客观重要性极高！")
                 return 1.0
+        logger.debug("**[IIS-阶段一]** 未检测到霸道关键词。客观重要性得分为 0.0。")
         return 0.0
 
     # 阶段二：计算上下文衔接意外度和核心重要性得分
@@ -73,12 +74,13 @@ class IntelligentInterrupter:
             current_text=message_text, previous_text=context_message_text
         )
         logger.info(
-            f"**[阶段二-A]** 上下文衔接意外度得分为: {unexpectedness_score:.2f} "
-            f"(对比上文: '{context_message_text}')"
+            f"**[IIS-阶段二-A]** 上下文衔接意外度得分为: {unexpectedness_score:.2f} "
+            f"(对比上文: '{context_message_text[:50]}...')"
         )
 
         if self.core_concepts_encoded.size == 0:
             importance_score = 0.0
+            logger.debug("**[IIS-阶段二-B]** 无核心重要概念，内容重要性得分为 0.0。")
         else:
             message_vector = self.semantic_model.encode([message_text])
             similarities = cosine_similarity(
@@ -86,16 +88,15 @@ class IntelligentInterrupter:
                 self.core_concepts_encoded,
             )
             importance_score = np.max(similarities) * 100
-
-        logger.info(f"**[阶段二-B]** 内容核心重要性得分为: {importance_score:.2f}")
+            logger.info(f"**[IIS-阶段二-B]** 内容核心重要性得分为: {importance_score:.2f}")
 
         preliminary_score = self.alpha * unexpectedness_score + self.beta * importance_score
-        logger.info(f"**[阶段二-C]** 融合后的基础快感分数为: {preliminary_score:.2f}")
+        logger.info(f"**[IIS-阶段二-C]** 融合后的基础快感分数为: {preliminary_score:.2f}")
         return preliminary_score
 
     def _get_speaker_weight(self, speaker_id: str) -> float:
         weight = self.speaker_weights.get(speaker_id, self.speaker_weights.get("default", 1.0))
-        logger.info(f"**[阶段三]** 发言者 '{speaker_id}' 的主观权重为: {weight}")
+        logger.info(f"**[IIS-阶段三]** 发言者 '{speaker_id}' 的主观权重为: {weight}")
         return weight
 
     def should_interrupt(self, new_message: dict, context_message_text: str | None) -> bool:
@@ -108,20 +109,23 @@ class IntelligentInterrupter:
         Returns:
             bool: 如果需要中断返回 True，否则返回 False.
         """
-        if context_message_text is None:
-            logger.info(
-                "===== 结论: [强制不中断]！因为没有上下文（第一条消息），跳过所有中断判断。====="
-            )
-            return False
-
-        message_text = new_message.get("text", "")
-        if not message_text:
-            return False
-
         logger.info(
-            f"===== 开始评估新消息: '{new_message.get('text')}' "
+            f"===== 开始评估新消息: '{new_message.get('text', '')[:50]}...' "
             f"(来自: {new_message.get('speaker_id')}) ====="
+            f"当前对比上下文: '{context_message_text[:50] if context_message_text else '无'}'"
         )
+
+        message_text = new_message.get("text", "").strip()
+        if not message_text:
+            logger.info("===== 结论: [不中断]！新消息无文本内容。=====")
+            return False
+
+        if context_message_text is None or not context_message_text.strip():
+            logger.info("===== 结论: [强制不中断]！因为没有有效的上下文消息，跳过中断判断。=====")
+            # Objective importance still applies though,
+            # so we should move this check after objective score.
+            pass
+
         speaker_id = new_message.get("speaker_id")
 
         objective_score = self._calculate_objective_importance(message_text)
@@ -129,12 +133,20 @@ class IntelligentInterrupter:
             logger.info("===== 结论: [强制中断]！因为检测到客观重要性极高的关键词！ =====")
             return True
 
+        # Only calculate contextual scores if there's a valid context message
+        if context_message_text is None or not context_message_text.strip():
+            logger.info(
+                "=== 结论: [不中断]！无有效上下文消息，无法计算上下文意外度。仅评估客观重要性。==="
+            )
+            return False  # If objective score didn't trigger, and no context, then no interruption.
+
         preliminary_score = self._calculate_contextual_scores(message_text, context_message_text)
         speaker_weight = self._get_speaker_weight(speaker_id)
         final_score = preliminary_score * speaker_weight
 
         logger.info(
-            f"**[最终裁决]** 最终得分(基础分 * 权重): {preliminary_score:.2f} * {speaker_weight} "
+            f"**[IIS-最终裁决]** 最终得分(基础分 * 权重): "
+            f"{preliminary_score:.2f} * {speaker_weight} "
             f"= {final_score:.2f}"
         )
 

@@ -139,7 +139,7 @@ class ChatSessionManager:
                 getattr(conv_entity_doc, "last_read_timestamp", 0.0) or time.time() * 1000.0
             )
 
-            self.sessions[conversation_entity_uid] = ChatSession(
+            new_session = ChatSession(  # 保存到局部变量，以便后续探针
                 conversation_info=conversation_info_obj,
                 conversation_id=conversation_entity_uid,
                 llm_client=self.llm_client,
@@ -156,7 +156,9 @@ class ChatSessionManager:
                 entity_graph_service=self.entity_graph_service,
                 initial_last_processed_timestamp=initial_last_processed_timestamp,
             )
-            return self.sessions[conversation_entity_uid]
+            self.sessions[conversation_entity_uid] = new_session
+
+            return new_session
 
     async def deactivate_session(
         self, conversation_entity_uid: str, handover_context: dict | None = None
@@ -281,10 +283,18 @@ class ChatSessionManager:
 
         # 步骤 1: 激活新会话（如果需要）
         new_level, new_platform, new_conv_part = parse_focus_path(new_path)
+
         if new_level == "cellular" and new_platform and new_conv_part:
             try:
+                # 确保 conv_part 是 "type.id" 形式
+                if "." not in new_conv_part:
+                    raise ValueError(
+                        "Cellular level path must contain conversation type, e.g., 'group.123456'"
+                    )
+
                 new_conv_type, new_actual_id = new_conv_part.split(".", 1)
                 new_entity_uid = f"{new_platform}_{new_conv_type}_{new_actual_id}"
+
                 if not await self.get_or_create_session(new_entity_uid):
                     logger.error(
                         f"激活新会话 '{new_entity_uid}' 失败！将回退到上一焦点 '{old_path}'。"
@@ -294,19 +304,26 @@ class ChatSessionManager:
                     # 我们这里不修改 self.current_focus，等于状态没变
                     # TODO:这里逻辑可能需要进一步细化，但是当前暂时不做复杂处理
                     return False
-            except (ValueError, IndexError):
-                logger.error(f"无法从新路径 '{new_path}' 中解析并激活会话。将回退。")
+            except (ValueError, IndexError) as e:  # 捕获可能因为解析错误导致的异常
+                logger.error(f"无法从新路径 '{new_path}' 中解析并激活会话: {e}。将回退。")
                 return False
 
         # 步骤 2: 停用旧会话（如果需要）
         old_level, old_platform, old_conv_part = parse_focus_path(old_path)
+
         if old_level == "cellular" and old_platform and old_conv_part:
             try:
-                old_conv_type, old_actual_id = old_conv_part.split(".", 1)
-                old_entity_uid = f"{old_platform}_{old_conv_type}_{old_actual_id}"
-                await self.deactivate_session(old_entity_uid, history_entry_base)
-            except (ValueError, IndexError):
-                logger.warning(f"无法从旧路径 '{old_path}' 中解析并停用会话。")
+                # 确保 conv_part 是 "type.id" 形式
+                if "." not in old_conv_part:
+                    # 如果旧路径格式不对，不能安全地停用，记录警告并跳过停用
+                    logger.warning(f"旧路径 '{old_path}' 格式不正确，无法安全停用会话。")
+                else:
+                    old_conv_type, old_actual_id = old_conv_part.split(".", 1)
+                    old_entity_uid = f"{old_platform}_{old_conv_type}_{old_actual_id}"
+
+                    await self.deactivate_session(old_entity_uid, history_entry_base)
+            except (ValueError, IndexError) as e:
+                logger.warning(f"无法从旧路径 '{old_path}' 中解析并停用会话: {e}。")
 
         # 步骤 3: 成功切换，更新状态指针和历史日志
         new_focus_entry = {**history_entry_base, "target_path": new_path}
