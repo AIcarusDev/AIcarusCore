@@ -74,6 +74,36 @@ class CoreBuilder(BasePlatformBuilder):
             },
             "required": ["history_index", "motivation"],
         },
+        "spawn_lite_pipelines": {
+            "type": "object",
+            "description": "【仅用于高风险决策】触发一次性的内部辩论，以权衡利弊。",
+            "properties": {
+                "motivation": {
+                    "type": "string",
+                    "description": "需要进行内部辩论的原因。",
+                },
+                "pipelines": {
+                    "type": "array",
+                    "description": "代表不同策略或观点的思考管线，数量限制在2-5个。",
+                    "maxItems": 5,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "tag": {
+                                "type": "string",
+                                "description": "此观点的简短标签，如'风险确认策略'。",
+                            },
+                            "initial_thought": {
+                                "type": "string",
+                                "description": "此观点的详细初始想法。",
+                            },
+                        },
+                        "required": ["tag", "initial_thought"],
+                    },
+                },
+            },
+            "required": ["motivation", "pipelines"],
+        },
     }
 
     # --- 核心动作定义保持不变 ---
@@ -232,6 +262,9 @@ class CoreBuilder(BasePlatformBuilder):
         # teleport_focus 也应该是全局可用的
         props["teleport_focus"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["teleport_focus"]
 
+        # 慢思考作为一种基础认知能力，在所有层级都应该可用
+        props["spawn_lite_pipelines"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["spawn_lite_pipelines"]
+
         schema = {"type": "object", "properties": props, "maxProperties": 1}
         return schema, {}
 
@@ -244,6 +277,7 @@ class CoreBuilder(BasePlatformBuilder):
             "    - `teleport_focus(target_path, motivation)`: 强制跳转焦点。注意 `target_path` 必须是使用'.'分隔的完整路径！",
             "    - `back(motivation)`: 回溯到上一个焦点 (T-1)。",
             "    - `jump_to_history(history_index, motivation)`: 跳转到指定的历史焦点。",
+            "    - `spawn_lite_pipelines(motivation, pipelines)`: 【高风险决策时使用】触发一次内部辩论，权衡利弊。",
         ]
 
         return "\n".join(descs)

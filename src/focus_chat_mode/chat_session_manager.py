@@ -25,6 +25,8 @@ if TYPE_CHECKING:
     from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
     from src.core_logic.internal_info_builder import InternalInfoBuilder
     from src.database.services.entity_graph_service import EntityGraphService
+    from src.core_logic.thought_generator import ThoughtGenerator
+    from src.core_logic.prompt_builder import ThoughtPromptBuilder
 
 logger = get_logger(__name__)
 
@@ -230,19 +232,31 @@ class ChatSessionManager:
         """获取上次注意力切换的格式化描述."""
         return self._last_switch_description
 
-    async def handle_consciousness_control(self, control_json: dict) -> None:
-        """处理来自LLM决策的意识控制指令的总调度中心."""
+    async def handle_consciousness_control(
+        self, control_json: dict, current_internal_state: dict
+    ) -> dict | None:
+        """处理来自LLM决策的意识控制指令的总调度中心.
+
+        此方法现在可以处理“慢思考”指令，并返回一个新的思考状态。
+        """
         if not (command := next(iter(control_json), None)) or not (
             params := control_json.get(command)
         ):
             logger.warning(f"收到的意识控制指令格式不正确或为空: {control_json}")
-            return
+            return None
 
-        logger.info(f"注意力管理器收到指令: {command}, 参数: {params},正在试图处理...")
+        # --- 新增：指令路由 ---
+        # 如果是“慢思考”指令，则进入内部辩论流程
+        if command == "spawn_lite_pipelines":
+            logger.info(f"检测到 [慢思考] 指令，参数: {params}，正在进入内部辩论流程...")
+            return await self._execute_deliberation_pipeline(params, current_internal_state)
+
+        # 否则，执行常规的“意识转向”流程
+        logger.info(f"检测到 [意识转向] 指令: {command}, 参数: {params}, 正在处理...")
         handler = self._command_handlers.get(command)
         if not handler:
             logger.error(f"收到未知的注意力管理指令: '{command}'，无法处理。")
-            return
+            return None
 
         previous_path_for_desc = self.current_focus_path
         history_entry_base = {
@@ -263,6 +277,55 @@ class ChatSessionManager:
             )
             if self.core_logic:
                 self.core_logic.trigger_immediate_thought_cycle()
+
+        # 常规的意识转向不返回新的思考状态
+        return None
+
+    async def _execute_deliberation_pipeline(
+        self, pipeline_params: dict, current_internal_state: dict
+    ) -> dict | None:
+        """执行一次性的、同步阻塞的内部辩论（慢思考）."""
+        if not self.core_logic or not self.core_logic.prompt_builder or not self.core_logic.thought_generator:
+            logger.error("核心逻辑、Prompt构建器或思考生成器未初始化，无法执行慢思考。")
+            return None
+
+        prompt_builder: ThoughtPromptBuilder = self.core_logic.prompt_builder
+        thought_generator: ThoughtGenerator = self.core_logic.thought_generator
+
+        try:
+            # 1. 构建专门用于辩论的Prompt
+            system_prompt, user_prompt, response_schema = prompt_builder.build_deliberation_prompts(
+                pipeline_params, current_internal_state
+            )
+
+            # 2. 调用LLM进行一次性辩论，获取最终决议
+            # 注意：这里是同步阻塞的，主思考循环会在此等待
+            deliberation_result_json = await thought_generator.generate_thought(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                image_inputs=[], # 慢思考是纯文本的
+                response_schema=response_schema,
+                focus_path=self.current_focus_path.get("target_path")
+            )
+
+            if not deliberation_result_json or "resolution" not in deliberation_result_json:
+                logger.error("慢思考LLM调用失败或返回结果中缺少 'resolution'。")
+                return None
+
+            # 3. 解析决议，并构建一个新的 internal_state
+            resolution = deliberation_result_json["resolution"]
+            new_internal_state = {
+                "mood": resolution.get("final_mood", current_internal_state.get("mood")),
+                "think": resolution.get("final_think", current_internal_state.get("think")),
+                "goal": resolution.get("final_goal", current_internal_state.get("goal")),
+            }
+
+            # 4. 将这个经过深思熟虑后得到的新状态返回给调用者（DecisionDispatcher）
+            return new_internal_state
+
+        except Exception as e:
+            logger.error(f"执行“慢思考”决策管线时发生严重错误: {e}", exc_info=True)
+            return None
 
     async def _switch_focus(self, new_path: str, history_entry_base: dict) -> bool:
         """核心切换逻辑：停用旧会话，激活新会话，更新状态和日志.

@@ -25,6 +25,11 @@ from src.prompt_templates.focus_chat_prompts import (
     FOCUS_INPUT_XML_DESCRIPTION,
 )
 from src.prompt_templates.platform_prompts import PLATFORM_INPUT_XML_DESCRIPTION
+from src.prompt_templates.deliberation_prompts import (
+    DELIBERATION_RESPONSE_SCHEMA,
+    DELIBERATION_SYSTEM_PROMPT,
+    DELIBERATION_USER_PROMPT,
+)
 
 if TYPE_CHECKING:
     from src.action.action_handler import ActionHandler
@@ -235,6 +240,46 @@ class ThoughtPromptBuilder:
             )
         lines.append("</friend_request>")
         return "\n".join(lines)
+
+    def build_deliberation_prompts(
+        self, pipeline_params: dict, current_internal_state: dict
+    ) -> tuple[str, str, dict[str, Any]]:
+        """构建用于“慢思考”内部辩论的专属 Prompt 和 Schema."""
+        # 1. 格式化 <pipelines> XML 块
+        pipelines_block_lines = []
+        pipelines = pipeline_params.get("pipelines", [])
+        for i, p in enumerate(pipelines):
+            tag = p.get("tag", f"观点 {i+1}")
+            thought = p.get("initial_thought", "无具体想法。")
+            pipelines_block_lines.append(f"            <pipeline tag=\"{tag}\">")
+            pipelines_block_lines.append(f"                <initial_thought>{thought}</initial_thought>")
+            pipelines_block_lines.append(f"            </pipeline>")
+        
+        pipelines_block = "\n".join(pipelines_block_lines)
+
+        # 2. 填充 User Prompt 模板
+        user_prompt = DELIBERATION_USER_PROMPT.format(
+            mood=current_internal_state.get("mood", "未知"),
+            think=current_internal_state.get("think", "未知"),
+            goal=current_internal_state.get("goal", "未知"),
+            motivation=pipeline_params.get("motivation", "无明确动机"),
+            pipelines_block=pipelines_block,
+        )
+
+        # 3. 系统 Prompt 是静态的，直接使用
+        system_prompt = DELIBERATION_SYSTEM_PROMPT
+
+        # 4. Response Schema 也是固定的
+        response_schema = DELIBERATION_RESPONSE_SCHEMA
+
+        # 打印调试信息
+        logger.debug("=" * 30 + " 慢思考辩论 PROMPT " + "=" * 30)
+        logger.debug(f"--- [SYSTEM PROMPT (慢思考)] ---\n{system_prompt}")
+        logger.debug(f"--- [USER PROMPT (慢思考)] ---\n{user_prompt}")
+        logger.debug(f"--- [JSON SCHEMA (慢思考)] ---\n{json.dumps(response_schema, indent=2, ensure_ascii=False)}")
+        logger.debug("=" * 31 + " END OF DEBUG " + "=" * 31)
+
+        return system_prompt, user_prompt, response_schema
 
     async def build_prompts_components(
         self,

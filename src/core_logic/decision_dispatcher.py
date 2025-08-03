@@ -1,4 +1,4 @@
-# src/core_logic/decision_dispatcher.py (竞速模式适配版 V1.0)
+# src/core_logic/decision_dispatcher.py
 import asyncio
 from typing import TYPE_CHECKING, Optional
 
@@ -117,56 +117,71 @@ async def process_llm_decision(
     logger.info(f"决策分发器开始处理LLM决策: {decision_json}")
     _, current_platform_id, _ = parse_focus_path(current_focus_path)
 
-    action_payload = normalize_action_payload(decision_json.get("action"), current_platform_id)
+    # --- 步骤 1: 解析所有潜在指令 ---
     control_payload = decision_json.get("consciousness_control")
+    action_payload = decision_json.get("action")
+    current_internal_state = decision_json.get("internal_state", {})
 
-    # --- 步骤 1: 优先处理 Action (如果有)，并等待其完成 ---
-    if action_payload:
-        platform_key = next(iter(action_payload), None)
-        action_name = next(iter(action_payload.get(platform_key, {})), None)
-        # 特殊处理 send_message 动作
+    # --- 步骤 2: (特例优先) 检查并执行“慢思考” ---
+    if control_payload and "spawn_lite_pipelines" in control_payload:
+        logger.info("检测到 [慢思考] 指令，优先执行内部辩论...")
+
+        # “慢思考”是同步阻塞的，它会返回一个修正后的思考状态
+        new_internal_state = await focus_manager.handle_consciousness_control(
+            {"spawn_lite_pipelines": control_payload["spawn_lite_pipelines"]}, 
+            current_internal_state
+        )
+
+        if new_internal_state:
+            logger.success("“慢思考”决策管线已完成，使用其决议更新当前思考状态。")
+            current_internal_state = new_internal_state # 更新思考状态
+        else:
+            logger.warning("“慢思考”执行完毕但未返回有效决议，将使用原始思考状态继续。")
+
+        # 从控制载荷中移除已被处理的慢思考指令
+        del control_payload["spawn_lite_pipelines"]
+        if not control_payload: # 如果没有其他控制指令了
+            control_payload = None
+
+    # --- 步骤 3: 执行“外部行动” ---
+    # 使用最新的（可能已被慢思考修正的）状态来驱动行动
+    normalized_action_payload = normalize_action_payload(action_payload, current_platform_id)
+    if normalized_action_payload:
+        logger.info("内部状态已确定，现在开始处理 [外部行动] 指令。")
+
+        platform_key = next(iter(normalized_action_payload), None)
+        action_name = next(iter(normalized_action_payload.get(platform_key, {})), None)
+
         if action_name == "send_message":
             logger.info("检测到 [send_message] 动作，将执行发送并立即触发后续思考。")
-            action_params = action_payload.get(platform_key, {}).get("send_message", {})
-
+            action_params = normalized_action_payload.get(platform_key, {}).get("send_message", {})
             if session:
-                # Create a set to store background tasks if it doesn't exist
                 if not hasattr(session, "_background_tasks"):
                     session._background_tasks = set()
-
                 task = asyncio.create_task(
                     _handle_send_message_action(
                         session, action_params, core_logic, processed_events_this_turn
                     )
                 )
-                # Store task reference to prevent garbage collection
                 session._background_tasks.add(task)
-                # Remove task from set when it completes
                 task.add_done_callback(session._background_tasks.discard)
             else:
                 logger.error("send_message 动作只能在专注会话中执行，但当前会话实例为空！")
-
-        else:  # 如果是其他即做即走的动作
+        else:
             logger.info(f"检测到 [即做即走类] 动作 ({platform_key}.{action_name})，将立即执行。")
             await action_handler.process_action_flow(
                 action_id=source_action_id,
                 doc_key_for_updates=source_thought_key,
-                action_json=action_payload,
+                action_json=normalized_action_payload,
             )
 
-    # --- 步骤 2: 在所有 Action 处理完毕后，再处理 Consciousness Control (如果有) ---
+    # --- 步骤 4: (最后执行) 处理剩余的“意识转向”指令 ---
     if control_payload:
-        logger.info("所有 Action 已处理完毕，现在开始处理 [意识控制] 指令。")
-        await focus_manager.handle_consciousness_control(control_payload)
+        logger.info("所有外部行动已处理完毕，现在开始处理 [意识转向] 指令。")
+        await focus_manager.handle_consciousness_control(control_payload, current_internal_state)
 
-    # --- 步骤 3: 检查是否无任何指令 ---
-    if not action_payload and not control_payload:
+    # --- 步骤 5: 检查是否无任何指令 ---
+    if not normalized_action_payload and not control_payload:
         logger.info("本轮决策中无任何有效动作或意识控制指令。")
-        if core_logic and core_logic.immediate_thought_trigger:
-            level, _, _ = parse_focus_path(current_focus_path)
-            if level != "cellular":
-                logger.info("AI决定保持沉默，且不在专注聊天中，将在常规间隔后进行下一轮思考。")
-                # 这里不需要手动触发，让主循环的 timeout 机制自然触发即可。
-                pass
 
     logger.info("决策分发处理完毕。")
