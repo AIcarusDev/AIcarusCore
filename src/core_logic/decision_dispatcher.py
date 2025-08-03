@@ -51,16 +51,7 @@ async def _handle_send_message_action(
     core_logic: "CoreLogic",
     processed_events_this_turn: list[Event] | None,
 ) -> None:
-    """专门处理 send_message 动作的特种行动小队.
-
-    负责锁定状态、发送消息、等待回声、触发后续思考.
-
-    Args:
-        session: 当前的专注会话实例.
-        params: 包含发送消息所需的参数.
-        core_logic: 核心逻辑处理器，用于触发后续思考.
-        processed_events_this_turn: 本轮处理过的事件列表（可选）.
-    """
+    """专门处理 send_message 动作的特种行动小队."""
     # 1. 锁定时间戳
     if processed_events_this_turn:
         latest_ts = max(event.time for event in processed_events_this_turn)
@@ -80,31 +71,19 @@ async def _handle_send_message_action(
     session.sent_action_ids_this_turn.clear()
     logger.debug(f"[{session.conversation_id}] 已清空上一轮的 sent_action_ids_this_turn 列表。")
 
-    message_builder = MessageBuilder(session, motivation=params.get("motivation"))
-    await message_builder.process_steps(steps)
+    message_builder = MessageBuilder(session, motivation=params.get("motivation", "没有明确动机"))
+    any_message_sent = await message_builder.process_steps(steps)
 
-    # 4. 等待回声
-    if sent_action_ids := session.sent_action_ids_this_turn:
-        logger.debug(
-            f"[{session.conversation_id}] 准备为 {len(sent_action_ids)} 个动作等待回声: "
-            f"{sent_action_ids}"
+    if any_message_sent:
+        logger.info(
+            f"[{session.conversation_id}] MessageBuilder 已成功发送消息，立即触发下一轮思考。"
         )
-        wait_tasks = [session.wait_for_echo(action_id) for action_id in sent_action_ids]
-        results = await asyncio.gather(*wait_tasks)
-
-        # 5. 处理结果
-        success_count = results.count(True)
-        if success_count == len(sent_action_ids):
-            logger.success(
-                f"[{session.conversation_id}] 所有 {len(sent_action_ids)} 条消息的回声均已收到。"
-            )
-            logger.info(f"[{session.conversation_id}] 消息已全部发送完毕，立即触发下一轮思考。")
-            core_logic.trigger_immediate_thought_cycle()
-        else:
-            logger.warning(
-                f"[{session.conversation_id}] {len(sent_action_ids) - success_count} "
-                f"/ {len(sent_action_ids)} 条消息的回声等待超时。"
-            )
+        # 立即触发思考，让AI的反应更连贯
+        core_logic.trigger_immediate_thought_cycle()
+        return True
+    else:
+        logger.warning(f"[{session.conversation_id}] MessageBuilder 未能发送任何消息。")
+        return False
 
 
 async def process_llm_decision(
@@ -147,13 +126,23 @@ async def process_llm_decision(
         action_name = next(iter(action_payload.get(platform_key, {})), None)
         # 特殊处理 send_message 动作
         if action_name == "send_message":
-            logger.info("检测到 [send_message] 动作，将完整执行并等待回声，然后再继续。")
+            logger.info("检测到 [send_message] 动作，将执行发送并立即触发后续思考。")
             action_params = action_payload.get(platform_key, {}).get("send_message", {})
 
             if session:
-                await _handle_send_message_action(
-                    session, action_params, core_logic, processed_events_this_turn
+                # Create a set to store background tasks if it doesn't exist
+                if not hasattr(session, "_background_tasks"):
+                    session._background_tasks = set()
+
+                task = asyncio.create_task(
+                    _handle_send_message_action(
+                        session, action_params, core_logic, processed_events_this_turn
+                    )
                 )
+                # Store task reference to prevent garbage collection
+                session._background_tasks.add(task)
+                # Remove task from set when it completes
+                task.add_done_callback(session._background_tasks.discard)
             else:
                 logger.error("send_message 动作只能在专注会话中执行，但当前会话实例为空！")
 
@@ -175,7 +164,7 @@ async def process_llm_decision(
         logger.info("本轮决策中无任何有效动作或意识控制指令。")
         if core_logic and core_logic.immediate_thought_trigger:
             level, _, _ = parse_focus_path(current_focus_path)
-            if level != 'cellular':
+            if level != "cellular":
                 logger.info("AI决定保持沉默，且不在专注聊天中，将在常规间隔后进行下一轮思考。")
                 # 这里不需要手动触发，让主循环的 timeout 机制自然触发即可。
                 pass

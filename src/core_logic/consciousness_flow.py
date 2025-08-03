@@ -86,7 +86,7 @@ class CoreLogic:
 
         try:
             # 1. 将路径的会话部分 (e.g., 'group.123456') 分割成类型和ID
-            conv_type, actual_id = conv_id_part.split('.', 1)
+            conv_type, actual_id = conv_id_part.split(".", 1)
 
             # 2. 根据平台ID、类型和真实ID，重新组装出完整的实体UID
             #    这与 ChatSessionManager.sessions 字典的 key 格式完全匹配
@@ -403,13 +403,15 @@ class CoreLogic:
                 continue
 
             content_list = event_doc.get("content", []) or []  # 确保 content_list 是列表
-            text_content = extract_text_from_content([
+            text_content = extract_text_from_content(
                 [
-                    Seg(type=c.get("type"), data=c.get("data", {}))
-                    for c in content_list
-                    if isinstance(c, dict)
+                    [
+                        Seg(type=c.get("type"), data=c.get("data", {}))
+                        for c in content_list
+                        if isinstance(c, dict)
+                    ]
                 ]
-            ])
+            )
 
             message_to_check = {"speaker_id": str(sender_id), "text": text_content}
             if not message_to_check.get("text"):

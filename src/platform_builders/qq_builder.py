@@ -303,7 +303,11 @@ class QQBuilder(BasePlatformBuilder):
                     "type": "object",
                     "description": "像使用鼠标滚轮一样，向上或向下翻阅当前看到的会话列表。",
                     "properties": {
-                        "params": {"type": "string", "enum": ["up", "down"], "description": "向上或向下滚动。"},
+                        "params": {
+                            "type": "string",
+                            "enum": ["up", "down"],
+                            "description": "向上或向下滚动。",
+                        },
                         "motivation": {"type": "string"},
                     },
                     "required": ["params", "motivation"],

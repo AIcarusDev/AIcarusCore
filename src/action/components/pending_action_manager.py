@@ -1,4 +1,4 @@
-# 文件: src/action/components/pending_action_manager.py (手滑修复版 V1.1)
+# src/action/components/pending_action_manager.py
 import asyncio
 import json
 import time
@@ -149,9 +149,7 @@ class PendingActionManager:
         )
 
     async def _handle_successful_action_side_effects(
-        self,
-        sent_dict: dict[str, Any],
-        details: dict | None
+        self, sent_dict: dict[str, Any], details: dict | None
     ) -> None:
         """处理成功动作可能引发的特殊副作用.
 
@@ -163,15 +161,11 @@ class PendingActionManager:
         if not original_action_type:
             return
 
-        # 1. send_message 的回声通知
-        if original_action_type.endswith(".send_message"):
-            await self._signal_echo_to_session(sent_dict)
-
-        # 2. get_list 成功后主动创建会话档案
+        # 1. get_list 成功后主动创建会话档案
         if original_action_type.endswith(".get_list"):
             await self._proactively_create_conversation_docs_from_list(details, sent_dict)
 
-        # 3. handle_friend_request 的后续处理
+        # 2. handle_friend_request 的后续处理
         if original_action_type.endswith(".handle_friend_request"):
             # 从原始发送的事件中解析出参数
             # 确保导入
@@ -211,32 +205,6 @@ class PendingActionManager:
                     logger.error(
                         f"更新实体 '{entity_uid}' 的好友请求状态时失败: {e}", exc_info=True
                     )
-
-    async def _signal_echo_to_session(self, sent_dict: dict[str, Any]) -> None:
-        """为 send_message 动作向对应的 ChatSession 发送回声信号.
-
-        Args:
-            sent_dict (dict[str, Any]): 原始发送的动作数据字典，包含
-                会话信息和原始动作ID.
-        """
-        conversation_info = sent_dict.get("conversation_info")
-        original_action_id = sent_dict.get("event_id")
-
-        if not isinstance(conversation_info, dict) or not original_action_id:
-            return
-
-        conv_id = conversation_info.get("conversation_id")
-        if (
-            conv_id
-            and self.action_handler.chat_session_manager
-            and (session := self.action_handler.chat_session_manager.sessions.get(str(conv_id)))
-        ):
-            logger.info(
-                f"检测到 send_message 动作的回声，"
-                f"正在为动作 '{original_action_id}' "
-                f"调用 session.signal_echo_received()！"
-            )
-            await session.signal_echo_received(original_action_id)
 
     async def _gather_and_execute_db_updates(
         self,
@@ -297,10 +265,7 @@ class PendingActionManager:
         if successful:
             tasks_to_gather.append(
                 self._save_successful_action_as_event(
-                    original_action_id,
-                    sent_dict,
-                    response_event_data,
-                    motivation=motivation
+                    original_action_id, sent_dict, response_event_data, motivation=motivation
                 )
             )
 
@@ -390,11 +355,7 @@ class PendingActionManager:
         return False, "unknown_format", "响应格式不正确", None
 
     def _create_final_result_message(
-        self,
-        desc: str,
-        succ: bool,
-        err: str,
-        det: dict | None
+        self, desc: str, succ: bool, err: str, det: dict | None
     ) -> str:
         """创建最终的结果消息."""
         if succ:

@@ -57,22 +57,28 @@ async def inspect_and_initialize_self_profile(
         try:
             entities_collection = await entity_service._get_collection(CoreDBCollections.ENTITIES)
             # 查询所有可能的自身实体 - 修复查询条件
-            all_entities_cursor = await entities_collection.find({
-                "entity_type": "account",
-                "details.platform": platform_id  # 修复：查询 details.platform
-            })
+            all_entities_cursor = await entities_collection.find(
+                {
+                    "entity_type": "account",
+                    "details.platform": platform_id,  # 修复：查询 details.platform
+                }
+            )
             all_platform_entities = [doc async for doc in all_entities_cursor]
-            logger.debug(f"[调试] 数据库中平台 '{platform_id}' 的所有账户实体: {all_platform_entities}")
-            
+            logger.debug(
+                f"[调试] 数据库中平台 '{platform_id}' 的所有账户实体: {all_platform_entities}"
+            )
+
             # 查询标记为自身的实体 - 这个查询条件需要根据实际数据结构调整
-            self_entities_cursor = await entities_collection.find({
-                "entity_type": "account"
-                # 注意：根据日志，实体中可能没有直接的 is_self 字段
-                # 自身实体可能是通过与 SELF_PROFILE_ID 的关联关系来标识的
-            })
+            self_entities_cursor = await entities_collection.find(
+                {
+                    "entity_type": "account"
+                    # 注意：根据日志，实体中可能没有直接的 is_self 字段
+                    # 自身实体可能是通过与 SELF_PROFILE_ID 的关联关系来标识的
+                }
+            )
             all_marked_self_entities = [doc async for doc in self_entities_cursor]
             logger.debug(f"[调试] 数据库中所有账户类型的实体: {all_marked_self_entities}")
-            
+
         except Exception as e:
             logger.debug(f"[调试] 直接查询数据库实体失败: {e}")
 
@@ -80,7 +86,8 @@ async def inspect_and_initialize_self_profile(
             (
                 entity
                 for entity in all_self_entities
-                if entity.get("details", {}).get("platform") == platform_id  # 修复：从 details 中获取平台信息
+                if entity.get("details", {}).get("platform")
+                == platform_id  # 修复：从 details 中获取平台信息
             ),
             None,
         )
@@ -179,8 +186,8 @@ async def inspect_and_initialize_self_profile(
                 # 这是一种获取协程参数的方式，虽然有点 hack，但在这里很有效
                 # 我们从协程的 frame 中查找局部变量
                 try:
-                    failed_group_id = (
-                        failed_task_coro.cr_frame.f_locals.get('conversation_id', '未知')
+                    failed_group_id = failed_task_coro.cr_frame.f_locals.get(
+                        "conversation_id", "未知"
                     )
                     logger.error(f"更新群聊 '{failed_group_id}' 的实体信息时失败: {result}")
                 except AttributeError:
@@ -202,7 +209,7 @@ async def inspect_and_initialize_self_profile(
 async def _update_single_group_info(
     entity_service: "EntityGraphService",
     entity_uid: str,  # 这是“祂”自己的账户实体UID, e.g., "qq_123456"
-    conversation_id: str, # 这是群号, e.g., "98765"
+    conversation_id: str,  # 这是群号, e.g., "98765"
     platform: str,
     group_profile: dict,
     bot_profile_for_conv: dict,
@@ -216,19 +223,20 @@ async def _update_single_group_info(
             conv_type="group",
             name=group_profile.get("group_name"),
         )
-        conversation_entity_uid = conversation_entity._key # 获取这个群聊实体的UID
+        conversation_entity_uid = conversation_entity._key  # 获取这个群聊实体的UID
 
         # 2. 更新“祂”在这个会话实体中的存在关系 (is_present_in 边)。
         from aicarus_protocols import UserInfo as ProtocolUserInfo
+
         temp_user_info_for_edge = ProtocolUserInfo(
             user_cardname=group_profile.get("card"),
             permission_level=group_profile.get("role"),
         )
         await entity_service.update_presence_in_conversation(
-            account_entity_uid=entity_uid, # “祂”的账户实体
-            conversation_entity_uid=conversation_entity_uid, # 群聊的实体
+            account_entity_uid=entity_uid,  # “祂”的账户实体
+            conversation_entity_uid=conversation_entity_uid,  # 群聊的实体
             user_info=temp_user_info_for_edge,
-            conversation_name=group_profile.get("group_name")
+            conversation_name=group_profile.get("group_name"),
         )
 
         # 3. 将“祂”在该群的具体档案，更新到“群聊实体”的文档中。
@@ -242,4 +250,3 @@ async def _update_single_group_info(
 
     except Exception as e:
         logger.error(f"更新群聊 '{conversation_id}' 的实体信息时失败: {e}", exc_info=True)
-

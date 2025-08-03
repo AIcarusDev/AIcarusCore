@@ -104,7 +104,9 @@ class ChatSessionManager:
             )
 
             if not conv_entity_doc or not isinstance(conv_entity_doc.details, ConversationDetails):
-                logger.error(f"严重错误：找不到ID为'{conversation_entity_uid}'的会话实体或类型不匹配！")
+                logger.error(
+                    f"严重错误：找不到ID为'{conversation_entity_uid}'的会话实体或类型不匹配！"
+                )
                 return None
 
             # 从实体文档中提取信息来创建 EnrichedConversationInfo (DTO)
@@ -134,8 +136,7 @@ class ChatSessionManager:
 
             # 从会话实体文档中读取上次处理的时间戳，如果没有则使用当前时间
             initial_last_processed_timestamp = (
-                getattr(conv_entity_doc, "last_read_timestamp", 0.0)
-                or time.time() * 1000.0
+                getattr(conv_entity_doc, "last_read_timestamp", 0.0) or time.time() * 1000.0
             )
 
             self.sessions[conversation_entity_uid] = ChatSession(
@@ -158,15 +159,14 @@ class ChatSessionManager:
             return self.sessions[conversation_entity_uid]
 
     async def deactivate_session(
-        self,
-        conversation_entity_uid: str,
-        handover_context: dict | None = None
+        self, conversation_entity_uid: str, handover_context: dict | None = None
     ) -> None:
         """处理会话停用，触发最终总结并从管理器中移除会话档案."""
         async with self.lock:
             if session := self.sessions.pop(conversation_entity_uid, None):
-                logger.info(f"[SessionManager] 会话实体 '{conversation_entity_uid}' "
-                            f"的档案正在被移除。")
+                logger.info(
+                    f"[SessionManager] 会话实体 '{conversation_entity_uid}' 的档案正在被移除。"
+                )
                 final_timestamp = session.last_processed_timestamp
                 await self.entity_graph_service.update_conversation_last_read_timestamp(
                     conversation_entity_uid, final_timestamp
@@ -199,7 +199,7 @@ class ChatSessionManager:
 
         if level == "cellular" and platform_id and conv_id:
             # 根据路径信息构建完整的会话实体UID
-            conv_type, actual_id = conv_id.split('.', 1)
+            conv_type, actual_id = conv_id.split(".", 1)
             entity_uid = f"{platform_id}_{conv_type}_{actual_id}"
             # 尝试从会话管理器获取会话实例
             session = self.sessions.get(entity_uid)
@@ -277,13 +277,13 @@ class ChatSessionManager:
 
         if old_path == new_path:
             logger.info(f"目标焦点 '{new_path}' 与当前焦点相同，无需切换。")
-            return False # 返回 False 表示没有发生实际的切换
+            return False  # 返回 False 表示没有发生实际的切换
 
         # 步骤 1: 激活新会话（如果需要）
         new_level, new_platform, new_conv_part = parse_focus_path(new_path)
-        if new_level == 'cellular' and new_platform and new_conv_part:
+        if new_level == "cellular" and new_platform and new_conv_part:
             try:
-                new_conv_type, new_actual_id = new_conv_part.split('.', 1)
+                new_conv_type, new_actual_id = new_conv_part.split(".", 1)
                 new_entity_uid = f"{new_platform}_{new_conv_type}_{new_actual_id}"
                 if not await self.get_or_create_session(new_entity_uid):
                     logger.error(
@@ -300,9 +300,9 @@ class ChatSessionManager:
 
         # 步骤 2: 停用旧会话（如果需要）
         old_level, old_platform, old_conv_part = parse_focus_path(old_path)
-        if old_level == 'cellular' and old_platform and old_conv_part:
+        if old_level == "cellular" and old_platform and old_conv_part:
             try:
-                old_conv_type, old_actual_id = old_conv_part.split('.', 1)
+                old_conv_type, old_actual_id = old_conv_part.split(".", 1)
                 old_entity_uid = f"{old_platform}_{old_conv_type}_{old_actual_id}"
                 await self.deactivate_session(old_entity_uid, history_entry_base)
             except (ValueError, IndexError):
@@ -313,7 +313,7 @@ class ChatSessionManager:
         self.current_focus = new_focus_entry
         self.focus_history.append(new_focus_entry)
 
-        return True # 返回 True 表示发生了切换
+        return True  # 返回 True 表示发生了切换
 
     def _is_platform_id(self, target_id: str) -> bool:
         """辅助函数，判断一个ID是否为平台ID."""
@@ -321,12 +321,8 @@ class ChatSessionManager:
 
     def _is_partial_conversation_id(self, target_id: str) -> bool:
         """辅助函数，判断一个ID是否为部分会话ID（如 "group.123"）."""
-        return (
-            "." in target_id
-            and (
-                target_id.startswith('group.')
-                or target_id.startswith('private.')
-            )
+        return "." in target_id and (
+            target_id.startswith("group.") or target_id.startswith("private.")
         )
 
     async def _handle_push_focus(self, params: dict, history_entry_base: dict) -> bool:
@@ -339,11 +335,11 @@ class ChatSessionManager:
         level, platform_id, _ = parse_focus_path(current_path)
 
         new_path = None
-        if level == 'core' and self._is_platform_id(target_id):
+        if level == "core" and self._is_platform_id(target_id):
             new_path = target_id
-        elif level == 'platform':
+        elif level == "platform":
             try:
-                p_id, conv_type, actual_id = target_id.split('_', 2)
+                p_id, conv_type, actual_id = target_id.split("_", 2)
                 if p_id == platform_id:
                     new_path = f"{p_id}.{conv_type}.{actual_id}"
                 else:
@@ -362,8 +358,8 @@ class ChatSessionManager:
             if switched:
                 # 如果是进入平台层，则初始化其视图状态
                 new_level, _, _ = parse_focus_path(new_path)
-                if new_level == 'platform':
-                    self.platform_view_states[target_id] = {'scroll_offset': 0}
+                if new_level == "platform":
+                    self.platform_view_states[target_id] = {"scroll_offset": 0}
                     logger.info(f"已为平台 '{target_id}' 初始化视图状态。")
             return switched
 
@@ -379,7 +375,7 @@ class ChatSessionManager:
             return False
 
         # 使用更健壮的路径分割方法来确定父路径
-        path_parts = current_path.split('.')
+        path_parts = current_path.split(".")
 
         # 如果路径有多段 (如 'qq.private.12345')，父路径就是第一段 ('qq')
         parent_path = path_parts[0] if len(path_parts) > 1 else "core"
@@ -398,19 +394,19 @@ class ChatSessionManager:
 
         如果 target_id 是会话实体UID，则切换到该会话。
         """
-        target_id = params.get("target_id") # target_id 是会话实体UID
+        target_id = params.get("target_id")  # target_id 是会话实体UID
         if not target_id:
             return False
 
         current_path = self.current_focus.get("target_path", "core")
         level, platform_id, _ = parse_focus_path(current_path)
 
-        if level != 'cellular':
+        if level != "cellular":
             logger.error(f"'swap_focus' 只能在会话层级使用，当前层级为 '{level}'。")
             return False
 
         try:
-            p_id, conv_type, actual_id = target_id.split('_', 2)
+            p_id, conv_type, actual_id = target_id.split("_", 2)
             if p_id != platform_id:
                 logger.error(
                     f"无法在平台 '{platform_id}' 切换到另一个平台 '{p_id}' 的会话。"
@@ -439,7 +435,7 @@ class ChatSessionManager:
             logger.warning("历史记录不足，'back' 操作无法执行。")
             return False
         # 1. 如果当前焦点是核心层，直接返回 False
-        target_entry = self.focus_history[-2] # T-1 是倒数第二个元素
+        target_entry = self.focus_history[-2]  # T-1 是倒数第二个元素
         target_path = target_entry.get("target_path", "core")
 
         return await self._switch_focus(target_path, history_entry_base)
@@ -450,7 +446,7 @@ class ChatSessionManager:
         这里的 history_index 是 T-n 的 n，表示从 T-1 开始的偏移量。
         """
         try:
-            history_index = int(params.get("history_index", 0)) # 注意，这里history_index是T-n的n
+            history_index = int(params.get("history_index", 0))  # 注意，这里history_index是T-n的n
             history_len = len(self.focus_history)
 
             # 将 T-n 转换为 deque 的负数索引 (-n)
@@ -458,7 +454,7 @@ class ChatSessionManager:
 
             # 验证索引是否在有效范围内 (T-1 到 T-(len-1))
             if not (1 <= history_index < history_len):
-                logger.error(f"历史索引 T-{history_index} 超出范围 [T-1, T-{history_len-1}]。")
+                logger.error(f"历史索引 T-{history_index} 超出范围 [T-1, T-{history_len - 1}]。")
                 return False
             # 获取目标历史条目
             target_entry = self.focus_history[deque_index]

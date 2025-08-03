@@ -1,5 +1,4 @@
 # 文件: src/focus_chat_mode/chat_session.py
-import asyncio
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -81,9 +80,6 @@ class ChatSession:
             if initial_last_processed_timestamp is not None
             else time.time() * 1000.0
         )
-        self._echo_wait_events: dict[str, asyncio.Event] = {}
-        self._received_echo_ids: set[str] = set()
-        self._echo_lock = asyncio.Lock()
         self.pending_handover_result: dict | None = None
 
         # --- 行为计数器 ---
@@ -101,41 +97,6 @@ class ChatSession:
 
         logger.info(f"[ChatSession][{self.conversation_id}] 实例已创建。")
 
-    async def wait_for_echo(self, action_id: str, timeout: float = 20.0) -> bool:
-        """智能等待方法！它现在拥有一个“暂存器”来处理信号提前到达的竞态问题."""
-        async with self._echo_lock:
-            if action_id in self._received_echo_ids:
-                self._received_echo_ids.remove(action_id)
-                logger.success(
-                    f"[{self.conversation_id}] 回声等待: 动作 '{action_id}' 在暂存器中命中！"
-                )
-                return True
-            wake_up_event = asyncio.Event()
-            self._echo_wait_events[action_id] = wake_up_event
-            logger.info(f"[{self.conversation_id}] 回声等待: 动作 '{action_id}' 开始正式等待...")
-        try:
-            await asyncio.wait_for(wake_up_event.wait(), timeout=timeout)
-            logger.success(f"[{self.conversation_id}] 回声等待: 动作 '{action_id}' 被成功唤醒！")
-            return True
-        except TimeoutError:
-            logger.warning(f"[{self.conversation_id}] 回声等待: 动作 '{action_id}' 等待超时！")
-            return False
-        finally:
-            async with self._echo_lock:
-                self._echo_wait_events.pop(action_id, None)
-
-    async def signal_echo_received(self, action_id: str) -> None:
-        """智能信号处理方法！它会先尝试唤醒正在等待的任务，如果没人等，就把信号暂存起来."""
-        async with self._echo_lock:
-            if event_to_wake := self._echo_wait_events.get(action_id):
-                event_to_wake.set()
-                logger.info(f"[{self.conversation_id}] 回声信号: 已唤醒动作 '{action_id}'。")
-            else:
-                self._received_echo_ids.add(action_id)
-                logger.info(
-                    f"[{self.conversation_id}] 回声信号: 信号提前到达！已暂存 '{action_id}'。"
-                )
-
     async def get_bot_profile(self) -> dict[str, Any]:
         """智能获取祂的档案，如果缓存有效则直接返回，否则从数据库加载最新的客观数据."""
         if self.bot_profile_cache and (
@@ -149,15 +110,8 @@ class ChatSession:
             (
                 entity
                 for entity in all_self_entities
-                if (
-                    details := entity.get(
-                        "details",
-                        {
-                        }
-                    )
-                ) and details.get(
-                    "platform"
-                ) == self.platform
+                if (details := entity.get("details", {}))
+                and details.get("platform") == self.platform
             ),
             None,
         )

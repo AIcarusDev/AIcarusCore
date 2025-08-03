@@ -149,10 +149,7 @@ class UnreadInfoService:
         return final_preview
 
     async def get_conversation_list_summary(
-        self,
-        platform_id: str,
-        scroll_offset: int = 0,
-        page_size: int = 10
+        self, platform_id: str, scroll_offset: int = 0, page_size: int = 10
     ) -> str:
         """生成特定平台的会话列表摘要，支持分页和头尾提示.
 
@@ -200,7 +197,7 @@ class UnreadInfoService:
                 summary_parts.append(
                     f"<!-- 提示：你可以使用 scroll(params='up') 来查看更多 -->\n"
                     f"--- 上方还有 {start_index} 条未展示的对话 ---"
-                    )
+                )
             else:
                 summary_parts.append("--- 已经到顶了 ---")
 
@@ -252,7 +249,7 @@ class UnreadInfoService:
             )
 
         # 如果尾部有未读消息提示，添加到摘要中
-        if 'footer_text' in locals() and footer_text:
+        if "footer_text" in locals() and footer_text:
             summary_parts.append(footer_text)
 
         summary_parts.append("</conversation_list>")

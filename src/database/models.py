@@ -208,7 +208,7 @@ class EntityDocument:
         constructor_args = {k: v for k, v in data.items() if k in defined_fields}
 
         # 3. 用我们手动创建的 details_obj 替换掉筛选后的参数字典中可能存在的旧 details 字典。
-        constructor_args['details'] = details_obj
+        constructor_args["details"] = details_obj
 
         # 4. 使用这个干净、安全的参数字典来创建实例。
         return cls(**constructor_args)

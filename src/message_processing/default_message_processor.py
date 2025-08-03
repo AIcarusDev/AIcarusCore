@@ -1,5 +1,4 @@
 # 文件: src/message_processing/default_message_processor.py (竞速模式适配版 V1.0)
-import asyncio
 import time
 from typing import TYPE_CHECKING, Optional
 
@@ -50,41 +49,6 @@ class DefaultMessageProcessor:
         self.core_logic: CoreLogicFlow | None = None
         logger.info("DefaultMessageProcessor 初始化完成 (竞速模式适配版)。")
 
-    async def _is_self_echo_message(self, event: ProtocolEvent) -> tuple[bool, str | None]:
-        """检查一个消息事件是否是AI自身动作的回声.
-
-        Args:
-            event: 传入的消息事件.
-
-        Returns:
-            一个元组 (is_echo, original_action_id).
-                如果事件是回声，is_echo 为 True，且 original_action_id 是触发该回声的原始动作ID.
-        """
-        platform_message_id = event.get_message_id()
-        platform = event.get_platform()
-
-        conversation_id = None
-        if event.conversation_info:
-            conversation_id = event.conversation_info.conversation_id
-
-        if not all([platform_message_id, platform, conversation_id]):
-            return False, None
-
-        action_log = await self.action_log_service.get_action_log_by_platform_message_id(
-            platform=platform,
-            conversation_id=conversation_id,
-            message_id=platform_message_id,
-        )
-        if action_log:
-            original_action_id = action_log.get("action_id")
-            logger.debug(
-                f"事件 (坐标: P:{platform}, C:{conversation_id}, M:{platform_message_id}) "
-                f"被精确识别为动作 '{original_action_id}' 的回声。"
-            )
-            return True, original_action_id
-
-        return False, None
-
     async def process_event(
         self,
         proto_event: ProtocolEvent,
@@ -113,24 +77,14 @@ class DefaultMessageProcessor:
 
         try:
             # --- 步骤 1: 检查消息来源 ---
-            sender_id = proto_event.user_info.user_id if proto_event.user_info else None
-            bot_id_on_platform = self.qq_chat_session_manager.self_bot_ids_map.get(
-                platform_id
-            ) if self.qq_chat_session_manager else None
+            _sender_id = proto_event.user_info.user_id if proto_event.user_info else None
+            _bot_id_on_platform = (
+                self.qq_chat_session_manager.self_bot_ids_map.get(platform_id)
+                if self.qq_chat_session_manager
+                else None
+            )
 
-            # --- 步骤 2: 来源分流处理 ---
-            if (
-                proto_event.event_type.startswith("message.")
-                and sender_id
-                and bot_id_on_platform
-                and str(sender_id) == str(bot_id_on_platform)
-            ):
-                # 消息来自AI自己，进入专门的回声处理流程
-                is_echo_handled = await self._handle_self_message_event(proto_event)
-                if is_echo_handled:
-                    return  # 如果被当做回声处理了，就直接结束，不进行后续的持久化和分发
-
-            # --- 步骤 3: 正常事件处理流程 (适用于所有非回声的事件) ---
+            # --- 步骤 2: 正常事件处理流程 (适用于所有非回声的事件) ---
             # 档案管理员 - 处理身份关联和数据持久化
             await self._handle_event_persistence(proto_event, platform_id, needs_persistence)
 
@@ -141,23 +95,6 @@ class DefaultMessageProcessor:
             logger.error(
                 f"处理事件 (ID: {proto_event.event_id}) 的核心逻辑中发生错误: {e}", exc_info=True
             )
-
-    async def _route_echo_to_session(self, event: ProtocolEvent, original_action_id: str) -> None:
-        """专门负责将回声信号路由到正确的 ChatSession."""
-        if self.qq_chat_session_manager and event.conversation_info:
-            conv_info = event.conversation_info
-            platform = event.get_platform()
-
-            # 根据平台、类型和原生ID，正确地构造会话实体UID
-            if platform and conv_info.type and conv_info.conversation_id:
-                session_key = f"{platform}_{conv_info.type}_{conv_info.conversation_id}"
-
-                if session := self.qq_chat_session_manager.sessions.get(session_key):
-                    await session.signal_echo_received(original_action_id)
-                else:
-                    logger.warning(f"收到回声但找不到会话实体UID '{session_key}' 来接收信号。")
-            else:
-                logger.error(f"回声事件缺少构建会话实体UID的必要信息: {event}")
 
     async def _handle_event_persistence(
         self, event: ProtocolEvent, platform_id: str, needs_persistence: bool
@@ -208,10 +145,11 @@ class DefaultMessageProcessor:
 
         # --- 步骤 1: 查找或创建核心的 Profile 和 Entity ---
         # 这是所有后续操作的基础
-        profile_id, account_entity_uid = (
-            await self.entity_service.find_or_create_profile_and_account_entity(
-                user_info=event.user_info, platform=platform_id
-            )
+        (
+            profile_id,
+            account_entity_uid,
+        ) = await self.entity_service.find_or_create_profile_and_account_entity(
+            user_info=event.user_info, platform=platform_id
         )
 
         if not account_entity_uid:
@@ -222,9 +160,7 @@ class DefaultMessageProcessor:
             return profile_id, None
 
         # --- 步骤 2: 根据事件类型执行特定的数据库更新 ---
-        entities_collection = await self.entity_service._get_collection(
-            CoreDBCollections.ENTITIES
-        )
+        entities_collection = await self.entity_service._get_collection(CoreDBCollections.ENTITIES)
 
         # <!-- 新增逻辑：专门处理好友请求 -->
         if event.event_type.endswith("request.friend.add"):
@@ -281,21 +217,16 @@ class DefaultMessageProcessor:
 
             # 从事件信息中构建出标准的实体 UID
             event_conv_info = event.conversation_info
-            event_entity_uid = f"{
-                event.get_platform(
-                )
-            }_{
-                event_conv_info.type
-            }_{
-                event_conv_info.conversation_id
-            }"
+            event_entity_uid = (
+                f"{event.get_platform()}_{event_conv_info.type}_{event_conv_info.conversation_id}"
+            )
 
             # 从焦点路径中解析出当前专注的实体 UID
             level, platform_id, conv_part = parse_focus_path(current_focus_path_str)
             current_focus_entity_uid = None
-            if level == 'cellular' and platform_id and conv_part:
+            if level == "cellular" and platform_id and conv_part:
                 try:
-                    conv_type, actual_id = conv_part.split('.', 1)
+                    conv_type, actual_id = conv_part.split(".", 1)
                     current_focus_entity_uid = f"{platform_id}_{conv_type}_{actual_id}"
                 except (ValueError, IndexError):
                     logger.warning(f"无法从焦点路径 '{current_focus_path_str}' 解析出实体UID。")
@@ -307,7 +238,7 @@ class DefaultMessageProcessor:
                 and event_entity_uid == current_focus_entity_uid
             ):
                 await self._handle_focused_conversation_event(event, current_focus_entity_uid)
-                return # 处理完毕，直接返回，避免执行下面的else逻辑
+                return  # 处理完毕，直接返回，避免执行下面的else逻辑
 
         # 2. 处理其他需要主动处理的特殊事件
         if event.event_type.endswith(".bot.profile_update"):
@@ -316,9 +247,7 @@ class DefaultMessageProcessor:
             logger.debug(f"事件类型 '{event.event_type}' 无需在此主动处理，交由核心循环自行发现。")
 
     async def _handle_focused_conversation_event(
-            self,
-            event: ProtocolEvent,
-            conversation_entity_uid: str
+        self, event: ProtocolEvent, conversation_entity_uid: str
     ) -> None:
         """处理来自当前专注会话的事件."""
         if session := self.core_logic.chat_session_manager.sessions.get(conversation_entity_uid):
@@ -370,7 +299,7 @@ class DefaultMessageProcessor:
 
             # 更新 bot_profile_in_this_conversation 字段
             profile_to_update = conv_entity_doc.get("bot_profile_in_this_conversation", {})
-            if not isinstance(profile_to_update, dict): # 健壮性检查
+            if not isinstance(profile_to_update, dict):  # 健壮性检查
                 profile_to_update = {}
 
             if update_type == "card_change":
@@ -404,28 +333,3 @@ class DefaultMessageProcessor:
 
         except Exception as e:
             logger.error(f"处理祂的档案更新通知时出错: {e}", exc_info=True)
-
-    async def _handle_self_message_event(self, event: ProtocolEvent) -> bool:
-        """专门处理来自AI自身的消息事件，并尝试将其识别为动作回声.
-
-        内置了短暂的重试机制以解决 action_response 和 echo 事件之间的竞态条件。
-
-        Args:
-            event: 来自AI自身的消息事件。
-
-        Returns:
-            bool: 如果事件被成功识别并作为回声处理，则返回 True，否则返回 False。
-        """
-        # 短暂等待并重试，给 action_response 一点时间来更新 action_log
-        for attempt in range(5):  # 最多重试5次
-            is_echo, original_action_id = await self._is_self_echo_message(event)
-            if is_echo and original_action_id:
-                await self._route_echo_to_session(event, original_action_id)
-                return True  # 成功识别为回声，处理完毕
-            await asyncio.sleep(0.1 * (attempt + 1))  # 每次等待时间稍长一点
-
-        logger.warning(
-            f"一个来自 AI 自身的消息 (MsgID: {event.get_message_id()}) "
-            f"在多次尝试后仍未匹配到任何动作日志，它将被视为一个常规的自身消息（例如，来自其他客户端）而非回声。"
-        )
-        return False  # 最终还是没能识别为回声
