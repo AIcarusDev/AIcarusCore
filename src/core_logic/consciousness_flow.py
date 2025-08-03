@@ -219,13 +219,16 @@ class CoreLogic:
                 f"全局时间戳被强制更新至中断事件的时间: {interrupting_ts}"
             )
 
-        # // 将中断消息文本烙印到短期记忆中
         event_obj = Event.from_dict(interrupting_event_doc)
         self._last_interrupt_context_text = event_obj.get_text_content()
         logger.debug(
             f"[{session.conversation_id}] 已将中断消息文本 "
             f"'{self._last_interrupt_context_text}' 烙印到短期记忆中。"
         )
+
+        # 中断发生后，立即触发下一轮思考来处理中断事件。
+        self.trigger_immediate_thought_cycle()
+        logger.info(f"[{session.conversation_id}] 中断发生，已设置立即思考信号以快速响应。")
 
     async def _process_main_task_victory(
         self, main_task: asyncio.Task, session: Optional["ChatSession"]

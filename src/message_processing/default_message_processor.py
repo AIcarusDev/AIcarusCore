@@ -208,64 +208,11 @@ class DefaultMessageProcessor:
 
     async def _dispatch_event_action(self, event: ProtocolEvent) -> None:
         """专门负责根据事件类型和当前状态，决定是否触发核心逻辑."""
-        # 1. 检查新消息是否来自当前专注的会话，如果是，则触发思考
-        if self.core_logic and self.core_logic.chat_session_manager and event.conversation_info:
-            focus_entry = self.core_logic.chat_session_manager.current_focus_path
-            current_focus_path_str = (
-                focus_entry.get("target_path") if isinstance(focus_entry, dict) else focus_entry
-            )
-
-            # 从事件信息中构建出标准的实体 UID
-            event_conv_info = event.conversation_info
-            event_entity_uid = (
-                f"{event.get_platform()}_{event_conv_info.type}_{event_conv_info.conversation_id}"
-            )
-
-            # 从焦点路径中解析出当前专注的实体 UID
-            level, platform_id, conv_part = parse_focus_path(current_focus_path_str)
-            current_focus_entity_uid = None
-            if level == "cellular" and platform_id and conv_part:
-                try:
-                    conv_type, actual_id = conv_part.split(".", 1)
-                    current_focus_entity_uid = f"{platform_id}_{conv_type}_{actual_id}"
-                except (ValueError, IndexError):
-                    logger.warning(f"无法从焦点路径 '{current_focus_path_str}' 解析出实体UID。")
-
-            # 使用实体 UID 进行比较
-            if (
-                event_entity_uid
-                and current_focus_entity_uid
-                and event_entity_uid == current_focus_entity_uid
-            ):
-                await self._handle_focused_conversation_event(event, current_focus_entity_uid)
-                return  # 处理完毕，直接返回，避免执行下面的else逻辑
-
-        # 2. 处理其他需要主动处理的特殊事件
         if event.event_type.endswith(".bot.profile_update"):
             await self._handle_bot_profile_update(event)
         else:
-            logger.debug(f"事件类型 '{event.event_type}' 无需在此主动处理，交由核心循环自行发现。")
-
-    async def _handle_focused_conversation_event(
-        self, event: ProtocolEvent, conversation_entity_uid: str
-    ) -> None:
-        """处理来自当前专注会话的事件."""
-        if session := self.core_logic.chat_session_manager.sessions.get(conversation_entity_uid):
-            bot_profile = await session.get_bot_profile()
-            current_bot_id = str(bot_profile.get("user_id") or session.bot_id)
-
-            sender_id = (
-                str(event.user_info.user_id)
-                if event.user_info and event.user_info.user_id
-                else None
-            )
-
-            # 如果是别人发的消息，就重置我方连续发言计数器
-            if sender_id and sender_id != current_bot_id:
-                session.reset_consecutive_bot_message_count()
-
-        logger.info(f"收到当前专注会话 '{conversation_entity_uid}' 的新消息，触发立即思考。")
-        self.core_logic.trigger_immediate_thought_cycle()
+            # 对于普通消息，我们现在只记录日志，不再触发任何操作。
+            logger.debug(f"事件类型 '{event.event_type}' 已持久化，将由核心循环自行发现。")
 
     async def _handle_bot_profile_update(self, event: ProtocolEvent) -> None:
         """处理机器人自身档案（如群名片）的更新事件."""
