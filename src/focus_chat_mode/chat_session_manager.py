@@ -335,8 +335,35 @@ class ChatSessionManager:
         level, platform_id, _ = parse_focus_path(current_path)
 
         new_path = None
-        if level == "core" and self._is_platform_id(target_id):
-            new_path = target_id
+
+        if level == "core":
+            # 1. 优先检查目标ID是否为一个已知的平台ID
+            if self._is_platform_id(target_id):
+                new_path = target_id
+                logger.info(f"顶层跳转：识别到平台ID '{target_id}'，将进入平台层。")
+            else:
+                # 2. 如果不是平台ID，则尝试将其解析为完整的会话实体UID (格式: platform_type_id)
+                try:
+                    p_id, conv_type, actual_id = target_id.split("_", 2)
+                    # 2.1 验证解析出的平台部分是否有效
+                    if self._is_platform_id(p_id):
+                        # 2.2 如果有效，直接构建通往细胞层的完整路径
+                        new_path = f"{p_id}.{conv_type}.{actual_id}"
+                        logger.info(
+                            f"顶层跳转：识别到会话实体UID '{target_id}'，将直接进入细胞层。"
+                        )
+                    else:
+                        logger.error(
+                            f"顶层跳转失败：'{target_id}' 看起来像会话实体UID，"
+                            f"但其平台部分 '{p_id}' 不是已知的平台。"
+                        )
+                except ValueError:
+                    # 3. 如果两种格式都匹配失败，则判定为无效ID
+                    logger.error(
+                        f"在顶层(core)执行 push_focus 失败：目标ID '{target_id}' "
+                        f"既不是有效的平台ID，也不是格式正确的会话实体UID (platform_type_id)。"
+                    )
+
         elif level == "platform":
             try:
                 p_id, conv_type, actual_id = target_id.split("_", 2)
