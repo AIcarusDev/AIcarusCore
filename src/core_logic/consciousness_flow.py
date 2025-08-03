@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Optional
 from aicarus_protocols import Event, Seg, extract_text_from_content
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logging_config import get_logger
+from src.common.interruption_broker import InterruptionEventBroker
 from src.common.utils import parse_focus_path
 from src.config import config
 from src.core_communication.core_ws_server import CoreWebsocketServer
@@ -43,6 +44,7 @@ class CoreLogic:
         thought_persistor: ThoughtPersistor,
         prompt_builder: ThoughtPromptBuilder,
         stop_event: threading.Event,
+        interruption_broker: "InterruptionEventBroker",
         immediate_thought_trigger: asyncio.Event,
         intrusive_generator_instance: IntrusiveThoughtsGenerator | None = None,
     ) -> None:
@@ -55,6 +57,7 @@ class CoreLogic:
         self.thought_storage_service = thought_storage_service
         self.prompt_builder = prompt_builder
         self.stop_event = stop_event
+        self.interruption_broker = interruption_broker
         self.immediate_thought_trigger = immediate_thought_trigger
         self.intrusive_generator_instance = intrusive_generator_instance
         self.thinking_loop_task: asyncio.Task | None = None
@@ -72,10 +75,13 @@ class CoreLogic:
             return None
 
         focus_entry = self.chat_session_manager.current_focus_path
-        if not isinstance(focus_entry, dict):
-            return None
 
-        focus_path_str = focus_entry.get("target_path")
+        if not isinstance(focus_entry, dict):
+            # 兼容旧格式或'core'字符串，但确保提取出路径字符串
+            focus_path_str = str(focus_entry) if focus_entry is not None else None
+        else:
+            focus_path_str = focus_entry.get("target_path")
+
         if not focus_path_str or not isinstance(focus_path_str, str):
             return None
 
@@ -86,6 +92,10 @@ class CoreLogic:
 
         try:
             # 1. 将路径的会话部分 (e.g., 'group.123456') 分割成类型和ID
+            # [修正] 确保 conv_id_part 确实包含 "."，否则 split 会抛出 ValueError
+            if "." not in conv_id_part:
+                return None
+
             conv_type, actual_id = conv_id_part.split(".", 1)
 
             # 2. 根据平台ID、类型和真实ID，重新组装出完整的实体UID
@@ -96,12 +106,9 @@ class CoreLogic:
             session = self.chat_session_manager.sessions.get(session_key)
 
             if not session:
-                logger.debug(f"根据会话实体UID '{session_key}' 在当前激活的会话池中未找到实例。")
                 return None
-
             return session
-        except (ValueError, IndexError) as e:
-            logger.warning(f"解析会话路径部分 '{conv_id_part}' 失败: {e}")
+        except (ValueError, IndexError):
             return None
 
     async def _core_thinking_loop(self) -> None:
@@ -141,10 +148,14 @@ class CoreLogic:
             tasks_to_race: set[asyncio.Task] = {main_task}
 
             if session:
-                context_text = self._get_initial_context_for_sentry(session)
+                # ==================== FIX START ====================
+                # 修正点 1: 在调用时补上缺失的 initial_context_text 参数
                 sentry_task = asyncio.create_task(
-                    self._listen_for_interruptions(session, context_text, race_start_timestamp)
+                    self._listen_for_interruptions(
+                        session, self._last_interrupt_context_text, race_start_timestamp
+                    )
                 )
+                # ===================== FIX END =====================
                 tasks_to_race.add(sentry_task)
 
             # 2. 发令！开始比赛！
@@ -159,19 +170,6 @@ class CoreLogic:
                 main_task.cancel()
             if sentry_task and not sentry_task.done():
                 sentry_task.cancel()
-
-    def _get_initial_context_for_sentry(self, session: "ChatSession") -> str:
-        """为哨兵任务获取初始的上下文文本（记忆烙印或数据库）."""
-        if self._last_interrupt_context_text:
-            # // 如果有中断烙印，就用它！
-            logger.info(
-                f"[{session.conversation_id}] 使用了上一次中断的记忆烙印作为上下文: "
-                f"'{self._last_interrupt_context_text[:50]}...'"
-            )
-            return self._last_interrupt_context_text
-        else:
-            # // 没有烙印，就返回一个默认值，让哨兵自己去查数据库
-            return "..."
 
     async def _handle_race_outcome(
         self,
@@ -202,8 +200,11 @@ class CoreLogic:
         if not session:
             return
 
-        interrupting_event_doc = await sentry_task
+        interrupting_event_doc = (
+            await sentry_task
+        )  # The result of sentry_task is the interrupting event_doc
         if not interrupting_event_doc:
+            logger.debug(f"[{session.conversation_id}] 哨兵任务完成，但未返回中断事件。")
             return
 
         logger.warning(f"[{session.conversation_id}] 中断哨兵获胜！思考-行动主任务被中断。")
@@ -223,7 +224,7 @@ class CoreLogic:
         self._last_interrupt_context_text = event_obj.get_text_content()
         logger.debug(
             f"[{session.conversation_id}] 已将中断消息文本 "
-            f"'{self._last_interrupt_context_text}' 烙印到短期记忆中。"
+            f"'{self._last_interrupt_context_text[:50]}...' 烙印到短期记忆中。"
         )
 
         # 中断发生后，立即触发下一轮思考来处理中断事件。
@@ -340,102 +341,85 @@ class CoreLogic:
             return session.last_processed_timestamp
         return None
 
+    # ==================== FIX START ====================
+    # 修正点 2: 修改函数签名，允许 initial_context_text 为 None
     async def _listen_for_interruptions(
-        self, session: "ChatSession", initial_context_text: str, start_timestamp: float
+        self, session: "ChatSession", initial_context_text: str | None, start_timestamp: float
     ) -> dict | None:
-        """纯粹的中断监听器（哨兵），它现在接收一个固定的初始上下文."""
+        # ===================== FIX END =====================
+        """纯粹的中断监听器（哨兵），现在通过订阅事件代理来工作."""
+        subscription_queue = None
         try:
-            context_text = initial_context_text
-            last_checked_timestamp = start_timestamp
+            # 1. 订阅！获取专属的消息队列
+            subscription_queue = await self.interruption_broker.subscribe(session)
 
+            context_text = initial_context_text
             bot_profile = await session.get_bot_profile()
             current_bot_id = str(bot_profile.get("user_id") or session.bot_id)
 
             while True:
-                # 哨兵用它当前的记忆去检查新消息
-                (
-                    interrupting_event,
-                    latest_ts_in_batch,
-                    last_text_in_batch,
-                ) = await self._check_for_interruptions(
-                    session, context_text, last_checked_timestamp, current_bot_id
+                # 2. 等待！不再轮询，而是优雅地等待新消息被投喂
+                new_event_doc = await subscription_queue.get()
+
+                # 检查一下事件时间戳，确保不是旧消息
+                if new_event_doc.get("timestamp", 0) <= start_timestamp:
+                    continue
+
+                # 3. 评估！收到新消息，交给IIS判断
+                interrupting_event, new_context = self._evaluate_interrupt(
+                    new_event_doc, context_text, current_bot_id, session
                 )
 
                 if interrupting_event:
-                    return interrupting_event
+                    return interrupting_event  # 发现中断，立刻返回！
 
-                if latest_ts_in_batch:
-                    last_checked_timestamp = latest_ts_in_batch
+                if new_context:
+                    context_text = new_context  # 更新上下文，为下一次判断做准备
 
-                if last_text_in_batch:
-                    context_text = last_text_in_batch
-
-                await asyncio.sleep(0.5)
         except asyncio.CancelledError:
+            # 主任务完成了，哨兵被取消，这是正常流程
             return None
         except Exception as e:
             logger.error(f"[{session.conversation_id}] 中断哨兵任务异常: {e}", exc_info=True)
             return None
+        finally:
+            # 4. 取消订阅！无论如何，都要清理资源
+            if session:
+                await self.interruption_broker.unsubscribe(session)
 
-    async def _check_for_interruptions(
-        self,
-        session: "ChatSession",
-        context_text: str,
-        since_timestamp: float,
-        current_bot_id: str,
-    ) -> tuple[dict | None, float | None, str | None]:
-        """检查新消息是否需要中断当前思考. 现在它还会返回新消息批次中的最后一条文本."""
-        new_events = await session.event_storage.get_message_events_after_timestamp(
-            session.conversation_id,
-            since_timestamp,
-            limit=10,
-            status="unread",
-            exclude_user_id=current_bot_id,
+    def _evaluate_interrupt(
+        self, event_doc: dict, context_text: str, current_bot_id: str, session: "ChatSession"
+    ) -> tuple[dict | None, str | None]:
+        """对单个事件进行中断评估的辅助函数."""
+        user_info = event_doc.get("user_info") or {}
+        sender_id = user_info.get("user_id")
+
+        if sender_id and str(sender_id) == current_bot_id:
+            return None, None  # 不评估自己的消息
+
+        content_list = event_doc.get("content", []) or []
+        text_content = extract_text_from_content(
+            [
+                Seg(type=c.get("type"), data=c.get("data", {}))
+                for c in content_list
+                if isinstance(c, dict)
+            ]
         )
-        if not new_events:
-            return None, None, None
 
-        latest_timestamp_in_this_batch = max(event.get("timestamp", 0.0) for event in new_events)
-        last_text_content_in_batch: str | None = None
-        current_context_for_this_batch = context_text
+        message_to_check = {"speaker_id": str(sender_id), "text": text_content}
+        if not message_to_check.get("text"):
+            return None, None  # 非文本消息不触发中断
 
-        for event_doc in new_events:
-            user_info = event_doc.get("user_info") or {}  # 如果是 None，就替换为空字典
-            sender_id = user_info.get("user_id")
-            if sender_id and str(sender_id) == current_bot_id:
-                continue
-
-            content_list = event_doc.get("content", []) or []  # 确保 content_list 是列表
-            text_content = extract_text_from_content(
-                [
-                    [
-                        Seg(type=c.get("type"), data=c.get("data", {}))
-                        for c in content_list
-                        if isinstance(c, dict)
-                    ]
-                ]
+        if session.intelligent_interrupter.should_interrupt(
+            new_message=message_to_check,
+            context_message_text=context_text,
+        ):
+            logger.info(
+                f"[{session.conversation_id}] IIS决策：中断！元凶ID: {event_doc.get('_key')}"
             )
+            return event_doc, text_content
 
-            message_to_check = {"speaker_id": str(sender_id), "text": text_content}
-            if not message_to_check.get("text"):
-                continue
-
-            if session.intelligent_interrupter.should_interrupt(
-                new_message=message_to_check,
-                context_message_text=current_context_for_this_batch,
-            ):
-                logger.info(
-                    f"[{session.conversation_id}] IIS决策：中断！元凶ID: {event_doc.get('_key')}"
-                )
-                if text_content:
-                    last_text_content_in_batch = text_content
-                return event_doc, latest_timestamp_in_this_batch, last_text_content_in_batch
-
-            if text_content:
-                current_context_for_this_batch = text_content
-                last_text_content_in_batch = text_content
-
-        return None, latest_timestamp_in_this_batch, last_text_content_in_batch
+        return None, text_content
 
     async def _wait_for_next_cycle(self, interval: float) -> None:
         try:

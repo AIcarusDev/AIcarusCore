@@ -12,6 +12,7 @@ from src.common.custom_logging.logging_config import get_logger
 from src.common.intelligent_interrupt_system.iis_main import IISBuilder
 from src.common.intelligent_interrupt_system.intelligent_interrupter import IntelligentInterrupter
 from src.common.intelligent_interrupt_system.models import SemanticModel
+from src.common.interruption_broker import InterruptionEventBroker
 from src.common.summarization_observation.summarization_service import SummarizationService
 from src.common.unread_info_service.unread_info_service import UnreadInfoService
 from src.config import config
@@ -94,6 +95,9 @@ class ServiceBuilder:
         summarization_service = SummarizationService(summary_llm)
         semantic_model = await self._get_semantic_model(db_services["event_storage_service"])
 
+        interruption_broker = InterruptionEventBroker()
+        interruption_broker.start()
+
         # (±) DefaultMessageProcessor 的创建，不再需要 conversation_storage_service
         message_processor = DefaultMessageProcessor(
             event_service=db_services["event_storage_service"],
@@ -101,6 +105,7 @@ class ServiceBuilder:
             entity_service=db_services["entity_graph_service"],
             action_log_service=db_services["action_log_service"],
             semantic_model=semantic_model,
+            interruption_broker=interruption_broker,
             qq_chat_session_manager=None,  # 将在 wiring 阶段被注入
         )
 
@@ -150,6 +155,7 @@ class ServiceBuilder:
             stop_event=stop_event,
             immediate_thought_trigger=immediate_thought_trigger,
             intrusive_generator_instance=intrusive_generator,
+            interruption_broker=interruption_broker,
         )
 
         # (±) ServiceContainer 的创建，不再包含 conversation_storage_service
@@ -162,7 +168,6 @@ class ServiceBuilder:
             url_context_agent_client=llm_clients["url_context_agent_client"],
             conn_manager=db_services["conn_manager"],
             event_storage_service=db_services["event_storage_service"],
-            # (--) conversation_storage_service 已被移除
             thought_storage_service=db_services["thought_storage_service"],
             action_log_service=db_services["action_log_service"],
             summary_storage_service=db_services["summary_storage_service"],
@@ -174,6 +179,7 @@ class ServiceBuilder:
             message_processor=message_processor,
             prompt_builder=prompt_builder,
             state_manager=state_manager,
+            interruption_broker=interruption_broker,
             summarization_service=summarization_service,
             thought_generator=thought_generator,
             thought_persistor=thought_persistor,

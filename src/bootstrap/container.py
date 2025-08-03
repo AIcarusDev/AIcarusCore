@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from src.common.intelligent_interrupt_system.intelligent_interrupter import (
         IntelligentInterrupter,
     )
+    from src.common.interruption_broker import InterruptionEventBroker
     from src.common.summarization_observation.summarization_service import SummarizationService
     from src.common.unread_info_service.unread_info_service import UnreadInfoService
     from src.core_communication.core_ws_server import CoreWebsocketServer
@@ -65,6 +66,7 @@ class ServiceContainer:
     thought_generator: ThoughtGenerator
     thought_persistor: ThoughtPersistor
     unread_info_service: UnreadInfoService
+    interruption_broker: InterruptionEventBroker
 
     # 通信与核心循环
     core_comm_layer: CoreWebsocketServer
