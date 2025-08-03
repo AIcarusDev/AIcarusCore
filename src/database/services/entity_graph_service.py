@@ -62,14 +62,25 @@ class EntityGraphService:
 
         if entity_doc:
             logger.debug(f"找到了已存在的账户实体: {entity_uid}")
+            # 检查昵称是否有变化，如果有，则更新
             if (
                 user_info.user_nickname
                 and entity_doc.get("details", {}).get("last_known_nickname")
                 != user_info.user_nickname
             ):
-                patch_data = {"details.last_known_nickname": user_info.user_nickname}
-                patch_doc = {"_key": entity_uid, **patch_data}
-                await entities_collection.update(patch_doc, merge=True)
+                # 使用 AQL 进行原子性的合并更新，这是最安全、最正确的方式
+                query = """
+                    UPDATE @key WITH { details: { last_known_nickname: @nickname } }
+                    IN @@collection OPTIONS { mergeObjects: true }
+                """
+                bind_vars = {
+                    "key": entity_uid,
+                    "nickname": user_info.user_nickname,
+                    "@collection": CoreDBCollections.ENTITIES
+                }
+                # 执行查询，但不关心返回结果
+                await self.conn_manager.execute_query(query, bind_vars)
+                logger.debug(f"已通过AQL更新实体 '{entity_uid}' 的 last_known_nickname。")
 
             query = """
                 FOR p IN 1..1 INBOUND @entity_id @@represents_edge_coll

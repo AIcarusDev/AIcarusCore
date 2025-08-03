@@ -373,20 +373,20 @@ class ChatSessionManager:
     async def _handle_pop_focus(self, params: dict, history_entry_base: dict) -> bool:
         """处理 'pop_focus' 指令，现在会返回到上一个层级或核心层."""
         current_path = self.current_focus.get("target_path", "core")
-        level, platform_id, _ = parse_focus_path(current_path)
 
         if current_path == "core":
             logger.warning("在顶层Core-Level尝试执行 'pop_focus'，无效操作，已忽略。")
             return False
 
-        parent_path = "core" # 默认返回到核心层
-        if level == 'cellular':
-            # 如果在细胞层 (e.g., qq.group.123), 父路径就是平台层 (e.g., qq)
-            parent_path = platform_id
-        elif level == 'platform':
-            # 如果在平台层 (e.g., qq), 父路径就是核心层
-            parent_path = "core"
-            # 清除该平台的视图状态
+        # 使用更健壮的路径分割方法来确定父路径
+        path_parts = current_path.split('.')
+
+        # 如果路径有多段 (如 'qq.private.12345')，父路径就是第一段 ('qq')
+        parent_path = path_parts[0] if len(path_parts) > 1 else "core"
+
+        # 如果是从平台层返回，需要清除视图状态
+        if len(path_parts) == 1:
+            platform_id = path_parts[0]
             if platform_id in self.platform_view_states:
                 del self.platform_view_states[platform_id]
                 logger.info(f"已清除平台 '{platform_id}' 的视图状态。")
