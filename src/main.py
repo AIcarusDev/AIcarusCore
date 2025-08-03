@@ -99,7 +99,7 @@ async def start_core_system() -> None:
                 container.url_context_agent_client,
             ]
             for client in llm_clients_to_close:
-                if client and hasattr(client, 'llm_client') and hasattr(client.llm_client, 'close'):
+                if client and hasattr(client, "llm_client") and hasattr(client.llm_client, "close"):
                     try:
                         # 注意：我们要关闭的是底层的 UnderlyingLLMClient 实例
                         await client.llm_client.close()

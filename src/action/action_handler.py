@@ -226,7 +226,7 @@ class ActionHandler:
         platform_id = platform_id_from_action if platform_actions else "core"
         action_name, params = next(iter(actions_to_process.items()))
 
-        if platform_id == 'qq' and action_name == 'scroll':
+        if platform_id == "qq" and action_name == "scroll":
             result_text = self._execute_local_scroll_action(platform_id, params)
 
             # 将结果写回思想点
@@ -243,7 +243,7 @@ class ActionHandler:
                     f"(Action ID: {action_id})，立即触发新一轮思考。"
                 )
                 self.thought_trigger.set()
-            return # 任务完成，直接返回
+            return  # 任务完成，直接返回
 
         if platform_id == "core":
             result_text = await self._execute_core_action(action_name, params)
@@ -309,7 +309,6 @@ class ActionHandler:
             prompt=user_prompt, system_prompt=system_prompt, is_stream=False, use_google_search=True
         )
         return response.get("text", "搜索失败或未返回任何信息。")
-
 
     def _execute_core_list_files(self, params: dict) -> str:
         path_str = params.get("path", ".")
@@ -692,18 +691,17 @@ class ActionHandler:
             return f"错误：找不到平台 '{platform_id}' 的视图状态。"
 
         state = self.chat_session_manager.platform_view_states[platform_id]
-        current_offset = state.get('scroll_offset', 0)
+        current_offset = state.get("scroll_offset", 0)
         page_size = 10  # 与 unread_info_service 中的 page_size 保持一致
 
         if params == "down":
-            state['scroll_offset'] = current_offset + page_size
+            state["scroll_offset"] = current_offset + page_size
             action_desc = "向下"
         elif params == "up":
-            state['scroll_offset'] = max(0, current_offset - page_size)
+            state["scroll_offset"] = max(0, current_offset - page_size)
             action_desc = "向上"
 
-        logger.info(f"平台 '{platform_id}' 视图已滚动, "
-                    f"新偏移量: {state['scroll_offset']}")
+        logger.info(f"平台 '{platform_id}' 视图已滚动, 新偏移量: {state['scroll_offset']}")
 
         return f"成功地将列表 {action_desc} 滚动了一页。"
 

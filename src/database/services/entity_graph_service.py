@@ -42,8 +42,6 @@ class EntityGraphService:
         """一个懒人工具，用来获取集合实例."""
         return await self.conn_manager.get_collection(name, is_edge=is_edge)
 
-
-
     async def find_or_create_profile_and_account_entity(
         self, user_info: ProtocolUserInfo, platform: str
     ) -> tuple[str | None, str | None]:
@@ -76,7 +74,7 @@ class EntityGraphService:
                 bind_vars = {
                     "key": entity_uid,
                     "nickname": user_info.user_nickname,
-                    "@collection": CoreDBCollections.ENTITIES
+                    "@collection": CoreDBCollections.ENTITIES,
                 }
                 # 执行查询，但不关心返回结果
                 await self.conn_manager.execute_query(query, bind_vars)
@@ -236,7 +234,7 @@ class EntityGraphService:
             "_to": to_vertex,
             **props.to_dict(),
         }
-        edge_doc_update = props.to_dict() # 更新时只需要更新属性
+        edge_doc_update = props.to_dict()  # 更新时只需要更新属性
 
         # 使用 AQL 的 UPSERT 语句
         query = """
@@ -312,7 +310,6 @@ class EntityGraphService:
 
         results = await self.conn_manager.execute_query(query, bind_vars)
         return results[0] if results else None
-
 
     async def get_all_self_entities(self) -> list[dict[str, Any]]:
         """获取祂自身（SELF_PROFILE_ID）关联的所有平台实体信息."""
@@ -403,8 +400,7 @@ class EntityGraphService:
             return results[0] if results else None
         except Exception as e:
             logger.error(
-                f"查询自身在会话 '{conversation_entity_uid}' 的存在信息时失败: {e}",
-                exc_info=True
+                f"查询自身在会话 '{conversation_entity_uid}' 的存在信息时失败: {e}", exc_info=True
             )
             return None
 
@@ -485,9 +481,7 @@ class EntityGraphService:
         return entity.get("last_read_timestamp", 0.0) if entity else 0.0
 
     async def update_conversation_last_read_timestamp(
-            self,
-            conversation_entity_uid: str,
-            timestamp: float
+        self, conversation_entity_uid: str, timestamp: float
     ) -> bool:
         """更新一个会话的最后已读时间戳."""
         try:
@@ -499,8 +493,7 @@ class EntityGraphService:
             return True
         except Exception as e:
             logger.error(
-                f"更新会话实体 '{conversation_entity_uid}' 的时间戳失败: {e}",
-                exc_info=True
+                f"更新会话实体 '{conversation_entity_uid}' 的时间戳失败: {e}", exc_info=True
             )
             return False
 

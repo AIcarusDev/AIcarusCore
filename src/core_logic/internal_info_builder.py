@@ -42,9 +42,7 @@ class InternalInfoBuilder:
                 snapshot_lines.append(self._format_completed_action(action_payload))
                 snapshot_lines.append(self._format_completed_consciousness_control(action_payload))
                 snapshot_lines.append(
-                    await self._format_interruption(
-                        session, user_map_from_prompt_builder
-                    )
+                    await self._format_interruption(session, user_map_from_prompt_builder)
                 )
                 session.interruption_context = None
             else:
@@ -107,9 +105,7 @@ class InternalInfoBuilder:
         control_part = action_payload.get("consciousness_control")
         formatted_json = self._format_payload_as_json_string(control_part)
         return (
-            f"<completed_consciousness_control>"
-            f"{formatted_json}"
-            f"</completed_consciousness_control>"
+            f"<completed_consciousness_control>{formatted_json}</completed_consciousness_control>"
         )
 
     async def _format_interruption(self, session: "ChatSession", user_map: dict | None) -> str:

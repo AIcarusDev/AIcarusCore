@@ -126,7 +126,7 @@ class ThoughtPromptBuilder:
                             # action_result_text 此时是一个JSON字符串，我们先解析它
                             result_list = json.loads(action_result_text)
                             if isinstance(result_list, list):
-                                list_type = action_params.get("list_type") # 获取列表类型
+                                list_type = action_params.get("list_type")  # 获取列表类型
                                 # 根据 list_type 修复实体ID格式
                                 for item in result_list:
                                     if list_type == "friend" and "user_id" in item:
@@ -140,9 +140,7 @@ class ThoughtPromptBuilder:
 
                                 # 将修复后的列表重新序列化为格式化的JSON字符串
                                 action_result_text = json.dumps(
-                                    result_list,
-                                    indent=4,
-                                    ensure_ascii=False
+                                    result_list, indent=4, ensure_ascii=False
                                 )
                                 logger.info(
                                     f"已成功对 get_list (type: {list_type}) "
@@ -305,7 +303,6 @@ class ThoughtPromptBuilder:
                     # 将工具平台的动作属性合并到总的 schema 中
                     final_act_schema_props.update(tool_schema.get("properties", {}))
 
-
         response_schema = {
             "type": "object",
             "properties": {
@@ -467,7 +464,7 @@ class ThoughtPromptBuilder:
 
         try:
             # 1. 将路径的会话部分 (e.g., 'group.123456') 分割成类型和ID
-            conv_type, actual_id = conv_id.split('.', 1)
+            conv_type, actual_id = conv_id.split(".", 1)
 
             # 2. 根据平台ID、类型和真实ID，重新组装出完整的实体UID
             #    这与 ChatSessionManager.sessions 字典的 key 格式完全匹配
@@ -476,8 +473,7 @@ class ThoughtPromptBuilder:
         except (ValueError, IndexError):
             # 如果 conv_id 格式不正确 (例如不包含'.')，则无法组装key，直接抛出错误
             raise PromptBuilderError(
-                f"无法从会话部分 '{conv_id}' 解析出类型和ID，"
-                "无法构建当前状态块。"
+                f"无法从会话部分 '{conv_id}' 解析出类型和ID，无法构建当前状态块。"
             ) from None
 
         # 3. 使用这个正确的 key 进行查找
@@ -485,8 +481,7 @@ class ThoughtPromptBuilder:
         if not session:
             # 这里的错误信息现在会显示正确的、我们尝试查找的key，方便调试
             raise PromptBuilderError(
-                f"找不到会话实体UID '{session_key}' 的档案，"
-                "无法构建当前状态块。"
+                f"找不到会话实体UID '{session_key}' 的档案，无法构建当前状态块。"
             )
 
         bot_profile = await session.get_bot_profile()
@@ -508,7 +503,6 @@ class ThoughtPromptBuilder:
         source_group_id = session.conversation_info.extra.get("source_group_id")
         source_group_name = "未知群聊"  # 默认值
         if source_group_id:
-
             # 1. 根据约定，构建群聊实体的 UID
             #    临时会话的来源必然是群聊，所以 conv_type 硬编码为 "group"
             source_group_entity_uid = f"{session.platform}_group_{source_group_id}"
@@ -564,8 +558,10 @@ class ThoughtPromptBuilder:
             descs.append(core_desc)
 
         # 2. 如果在平台/细胞层，添加当前平台的动作描述
-        if level != "core" and builder and (
-            plat_desc := builder.get_level_actions_descriptions(level)
+        if (
+            level != "core"
+            and builder
+            and (plat_desc := builder.get_level_actions_descriptions(level))
         ):
             descs.append(plat_desc)
 
@@ -577,13 +573,10 @@ class ThoughtPromptBuilder:
             tool_descs = []
             for platform_id in connected_adapter_ids:
                 if (
-                    (p_builder := platform_builder_registry.get_builder(platform_id))
-                    and p_builder.is_tool_platform
-                ):
+                    p_builder := platform_builder_registry.get_builder(platform_id)
+                ) and p_builder.is_tool_platform:
                     # 工具平台在顶层展示其 'platform' 级别的动作描述
-                    tool_actions_desc = p_builder.get_level_actions_descriptions(
-                        "platform"
-                    )
+                    tool_actions_desc = p_builder.get_level_actions_descriptions("platform")
                     if tool_actions_desc:
                         # 更新描述格式，使其更清晰
                         tool_descs.append(f"    - 平台 '{platform_id}':\n{tool_actions_desc}")
@@ -611,18 +604,17 @@ class ThoughtPromptBuilder:
                 platform_id
             ):
                 scroll_offset = self.chat_session_manager.platform_view_states[platform_id].get(
-                    'scroll_offset', 0
+                    "scroll_offset", 0
                 )
 
             # 将获取到的偏移量传递给 unread_info_service
             external_info = await self.unread_info_service.get_conversation_list_summary(
-                platform_id,
-                scroll_offset=scroll_offset
+                platform_id, scroll_offset=scroll_offset
             )
         elif level == "cellular" and conv_id:
             try:
                 # 1. 将路径的会话部分 (e.g., 'group.123') 分割成类型和ID
-                conv_type, actual_id = conv_id.split('.', 1)
+                conv_type, actual_id = conv_id.split(".", 1)
                 # 2. 重新组装出完整的实体UID
                 session_key = f"{platform_id}_{conv_type}_{actual_id}"
             except (ValueError, IndexError):
@@ -643,7 +635,7 @@ class ThoughtPromptBuilder:
             bot_profile = await session.get_bot_profile()
             history_components, processed_raw_events = await format_chat_history_for_llm(
                 event_storage=self.event_storage,
-                conversation_id=session.conversation_info.conversation_id, # 修正：这里用平台原生ID
+                conversation_id=session.conversation_info.conversation_id,  # 修正：这里用平台原生ID
                 bot_id=session.bot_id,
                 platform=session.platform,
                 bot_profile=bot_profile,

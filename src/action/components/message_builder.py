@@ -28,7 +28,7 @@ class MessageBuilder:
         self.platform_id = session.platform
         self.conversation_info = ConversationInfo(
             conversation_id=session.conversation_info.conversation_id,
-            type=session.conversation_type
+            type=session.conversation_type,
         )
         self._current_segments: list[Seg] = []
 
