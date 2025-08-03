@@ -230,19 +230,19 @@ class QQBuilder(BasePlatformBuilder):
         # 平台层级的Schema，ID是必须的
         platform_delete_friend_schema = {
             "type": "object",
-            "description": "删除一个好友。",
+            "description": "【谨慎使用】删除一个好友。",
             "properties": {
                 "user_id": {"type": "string", "description": "要删除的好友的QQ号。"},
-                "motivation": {"type": "string", "description": "你为什么要删除这个好友？"},
+                "motivation": {"type": "string"},
             },
             "required": ["user_id", "motivation"],
         }
         platform_leave_conversation_schema = {
             "type": "object",
-            "description": "退出一个群聊。",
+            "description": "【谨慎使用】退出一个群聊（将你自己从某个群聊移出）。",
             "properties": {
                 "group_id": {"type": "string", "description": "要退出的群的群号。"},
-                "motivation": {"type": "string", "description": "你为什么要退出这个群？"},
+                "motivation": {"type": "string"},
             },
             "required": ["group_id", "motivation"],
         }
@@ -250,19 +250,19 @@ class QQBuilder(BasePlatformBuilder):
         # 会话层级的Schema，ID是可选的
         cellular_delete_friend_schema = {
             "type": "object",
-            "description": "删除一个好友。如果当前就在与该好友的私聊中，可以不提供user_id。",
+            "description": "【谨慎使用】删除一个好友。如果当前就在与该好友的私聊中，可以不提供user_id。",
             "properties": {
                 "user_id": {"type": "string", "description": "（可选）要删除的好友的QQ号。"},
-                "motivation": {"type": "string", "description": "你为什么要删除这个好友？"},
+                "motivation": {"type": "string"},
             },
             "required": ["motivation"],  # motivation 仍然是必须的
         }
         cellular_leave_conversation_schema = {
             "type": "object",
-            "description": "退出一个群聊。如果当前就在该群聊中，可以不提供group_id。",
+            "description": "【谨慎使用】退出一个群聊（将你自己从某个群聊移出）。如果当前就在该群聊中，可以不提供group_id。",
             "properties": {
                 "group_id": {"type": "string", "description": "（可选）要退出的群的群号。"},
-                "motivation": {"type": "string", "description": "你为什么要退出这个群？"},
+                "motivation": {"type": "string"},
             },
             "required": ["motivation"],  # motivation 仍然是必须的
         }
@@ -284,7 +284,7 @@ class QQBuilder(BasePlatformBuilder):
                     "type": "string",
                     "description": "（可选）同意好友请求后，为对方设置的备注。",
                 },
-                "motivation": {"type": "string", "description": "你为什么要这样做？"},
+                "motivation": {"type": "string"},
             },
             "required": ["user_id", "flag", "approve", "motivation"],
         }
@@ -388,16 +388,16 @@ class QQBuilder(BasePlatformBuilder):
             "platform": [
                 "    - `get_list(type, motivation)`: 直接获取完整的本平台的好友或群聊列表。",
                 "    - `scroll(params, motivation)`: 向上('up')或向下('down')翻阅会话列表。",
-                "    - `delete_friend(user_id, motivation)`: 删除指定ID的好友。",
-                "    - `leave_conversation(group_id, motivation)`: 退出指定ID的群聊。",
+                "    - `delete_friend(user_id, motivation)`: 【谨慎使用】删除指定ID的好友。",
+                "    - `leave_conversation(group_id, motivation)`: 【谨慎使用】退出指定ID的群聊（将你自己从某个群聊移出）。",
                 "    - `handle_friend_request(user_id, flag, approve, remark, motivation)`: 处理好友请求。",
             ],
             "cellular": [
                 "    - `send_message`: 在当前会话中发送消息。",
                 "    - `poke_user`: 在当前会话中戳一戳某人。",
                 "    - `get_list`: 获取本平台的好友或群聊列表。",
-                "    - `delete_friend(user_id, motivation)`: 删除指定ID的好友（如果想删除的好友就是对方，可省略user_id）。",
-                "    - `leave_conversation(group_id, motivation)`: 退出指定ID的群聊（如果当前就在想退出的群聊中，可省略group_id）。",
+                "    - `delete_friend(user_id, motivation)`: 【谨慎使用】删除指定ID的好友（如果想删除的好友就是对方，可省略user_id）。",
+                "    - `leave_conversation(group_id, motivation)`: 【谨慎使用】退出一个群聊（将你自己从某个群聊移出）。如果当前就在该群聊中，可以不提供group_id。",
                 "    - `handle_friend_request(user_id, flag, approve, remark, motivation)`: 处理好友请求。",
             ],
         }
