@@ -128,7 +128,7 @@ async def process_llm_decision(
 
         # “慢思考”是同步阻塞的，它会返回一个修正后的思考状态
         new_internal_state = await focus_manager.handle_consciousness_control(
-            {"spawn_lite_pipelines": control_payload["spawn_lite_pipelines"]}, 
+            {"spawn_lite_pipelines": control_payload["spawn_lite_pipelines"]},
             current_internal_state
         )
 

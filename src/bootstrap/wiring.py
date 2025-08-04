@@ -1,4 +1,4 @@
-# src/bootstrap/wiring.py (本体论重构 V1.2 - 封神版)
+# src/bootstrap/wiring.py
 from src.bootstrap.container import ServiceContainer
 from src.config import config
 from src.focus_chat_mode.chat_session_manager import ChatSessionManager
@@ -8,20 +8,19 @@ def wire_dependencies(container: ServiceContainer) -> None:
     """将容器中所有服务的依赖关系连接起来."""
     action_sender = container.core_comm_layer.action_sender
 
-    # (±) 连接 ActionHandler 的依赖，不再需要 conversation_service
+    # 连接 ActionHandler 的依赖
     container.action_handler.set_dependencies(
         thought_service=container.thought_storage_service,
         event_service=container.event_storage_service,
         action_log_service=container.action_log_service,
-        # (--) conversation_service 已被移除
         action_sender=action_sender,
-        chat_session_manager=container.chat_session_manager,  # 此时还是 None
+        chat_session_manager=container.chat_session_manager,
         core_logic=container.core_logic,
         entity_service=container.entity_graph_service,
     )
     container.action_handler.set_thought_trigger(container.core_logic.immediate_thought_trigger)
 
-    # (±) 连接 MessageProcessor 的依赖，它内部也不再需要 conversation_service
+    # 连接 MessageProcessor 的依赖
     container.message_processor.core_comm_layer = container.core_comm_layer
     container.message_processor.core_logic = container.core_logic
 
@@ -33,7 +32,7 @@ async def wire_dynamic_dependencies(container: ServiceContainer) -> None:
 
     # 2. 获取安检后的 bot_ids
     all_self_entities = await container.entity_graph_service.get_all_self_entities()
-    # (±) self_bot_ids_map 的构建逻辑需要适配新的实体结构
+    # self_bot_ids_map 的构建逻辑需要适配新的实体结构
     bot_ids_map = (
         {
             acc.get("details", {}).get("platform"): acc.get("details", {}).get("platform_id")
@@ -48,14 +47,14 @@ async def wire_dynamic_dependencies(container: ServiceContainer) -> None:
 
     # 3. 创建并注入 ChatSessionManager
     if config.focus_chat_mode.enabled and container.focused_chat_llm_client:
-        # (±) 创建 ChatSessionManager，不再需要 conversation_service
+        # 创建 ChatSessionManager
         chat_session_manager = ChatSessionManager(
             config=config.focus_chat_mode,
             llm_client=container.focused_chat_llm_client,
+            deliberation_llm_client=container.deliberation_llm_client,
             event_storage=container.event_storage_service,
             action_handler=container.action_handler,
             self_bot_ids_map=bot_ids_map,
-            # (--) conversation_service 已被移除
             summarization_service=container.summarization_service,
             summary_storage_service=container.summary_storage_service,
             intelligent_interrupter=container.intelligent_interrupter,

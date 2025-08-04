@@ -1,4 +1,4 @@
-# 文件: src/focus_chat_mode/chat_session.py
+# src/focus_chat_mode/chat_session.py
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 
 CACHE_EXPIRATION_SECONDS = 600
-CONVERSATION_DETAILS_CACHE_EXPIRATION_SECONDS = 7200  # 2小时
+CONVERSATION_DETAILS_CACHE_EXPIRATION_SECONDS = 7200
 
 logger = get_logger(__name__)
 
@@ -94,6 +94,7 @@ class ChatSession:
         # --- 缓存 ---
         self.bot_profile_cache: dict[str, Any] = {}
         self.last_profile_update_time: float = 0.0
+        self.working_memory: dict[str, Any] = {}  # <-- 新增：工作记忆容器
 
         logger.info(f"[ChatSession][{self.conversation_id}] 实例已创建。")
 

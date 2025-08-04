@@ -40,6 +40,11 @@ CORE_CYCLE_SYSTEM_PROMPT = """
 {navigation_log_block}
 </navigation_log>
 
+<working_memory>
+<!-- 如果存在由短期工作记忆，会在这里显示 -->
+{working_memory_block}
+</working_memory>
+
 <history_internal_info>
 {internal_info_block}
 </history_internal_info>

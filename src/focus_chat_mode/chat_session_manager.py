@@ -6,7 +6,9 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logging_config import get_logger
+from src.common.time_utils import get_formatted_time_for_llm
 from src.common.utils import parse_focus_path
+from src.config import config
 from src.config.aicarus_configs import FocusChatModeSettings
 from src.database.models import ConversationDetails
 from src.database.services.event_storage_service import EventStorageService
@@ -14,6 +16,11 @@ from src.database.services.summary_storage_service import SummaryStorageService
 from src.database.services.thought_storage_service import ThoughtStorageService
 from src.llmrequest.llm_processor import Client as LLMProcessorClient
 from src.platform_builders.registry import platform_builder_registry
+from src.prompt_templates.deliberation_prompts import (
+    DELIBERATION_RESPONSE_SCHEMA,
+    DELIBERATION_SYSTEM_PROMPT,
+    DELIBERATION_USER_PROMPT,
+)
 
 from .chat_session import ChatSession
 
@@ -25,8 +32,6 @@ if TYPE_CHECKING:
     from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
     from src.core_logic.internal_info_builder import InternalInfoBuilder
     from src.database.services.entity_graph_service import EntityGraphService
-    from src.core_logic.thought_generator import ThoughtGenerator
-    from src.core_logic.prompt_builder import ThoughtPromptBuilder
 
 logger = get_logger(__name__)
 
@@ -38,6 +43,7 @@ class ChatSessionManager:
         self,
         config: FocusChatModeSettings,
         llm_client: LLMProcessorClient,
+        deliberation_llm_client: LLMProcessorClient | None,  # <-- 接收慢脑客户端
         event_storage: EventStorageService,
         action_handler: ActionHandler,
         self_bot_ids_map: dict[str, str],
@@ -52,6 +58,7 @@ class ChatSessionManager:
         """初始化 ChatSessionManager."""
         self.config = config
         self.llm_client = llm_client
+        self.deliberation_llm_client = deliberation_llm_client
         self.event_storage = event_storage
         self.action_handler = action_handler
         self.self_bot_ids_map = self_bot_ids_map
@@ -66,7 +73,7 @@ class ChatSessionManager:
         self.lock = asyncio.Lock()
         self.platform_view_states: dict[str, dict[str, Any]] = {}
 
-        # 1. focus_history 现在是纯粹的历史日志
+        # 1. focus_history 是纯粹的历史日志
         self.focus_history = deque(maxlen=10)
 
         # 2. current_focus 是一个字典，包含当前的注意力焦点状态
@@ -141,7 +148,7 @@ class ChatSessionManager:
                 getattr(conv_entity_doc, "last_read_timestamp", 0.0) or time.time() * 1000.0
             )
 
-            new_session = ChatSession(  # 保存到局部变量，以便后续探针
+            new_session = ChatSession(
                 conversation_info=conversation_info_obj,
                 conversation_id=conversation_entity_uid,
                 llm_client=self.llm_client,
@@ -202,29 +209,33 @@ class ChatSessionManager:
             return f"平台 '{platform_id}'"
 
         if level == "cellular" and platform_id and conv_id:
-            # 根据路径信息构建完整的会话实体UID
-            conv_type, actual_id = conv_id.split(".", 1)
-            entity_uid = f"{platform_id}_{conv_type}_{actual_id}"
-            # 尝试从会话管理器获取会话实例
-            session = self.sessions.get(entity_uid)
-            if session and session.conversation_name:
-                conv_type_str = "群会话" if session.conversation_type == "group" else "私聊会话"
-                return (
-                    f"{conv_type_str}'{session.conversation_name}'"
-                    f"(ID: {session.conversation_info.conversation_id})"
-                )
-            # 如果没有会话实例，尝试从实体图服务获取会话实体
-            entity_doc = await self.entity_graph_service.get_entity_by_key(entity_uid)
-            if entity_doc and isinstance(entity_doc.details, ConversationDetails):
-                details = entity_doc.details
-                conv_type_str = "群会话" if details.type == "group" else "私聊会话"
-                return (
-                    f"{conv_type_str}'{details.name or details.conversation_id}'"
-                    f"(ID: {details.conversation_id})"
-                )
+            try:
+                # 根据路径信息构建完整的会话实体UID
+                conv_type, actual_id = conv_id.split(".", 1)
+                entity_uid = f"{platform_id}_{conv_type}_{actual_id}"
+                # 尝试从会话管理器获取会话实例
+                session = self.sessions.get(entity_uid)
+                if session and session.conversation_name:
+                    conv_type_str = "群会话" if session.conversation_type == "group" else "私聊会话"
+                    return (
+                        f"{conv_type_str}'{session.conversation_name}'"
+                        f"(ID: {session.conversation_info.conversation_id})"
+                    )
+                # 如果没有会话实例，尝试从实体图服务获取会话实体
+                entity_doc = await self.entity_graph_service.get_entity_by_key(entity_uid)
+                if entity_doc and isinstance(entity_doc.details, ConversationDetails):
+                    details = entity_doc.details
+                    conv_type_str = "群会话" if details.type == "group" else "私聊会话"
+                    return (
+                        f"{conv_type_str}'{details.name or details.conversation_id}'"
+                        f"(ID: {details.conversation_id})"
+                    )
 
-            logger.warning(f"无法获取会话实体 '{entity_uid}' 的详细信息。")
-            return f"一个位于平台'{platform_id}'下的未知会话"
+                logger.warning(f"无法获取会话实体 '{entity_uid}' 的详细信息。")
+                return f"一个位于平台'{platform_id}'下的未知会话"
+            except (ValueError, IndexError):
+                logger.error(f"解析会话路径 '{focus_path}' 失败。")
+                return f"一个位于平台'{platform_id}'下的未知会话"
 
         return f"一个未知的地方: {focus_path}"
 
@@ -245,11 +256,16 @@ class ChatSessionManager:
             logger.warning(f"收到的意识控制指令格式不正确或为空: {control_json}")
             return None
 
-        # --- 新增：指令路由 ---
         # 如果是“慢思考”指令，则进入内部辩论流程
         if command == "spawn_lite_pipelines":
             logger.info(f"检测到 [慢思考] 指令，参数: {params}，正在进入内部辩论流程...")
-            return await self._execute_deliberation_pipeline(params, current_internal_state)
+            session = self.core_logic._get_current_session() if self.core_logic else None
+            deliberation_result = await self._execute_deliberation_pipeline(
+                params,
+                current_internal_state,
+                session
+            )
+            return deliberation_result
 
         # 否则，执行常规的“意识转向”流程
         logger.info(f"检测到 [意识转向] 指令: {command}, 参数: {params}, 正在处理...")
@@ -282,45 +298,82 @@ class ChatSessionManager:
         return None
 
     async def _execute_deliberation_pipeline(
-        self, pipeline_params: dict, current_internal_state: dict
+        self,
+        pipeline_params: dict,
+        current_internal_state: dict,
+        session: ChatSession | None,
     ) -> dict | None:
         """执行一次性的、同步阻塞的内部辩论（慢思考）."""
-        if not self.core_logic or not self.core_logic.prompt_builder or not self.core_logic.thought_generator:
-            logger.error("核心逻辑、Prompt构建器或思考生成器未初始化，无法执行慢思考。")
+        if not self.deliberation_llm_client:
+            logger.error("慢思考客户端未初始化，无法执行内部辩论。")
             return None
 
-        prompt_builder: ThoughtPromptBuilder = self.core_logic.prompt_builder
-        thought_generator: ThoughtGenerator = self.core_logic.thought_generator
-
         try:
-            # 1. 构建专门用于辩论的Prompt
-            system_prompt, user_prompt, response_schema = prompt_builder.build_deliberation_prompts(
-                pipeline_params, current_internal_state
+            pipelines_block_lines = []
+            pipelines = pipeline_params.get("pipelines", [])
+            for i, p in enumerate(pipelines):
+                tag = p.get("tag", f"观点 {i+1}")
+                thought = p.get("initial_thought", "无具体想法。")
+                pipelines_block_lines.append(f"            <pipeline tag=\"{tag}\">")
+                pipelines_block_lines.append(
+                    f"                <initial_thought>{thought}</initial_thought>"
+                )
+                pipelines_block_lines.append("            </pipeline>")
+            pipelines_block = "\n".join(pipelines_block_lines)
+
+            persona_block = (
+                f'你是"{config.persona.bot_name}"；'
+                f"\n{config.persona.description}\n{config.persona.profile}"
             )
 
-            # 2. 调用LLM进行一次性辩论，获取最终决议
-            # 注意：这里是同步阻塞的，主思考循环会在此等待
-            deliberation_result_json = await thought_generator.generate_thought(
+            system_prompt = DELIBERATION_SYSTEM_PROMPT.format(
+                current_time=get_formatted_time_for_llm(),
+                bot_name=config.persona.bot_name,
+                slow_thought_persona=config.persona.slow_thought_persona,
+            )
+
+            user_prompt = DELIBERATION_USER_PROMPT.format(
+                fast_thought_person_block=persona_block,
+                mood=current_internal_state.get("mood", "未知"),
+                think=current_internal_state.get("think", "未知"),
+                goal=current_internal_state.get("goal", "未知"),
+                motivation=pipeline_params.get("motivation", "无明确动机"),
+                pipelines_block=pipelines_block,
+            )
+
+            deliberation_result_json = await self.deliberation_llm_client.make_llm_request(
+                prompt=user_prompt,
                 system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                image_inputs=[], # 慢思考是纯文本的
-                response_schema=response_schema,
-                focus_path=self.current_focus_path.get("target_path")
+                is_stream=False,
+                response_schema=DELIBERATION_RESPONSE_SCHEMA,
             )
 
-            if not deliberation_result_json or "resolution" not in deliberation_result_json:
-                logger.error("慢思考LLM调用失败或返回结果中缺少 'resolution'。")
+            if (
+                not deliberation_result_json
+                or deliberation_result_json.get("error")
+                or "resolution" not in deliberation_result_json
+            ):
+                logger.error(
+                    f"慢思考LLM调用失败或返回结果格式不正确: {deliberation_result_json}"
+                )
                 return None
 
-            # 3. 解析决议，并构建一个新的 internal_state
             resolution = deliberation_result_json["resolution"]
-            new_internal_state = {
-                "mood": resolution.get("final_mood", current_internal_state.get("mood")),
-                "think": resolution.get("final_think", current_internal_state.get("think")),
-                "goal": resolution.get("final_goal", current_internal_state.get("goal")),
-            }
+            if session:
+                session.working_memory = {
+                    "summary": resolution.get("summary"),
+                    "remaining_turns": resolution.get("memory_duration", 2),
+                }
+                logger.info(
+                    f"[{session.conversation_id}] 慢思考决议已生成，工作记忆已更新。"
+                    f"摘要将在接下来的 {session.working_memory['remaining_turns']} 轮思考中保持。"
+                )
 
-            # 4. 将这个经过深思熟虑后得到的新状态返回给调用者（DecisionDispatcher）
+            new_internal_state = {
+                "mood": resolution.get("final_mood"),
+                "think": resolution.get("final_think"),
+                "goal": resolution.get("final_goal"),
+            }
             return new_internal_state
 
         except Exception as e:

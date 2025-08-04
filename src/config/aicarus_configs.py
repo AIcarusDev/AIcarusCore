@@ -20,6 +20,9 @@ class PersonaSettings(ConfigBase):
     profile: str = ""
     """祂的个人资料信息."""
 
+    slow_thought_persona: str = "你的思考风格是审慎、多疑、逻辑严密且极度客观的。"
+    """祂的理性思考方式。"""
+
 
 @dataclass
 class LLMClientSettings(ConfigBase):
@@ -101,6 +104,9 @@ class AllModelPurposesConfig(ConfigBase):
 
     url_context_agent: ModelParams | None = None
     """URL 上下文代理模型，用于访问特定网址并总结内容。"""
+
+    deliberation: ModelParams | None = None
+    """“慢思考”辩论模型，用于内部决策审查。"""
 
 
 @dataclass

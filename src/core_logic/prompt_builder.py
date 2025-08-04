@@ -20,16 +20,16 @@ from src.platform_builders.registry import platform_builder_registry
 from src.prompt_templates import prompt_templates
 from src.prompt_templates.aicarus_rule import AICARUS_RULE
 from src.prompt_templates.core_prompts import CORE_BEHAVIOR_GUIDELINES, CORE_INPUT_XML_DESCRIPTION
-from src.prompt_templates.focus_chat_prompts import (
-    FOCUS_BEHAVIOR_GUIDELINES,
-    FOCUS_INPUT_XML_DESCRIPTION,
-)
-from src.prompt_templates.platform_prompts import PLATFORM_INPUT_XML_DESCRIPTION
 from src.prompt_templates.deliberation_prompts import (
     DELIBERATION_RESPONSE_SCHEMA,
     DELIBERATION_SYSTEM_PROMPT,
     DELIBERATION_USER_PROMPT,
 )
+from src.prompt_templates.focus_chat_prompts import (
+    FOCUS_BEHAVIOR_GUIDELINES,
+    FOCUS_INPUT_XML_DESCRIPTION,
+)
+from src.prompt_templates.platform_prompts import PLATFORM_INPUT_XML_DESCRIPTION
 
 if TYPE_CHECKING:
     from src.action.action_handler import ActionHandler
@@ -252,9 +252,9 @@ class ThoughtPromptBuilder:
             tag = p.get("tag", f"观点 {i+1}")
             thought = p.get("initial_thought", "无具体想法。")
             pipelines_block_lines.append(f"            <pipeline tag=\"{tag}\">")
-            pipelines_block_lines.append(f"                <initial_thought>{thought}</initial_thought>")
-            pipelines_block_lines.append(f"            </pipeline>")
-        
+            pipelines_block_lines.append(f"                <initial_thought>{thought}</initial_thought>")  # noqa: E501
+            pipelines_block_lines.append("            </pipeline>")
+
         pipelines_block = "\n".join(pipelines_block_lines)
 
         # 2. 填充 User Prompt 模板
@@ -276,7 +276,13 @@ class ThoughtPromptBuilder:
         logger.debug("=" * 30 + " 慢思考辩论 PROMPT " + "=" * 30)
         logger.debug(f"--- [SYSTEM PROMPT (慢思考)] ---\n{system_prompt}")
         logger.debug(f"--- [USER PROMPT (慢思考)] ---\n{user_prompt}")
-        logger.debug(f"--- [JSON SCHEMA (慢思考)] ---\n{json.dumps(response_schema, indent=2, ensure_ascii=False)}")
+        logger.debug(
+            f"--- [JSON SCHEMA (慢思考)] ---\n{json.dumps(
+            response_schema,
+            indent=2,
+            ensure_ascii=False
+        )}"
+        )
         logger.debug("=" * 31 + " END OF DEBUG " + "=" * 31)
 
         return system_prompt, user_prompt, response_schema
@@ -383,11 +389,23 @@ class ThoughtPromptBuilder:
         internal_info_block = await self.internal_info_builder.build_internal_info_block(
             is_context_switch=self.is_context_switch_flag,
             session=session,
-            # 把 history_components 里的 user_map 传进去！
-            user_map_from_prompt_builder=history_components.user_map
-            if history_components
-            else None,
+            user_map_from_prompt_builder=(
+                history_components.user_map if history_components else None
+            ),
         )
+
+        working_memory_block = "<!-- 当前没有来自“慢思考”的短期记忆。 -->"
+        if session and session.working_memory:
+            remaining = session.working_memory.get("remaining_turns", 0)
+            if remaining > 0:
+                summary = session.working_memory.get("summary", "无内容。")
+                working_memory_block = (
+                    f"<!-- 以下是你“慢思考”后的决策摘要，将在 {remaining} 轮思考后遗忘 -->\n"
+                    f"<summary_from_deliberation>\n{summary}\n</summary_from_deliberation>"
+                )
+                session.working_memory["remaining_turns"] -= 1
+            else:
+                session.working_memory.clear()
 
         action_response_block = await self._build_action_response_desc(handover_result)
         navigation_log_block = await self._build_navigation_log_block()
@@ -404,6 +422,7 @@ class ThoughtPromptBuilder:
                 current_level, current_platform_id, current_conv_id
             ),
             "navigation_log_block": navigation_log_block,
+            "working_memory_block": working_memory_block, # <-- 注入工作记忆
             "behavior_guidelines_block": self._get_behavior_guidelines_block(current_level),
             "internal_info_block": internal_info_block,
             "input_XML_block_description": self._get_input_xml_block_description(current_level),
@@ -480,7 +499,7 @@ class ThoughtPromptBuilder:
         return prompt_components.last_valid_text_message
 
     def _get_persona_block(self) -> str:
-        # (此函数逻辑不变)
+        """获取 Persona 块，包含机器人的名称、描述和档案信息."""
         return (
             f'你是"{config.persona.bot_name}"；'
             f"\n{config.persona.description}\n{config.persona.profile}"

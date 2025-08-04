@@ -7,7 +7,7 @@
 # Inner Settings (内部配置，一般无需更改此部分内容)
 # ===============================
 [inner]
-version = "0.0.18"  # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
+version = "0.0.19"  # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
 protocol_version = "1.5.0"  # Aicarus-Message-Protocol 标准通信协议版本号，确保与客户端和其他服务兼容。
 
 # ===============================
@@ -43,6 +43,12 @@ profile = """
 暴食（Gluttony）：0/10
 色欲（Lust）：8/10
 """
+
+# “慢思考”模式的专属人格，用于内部辩论。
+# 如果留空，将使用默认的纯理性人格。
+slow_thought_persona = "你的思考风格是审慎、多疑、逻辑严密且极度客观的。"
+
+
 # ===============================
 # LLM Models Configuration (LLM模型详细配置)
 # ===============================
@@ -91,9 +97,9 @@ model_name = "BAAI/bge-m3"  # 示例：使用 BAAI/bge-m3 模型
 # --- 专注聊天模型 ---
 [llm_models.focused_chat]
 provider = "gemini"
-model_name = "gemini-2.0-flash"
+model_name = "gemini-2.5-flash"
 temperature = 0.7
-max_output_tokens = 3000
+max_output_tokens = 60000
 
 # --- 自带联网搜索的谷歌模型 ---
 [llm_models.web_search_agent]
@@ -108,6 +114,14 @@ provider = "gemini"
 model_name = "gemini-2.0-flash"
 temperature = 0.5
 max_output_tokens = 8192
+
+# “慢思考”辩论模型：当AI触发内部辩论时，这个模型会被调用来执行深度思考。
+# 建议使用能力更强的模型以保证逻辑推理的质量。
+[llm_models.deliberation]
+provider = "gemini"
+model_name = "gemini-2.5-flash"
+temperature = 0.55
+max_output_tokens = 60000
 
 # ===============================
 # Core Logic Settings (核心逻辑设置)

@@ -45,6 +45,7 @@ class ServiceContainer:
     focused_chat_llm_client: ProcessorClient | None
     web_search_agent_client: ProcessorClient | None
     url_context_agent_client: ProcessorClient | None
+    deliberation_llm_client: ProcessorClient | None
 
     # 核心数据存储服务
     conn_manager: ArangoDBConnectionManager

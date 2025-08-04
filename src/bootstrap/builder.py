@@ -1,4 +1,4 @@
-# src/bootstrap/builder.py (本体论重构 V1.2 - 封神版)
+# src/bootstrap/builder.py
 import json
 import os
 from asyncio import Event as AsyncioEvent
@@ -69,14 +69,12 @@ class ServiceBuilder:
             db_services["thought_storage_service"], db_services["action_log_service"]
         )
 
-        # (±) UnreadInfoService 的创建，现在传入 entity_graph_service
         unread_info_service = UnreadInfoService(
             db_services["event_storage_service"], db_services["entity_graph_service"]
         )
 
         internal_info_builder = InternalInfoBuilder(db_services["thought_storage_service"])
 
-        # (±) ThoughtPromptBuilder 的创建，不再需要 conversation_storage_service
         prompt_builder = ThoughtPromptBuilder(
             unread_info_service=unread_info_service,
             internal_info_builder=internal_info_builder,
@@ -98,10 +96,8 @@ class ServiceBuilder:
         interruption_broker = InterruptionEventBroker()
         interruption_broker.start()
 
-        # (±) DefaultMessageProcessor 的创建，不再需要 conversation_storage_service
         message_processor = DefaultMessageProcessor(
             event_service=db_services["event_storage_service"],
-            # (--) conversation_service 已被移除
             entity_service=db_services["entity_graph_service"],
             action_log_service=db_services["action_log_service"],
             semantic_model=semantic_model,
@@ -158,7 +154,6 @@ class ServiceBuilder:
             interruption_broker=interruption_broker,
         )
 
-        # (±) ServiceContainer 的创建，不再包含 conversation_storage_service
         return ServiceContainer(
             main_consciousness_llm_client=llm_clients["main_consciousness_llm_client"],
             summary_llm_client=llm_clients["summary_llm_client"],
@@ -166,6 +161,7 @@ class ServiceBuilder:
             focused_chat_llm_client=llm_clients["focused_chat_llm_client"],
             web_search_agent_client=llm_clients["web_search_agent_client"],
             url_context_agent_client=llm_clients["url_context_agent_client"],
+            deliberation_llm_client=llm_clients["deliberation_llm_client"],  # <-- 存入容器
             conn_manager=db_services["conn_manager"],
             event_storage_service=db_services["event_storage_service"],
             thought_storage_service=db_services["thought_storage_service"],
@@ -242,6 +238,7 @@ class ServiceBuilder:
             "url_context_agent_client": _create_client(
                 models.url_context_agent, "url_context_agent"
             ),
+            "deliberation_llm_client": _create_client(models.deliberation, "deliberation"),
             "intrusive_thoughts_llm_client": _create_client(
                 models.intrusive_thoughts, "intrusive_thoughts"
             )
