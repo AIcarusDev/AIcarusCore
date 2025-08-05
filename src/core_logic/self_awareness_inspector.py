@@ -1,4 +1,4 @@
-# 文件路径: src/core_logic/self_awareness_inspector.py (重构后)
+# src/core_logic/self_awareness_inspector.py (重构后)
 import asyncio
 import time
 from typing import TYPE_CHECKING, Any
@@ -117,6 +117,8 @@ async def inspect_and_initialize_self_profile(
 
     logger.info(f"获取到 {len(group_list_data)} 个群聊的档案，开始更新存在关系及会话档案...")
     update_tasks = []
+
+    await entity_service.get_or_create_platform_entity(platform_id)
     for group_id, group_profile in group_list_data.items():
         if group_id and isinstance(group_profile, dict):
             bot_profile_for_conv = {

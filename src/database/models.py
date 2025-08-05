@@ -186,6 +186,8 @@ class EntityDocument:
     entity_uid: str
     entity_type: str  # "account" or "conversation" or "platform"
     details: DetailsUnion
+    _id: str | None = None   # 新增: 承载数据库返回的完整ID
+    _rev: str | None = None  # 新增: 承载数据库返回的修订版本号
     created_at: int = field(default_factory=lambda: int(time.time() * 1000))
     # 注意：像 last_processed_timestamp 和 attention_profile 这种主观状态，已被移出客观实体
     # 它们应该由更高层的逻辑或专门的“状态”集合来管理
