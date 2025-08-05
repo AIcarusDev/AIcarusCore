@@ -1,5 +1,4 @@
 # src/core_logic/decision_dispatcher.py
-import asyncio
 from typing import TYPE_CHECKING, Optional
 
 from aicarus_protocols import Event
@@ -50,7 +49,7 @@ async def _handle_send_message_action(
     params: dict,
     core_logic: "CoreLogic",
     processed_events_this_turn: list[Event] | None,
-) -> None:
+) -> bool:
     """专门处理 send_message 动作的特种行动小队."""
     # 1. 锁定时间戳
     if processed_events_this_turn:
@@ -155,15 +154,9 @@ async def process_llm_decision(
             logger.info("检测到 [send_message] 动作，将执行发送并立即触发后续思考。")
             action_params = normalized_action_payload.get(platform_key, {}).get("send_message", {})
             if session:
-                if not hasattr(session, "_background_tasks"):
-                    session._background_tasks = set()
-                task = asyncio.create_task(
-                    _handle_send_message_action(
-                        session, action_params, core_logic, processed_events_this_turn
-                    )
+                await _handle_send_message_action(
+                    session, action_params, core_logic, processed_events_this_turn
                 )
-                session._background_tasks.add(task)
-                task.add_done_callback(session._background_tasks.discard)
             else:
                 logger.error("send_message 动作只能在专注会话中执行，但当前会话实例为空！")
         else:
