@@ -1,4 +1,5 @@
-# src/database/services/entity_graph_service.py (本体论重构 V1.1 - 究极进化版)
+# src/database/services/entity_graph_service.py (本体论重构 V1.2 - 并发修复版)
+import asyncio  # 导入 asyncio
 import time
 from typing import Any
 
@@ -9,8 +10,6 @@ from src.database import (
     ArangoDBConnectionManager,
     CoreDBCollections,
 )
-
-# // (+) 导入我们刚刚创造的新神之卡组！
 from src.database.models import (
     AccountDetails,
     ConversationDetails,
@@ -22,7 +21,6 @@ from src.database.models import (
 
 logger = get_logger(__name__)
 
-# 保持这个特殊的自我Profile ID
 SELF_PROFILE_ID = "aic_person_0"
 
 
@@ -36,6 +34,9 @@ class EntityGraphService:
     def __init__(self, conn_manager: ArangoDBConnectionManager) -> None:
         """初始化实体图谱服务."""
         self.conn_manager = conn_manager
+        # --- [并发修复] 新增实例级别的缓存和锁 ---
+        self._platform_entity_cache: dict[str, EntityDocument] = {}
+        self._platform_entity_lock = asyncio.Lock()
 
     async def _get_collection(
         self, name: str, is_edge: bool = False
@@ -266,87 +267,94 @@ class EntityGraphService:
     async def get_or_create_platform_entity(
         self, platform_id: str, display_name: str | None = None
     ) -> EntityDocument:
-        """原子性地获取或创建一个平台实体(Entity)，并确保其拥有关联的主观侧写(Profile).
+        """原子性地获取或创建一个平台实体(Entity)，并确保其拥有关联的主观侧写(Profile)."""
+        # --- [并发修复] 步骤 1: 检查内存缓存 ---
+        if platform_id in self._platform_entity_cache:
+            return self._platform_entity_cache[platform_id]
 
-        此方法通过分离“实体创建”和“关系创建”两个步骤来规避 ArangoDB 的事务限制.
-        """
-        entity_uid = platform_id
-        timestamp = int(time.time() * 1000)
+        # --- [并发修复] 步骤 2: 加锁，防止多个协程同时进行数据库操作 ---
+        async with self._platform_entity_lock:
+            # 双重检查，可能在等待锁的时候，其他协程已经完成了工作
+            if platform_id in self._platform_entity_cache:
+                return self._platform_entity_cache[platform_id]
 
-        # --- 步骤 1: 确保平台实体存在 ---
-        # 这个查询只负责“施工”，确保平台实体被创建或找到，并返回。
-        details = PlatformDetails(platform_id=platform_id, display_name=display_name or platform_id)
-        entity_to_upsert = EntityDocument(
-            _key=entity_uid,
-            entity_uid=entity_uid,
-            entity_type="platform",
-            details=details,
-            created_at=timestamp,
-        )
+            # --- 原有逻辑在新锁的保护下执行 ---
+            entity_uid = platform_id
+            timestamp = int(time.time() * 1000)
 
-        upsert_entity_query = """
-            UPSERT { _key: @uid }
-            INSERT @doc_to_insert
-            UPDATE { details: { display_name: @display_name } } IN @@entities_coll
-            RETURN NEW
-        """
-        upsert_entity_bind_vars = {
-            "uid": entity_uid,
-            "doc_to_insert": entity_to_upsert.to_dict(),
-            "display_name": display_name or platform_id,
-            "@entities_coll": CoreDBCollections.ENTITIES,
-        }
-
-        entity_results = await self.conn_manager.execute_query(
-            upsert_entity_query, upsert_entity_bind_vars
-        )
-        if not (entity_results and entity_results[0]):
-            raise RuntimeError(f"创建或更新平台实体 '{entity_uid}' 时数据库未能返回有效文档。")
-
-        platform_entity_doc = entity_results[0]
-        platform_entity_id = platform_entity_doc["_id"]
-
-        # --- 步骤 2: 确保 Profile 和 represents 边存在 ---
-        # 这个查询负责“验收”和“装修”，它接收一个已存在的实体ID，然后为其建立关系。
-        profile_to_insert = EntityProfileDocument.create_new()
-
-        ensure_profile_query = """
-            LET platform_entity_id = @platform_entity_id
-
-            // 检查是否已有关联的Profile
-            LET existing_profile = (
-                FOR p IN 1..1 INBOUND platform_entity_id @@represents_coll
-                LIMIT 1
-                RETURN p
-            )[0]
-
-            // 如果没有Profile，就创建一个新的并用'represents'边连接它
-            LET profile_creation_result = (
-                FILTER existing_profile == null
-                LET new_profile = (INSERT @profile_doc IN @@profiles_coll RETURN NEW)[0]
-                LET edge_doc = {
-                    _key: CONCAT(new_profile._key, "_represents_", @entity_key),
-                    _from: new_profile._id,
-                    _to: platform_entity_id,
-                    created_at: @timestamp
-                }
-                INSERT edge_doc IN @@represents_coll
+            details = PlatformDetails(
+                platform_id=platform_id, display_name=display_name or platform_id
             )
-            RETURN true
-        """
-        ensure_profile_bind_vars = {
-            "platform_entity_id": platform_entity_id,
-            "profile_doc": profile_to_insert.to_dict(),
-            "entity_key": entity_uid,
-            "timestamp": timestamp,
-            "@profiles_coll": CoreDBCollections.ENTITY_PROFILES,
-            "@represents_coll": CoreDBCollections.REPRESENTS,
-        }
+            entity_to_upsert = EntityDocument(
+                _key=entity_uid,
+                entity_uid=entity_uid,
+                entity_type="platform",
+                details=details,
+                created_at=timestamp,
+            )
 
-        await self.conn_manager.execute_query(ensure_profile_query, ensure_profile_bind_vars)
+            upsert_entity_query = """
+                UPSERT { _key: @uid }
+                INSERT @doc_to_insert
+                UPDATE { details: { display_name: @display_name } } IN @@entities_coll
+                RETURN NEW
+            """
+            upsert_entity_bind_vars = {
+                "uid": entity_uid,
+                "doc_to_insert": entity_to_upsert.to_dict(),
+                "display_name": display_name or platform_id,
+                "@entities_coll": CoreDBCollections.ENTITIES,
+            }
 
-        logger.debug(f"成功确保平台实体 '{entity_uid}' 及其 Profile 和关系存在。")
-        return EntityDocument.from_dict(platform_entity_doc)
+            entity_results = await self.conn_manager.execute_query(
+                upsert_entity_query, upsert_entity_bind_vars
+            )
+            if not (entity_results and entity_results[0]):
+                raise RuntimeError(f"创建或更新平台实体 '{entity_uid}' 时数据库未能返回有效文档。")
+
+            platform_entity_doc_dict = entity_results[0]
+            platform_entity_id = platform_entity_doc_dict["_id"]
+
+            profile_to_insert = EntityProfileDocument.create_new()
+
+            ensure_profile_query = """
+                LET platform_entity_id = @platform_entity_id
+                LET existing_profile = (
+                    FOR p IN 1..1 INBOUND platform_entity_id @@represents_coll
+                    LIMIT 1
+                    RETURN p
+                )[0]
+                LET profile_creation_result = (
+                    FILTER existing_profile == null
+                    LET new_profile = (INSERT @profile_doc IN @@profiles_coll RETURN NEW)[0]
+                    LET edge_doc = {
+                        _key: CONCAT(new_profile._key, "_represents_", @entity_key),
+                        _from: new_profile._id,
+                        _to: platform_entity_id,
+                        created_at: @timestamp
+                    }
+                    INSERT edge_doc IN @@represents_coll
+                )
+                RETURN true
+            """
+            ensure_profile_bind_vars = {
+                "platform_entity_id": platform_entity_id,
+                "profile_doc": profile_to_insert.to_dict(),
+                "entity_key": entity_uid,
+                "timestamp": timestamp,
+                "@profiles_coll": CoreDBCollections.ENTITY_PROFILES,
+                "@represents_coll": CoreDBCollections.REPRESENTS,
+            }
+
+            await self.conn_manager.execute_query(ensure_profile_query, ensure_profile_bind_vars)
+
+            platform_entity_obj = EntityDocument.from_dict(platform_entity_doc_dict)
+
+            # --- [并发修复] 步骤 3: 将结果存入缓存 ---
+            self._platform_entity_cache[platform_id] = platform_entity_obj
+
+            logger.debug(f"成功确保平台实体 '{entity_uid}' 及其 Profile 和关系存在。")
+            return platform_entity_obj
 
     async def get_profile_details_by_entity(
         self, platform: str, platform_id: str
