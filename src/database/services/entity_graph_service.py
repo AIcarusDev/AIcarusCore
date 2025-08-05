@@ -606,25 +606,21 @@ class EntityGraphService:
         name: str | None = None,
         extra: dict | None = None,
     ) -> EntityDocument:
-        """获取或创建一个会话实体.
+        """获取或创建一个会話实体(Entity)，并确保其拥有关联的主观侧写(Profile).
 
-        获取或创建一个会话实体(Entity)，并确保其拥有关联的主观侧写(Profile)
-        以及一条指向其所属平台实体的 `resides_on` 边。
-        这是一个原子性的操作，保证了数据的一致性。
+        以及一条指向其所属平台实体的 `resides_on` 边.
+        此方法通过分离“实体创建”和“关系创建”两个步骤来规避 ArangoDB 的事务限制.
         """
-        # 步骤 1: (Python 层面) 确保平台实体存在。
-        # 这是一个安全兜底操作，在正常流程中，平台实体已由 core_ws_server 创建。
-        # 我们需要它的 _id 来建立关系。
+        # 步骤 1: (Python 层面) 获取平台实体的完整 ID (_id)。
+        # 这是一个安全操作，因为它假定平台实体已被上游逻辑创建。
         platform_entity = await self.get_or_create_platform_entity(platform)
-        platform_entity_id = platform_entity._id  # 获取完整的文档ID, e.g., "Entities/qq"
+        if not (platform_entity and platform_entity._id):
+            raise RuntimeError(f"未能为平台 '{platform}' 获取有效的实体文档。")
+        platform_entity_id = platform_entity._id
 
-        # 步骤 2: 准备会话实体及其 Profile 的创建参数
-        entity_uid = f"{platform}_{conv_type}_{conversation_id}"
-
-        # 准备一个新的、用于可能创建的 Profile 的文档
-        profile_to_insert = EntityProfileDocument.create_new()
-
-        # 准备要创建或更新的 Conversation Entity 的细节
+        # --- 步骤 2: 确保会话实体存在 ---
+        conv_entity_uid = f"{platform}_{conv_type}_{conversation_id}"
+        timestamp = int(time.time() * 1000)
         details = ConversationDetails(
             platform=platform,
             conversation_id=conversation_id,
@@ -634,45 +630,60 @@ class EntityGraphService:
             avatar=None,
             extra=extra or {},
         )
-        entity_to_upsert = EntityDocument(
-            _key=entity_uid,
-            entity_uid=entity_uid,
+        conv_entity_to_upsert = EntityDocument(
+            _key=conv_entity_uid,
+            entity_uid=conv_entity_uid,
             entity_type="conversation",
             details=details,
+            created_at=timestamp,
         )
 
-        # 步骤 3: 执行简化的 AQL 查询，专注于会话实体及其关系
-        # 这个查询现在假定平台实体已存在，并通过 @platform_entity_id 传入。
-        query = """
-            LET entity_doc = @entity_doc
+        upsert_conv_entity_query = """
+            UPSERT { _key: @uid }
+            INSERT @doc_to_insert
+            UPDATE { details: { name: @name, extra: @extra } } IN @@entities_coll
+            RETURN NEW
+        """
+        upsert_conv_entity_bind_vars = {
+            "uid": conv_entity_uid,
+            "doc_to_insert": conv_entity_to_upsert.to_dict(),
+            "name": name,
+            "extra": extra or {},
+            "@entities_coll": CoreDBCollections.ENTITIES,
+        }
+
+        conv_entity_results = await self.conn_manager.execute_query(
+            upsert_conv_entity_query, upsert_conv_entity_bind_vars
+        )
+        if not (conv_entity_results and conv_entity_results[0]):
+            raise RuntimeError(f"创建或更新会话实体 '{conv_entity_uid}' 时数据库未能返回有效文档。")
+
+        conv_entity_doc = conv_entity_results[0]
+
+        # --- 步骤 3: 确保 Profile 和关系边存在 ---
+        profile_to_insert = EntityProfileDocument.create_new()
+
+        ensure_relations_query = """
             LET profile_doc = @profile_doc
             LET timestamp = @timestamp
+            LET conv_entity_id = @conv_entity_id
             LET platform_entity_id = @platform_entity_id
 
-            // 阶段一: 原子性地查找或创建会话实体
-            LET conv_entity_result = (
-                UPSERT { _key: entity_doc._key }
-                INSERT entity_doc
-                UPDATE { details: { name: entity_doc.details.name, extra: entity_doc.details.extra } }
-                IN @@entities_coll
-                RETURN NEW
-            )[0]
-
-            // 阶段二: 确保会话实体拥有自己的 Profile
-            LET profile_creation_result = (
-                FILTER (FOR p IN 1..1 INBOUND conv_entity_result @@represents_coll LIMIT 1 RETURN 1)[0] == null
+            // 子任务1: 确保 Profile 和 represents 边存在
+            LET ensure_profile = (
+                FILTER (FOR p IN 1..1 INBOUND conv_entity_id @@represents_coll LIMIT 1 RETURN 1)[0] == null
                 LET new_profile = (INSERT profile_doc IN @@profiles_coll RETURN NEW)[0]
                 INSERT {
-                    _key: CONCAT(new_profile._key, "_represents_", conv_entity_result._key),
+                    _key: CONCAT(new_profile._key, "_represents_", @conv_entity_key),
                     _from: new_profile._id,
-                    _to: conv_entity_result._id,
+                    _to: conv_entity_id,
                     created_at: timestamp
                 } IN @@represents_coll
             )
 
-            // 阶段三: 确保 `resides_on` 边存在，连接会话和平台
+            // 子任务2: 确保 `resides_on` 边存在
             LET resides_on_edge = {
-                _from: conv_entity_result._id,
+                _from: conv_entity_id,
                 _to: platform_entity_id,
                 created_at: timestamp
             }
@@ -680,28 +691,24 @@ class EntityGraphService:
             INSERT resides_on_edge
             UPDATE {} IN @@resides_on_coll
 
-            // 最终返回完整、最新的会话实体文档
-            RETURN conv_entity_result
+            RETURN true
         """  # noqa: E501
 
-        bind_vars = {
+        ensure_relations_bind_vars = {
             "platform_entity_id": platform_entity_id,
-            "entity_doc": entity_to_upsert.to_dict(),
+            "conv_entity_id": conv_entity_doc["_id"],
+            "conv_entity_key": conv_entity_uid,
             "profile_doc": profile_to_insert.to_dict(),
-            "timestamp": int(time.time() * 1000),
-            "@entities_coll": CoreDBCollections.ENTITIES,
+            "timestamp": timestamp,  # 复用之前生成的timestamp
             "@profiles_coll": CoreDBCollections.ENTITY_PROFILES,
             "@represents_coll": CoreDBCollections.REPRESENTS,
             "@resides_on_coll": CoreDBCollections.RESIDES_ON,
         }
 
-        results = await self.conn_manager.execute_query(query, bind_vars)
+        await self.conn_manager.execute_query(ensure_relations_query, ensure_relations_bind_vars)
 
-        if results and results[0]:
-            logger.debug(f"成功获取/创建会话实体 '{entity_uid}' 并链接到平台 '{platform}'。")
-            return EntityDocument.from_dict(results[0])
-        else:
-            raise RuntimeError(f"创建或更新会话实体 '{entity_uid}' 时数据库未能返回有效文档。")
+        logger.debug(f"成功确保会话实体 '{conv_entity_uid}' 及其 Profile 和关系存在。")
+        return EntityDocument.from_dict(conv_entity_doc)
 
     async def find_conversation_entity_by_platform_and_id(
         self, platform: str, conversation_id: str

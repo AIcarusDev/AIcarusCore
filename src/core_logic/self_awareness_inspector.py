@@ -182,13 +182,15 @@ async def _update_single_group_info(
     """[重构后] 一个辅助函数，用于原子化地更新单个群聊的信息."""
     try:
         # 1. 获取或创建这个群聊的客观实体 (Entity)。
+        #    这一步现在是健壮的，因为它内部已经解决了并发和事务问题。
         conversation_entity = await entity_service.get_or_create_conversation_entity(
             conversation_id=conversation_id,
             platform=platform,
             conv_type="group",
             name=group_profile.get("group_name"),
         )
-        conversation_entity_uid = conversation_entity._key  # 获取这个群聊实体的UID
+        # 从返回的强类型对象中获取 _key
+        conversation_entity_uid = conversation_entity._key
 
         # 2. 更新“祂”在这个会话实体中的存在关系 (is_present_in 边)。
         from aicarus_protocols import UserInfo as ProtocolUserInfo
@@ -214,4 +216,6 @@ async def _update_single_group_info(
         )
 
     except Exception as e:
-        logger.error(f"更新群聊 '{conversation_id}' 的实体信息时失败: {e}", exc_info=True)
+        # 向上抛出异常，让顶层的循环知道此任务失败
+        logger.error(f"更新群聊 '{conversation_id}' 的实体信息时在底层失败: {e}", exc_info=True)
+        raise e
