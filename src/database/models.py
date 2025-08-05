@@ -30,6 +30,7 @@ class CoreDBCollections:
     # --- 边集合 (Edge Collections) ---
     REPRESENTS = "represents"  # _from: EntityProfiles, _to: Entities (特指 Account 类型的 Entity)
     IS_PRESENT_IN = "is_present_in"  # _from: Entities (Account), _to: Entities (Conversation)
+    RESIDES_ON = "resides_on"  # _from: Entities (Conversation), _to: Entities (Platform)
     PRECEDES_THOUGHT = "precedes_thought"  # 新的“线”，用来串点！
     LEADS_TO_ACTION = "leads_to_action"  # 这个也最好有
 
@@ -92,6 +93,7 @@ class CoreDBCollections:
             # Edges
             cls.REPRESENTS,
             cls.IS_PRESENT_IN,
+            cls.RESIDES_ON,
             cls.PRECEDES_THOUGHT,
             cls.LEADS_TO_ACTION,
         }
@@ -104,7 +106,13 @@ class CoreDBCollections:
     @classmethod
     def get_edge_collection_names(cls) -> set[str]:
         """返回所有在图中作为“边”的集合的名称."""
-        return {cls.REPRESENTS, cls.IS_PRESENT_IN, cls.PRECEDES_THOUGHT, cls.LEADS_TO_ACTION}
+        return {
+            cls.REPRESENTS,
+            cls.IS_PRESENT_IN,
+            cls.RESIDES_ON,
+            cls.PRECEDES_THOUGHT,
+            cls.LEADS_TO_ACTION,
+        }
 
     @classmethod
     def get_vertex_collection_names(cls) -> set[str]:
@@ -159,8 +167,15 @@ class ConversationDetails(BaseEntityDetails):
     extra: dict[str, Any] = field(default_factory=dict)
 
 
-# 创建一个所有 Details 类型的联合体，就像组建一个后宫团一样！
-DetailsUnion = AccountDetails | ConversationDetails
+@dataclass
+class PlatformDetails(BaseEntityDetails):
+    """为 "platform" 类型定义的 Details，存放客观平台信息."""
+
+    platform_id: str
+    display_name: str | None = None
+
+
+DetailsUnion = AccountDetails | ConversationDetails | PlatformDetails
 
 
 @dataclass
@@ -168,8 +183,8 @@ class EntityDocument:
     """新世界的基石！代表 'Entities' 集合中的一个客观实体节点，可以是账户或会话."""
 
     _key: str  # e.g., "qq_123456" or "qq_group_98765"
-    entity_uid: str  # 同上
-    entity_type: str  # "account" or "conversation"
+    entity_uid: str
+    entity_type: str  # "account" or "conversation" or "platform"
     details: DetailsUnion
     created_at: int = field(default_factory=lambda: int(time.time() * 1000))
     # 注意：像 last_processed_timestamp 和 attention_profile 这种主观状态，已被移出客观实体
@@ -197,6 +212,10 @@ class EntityDocument:
             known_fields = {f.name for f in fields(ConversationDetails)}
             filtered_details_data = {k: v for k, v in details_data.items() if k in known_fields}
             details_obj = ConversationDetails(**filtered_details_data)
+        elif entity_type == "platform":
+            known_fields = {f.name for f in fields(PlatformDetails)}
+            filtered_details_data = {k: v for k, v in details_data.items() if k in known_fields}
+            details_obj = PlatformDetails(**filtered_details_data)
         else:
             raise ValueError(f"从数据库加载实体时遇到未知的 entity_type: {entity_type}")
 

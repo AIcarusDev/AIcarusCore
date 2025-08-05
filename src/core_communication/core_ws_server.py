@@ -130,6 +130,11 @@ class CoreWebsocketServer:
         self, adapter_id: str, display_name: str, websocket: WebSocketServerProtocol
     ) -> None:
         """注册一个新的适配器，并根据其需求和类型决定处理流程."""
+        # 在注册任何适配器之前，首先确保其在我们的认知图谱中拥有一个客观实体。
+        # 这是一个幂等操作，如果实体已存在，它会直接返回；
+        # 如果不存在，则会原子性地创建实体及其Profile。
+        await self.entity_service.get_or_create_platform_entity(adapter_id, display_name)
+
         current_timestamp = time.time()
         self._websocket_to_adapter_id[websocket] = adapter_id
         self.adapter_clients_info[adapter_id] = {

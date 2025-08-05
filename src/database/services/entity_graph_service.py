@@ -17,6 +17,7 @@ from src.database.models import (
     EntityDocument,
     EntityProfileDocument,
     MembershipProperties,
+    PlatformDetails,
 )
 
 logger = get_logger(__name__)
@@ -261,6 +262,70 @@ class EntityGraphService:
         except Exception as e:
             logger.error(f"更新存在关系时失败: {e}", exc_info=True)
             return False
+
+    async def get_or_create_platform_entity(
+        self, platform_id: str, display_name: str | None = None
+    ) -> EntityDocument:
+        """原子性地获取或创建一个平台实体(Entity)，并确保其拥有关联的主观侧写(Profile)."""
+        entity_uid = platform_id  # 平台实体的UID就是其ID
+
+        profile_to_insert = EntityProfileDocument.create_new()
+        details = PlatformDetails(platform_id=platform_id, display_name=display_name or platform_id)
+        entity_to_upsert = EntityDocument(
+            _key=entity_uid,
+            entity_uid=entity_uid,
+            entity_type="platform",
+            details=details,
+        )
+
+        query = """
+            LET entity_doc = @entity_doc
+            LET profile_doc = @profile_doc
+            LET timestamp = @timestamp
+
+            // 步骤 1: 原子性地查找或创建平台实体
+            LET platform_entity_result = (
+                UPSERT { _key: entity_doc._key }
+                INSERT entity_doc
+                UPDATE { details: { display_name: entity_doc.details.display_name } }
+                IN @@entities_coll
+                RETURN NEW
+            )[0]
+
+            // 步骤 2: 检查实体是否已有关联的Profile
+            LET existing_profile = (
+                FOR p IN 1..1 INBOUND platform_entity_result @@represents_coll
+                LIMIT 1
+                RETURN p
+            )[0]
+
+            // 步骤 3: 如果没有Profile，就创建一个新的并用'represents'边连接它
+            LET profile_creation_result = (
+                FILTER existing_profile == null
+                LET new_profile = (INSERT profile_doc IN @@profiles_coll RETURN NEW)[0]
+                LET edge_doc = {
+                    _key: CONCAT(new_profile._key, "_represents_", platform_entity_result._key),
+                    _from: new_profile._id,
+                    _to: platform_entity_result._id,
+                    created_at: timestamp
+                }
+                INSERT edge_doc IN @@represents_coll
+                RETURN { created: true }
+            )
+            RETURN platform_entity_result
+        """
+        bind_vars = {
+            "entity_doc": entity_to_upsert.to_dict(),
+            "profile_doc": profile_to_insert.to_dict(),
+            "timestamp": int(time.time() * 1000),
+            "@entities_coll": CoreDBCollections.ENTITIES,
+            "@profiles_coll": CoreDBCollections.ENTITY_PROFILES,
+            "@represents_coll": CoreDBCollections.REPRESENTS,
+        }
+        results = await self.conn_manager.execute_query(query, bind_vars)
+        if results and results[0]:
+            return EntityDocument.from_dict(results[0])
+        raise RuntimeError(f"创建或更新平台实体 '{entity_uid}' 时数据库未能返回有效文档。")
 
     async def get_profile_details_by_entity(
         self, platform: str, platform_id: str
@@ -520,10 +585,19 @@ class EntityGraphService:
         name: str | None = None,
         extra: dict | None = None,
     ) -> EntityDocument:
-        """获取或创建一个会话实体(Entity)，并确保其拥有一个关联的主观侧写(EntityProfile).
+        """获取或创建一个会话实体.
 
-        这是一个原子性的操作，保证了数据的一致性.
+        获取或创建一个会话实体(Entity)，并确保其拥有关联的主观侧写(Profile)
+        以及一条指向其所属平台实体的 `resides_on` 边。
+        这是一个原子性的操作，保证了数据的一致性。
         """
+        # 步骤 1: (Python 层面) 确保平台实体存在。
+        # 这是一个安全兜底操作，在正常流程中，平台实体已由 core_ws_server 创建。
+        # 我们需要它的 _id 来建立关系。
+        platform_entity = await self.get_or_create_platform_entity(platform)
+        platform_entity_id = platform_entity._id  # 获取完整的文档ID, e.g., "Entities/qq"
+
+        # 步骤 2: 准备会话实体及其 Profile 的创建参数
         entity_uid = f"{platform}_{conv_type}_{conversation_id}"
 
         # 准备一个新的、用于可能创建的 Profile 的文档
@@ -546,65 +620,68 @@ class EntityGraphService:
             details=details,
         )
 
-        # 这段 AQL 查询是整个操作的核心，它在一个事务中完成所有事情：
-        # 1. UPSERT 会话实体：如果不存在就创建，如果存在就用最新的信息更新它。
-        # 2. 检查这个会话实体是否已经有一个关联的 Profile。
-        # 3. 如果没有，就创建一个新的 Profile，并用 'represents' 边把它和会话实体连接起来。
+        # 步骤 3: 执行简化的 AQL 查询，专注于会话实体及其关系
+        # 这个查询现在假定平台实体已存在，并通过 @platform_entity_id 传入。
         query = """
             LET entity_doc = @entity_doc
             LET profile_doc = @profile_doc
             LET timestamp = @timestamp
+            LET platform_entity_id = @platform_entity_id
 
-            // 步骤 1: 原子性地查找或创建会话实体
+            // 阶段一: 原子性地查找或创建会话实体
             LET conv_entity_result = (
                 UPSERT { _key: entity_doc._key }
                 INSERT entity_doc
-                UPDATE { details: { name: entity_doc.details.name, extra: entity_doc.details.extra } } // 仅更新名称和额外信息
+                UPDATE { details: { name: entity_doc.details.name, extra: entity_doc.details.extra } }
                 IN @@entities_coll
                 RETURN NEW
             )[0]
 
-            // 步骤 2: 检查这个实体是否已经有关联的Profile
-            LET existing_profile = (
-                FOR p IN 1..1 INBOUND conv_entity_result @@represents_coll
-                LIMIT 1
-                RETURN p
-            )[0]
-
-            // 步骤 3: 如果没有Profile，就创建一个新的并用'represents'边连接它
+            // 阶段二: 确保会话实体拥有自己的 Profile
             LET profile_creation_result = (
-                FILTER existing_profile == null
+                FILTER (FOR p IN 1..1 INBOUND conv_entity_result @@represents_coll LIMIT 1 RETURN 1)[0] == null
                 LET new_profile = (INSERT profile_doc IN @@profiles_coll RETURN NEW)[0]
-                LET edge_doc = {
+                INSERT {
                     _key: CONCAT(new_profile._key, "_represents_", conv_entity_result._key),
                     _from: new_profile._id,
                     _to: conv_entity_result._id,
                     created_at: timestamp
-                }
-                INSERT edge_doc IN @@represents_coll
-                RETURN { created: true }
+                } IN @@represents_coll
             )
+
+            // 阶段三: 确保 `resides_on` 边存在，连接会话和平台
+            LET resides_on_edge = {
+                _from: conv_entity_result._id,
+                _to: platform_entity_id,
+                created_at: timestamp
+            }
+            UPSERT { _from: resides_on_edge._from, _to: resides_on_edge._to }
+            INSERT resides_on_edge
+            UPDATE {} IN @@resides_on_coll
 
             // 最终返回完整、最新的会话实体文档
             RETURN conv_entity_result
         """  # noqa: E501
 
         bind_vars = {
+            "platform_entity_id": platform_entity_id,
             "entity_doc": entity_to_upsert.to_dict(),
             "profile_doc": profile_to_insert.to_dict(),
             "timestamp": int(time.time() * 1000),
             "@entities_coll": CoreDBCollections.ENTITIES,
             "@profiles_coll": CoreDBCollections.ENTITY_PROFILES,
             "@represents_coll": CoreDBCollections.REPRESENTS,
+            "@resides_on_coll": CoreDBCollections.RESIDES_ON,
         }
 
         results = await self.conn_manager.execute_query(query, bind_vars)
 
         if results and results[0]:
-            logger.debug(f"成功获取或创建了会话实体 '{entity_uid}' 并确保其拥有主观侧写 Profile。")
+            logger.debug(
+                f"成功获取/创建会话实体 '{entity_uid}' 并链接到平台 '{platform}'。"
+            )
             return EntityDocument.from_dict(results[0])
         else:
-            # 这种情况理论上不应该发生，除非AQL查询本身有语法错误或数据库连接问题
             raise RuntimeError(f"创建或更新会话实体 '{entity_uid}' 时数据库未能返回有效文档。")
 
     async def find_conversation_entity_by_platform_and_id(

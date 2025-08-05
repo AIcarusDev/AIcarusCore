@@ -198,6 +198,11 @@ class ArangoDBConnectionManager:
                     # 实体（人）现在只能存在于另一种实体（会话）中
                     "to": [CoreDBCollections.ENTITIES],
                 },
+                {
+                    "collection": CoreDBCollections.RESIDES_ON,
+                    "from": [CoreDBCollections.ENTITIES],  # 会话实体
+                    "to": [CoreDBCollections.ENTITIES],  # 平台实体
+                },
             ]
             try:
                 self.main_graph = await self.db.create_graph(
