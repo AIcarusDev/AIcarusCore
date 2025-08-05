@@ -266,66 +266,87 @@ class EntityGraphService:
     async def get_or_create_platform_entity(
         self, platform_id: str, display_name: str | None = None
     ) -> EntityDocument:
-        """原子性地获取或创建一个平台实体(Entity)，并确保其拥有关联的主观侧写(Profile)."""
-        entity_uid = platform_id  # 平台实体的UID就是其ID
+        """原子性地获取或创建一个平台实体(Entity)，并确保其拥有关联的主观侧写(Profile).
 
-        profile_to_insert = EntityProfileDocument.create_new()
+        此方法通过分离“实体创建”和“关系创建”两个步骤来规避 ArangoDB 的事务限制.
+        """
+        entity_uid = platform_id
+        timestamp = int(time.time() * 1000)
+
+        # --- 步骤 1: 确保平台实体存在 ---
+        # 这个查询只负责“施工”，确保平台实体被创建或找到，并返回。
         details = PlatformDetails(platform_id=platform_id, display_name=display_name or platform_id)
         entity_to_upsert = EntityDocument(
             _key=entity_uid,
             entity_uid=entity_uid,
             entity_type="platform",
             details=details,
+            created_at=timestamp,
         )
 
-        query = """
-            LET entity_doc = @entity_doc
-            LET profile_doc = @profile_doc
-            LET timestamp = @timestamp
+        upsert_entity_query = """
+            UPSERT { _key: @uid }
+            INSERT @doc_to_insert
+            UPDATE { details: { display_name: @display_name } } IN @@entities_coll
+            RETURN NEW
+        """
+        upsert_entity_bind_vars = {
+            "uid": entity_uid,
+            "doc_to_insert": entity_to_upsert.to_dict(),
+            "display_name": display_name or platform_id,
+            "@entities_coll": CoreDBCollections.ENTITIES,
+        }
 
-            // 步骤 1: 原子性地查找或创建平台实体
-            LET platform_entity_result = (
-                UPSERT { _key: entity_doc._key }
-                INSERT entity_doc
-                UPDATE { details: { display_name: entity_doc.details.display_name } }
-                IN @@entities_coll
-                RETURN NEW
-            )[0]
+        entity_results = await self.conn_manager.execute_query(
+            upsert_entity_query, upsert_entity_bind_vars
+        )
+        if not (entity_results and entity_results[0]):
+            raise RuntimeError(f"创建或更新平台实体 '{entity_uid}' 时数据库未能返回有效文档。")
 
-            // 步骤 2: 检查实体是否已有关联的Profile
+        platform_entity_doc = entity_results[0]
+        platform_entity_id = platform_entity_doc["_id"]
+
+        # --- 步骤 2: 确保 Profile 和 represents 边存在 ---
+        # 这个查询负责“验收”和“装修”，它接收一个已存在的实体ID，然后为其建立关系。
+        profile_to_insert = EntityProfileDocument.create_new()
+
+        ensure_profile_query = """
+            LET platform_entity_id = @platform_entity_id
+
+            // 检查是否已有关联的Profile
             LET existing_profile = (
-                FOR p IN 1..1 INBOUND platform_entity_result @@represents_coll
+                FOR p IN 1..1 INBOUND platform_entity_id @@represents_coll
                 LIMIT 1
                 RETURN p
             )[0]
 
-            // 步骤 3: 如果没有Profile，就创建一个新的并用'represents'边连接它
+            // 如果没有Profile，就创建一个新的并用'represents'边连接它
             LET profile_creation_result = (
                 FILTER existing_profile == null
-                LET new_profile = (INSERT profile_doc IN @@profiles_coll RETURN NEW)[0]
+                LET new_profile = (INSERT @profile_doc IN @@profiles_coll RETURN NEW)[0]
                 LET edge_doc = {
-                    _key: CONCAT(new_profile._key, "_represents_", platform_entity_result._key),
+                    _key: CONCAT(new_profile._key, "_represents_", @entity_key),
                     _from: new_profile._id,
-                    _to: platform_entity_result._id,
-                    created_at: timestamp
+                    _to: platform_entity_id,
+                    created_at: @timestamp
                 }
                 INSERT edge_doc IN @@represents_coll
-                RETURN { created: true }
             )
-            RETURN platform_entity_result
+            RETURN true
         """
-        bind_vars = {
-            "entity_doc": entity_to_upsert.to_dict(),
+        ensure_profile_bind_vars = {
+            "platform_entity_id": platform_entity_id,
             "profile_doc": profile_to_insert.to_dict(),
-            "timestamp": int(time.time() * 1000),
-            "@entities_coll": CoreDBCollections.ENTITIES,
+            "entity_key": entity_uid,
+            "timestamp": timestamp,
             "@profiles_coll": CoreDBCollections.ENTITY_PROFILES,
             "@represents_coll": CoreDBCollections.REPRESENTS,
         }
-        results = await self.conn_manager.execute_query(query, bind_vars)
-        if results and results[0]:
-            return EntityDocument.from_dict(results[0])
-        raise RuntimeError(f"创建或更新平台实体 '{entity_uid}' 时数据库未能返回有效文档。")
+
+        await self.conn_manager.execute_query(ensure_profile_query, ensure_profile_bind_vars)
+
+        logger.debug(f"成功确保平台实体 '{entity_uid}' 及其 Profile 和关系存在。")
+        return EntityDocument.from_dict(platform_entity_doc)
 
     async def get_profile_details_by_entity(
         self, platform: str, platform_id: str
@@ -677,9 +698,7 @@ class EntityGraphService:
         results = await self.conn_manager.execute_query(query, bind_vars)
 
         if results and results[0]:
-            logger.debug(
-                f"成功获取/创建会话实体 '{entity_uid}' 并链接到平台 '{platform}'。"
-            )
+            logger.debug(f"成功获取/创建会话实体 '{entity_uid}' 并链接到平台 '{platform}'。")
             return EntityDocument.from_dict(results[0])
         else:
             raise RuntimeError(f"创建或更新会话实体 '{entity_uid}' 时数据库未能返回有效文档。")
