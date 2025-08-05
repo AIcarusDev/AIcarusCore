@@ -79,7 +79,7 @@ class ActionHandler:
     def _get_safe_workspace_root(self) -> Path:
         """一个安全的获取器，确保在使用 _workspace_root 之前它一定被初始化了."""
         if self._workspace_root is None:
-            # 这是我们的保险丝！
+            # 这是第一次调用，必须初始化
             self._initialize_workspace()
         return self._workspace_root
 
@@ -151,7 +151,7 @@ class ActionHandler:
         logger.info("ActionHandler 的依赖已成功设置。")
 
     def set_thought_trigger(self, trigger_event: asyncio.Event | None) -> None:
-        """设置主思维触发器 (在竞速模式下，此触发器主要由CoreLogic自身管理)."""
+        """设置主思维触发器."""
         self.thought_trigger = trigger_event
         if trigger_event:
             logger.info("ActionHandler 的主思维触发器已成功设置。")
@@ -200,6 +200,14 @@ class ActionHandler:
         if "do_nothing" in action_json.get("core", {}):
             motivation = action_json["core"]["do_nothing"].get("motivation", "决定保持沉默")
             logger.info(f"AI 决定不行动，动机: {motivation}")
+            # 如果层级为"cellular"，则递增计数器
+            if self.core_logic and (session := self.core_logic._get_current_session()):
+                session.no_action_count += 1
+                logger.debug(
+                    f"[{session.conversation_id}] 连续不发言计数器"
+                    f"已递增至: {session.no_action_count}"
+                )
+
             if self.thought_storage_service:
                 await self.thought_storage_service.save_action_result_to_thought(
                     thought_key=doc_key_for_updates,
@@ -221,6 +229,13 @@ class ActionHandler:
 
         if not actions_to_process:
             logger.info("AI决策的动作对象为空，无需执行。")
+            # 这种情况也属于“不行动”，如果是 cellular 层级则递增计数器
+            if self.core_logic and (session := self.core_logic._get_current_session()):
+                session.no_action_count += 1
+                logger.debug(
+                    f"[{session.conversation_id}] 因无动作，连续不发言计数器"
+                    f"已递增至: {session.no_action_count}"
+                )
             return
 
         platform_id = platform_id_from_action if platform_actions else "core"
@@ -740,11 +755,13 @@ class ActionHandler:
         if not path_str:
             return "错误：未提供要删除的文件路径。"
 
-        # // 安全第一！绝对不能让AI酱越狱到工作区外面去！
+        # 解析并验证路径
         safe_path = self._resolve_safe_path(path_str)
+        # 关键的安全检查
         if not safe_path:
             return f"错误：路径 '{path_str}' 不安全或无效。"
 
+        # 进一步检查路径是否在允许的范围内
         try:
             if not safe_path.exists():
                 return f"操作完成：文件 '{path_str}' 本来就不存在。"
@@ -752,7 +769,7 @@ class ActionHandler:
             if not safe_path.is_file():
                 return f"错误：路径 '{path_str}' 是一个目录，此功能只能删除文件。"
 
-            # // 终极审判！执行删除！
+            # 执行删除
             safe_path.unlink()
 
             return f"成功！已删除文件 '{path_str}'。"

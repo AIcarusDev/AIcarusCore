@@ -1,4 +1,4 @@
-# 文件: src/message_processing/default_message_processor.py (竞速模式适配版 V1.0)
+# src/message_processing/default_message_processor.py
 import time
 from typing import TYPE_CHECKING, Optional
 
@@ -7,7 +7,7 @@ from src.common.custom_logging.logging_config import get_logger
 from src.common.intelligent_interrupt_system.models import SemanticModel
 from src.common.interruption_broker import InterruptionEventBroker
 from src.database import (
-    ActionLogStorageService,  # 引入ActionLogStorageService
+    ActionLogStorageService,
     CoreDBCollections,
     DBEventDocument,
     EntityGraphService,
@@ -208,16 +208,40 @@ class DefaultMessageProcessor:
 
     async def _dispatch_event_action(self, event_doc: dict) -> None:
         """专门负责根据事件类型和当前状态，决定是否触发核心逻辑."""
-        if event_doc.get("event_type", "").startswith("message."):
+        event_type = event_doc.get("event_type", "")
+        if event_type.startswith("message."):
+            # 检查发言人并重置连续发言计数器
+            if self.qq_chat_session_manager and self.core_logic and (
+                session := self.core_logic._get_current_session()
+            ):
+                    # 2. 检查事件是否属于当前会话
+                    platform = event_doc.get("platform")
+                    conv_info = event_doc.get("conversation_info", {})
+                    conv_type = conv_info.get("type")
+                    conv_id = conv_info.get("conversation_id")
+                    # 如果平台、会话类型和会话ID都存在
+                    if platform and conv_type and conv_id:
+                        event_session_uid = f"{platform}_{conv_type}_{conv_id}"
+                        # 3. 如果事件属于当前专注的会话
+                        if session.conversation_id == event_session_uid:
+                            # 4. 检查发言人是否是自己
+                            sender_id = str(event_doc.get("user_info", {}).get("user_id", ""))
+                            bot_profile = await session.get_bot_profile()
+                            bot_platform_id = str(bot_profile.get("user_id"))
+
+                            # 5. 如果发言人不是自己，则重置计数器
+                            if sender_id and sender_id != bot_platform_id:
+                                session.reset_consecutive_bot_message_count()
+
             await self.interruption_broker.publish(event_doc)
             logger.debug(f"事件 '{event_doc.get('_key')}' 已发布到中断代理。")
 
         # 处理其他需要主动处理的特殊事件
-        if event_doc.get("event_type", "").endswith(".bot.profile_update"):
+        if event_type.endswith(".bot.profile_update"):
             event_obj = ProtocolEvent.from_dict(event_doc)  # 做一次转换
             await self._handle_bot_profile_update(event_obj)
         else:
-            logger.debug(f"事件类型 '{event_doc.get('event_type')}' 无需在此主动处理。")
+            logger.debug(f"事件类型 '{event_type}' 无需在此主动处理。")
 
     async def _handle_bot_profile_update(self, event: ProtocolEvent) -> None:
         """处理机器人自身档案（如群名片）的更新事件."""
