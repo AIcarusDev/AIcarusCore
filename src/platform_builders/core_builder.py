@@ -20,7 +20,7 @@ class CoreBuilder(BasePlatformBuilder):
             "properties": {
                 "target_id": {
                     "type": "string",
-                    "description": "要专注的目标ID。例如平台ID 'qq' 或会话ID '123456'。",
+                    "description": "要专注的目标ID。例如平台ID 'qq' 或会话ID 'qq_group_123456'。",
                 },
                 "motivation": {"type": "string"},
             },
@@ -34,7 +34,7 @@ class CoreBuilder(BasePlatformBuilder):
         },
         "swap_focus": {
             "type": "object",
-            "description": "将你的注意力从当前会话切换到另一个会话。",
+            "description": "将你的注意力从当前会话切换到另一个会话, 必须使用完整ID，例如`qq_group_123456`。",
             "properties": {
                 "target_id": {
                     "type": "string",
@@ -50,7 +50,7 @@ class CoreBuilder(BasePlatformBuilder):
             "properties": {
                 "target_path": {
                     "type": "string",
-                    "description": "要专注的绝对路径，必须是使用'.'作为分隔符的完整路径，例如`qq.123456`。",
+                    "description": "要专注的绝对路径，必须是使用'.'作为分隔符的完整路径，例如`qq.qq_group_123456`。",
                 },
                 "motivation": {"type": "string"},
             },
