@@ -128,19 +128,18 @@ async def process_llm_decision(
 
         # “慢思考”是同步阻塞的，它会返回一个修正后的思考状态
         new_internal_state = await focus_manager.handle_consciousness_control(
-            {"deep_think": control_payload["deep_think"]},
-            current_internal_state
+            {"deep_think": control_payload["deep_think"]}, current_internal_state
         )
 
         if new_internal_state:
             logger.success("“慢思考”决策管线已完成，使用其决议更新当前思考状态。")
-            current_internal_state = new_internal_state # 更新思考状态
+            current_internal_state = new_internal_state  # 更新思考状态
         else:
             logger.warning("“慢思考”执行完毕但未返回有效决议，将使用原始思考状态继续。")
 
         # 从控制载荷中移除已被处理的慢思考指令
         del control_payload["deep_think"]
-        if not control_payload: # 如果没有其他控制指令了
+        if not control_payload:  # 如果没有其他控制指令了
             control_payload = None
 
     # --- 步骤 3: 执行“外部行动” ---
@@ -178,10 +177,7 @@ async def process_llm_decision(
     # --- 步骤 4: (最后执行) 处理剩余的“意识转向”指令 ---
     if control_payload:
         logger.info("所有外部行动已处理完毕，现在开始处理 [意识转向] 指令。")
-        await focus_manager.handle_consciousness_control(
-            control_payload,
-            current_internal_state
-        )
+        await focus_manager.handle_consciousness_control(control_payload, current_internal_state)
 
     # --- 步骤 5: 检查是否无任何指令 ---
     if not normalized_action_payload and not control_payload:

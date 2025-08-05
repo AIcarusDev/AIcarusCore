@@ -520,21 +520,16 @@ class EntityGraphService:
         name: str | None = None,
         extra: dict | None = None,
     ) -> EntityDocument:
-        """获取或创建一个会话实体(Entity).
+        """获取或创建一个会话实体(Entity)，并确保其拥有一个关联的主观侧写(EntityProfile).
 
-        这是新架构的核心，所有对“会话”的操作都将通过这里。
-        它确保了每个会话在我们的知识图谱中都有一个唯一的、客观的实体代表。
+        这是一个原子性的操作，保证了数据的一致性.
         """
         entity_uid = f"{platform}_{conv_type}_{conversation_id}"
 
-        # 使用 AQL 的 UPSERT 语句来保证原子性
-        query = """
-            UPSERT { _key: @uid }
-            INSERT @doc_to_insert
-            UPDATE {} IN @@collection
-            RETURN NEW
-        """
+        # 准备一个新的、用于可能创建的 Profile 的文档
+        profile_to_insert = EntityProfileDocument.create_new()
 
+        # 准备要创建或更新的 Conversation Entity 的细节
         details = ConversationDetails(
             platform=platform,
             conversation_id=conversation_id,
@@ -544,26 +539,73 @@ class EntityGraphService:
             avatar=None,
             extra=extra or {},
         )
-        new_entity = EntityDocument(
+        entity_to_upsert = EntityDocument(
             _key=entity_uid,
             entity_uid=entity_uid,
             entity_type="conversation",
             details=details,
         )
 
+        # 这段 AQL 查询是整个操作的核心，它在一个事务中完成所有事情：
+        # 1. UPSERT 会话实体：如果不存在就创建，如果存在就用最新的信息更新它。
+        # 2. 检查这个会话实体是否已经有一个关联的 Profile。
+        # 3. 如果没有，就创建一个新的 Profile，并用 'represents' 边把它和会话实体连接起来。
+        query = """
+            LET entity_doc = @entity_doc
+            LET profile_doc = @profile_doc
+            LET timestamp = @timestamp
+
+            // 步骤 1: 原子性地查找或创建会话实体
+            LET conv_entity_result = (
+                UPSERT { _key: entity_doc._key }
+                INSERT entity_doc
+                UPDATE { details: { name: entity_doc.details.name, extra: entity_doc.details.extra } } // 仅更新名称和额外信息
+                IN @@entities_coll
+                RETURN NEW
+            )[0]
+
+            // 步骤 2: 检查这个实体是否已经有关联的Profile
+            LET existing_profile = (
+                FOR p IN 1..1 INBOUND conv_entity_result @@represents_coll
+                LIMIT 1
+                RETURN p
+            )[0]
+
+            // 步骤 3: 如果没有Profile，就创建一个新的并用'represents'边连接它
+            LET profile_creation_result = (
+                FILTER existing_profile == null
+                LET new_profile = (INSERT profile_doc IN @@profiles_coll RETURN NEW)[0]
+                LET edge_doc = {
+                    _key: CONCAT(new_profile._key, "_represents_", conv_entity_result._key),
+                    _from: new_profile._id,
+                    _to: conv_entity_result._id,
+                    created_at: timestamp
+                }
+                INSERT edge_doc IN @@represents_coll
+                RETURN { created: true }
+            )
+
+            // 最终返回完整、最新的会话实体文档
+            RETURN conv_entity_result
+        """  # noqa: E501
+
         bind_vars = {
-            "uid": entity_uid,
-            "doc_to_insert": new_entity.to_dict(),
-            "@collection": CoreDBCollections.ENTITIES,
+            "entity_doc": entity_to_upsert.to_dict(),
+            "profile_doc": profile_to_insert.to_dict(),
+            "timestamp": int(time.time() * 1000),
+            "@entities_coll": CoreDBCollections.ENTITIES,
+            "@profiles_coll": CoreDBCollections.ENTITY_PROFILES,
+            "@represents_coll": CoreDBCollections.REPRESENTS,
         }
 
         results = await self.conn_manager.execute_query(query, bind_vars)
 
         if results and results[0]:
-            logger.debug(f"成功获取或创建了会话实体: {entity_uid}")
+            logger.debug(f"成功获取或创建了会话实体 '{entity_uid}' 并确保其拥有主观侧写 Profile。")
             return EntityDocument.from_dict(results[0])
         else:
-            raise RuntimeError(f"创建或更新会话实体 '{entity_uid}' 时数据库未能返回文档。")
+            # 这种情况理论上不应该发生，除非AQL查询本身有语法错误或数据库连接问题
+            raise RuntimeError(f"创建或更新会话实体 '{entity_uid}' 时数据库未能返回有效文档。")
 
     async def find_conversation_entity_by_platform_and_id(
         self, platform: str, conversation_id: str

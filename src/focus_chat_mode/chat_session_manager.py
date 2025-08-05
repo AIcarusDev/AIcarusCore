@@ -261,9 +261,7 @@ class ChatSessionManager:
             logger.info(f"检测到 [慢思考] 指令，参数: {params}，正在进入内部辩论流程...")
             session = self.core_logic._get_current_session() if self.core_logic else None
             deliberation_result = await self._execute_deliberation_pipeline(
-                params,
-                current_internal_state,
-                session
+                params, current_internal_state, session
             )
             return deliberation_result
 
@@ -312,9 +310,9 @@ class ChatSessionManager:
             opinions_block_lines = []
             opinions = pipeline_params.get("opinions", [])
             for i, p in enumerate(opinions):
-                tag = p.get("tag", f"观点 {i+1}")
+                tag = p.get("tag", f"观点 {i + 1}")
                 thought = p.get("initial_thought", "无具体想法。")
-                opinions_block_lines.append(f"            <pipeline tag=\"{tag}\">")
+                opinions_block_lines.append(f'            <pipeline tag="{tag}">')
                 opinions_block_lines.append(
                     f"                <initial_thought>{thought}</initial_thought>"
                 )
@@ -353,9 +351,7 @@ class ChatSessionManager:
                 or deliberation_result_json.get("error")
                 or "resolution" not in deliberation_result_json
             ):
-                logger.error(
-                    f"慢思考LLM调用失败或返回结果格式不正确: {deliberation_result_json}"
-                )
+                logger.error(f"慢思考LLM调用失败或返回结果格式不正确: {deliberation_result_json}")
                 return None
 
             resolution = deliberation_result_json["resolution"]

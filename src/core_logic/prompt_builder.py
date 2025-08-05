@@ -249,10 +249,12 @@ class ThoughtPromptBuilder:
         opinions_block_lines = []
         opinions = pipeline_params.get("opinions", [])
         for i, p in enumerate(opinions):
-            tag = p.get("tag", f"观点 {i+1}")
+            tag = p.get("tag", f"观点 {i + 1}")
             thought = p.get("initial_thought", "无具体想法。")
-            opinions_block_lines.append(f"            <pipeline tag=\"{tag}\">")
-            opinions_block_lines.append(f"                <initial_thought>{thought}</initial_thought>")  # noqa: E501
+            opinions_block_lines.append(f'            <pipeline tag="{tag}">')
+            opinions_block_lines.append(
+                f"                <initial_thought>{thought}</initial_thought>"
+            )
             opinions_block_lines.append("            </pipeline>")
 
         opinions_block = "\n".join(opinions_block_lines)
@@ -277,11 +279,9 @@ class ThoughtPromptBuilder:
         logger.debug(f"--- [SYSTEM PROMPT (慢思考)] ---\n{system_prompt}")
         logger.debug(f"--- [USER PROMPT (慢思考)] ---\n{user_prompt}")
         logger.debug(
-            f"--- [JSON SCHEMA (慢思考)] ---\n{json.dumps(
-            response_schema,
-            indent=2,
-            ensure_ascii=False
-        )}"
+            f"--- [JSON SCHEMA (慢思考)] ---\n{
+                json.dumps(response_schema, indent=2, ensure_ascii=False)
+            }"
         )
         logger.debug("=" * 31 + " END OF DEBUG " + "=" * 31)
 
@@ -422,7 +422,7 @@ class ThoughtPromptBuilder:
                 current_level, current_platform_id, current_conv_id
             ),
             "navigation_log_block": navigation_log_block,
-            "working_memory_block": working_memory_block, # <-- 注入工作记忆
+            "working_memory_block": working_memory_block,  # <-- 注入工作记忆
             "behavior_guidelines_block": self._get_behavior_guidelines_block(current_level),
             "internal_info_block": internal_info_block,
             "input_XML_block_description": self._get_input_xml_block_description(current_level),
