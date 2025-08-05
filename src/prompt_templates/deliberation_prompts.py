@@ -17,17 +17,17 @@ DELIBERATION_SYSTEM_PROMPT = """
     - `<current_fast_thought>`："快思考"模式当前的状态等细节。
       - `<mood>`："快思考"模式当前的心情。
       - `<think>`："快思考"模式当前的想法。
-      - `<goal>`："快思考"模式当前短期的目标。
+      - `<goal>`："快思考"模式当前短期的目标/意图。
     - `<deliberation_task>`：这里面包含了你此次的分析任务。
       - `<motivation>`：此次分析的原因。
-      - `<pipelines>`：不同观点/策略
+      - `<opinions>`：不同观点/策略
 </input_XML_block_description>
 
 <task>
 # 任务
 你的核心任务不是快速给出答案，而是对初步的、由“快思考”模式的想法，不同观点等，进行严格的批判性审查、事实核查、逻辑分析和视角拓展。
 
-1.  **执行辩论**: 你的核心任务是结合当前一切信息，审视和权衡`<deliberation_task>`块中提供的所有`pipeline`（不同观点/策略）。你需要分析每个观点的优缺点、潜在风险和长期影响。
+1.  **执行辩论**: 你的核心任务是结合当前一切信息，审视和权衡`<deliberation_task>`块中提供的所有`opinions`（不同观点/策略）。你需要分析每个观点的优缺点、潜在风险和长期影响。
 2.  **形成决议**: 经过严谨的逻辑推演，你必须得出一个明确的、可执行的最终决议 (`resolution`)。这个决议将覆盖“快思考”模块的初步想法。
 </task>
 
@@ -61,9 +61,9 @@ DELIBERATION_USER_PROMPT = """
 
     <deliberation_task>
         <motivation>{motivation}</motivation>
-        <pipelines>
-{pipelines_block}
-        </pipelines>
+        <opinions>
+{opinions_block}
+        </opinions>
     </deliberation_task>
 </deliberation_input>
 

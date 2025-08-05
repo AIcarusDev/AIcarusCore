@@ -245,17 +245,17 @@ class ThoughtPromptBuilder:
         self, pipeline_params: dict, current_internal_state: dict
     ) -> tuple[str, str, dict[str, Any]]:
         """构建用于“慢思考”内部辩论的专属 Prompt 和 Schema."""
-        # 1. 格式化 <pipelines> XML 块
-        pipelines_block_lines = []
-        pipelines = pipeline_params.get("pipelines", [])
-        for i, p in enumerate(pipelines):
+        # 1. 格式化 <opinions> XML 块
+        opinions_block_lines = []
+        opinions = pipeline_params.get("opinions", [])
+        for i, p in enumerate(opinions):
             tag = p.get("tag", f"观点 {i+1}")
             thought = p.get("initial_thought", "无具体想法。")
-            pipelines_block_lines.append(f"            <pipeline tag=\"{tag}\">")
-            pipelines_block_lines.append(f"                <initial_thought>{thought}</initial_thought>")  # noqa: E501
-            pipelines_block_lines.append("            </pipeline>")
+            opinions_block_lines.append(f"            <pipeline tag=\"{tag}\">")
+            opinions_block_lines.append(f"                <initial_thought>{thought}</initial_thought>")  # noqa: E501
+            opinions_block_lines.append("            </pipeline>")
 
-        pipelines_block = "\n".join(pipelines_block_lines)
+        opinions_block = "\n".join(opinions_block_lines)
 
         # 2. 填充 User Prompt 模板
         user_prompt = DELIBERATION_USER_PROMPT.format(
@@ -263,7 +263,7 @@ class ThoughtPromptBuilder:
             think=current_internal_state.get("think", "未知"),
             goal=current_internal_state.get("goal", "未知"),
             motivation=pipeline_params.get("motivation", "无明确动机"),
-            pipelines_block=pipelines_block,
+            opinions_block=opinions_block,
         )
 
         # 3. 系统 Prompt 是静态的，直接使用

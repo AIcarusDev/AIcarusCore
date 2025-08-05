@@ -257,7 +257,7 @@ class ChatSessionManager:
             return None
 
         # 如果是“慢思考”指令，则进入内部辩论流程
-        if command == "spawn_lite_pipelines":
+        if command == "deep_think":
             logger.info(f"检测到 [慢思考] 指令，参数: {params}，正在进入内部辩论流程...")
             session = self.core_logic._get_current_session() if self.core_logic else None
             deliberation_result = await self._execute_deliberation_pipeline(
@@ -309,17 +309,17 @@ class ChatSessionManager:
             return None
 
         try:
-            pipelines_block_lines = []
-            pipelines = pipeline_params.get("pipelines", [])
-            for i, p in enumerate(pipelines):
+            opinions_block_lines = []
+            opinions = pipeline_params.get("opinions", [])
+            for i, p in enumerate(opinions):
                 tag = p.get("tag", f"观点 {i+1}")
                 thought = p.get("initial_thought", "无具体想法。")
-                pipelines_block_lines.append(f"            <pipeline tag=\"{tag}\">")
-                pipelines_block_lines.append(
+                opinions_block_lines.append(f"            <pipeline tag=\"{tag}\">")
+                opinions_block_lines.append(
                     f"                <initial_thought>{thought}</initial_thought>"
                 )
-                pipelines_block_lines.append("            </pipeline>")
-            pipelines_block = "\n".join(pipelines_block_lines)
+                opinions_block_lines.append("            </pipeline>")
+            opinions_block = "\n".join(opinions_block_lines)
 
             persona_block = (
                 f'你是"{config.persona.bot_name}"；'
@@ -338,7 +338,7 @@ class ChatSessionManager:
                 think=current_internal_state.get("think", "未知"),
                 goal=current_internal_state.get("goal", "未知"),
                 motivation=pipeline_params.get("motivation", "无明确动机"),
-                pipelines_block=pipelines_block,
+                opinions_block=opinions_block,
             )
 
             deliberation_result_json = await self.deliberation_llm_client.make_llm_request(

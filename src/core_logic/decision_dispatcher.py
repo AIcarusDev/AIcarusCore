@@ -123,12 +123,12 @@ async def process_llm_decision(
     current_internal_state = decision_json.get("internal_state", {})
 
     # --- 步骤 2: (特例优先) 检查并执行“慢思考” ---
-    if control_payload and "spawn_lite_pipelines" in control_payload:
+    if control_payload and "deep_think" in control_payload:
         logger.info("检测到 [慢思考] 指令，优先执行内部辩论...")
 
         # “慢思考”是同步阻塞的，它会返回一个修正后的思考状态
         new_internal_state = await focus_manager.handle_consciousness_control(
-            {"spawn_lite_pipelines": control_payload["spawn_lite_pipelines"]},
+            {"deep_think": control_payload["deep_think"]},
             current_internal_state
         )
 
@@ -139,7 +139,7 @@ async def process_llm_decision(
             logger.warning("“慢思考”执行完毕但未返回有效决议，将使用原始思考状态继续。")
 
         # 从控制载荷中移除已被处理的慢思考指令
-        del control_payload["spawn_lite_pipelines"]
+        del control_payload["deep_think"]
         if not control_payload: # 如果没有其他控制指令了
             control_payload = None
 
@@ -178,7 +178,10 @@ async def process_llm_decision(
     # --- 步骤 4: (最后执行) 处理剩余的“意识转向”指令 ---
     if control_payload:
         logger.info("所有外部行动已处理完毕，现在开始处理 [意识转向] 指令。")
-        await focus_manager.handle_consciousness_control(control_payload, current_internal_state)
+        await focus_manager.handle_consciousness_control(
+            control_payload,
+            current_internal_state
+        )
 
     # --- 步骤 5: 检查是否无任何指令 ---
     if not normalized_action_payload and not control_payload:
