@@ -89,7 +89,7 @@ class SemanticModel:
         model (SentenceTransformer): 用于获取文本语义向量的模型实例.
     """
 
-    def __init__(self, model_name: str = "paraphrase-multilingual-MiniLM-L12-v2") -> None:
+    def __init__(self, model_name: str = "BAAI/bge-m3") -> None:
         self.model = SentenceTransformer(model_name)
         logger.info(f"语义探针 '{model_name}' 已启动，准备探索深层含义！")
 
