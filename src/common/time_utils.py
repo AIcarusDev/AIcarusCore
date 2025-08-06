@@ -97,3 +97,14 @@ def format_relative_time(past_timestamp_ms: int) -> str:
 
     years = days / 365
     return f"{int(years)}年前"
+
+def format_relative_time_for_memory(past_timestamp_ms: int) -> str:
+    """针对记忆操作，将过去的毫秒时间戳转换为易于理解的相对时间字符串.
+
+    Args:
+        past_timestamp_ms: 过去的毫秒级时间戳 (UTC)。
+
+    Returns:
+        一个描述相对时间的字符串，例如 "刚刚", "5分钟前", "3小时前", "昨天"。
+    """
+    pass
