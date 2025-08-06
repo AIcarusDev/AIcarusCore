@@ -92,7 +92,7 @@ class CoreLogic:
 
         try:
             # 1. 将路径的会话部分 (e.g., 'group.123456') 分割成类型和ID
-            # [修正] 确保 conv_id_part 确实包含 "."，否则 split 会抛出 ValueError
+            # 确保 conv_id_part 确实包含 "."，否则 split 会抛出 ValueError
             if "." not in conv_id_part:
                 return None
 
@@ -116,14 +116,23 @@ class CoreLogic:
 
         只负责维持循环和处理顶层异常.
         """
-        thinking_interval_sec = config.core_logic_settings.thinking_interval_seconds
-        logger.info(f"=== {config.persona.bot_name} 苏醒了 ===")
+        # 根据配置决定使用哪种思考模式
+        if config.core_logic_settings.enable_continuous_thinking:
+            active_interval = config.core_logic_settings.continuous_thinking_interval_seconds
+            mode_desc = f"连续思考模式 (间隔: {active_interval}s)"
+        else:
+            active_interval = config.core_logic_settings.thinking_interval_seconds
+            mode_desc = f"标准间隔模式 (间隔: {active_interval}s)"
 
+        logger.info(f"=== {config.persona.bot_name} 苏醒了 ({mode_desc}) ===")
+
+        # 进入主循环，直到 stop_event 被设置
         while not self.stop_event.is_set():
             try:
-                # // 核心逻辑被委托给了这个新函数，主循环变得超级干净！
+                # 开始一轮思考循环
                 await self._prepare_and_run_race()
-                await self._wait_for_next_cycle(thinking_interval_sec)
+                # 等待下一个思考周期的开始
+                await self._wait_for_next_cycle(active_interval)
 
             except asyncio.CancelledError:
                 logger.info("统一意识流主循环被取消。")
@@ -143,29 +152,26 @@ class CoreLogic:
             race_start_timestamp = time.time() * 1000.0
             session = self._get_current_session()
 
-            # 1. 准备比赛选手 (Tasks)
+            # 1. 准备竞速任务
             main_task = asyncio.create_task(self._run_full_thought_cycle(session))
             tasks_to_race: set[asyncio.Task] = {main_task}
 
             if session:
-                # ==================== FIX START ====================
-                # 修正点 1: 在调用时补上缺失的 initial_context_text 参数
                 sentry_task = asyncio.create_task(
                     self._listen_for_interruptions(
                         session, self._last_interrupt_context_text, race_start_timestamp
                     )
                 )
-                # ===================== FIX END =====================
                 tasks_to_race.add(sentry_task)
 
-            # 2. 发令！开始比赛！
+            # 2. 开始竞速，等待第一个完成的任务
             done, pending = await asyncio.wait(tasks_to_race, return_when=asyncio.FIRST_COMPLETED)
 
-            # 3. 宣布比赛结果并处理
+            # 3. 处理竞速结果
             await self._handle_race_outcome(done, pending, session, main_task, sentry_task)
 
         finally:
-            # // 确保无论如何，这场比赛的选手都会被妥善处理
+            # 4. 清理任务
             if main_task and not main_task.done():
                 main_task.cancel()
             if sentry_task and not sentry_task.done():
@@ -194,7 +200,9 @@ class CoreLogic:
             await self._process_main_task_victory(main_task, session)
 
     async def _process_sentry_victory(
-        self, sentry_task: asyncio.Task, session: Optional["ChatSession"]
+        self,
+        sentry_task: asyncio.Task,
+        session: Optional["ChatSession"]
     ) -> None:
         """专门处理“哨兵”胜利的场景（即发生中断）."""
         if not session:
@@ -232,7 +240,9 @@ class CoreLogic:
         logger.info(f"[{session.conversation_id}] 中断发生，已设置立即思考信号以快速响应。")
 
     async def _process_main_task_victory(
-        self, main_task: asyncio.Task, session: Optional["ChatSession"]
+        self,
+        main_task: asyncio.Task,
+        session: Optional["ChatSession"]
     ) -> None:
         """专门处理“主任务”胜利的场景（即正常完成思考）."""
         last_processed_ts_from_task = await main_task
@@ -341,12 +351,12 @@ class CoreLogic:
             return session.last_processed_timestamp
         return None
 
-    # ==================== FIX START ====================
-    # 修正点 2: 修改函数签名，允许 initial_context_text 为 None
     async def _listen_for_interruptions(
-        self, session: "ChatSession", initial_context_text: str | None, start_timestamp: float
+        self,
+        session: "ChatSession",
+        initial_context_text: str | None,
+        start_timestamp: float
     ) -> dict | None:
-        # ===================== FIX END =====================
         """纯粹的中断监听器（哨兵），现在通过订阅事件代理来工作."""
         subscription_queue = None
         try:
@@ -388,7 +398,11 @@ class CoreLogic:
                 await self.interruption_broker.unsubscribe(session)
 
     def _evaluate_interrupt(
-        self, event_doc: dict, context_text: str, current_bot_id: str, session: "ChatSession"
+        self,
+        event_doc: dict,
+        context_text: str,
+        current_bot_id: str,
+        session: "ChatSession"
     ) -> tuple[dict | None, str | None]:
         """对单个事件进行中断评估的辅助函数."""
         user_info = event_doc.get("user_info") or {}
@@ -422,13 +436,23 @@ class CoreLogic:
         return None, text_content
 
     async def _wait_for_next_cycle(self, interval: float) -> None:
+        """等待下一个思考周期，可以被 immediate_thought_trigger 立即中断."""
         try:
+            # 使用配置中传入的 interval 作为超时时间
             await asyncio.wait_for(self.immediate_thought_trigger.wait(), timeout=interval)
         except TimeoutError:
-            logger.info(f"思考间隔时间到达 ({interval}s)，开始新一轮思考。")
+            # 这是正常情况，意味着休眠时间到了
+            log_msg = (
+                f"连续思考间隔到达 ({interval}s)，开始新一轮思考。"
+                if config.core_logic_settings.enable_continuous_thinking
+                else f"标准思考间隔到达 ({interval}s)，开始新一轮思考。"
+            )
+            logger.info(log_msg)
         else:
+            # 这意味着是被 trigger_immediate_thought_cycle 唤醒的
             logger.info("被动思考被触发，立即开始新一轮思考。")
         finally:
+            # 无论如何，清除事件，为下一次触发做准备
             if self.immediate_thought_trigger.is_set():
                 self.immediate_thought_trigger.clear()
 

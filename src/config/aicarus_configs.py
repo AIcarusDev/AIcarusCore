@@ -147,6 +147,12 @@ class CoreLogicSettings(ConfigBase):
     thinking_interval_seconds: int = 30
     """思考间隔时间（秒），用于控制 AI 的思考频率."""
 
+    enable_continuous_thinking: bool = False
+    """【实验性】是否启用连续思考模式。若为True，AI将在动作完成后进行极短的休眠然后继续思考，模拟不间断的意识流。"""
+
+    continuous_thinking_interval_seconds: float = 0.1
+    """在连续思考模式下，每次思考循环之间的最小休眠时间（秒）。"""
+
 
 @dataclass
 class IntrusiveThoughtsSettings(ConfigBase):

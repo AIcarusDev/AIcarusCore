@@ -7,7 +7,7 @@
 # Inner Settings (内部配置，一般无需更改此部分内容)
 # ===============================
 [inner]
-version = "0.0.19"  # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
+version = "0.0.20"  # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
 protocol_version = "1.5.0"  # Aicarus-Message-Protocol 标准通信协议版本号，确保与客户端和其他服务兼容。
 
 # ===============================
@@ -129,6 +129,13 @@ max_output_tokens = 60000
 [core_logic_settings]  # AI进行一次自主思考循环的间隔时间（秒）。
 thinking_interval_seconds = 30
 
+# 【实验性】是否启用连续思考模式。
+# 若为 true, AI 将在动作完成后进行极短的休眠然后继续思考，模拟不间断的意识流。
+# 这会显著增加 API 调用频率。
+enable_continuous_thinking = false
+
+# 在连续思考模式下，每次思考循环之间的最小休眠时间（秒）。
+continuous_thinking_interval_seconds = 0.1
 
 # ===============================
 # Intrusive Thoughts Module Settings ("侵入性思维"模块设置)
