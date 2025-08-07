@@ -89,10 +89,10 @@ class ChatSessionManager:
 
         self._last_switch_description: str = "你刚刚从发呆的状态中回过神来"
         self._command_handlers = {
-            "push_focus": self._handle_push_focus,
-            "pop_focus": self._handle_pop_focus,
+            "focus": self._handle_focus,
+            "return": self._handle_return,
             "back": self._handle_back,
-            "swap_focus": self._handle_swap_focus,
+            "shift_focus": self._handle_shift_focus,
             "teleport_focus": self._handle_teleport_focus,
             "jump_to_history": self._handle_jump_to_history,
         }
@@ -473,8 +473,8 @@ class ChatSessionManager:
             target_id.startswith("group.") or target_id.startswith("private.")
         )
 
-    async def _handle_push_focus(self, params: dict, history_entry_base: dict) -> tuple[bool, str]:
-        """处理 'push_focus' 指令，现在会根据目标ID的类型来决定如何切换焦点."""
+    async def _handle_focus(self, params: dict, history_entry_base: dict) -> tuple[bool, str]:
+        """处理 'focus' 指令，现在会根据目标ID的类型来决定如何切换焦点."""
         target_id = params.get("target_id")
         if not target_id:
             return False, "缺少 target_id 参数。"
@@ -514,7 +514,7 @@ class ChatSessionManager:
                         f"也不是格式正确的会话实体UID (platform_type_id)。"
                     )
                     logger.error(
-                        f"在顶层(core)执行 push_focus 失败：目标ID '{target_id}' "
+                        f"在顶层(core)执行 focus 失败：目标ID '{target_id}' "
                         f"既不是有效的平台ID，也不是格式正确的会话实体UID (platform_type_id)。"
                     )
 
@@ -526,17 +526,17 @@ class ChatSessionManager:
                 else:
                     # 如果平台ID不匹配，记录错误并返回
                     error_message = (
-                        f"在层级 '{level}' 执行 push_focus"
+                        f"在层级 '{level}' 执行 focus"
                         f"(target_id='{target_id}') 的逻辑尚未完全适配，暂不支持。"
                     )
                     logger.error(
                         f"无效操作: 不能从平台 '{platform_id}' "
-                        f"push_focus 到另一个平台 '{p_id}' 的会话。"
+                        f"focus 到另一个平台 '{p_id}' 的会话。"
                     )
             except ValueError:
                 logger.error(
                     f"在平台 '{platform_id}' 层，"
-                    f"push_focus 的 target_id '{target_id}' 不是有效的会话实体UID。"
+                    f"focus 的 target_id '{target_id}' 不是有效的会话实体UID。"
                 )
 
         if new_path:
@@ -550,20 +550,20 @@ class ChatSessionManager:
             return switched, feedback
 
         final_error = error_message or (
-            f"在层级 '{level}' 执行 push_focus(target_id='{target_id}') 失败。"
+            f"在层级 '{level}' 执行 focus(target_id='{target_id}') 失败。"
         )
-        logger.error(f"在层级 '{level}' 执行 push_focus(target_id='{target_id}') 失败。")
+        logger.error(f"在层级 '{level}' 执行 focus(target_id='{target_id}') 失败。")
         return False, final_error
 
-    async def _handle_pop_focus(self, params: dict, history_entry_base: dict) -> tuple[bool, str]:
-        """处理 'pop_focus' 指令，现在会返回到上一个层级或核心层."""
+    async def _handle_return(self, params: dict, history_entry_base: dict) -> tuple[bool, str]:
+        """处理 'return' 指令，现在会返回到上一个层级或核心层."""
         current_path = self.current_focus.get("target_path", "core")
 
         if current_path == "core":
             error_message = (
-                "该状态执行 'pop_focus' 为无效操作，已忽略。"
+                "该状态执行 'return' 为无效操作，已忽略。"
             )
-            logger.warning("在顶层Core-Level尝试执行 'pop_focus'，无效操作，已忽略。")
+            logger.warning("在顶层Core-Level尝试执行 'return'，无效操作，已忽略。")
             return False, error_message
 
         # 使用更健壮的路径分割方法来确定父路径
@@ -581,8 +581,8 @@ class ChatSessionManager:
 
         return await self._switch_focus(parent_path, history_entry_base)
 
-    async def _handle_swap_focus(self, params: dict, history_entry_base: dict) -> tuple[bool, str]:
-        """处理 'swap_focus' 指令，切换到指定的会话实体UID.
+    async def _handle_shift_focus(self, params: dict, history_entry_base: dict) -> tuple[bool, str]:
+        """处理 'shift_focus' 指令，切换到指定的会话实体UID.
 
         如果 target_id 是会话实体UID，则切换到该会话。
         """
@@ -596,9 +596,9 @@ class ChatSessionManager:
         if level != "cellular":
             # 如果当前不是在细胞层，记录错误并返回
             error_message = (
-                "'swap_focus' 只能会话中使用，当前状态不支持。"
+                "'shift_focus' 只能会话中使用，当前状态不支持。"
             )
-            logger.error(f"'swap_focus' 只能在会话层级使用，当前层级为 '{level}'。")
+            logger.error(f"'shift_focus' 只能在会话层级使用，当前层级为 '{level}'。")
             return False, error_message
 
         try:
@@ -614,7 +614,7 @@ class ChatSessionManager:
             new_path = f"{p_id}.{conv_type}.{actual_id}"
             return await self._switch_focus(new_path, history_entry_base)
         except ValueError:
-            error_message = (f"swap_focus 的 target_id '{target_id}' 不是有效的会话实体UID。")
+            error_message = (f"shift_focus 的 target_id '{target_id}' 不是有效的会话实体UID。")
             logger.error(error_message)
             return False, error_message
 
