@@ -407,6 +407,14 @@ class ThoughtPromptBuilder:
             else:
                 session.working_memory.clear()
 
+        # [新增] 构建指令反馈块
+        command_feedback_block = ""
+        if self.chat_session_manager and self.chat_session_manager.last_command_feedback:
+            feedback_text = self.chat_session_manager.last_command_feedback
+            command_feedback_block = f"<command_feedback>\n{feedback_text}\n</command_feedback>"
+            # [关键] 读取后立即清除，确保反馈只出现一次
+            self.chat_session_manager.last_command_feedback = None
+
         action_response_block = await self._build_action_response_desc(handover_result)
         navigation_log_block = await self._build_navigation_log_block()
         friend_request_block = ""  # 初始化为空字符串，如果在顶层，那么就是空字符。
@@ -437,6 +445,7 @@ class ThoughtPromptBuilder:
 
         user_prompt_blocks = {
             "action_response_block": action_response_block,
+            "command_feedback_block": command_feedback_block,
             "meta_info_block": meta_info_block,
             "external_info_block": external_info_block,
             "friend_request_block": friend_request_block,

@@ -85,12 +85,15 @@ JSON 对象包含三个顶级键: `"internal_state"`, `"consciousness_control"`,
 """
 {external_info_block} 是外部信息块的内容
 {meta_info_block} 是元信息块的内容
+{command_feedback_block} 是上一次意识控制指令的执行反馈
 """
 CORE_CYCLE_USER_PROMPT = """
 
 <reality_update>
 
 {action_response_block}
+
+{command_feedback_block}
 
 {external_info_block}
 
