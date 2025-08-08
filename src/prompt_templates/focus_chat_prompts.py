@@ -108,6 +108,7 @@ FOCUS_INPUT_XML_DESCRIPTION = """输入 XML 块介绍：
 - <external_info>: 这个块包含了当前聊天会话的全部上下文信息。
     - <Conversation_Info>: 当前会话的基本信息（比如群名、群公告）。
     - <user_logs>: 当前会话里出现过的用户列表和他们的ID。
+    - <event_types>: 当前会话里可能出现的事件类型列表。
     - <chat_history>: 详细的聊天记录。
     - <unread_summary>: (可选) 其它你没在看的会话的未读消息摘要。
 - <meta_info>: 这个块里有系统根据当前聊天情况给你的动态行为建议，内容可能很重要，请留意。如果为空，就不用管。

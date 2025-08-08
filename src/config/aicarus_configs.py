@@ -108,6 +108,9 @@ class AllModelPurposesConfig(ConfigBase):
     deliberation: ModelParams | None = None
     """“慢思考”辩论模型，用于内部决策审查。"""
 
+    image_analysis: ModelParams | None = None
+    """图像分析模型，用于处理图像内容的分析和描述。"""
+
 
 @dataclass
 class DatabaseSettings(ConfigBase):

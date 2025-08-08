@@ -14,7 +14,7 @@ class CoreBuilder(BasePlatformBuilder):
 
     # --- v2.0 全新指令集的 JSON Schema 定义 ---
     _CONSCIOUSNESS_CONTROLS_DEFINITIONS: ClassVar = {
-        "push_focus": {
+        "focus": {
             "type": "object",
             "description": "专注于指定的目标（平台或会话）。",
             "properties": {
@@ -26,13 +26,13 @@ class CoreBuilder(BasePlatformBuilder):
             },
             "required": ["target_id", "motivation"],
         },
-        "pop_focus": {
+        "return": {
             "type": "object",
             "description": "从当前注意力焦点返回。例如从当前会话返回到会话所属的平台，或退出当前平台。",
             "properties": {"motivation": {"type": "string"}},
             "required": ["motivation"],
         },
-        "swap_focus": {
+        "shift_focus": {
             "type": "object",
             "description": "将你的注意力从当前会话切换到另一个会话, 必须使用完整ID，例如`qq_group_123456`。",
             "properties": {
@@ -244,13 +244,13 @@ class CoreBuilder(BasePlatformBuilder):
         """根据指定的层级，返回该层级可用的和【内在控制】的JSON Schema定义."""
         props = {}
         if level == "core":
-            props["push_focus"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["push_focus"]
+            props["focus"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["focus"]
         elif level == "platform":
-            props["push_focus"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["push_focus"]
-            props["pop_focus"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["pop_focus"]
+            props["focus"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["focus"]
+            props["return"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["return"]
         elif level == "cellular":
-            props["pop_focus"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["pop_focus"]
-            props["swap_focus"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["swap_focus"]
+            props["return"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["return"]
+            props["shift_focus"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["shift_focus"]
 
         # back 和 jump_to_history 在任何层级都可用
         props["back"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["back"]
@@ -268,9 +268,9 @@ class CoreBuilder(BasePlatformBuilder):
     def get_level_consciousness_controls_descriptions(self, level: str) -> str:
         """返回核心平台的意识控制描述."""
         descs = [
-            "    - `push_focus(target_id, motivation)`: 深入到下一层焦点。只需提供目标ID。",
-            "    - `pop_focus(motivation)`: 从当前焦点返回上一层。",
-            "    - `swap_focus(target_id, motivation)`: 平级切换到另一个会话，只需提供目标会话ID。",
+            "    - `focus(target_id, motivation)`: 深入到下一层焦点。只需提供目标ID。",
+            "    - `return(motivation)`: 从当前焦点返回上一层。",
+            "    - `shift_focus(target_id, motivation)`: 平级切换到另一个会话，只需提供目标会话ID。",
             "    - `teleport_focus(target_path, motivation)`: 强制跳转焦点。注意 `target_path` 必须是使用'.'分隔的完整路径！",
             "    - `back(motivation)`: 回溯到上一个焦点 (T-1)。",
             "    - `jump_to_history(history_index, motivation)`: 跳转到指定的历史焦点。",

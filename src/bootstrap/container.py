@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
     from src.llmrequest.llm_processor import Client as ProcessorClient
     from src.message_processing.default_message_processor import DefaultMessageProcessor
+    from src.message_processing.image_analysis_service import ImageAnalysisService
 
 
 @dataclass
@@ -41,6 +42,7 @@ class ServiceContainer:
     # LLM 客户端
     main_consciousness_llm_client: ProcessorClient
     summary_llm_client: ProcessorClient
+    image_analysis_service: ImageAnalysisService | None
     intrusive_thoughts_llm_client: ProcessorClient | None
     focused_chat_llm_client: ProcessorClient | None
     web_search_agent_client: ProcessorClient | None

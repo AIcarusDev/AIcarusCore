@@ -43,7 +43,7 @@ class ChatSessionManager:
         self,
         config: FocusChatModeSettings,
         llm_client: LLMProcessorClient,
-        deliberation_llm_client: LLMProcessorClient | None,  # <-- 接收慢脑客户端
+        deliberation_llm_client: LLMProcessorClient | None,
         event_storage: EventStorageService,
         action_handler: ActionHandler,
         self_bot_ids_map: dict[str, str],
@@ -73,6 +73,9 @@ class ChatSessionManager:
         self.lock = asyncio.Lock()
         self.platform_view_states: dict[str, dict[str, Any]] = {}
 
+        # 用于暂存上一次指令执行的反馈信息
+        self.last_command_feedback: str | None = None
+
         # 1. focus_history 是纯粹的历史日志
         self.focus_history = deque(maxlen=10)
 
@@ -86,10 +89,10 @@ class ChatSessionManager:
 
         self._last_switch_description: str = "你刚刚从发呆的状态中回过神来"
         self._command_handlers = {
-            "push_focus": self._handle_push_focus,
-            "pop_focus": self._handle_pop_focus,
+            "focus": self._handle_focus,
+            "return": self._handle_return,
             "back": self._handle_back,
-            "swap_focus": self._handle_swap_focus,
+            "shift_focus": self._handle_shift_focus,
             "teleport_focus": self._handle_teleport_focus,
             "jump_to_history": self._handle_jump_to_history,
         }
@@ -250,10 +253,14 @@ class ChatSessionManager:
 
         此方法现在可以处理“慢思考”指令，并返回一个新的思考状态。
         """
+        # 在处理新指令前，清除旧的反馈
+        self.last_command_feedback = None
+
         if not (command := next(iter(control_json), None)) or not (
             params := control_json.get(command)
         ):
             logger.warning(f"收到的意识控制指令格式不正确或为空: {control_json}")
+            self.last_command_feedback = "指令格式不正确或为空。"
             return None
 
         # 如果是“慢思考”指令，则进入内部辩论流程
@@ -270,6 +277,7 @@ class ChatSessionManager:
         handler = self._command_handlers.get(command)
         if not handler:
             logger.error(f"收到未知的注意力管理指令: '{command}'，无法处理。")
+            self.last_command_feedback = f"未知的意识控制指令: '{command}'。"
             return None
 
         previous_path_for_desc = self.current_focus_path
@@ -279,9 +287,14 @@ class ChatSessionManager:
             "motivation": params.get("motivation", "没有明确动机"),
         }
 
-        focus_switched = await handler(params, history_entry_base)
+        switched, feedback_message = await handler(params, history_entry_base)
 
-        if focus_switched:
+        if not switched:
+            # 如果切换失败，保存反馈信息
+            self.last_command_feedback = feedback_message
+            logger.warning(f"意识转向指令 '{command}' 执行失败: {feedback_message}")
+
+        elif switched:
             from_desc = await self._get_focus_description(previous_path_for_desc)
             to_desc = await self._get_focus_description(self.current_focus_path)
             self._last_switch_description = f"你刚刚从“{from_desc}”来到了“{to_desc}”"
@@ -376,7 +389,11 @@ class ChatSessionManager:
             logger.error(f"执行“慢思考”决策管线时发生严重错误: {e}", exc_info=True)
             return None
 
-    async def _switch_focus(self, new_path: str, history_entry_base: dict) -> bool:
+    async def _switch_focus(
+            self,
+            new_path: str,
+            history_entry_base: dict
+            ) -> tuple[bool, str]:
         """核心切换逻辑：停用旧会话，激活新会话，更新状态和日志.
 
         Args:
@@ -391,7 +408,7 @@ class ChatSessionManager:
 
         if old_path == new_path:
             logger.info(f"目标焦点 '{new_path}' 与当前焦点相同，无需切换。")
-            return False  # 返回 False 表示没有发生实际的切换
+            return False, "目标焦点与当前焦点相同。"  # 返回 False 表示没有发生实际的切换
 
         # 步骤 1: 激活新会话（如果需要）
         new_level, new_platform, new_conv_part = parse_focus_path(new_path)
@@ -408,6 +425,7 @@ class ChatSessionManager:
                 new_entity_uid = f"{new_platform}_{new_conv_type}_{new_actual_id}"
 
                 if not await self.get_or_create_session(new_entity_uid):
+                    error_msg = f"激活新会话 '{new_entity_uid}' 失败！"
                     logger.error(
                         f"激活新会话 '{new_entity_uid}' 失败！将回退到上一焦点 '{old_path}'。"
                     )
@@ -415,10 +433,11 @@ class ChatSessionManager:
                     # 返回 True 是因为状态最终还是变了（虽然是变回去）
                     # 我们这里不修改 self.current_focus，等于状态没变
                     # TODO:这里逻辑可能需要进一步细化，但是当前暂时不做复杂处理
-                    return False
+                    return False, error_msg
             except (ValueError, IndexError) as e:  # 捕获可能因为解析错误导致的异常
+                error_msg = f"无法从新路径 '{new_path}' 中解析并激活会话: {e}。"
                 logger.error(f"无法从新路径 '{new_path}' 中解析并激活会话: {e}。将回退。")
-                return False
+                return False, error_msg  # 返回失败信息
 
         # 步骤 2: 停用旧会话（如果需要）
         old_level, old_platform, old_conv_part = parse_focus_path(old_path)
@@ -442,7 +461,7 @@ class ChatSessionManager:
         self.current_focus = new_focus_entry
         self.focus_history.append(new_focus_entry)
 
-        return True  # 返回 True 表示发生了切换
+        return True, "SUCCESS"
 
     def _is_platform_id(self, target_id: str) -> bool:
         """辅助函数，判断一个ID是否为平台ID."""
@@ -454,16 +473,17 @@ class ChatSessionManager:
             target_id.startswith("group.") or target_id.startswith("private.")
         )
 
-    async def _handle_push_focus(self, params: dict, history_entry_base: dict) -> bool:
-        """处理 'push_focus' 指令，现在会根据目标ID的类型来决定如何切换焦点."""
+    async def _handle_focus(self, params: dict, history_entry_base: dict) -> tuple[bool, str]:
+        """处理 'focus' 指令，现在会根据目标ID的类型来决定如何切换焦点."""
         target_id = params.get("target_id")
         if not target_id:
-            return False
+            return False, "缺少 target_id 参数。"
 
         current_path = self.current_focus.get("target_path", "core")
         level, platform_id, _ = parse_focus_path(current_path)
 
         new_path = None
+        error_message = None
 
         if level == "core":
             # 1. 优先检查目标ID是否为一个已知的平台ID
@@ -482,14 +502,19 @@ class ChatSessionManager:
                             f"顶层跳转：识别到会话实体UID '{target_id}'，将直接进入细胞层。"
                         )
                     else:
+                        error_message = f"目标ID '{target_id}' 的平台部分 '{p_id}' 不是已知平台。"
                         logger.error(
                             f"顶层跳转失败：'{target_id}' 看起来像会话实体UID，"
                             f"但其平台部分 '{p_id}' 不是已知的平台。"
                         )
                 except ValueError:
                     # 3. 如果两种格式都匹配失败，则判定为无效ID
+                    error_message = (
+                        f"目标ID '{target_id}' 既不是有效的平台ID，"
+                        f"也不是格式正确的会话实体UID (platform_type_id)。"
+                    )
                     logger.error(
-                        f"在顶层(core)执行 push_focus 失败：目标ID '{target_id}' "
+                        f"在顶层(core)执行 focus 失败：目标ID '{target_id}' "
                         f"既不是有效的平台ID，也不是格式正确的会话实体UID (platform_type_id)。"
                     )
 
@@ -499,36 +524,47 @@ class ChatSessionManager:
                 if p_id == platform_id:
                     new_path = f"{p_id}.{conv_type}.{actual_id}"
                 else:
+                    # 如果平台ID不匹配，记录错误并返回
+                    error_message = (
+                        f"在层级 '{level}' 执行 focus"
+                        f"(target_id='{target_id}') 的逻辑尚未完全适配，暂不支持。"
+                    )
                     logger.error(
                         f"无效操作: 不能从平台 '{platform_id}' "
-                        f"push_focus 到另一个平台 '{p_id}' 的会话。"
+                        f"focus 到另一个平台 '{p_id}' 的会话。"
                     )
             except ValueError:
                 logger.error(
                     f"在平台 '{platform_id}' 层，"
-                    f"push_focus 的 target_id '{target_id}' 不是有效的会话实体UID。"
+                    f"focus 的 target_id '{target_id}' 不是有效的会话实体UID。"
                 )
 
         if new_path:
-            switched = await self._switch_focus(new_path, history_entry_base)
+            switched, feedback = await self._switch_focus(new_path, history_entry_base)
             if switched:
                 # 如果是进入平台层，则初始化其视图状态
                 new_level, _, _ = parse_focus_path(new_path)
                 if new_level == "platform":
                     self.platform_view_states[target_id] = {"scroll_offset": 0}
                     logger.info(f"已为平台 '{target_id}' 初始化视图状态。")
-            return switched
+            return switched, feedback
 
-        logger.error(f"在层级 '{level}' 执行 push_focus(target_id='{target_id}') 失败。")
-        return False
+        final_error = error_message or (
+            f"在层级 '{level}' 执行 focus(target_id='{target_id}') 失败。"
+        )
+        logger.error(f"在层级 '{level}' 执行 focus(target_id='{target_id}') 失败。")
+        return False, final_error
 
-    async def _handle_pop_focus(self, params: dict, history_entry_base: dict) -> bool:
-        """处理 'pop_focus' 指令，现在会返回到上一个层级或核心层."""
+    async def _handle_return(self, params: dict, history_entry_base: dict) -> tuple[bool, str]:
+        """处理 'return' 指令，现在会返回到上一个层级或核心层."""
         current_path = self.current_focus.get("target_path", "core")
 
         if current_path == "core":
-            logger.warning("在顶层Core-Level尝试执行 'pop_focus'，无效操作，已忽略。")
-            return False
+            error_message = (
+                "该状态执行 'return' 为无效操作，已忽略。"
+            )
+            logger.warning("在顶层Core-Level尝试执行 'return'，无效操作，已忽略。")
+            return False, error_message
 
         # 使用更健壮的路径分割方法来确定父路径
         path_parts = current_path.split(".")
@@ -545,8 +581,8 @@ class ChatSessionManager:
 
         return await self._switch_focus(parent_path, history_entry_base)
 
-    async def _handle_swap_focus(self, params: dict, history_entry_base: dict) -> bool:
-        """处理 'swap_focus' 指令，切换到指定的会话实体UID.
+    async def _handle_shift_focus(self, params: dict, history_entry_base: dict) -> tuple[bool, str]:
+        """处理 'shift_focus' 指令，切换到指定的会话实体UID.
 
         如果 target_id 是会话实体UID，则切换到该会话。
         """
@@ -558,45 +594,65 @@ class ChatSessionManager:
         level, platform_id, _ = parse_focus_path(current_path)
 
         if level != "cellular":
-            logger.error(f"'swap_focus' 只能在会话层级使用，当前层级为 '{level}'。")
-            return False
+            # 如果当前不是在细胞层，记录错误并返回
+            error_message = (
+                "'shift_focus' 只能会话中使用，当前状态不支持。"
+            )
+            logger.error(f"'shift_focus' 只能在会话层级使用，当前层级为 '{level}'。")
+            return False, error_message
 
         try:
             p_id, conv_type, actual_id = target_id.split("_", 2)
             if p_id != platform_id:
-                logger.error(
+                # 如果平台ID不匹配，记录错误并返回
+                error_message = (
                     f"无法在平台 '{platform_id}' 切换到另一个平台 '{p_id}' 的会话。"
                     "请使用 teleport_focus。"
                 )
-                return False
+                logger.error(error_message)
+                return False, error_message
             new_path = f"{p_id}.{conv_type}.{actual_id}"
             return await self._switch_focus(new_path, history_entry_base)
         except ValueError:
-            logger.error(f"swap_focus 的 target_id '{target_id}' 不是有效的会话实体UID。")
-            return False
+            error_message = (f"shift_focus 的 target_id '{target_id}' 不是有效的会话实体UID。")
+            logger.error(error_message)
+            return False, error_message
 
-    async def _handle_teleport_focus(self, params: dict, history_entry_base: dict) -> bool:
+    async def _handle_teleport_focus(self,
+        params: dict,
+        history_entry_base: dict
+    ) -> tuple[bool, str]:
         """处理 'teleport_focus' 指令，直接专注于指定的目标."""
         target_path = params.get("target_path")
         if not target_path:
-            return False
+            error_message = "teleport_focus 缺少 target_path 参数。"
+            logger.error(error_message)
+            return False, error_message
         return await self._switch_focus(target_path, history_entry_base)
 
-    async def _handle_back(self, params: dict, history_entry_base: dict) -> bool:
+    async def _handle_back(self, params: dict, history_entry_base: dict) -> tuple[bool, str]:
         """处理 'back' 指令，返回到上一个注意力焦点.
 
-        如果当前焦点是核心层，则返回 False。
+        如果历史记录中只有一个条目，返回 False 并记录警告。
+        如果历史记录中有多个条目，返回到倒数第二个条目。
         """
         if len(self.focus_history) < 2:
-            logger.warning("历史记录不足，'back' 操作无法执行。")
-            return False
-        # 1. 如果当前焦点是核心层，直接返回 False
+            error_message = (
+                "历史记录不足，无法执行 'back' 操作。"
+            )
+            logger.warning(error_message)
+            return False, error_message
+        # 如果历史记录中只有一个条目，说明没有上一个焦点可返回
         target_entry = self.focus_history[-2]  # T-1 是倒数第二个元素
         target_path = target_entry.get("target_path", "core")
 
         return await self._switch_focus(target_path, history_entry_base)
 
-    async def _handle_jump_to_history(self, params: dict, history_entry_base: dict) -> bool:
+    async def _handle_jump_to_history(
+            self,
+            params: dict,
+            history_entry_base: dict
+        ) -> tuple[bool, str]:
         """处理 'jump_to_history' 指令，跳转到指定的历史条目.
 
         这里的 history_index 是 T-n 的 n，表示从 T-1 开始的偏移量。
@@ -610,8 +666,11 @@ class ChatSessionManager:
 
             # 验证索引是否在有效范围内 (T-1 到 T-(len-1))
             if not (1 <= history_index < history_len):
-                logger.error(f"历史索引 T-{history_index} 超出范围 [T-1, T-{history_len - 1}]。")
-                return False
+                error_message = (
+                    f"历史索引 T-{history_index} 超出范围 [T-1, T-{history_len - 1}]。"
+                )
+                logger.error(error_message)
+                return False, error_message
             # 获取目标历史条目
             target_entry = self.focus_history[deque_index]
             target_path = target_entry.get("target_path", "core")
@@ -619,4 +678,4 @@ class ChatSessionManager:
             return await self._switch_focus(target_path, history_entry_base)
         except (IndexError, TypeError, ValueError) as e:
             logger.error(f"处理 'jump_to_history' 时发生错误: {e}")
-            return False
+            return False, f"处理 'jump_to_history' 时发生错误: {e}"

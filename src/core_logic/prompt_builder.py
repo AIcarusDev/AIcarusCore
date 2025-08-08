@@ -407,6 +407,14 @@ class ThoughtPromptBuilder:
             else:
                 session.working_memory.clear()
 
+        # [新增] 构建指令反馈块
+        command_feedback_block = ""
+        if self.chat_session_manager and self.chat_session_manager.last_command_feedback:
+            feedback_text = self.chat_session_manager.last_command_feedback
+            command_feedback_block = f"<command_feedback>\n{feedback_text}\n</command_feedback>"
+            # [关键] 读取后立即清除，确保反馈只出现一次
+            self.chat_session_manager.last_command_feedback = None
+
         action_response_block = await self._build_action_response_desc(handover_result)
         navigation_log_block = await self._build_navigation_log_block()
         friend_request_block = ""  # 初始化为空字符串，如果在顶层，那么就是空字符。
@@ -437,6 +445,7 @@ class ThoughtPromptBuilder:
 
         user_prompt_blocks = {
             "action_response_block": action_response_block,
+            "command_feedback_block": command_feedback_block,
             "meta_info_block": meta_info_block,
             "external_info_block": external_info_block,
             "friend_request_block": friend_request_block,
@@ -713,9 +722,21 @@ class ThoughtPromptBuilder:
             unread_summary_str = await self.unread_info_service.generate_unread_summary_text(
                 exclude_conversation_id=session.conversation_id
             )
+
+            event_types_block_str = (
+                "## Event Types\n"
+                "[MSG]: 普通消息，在消息后的（id:xxx）为消息的id\n"
+                "[SYS]: 系统通知\n"
+                "[MOTIVE]: 对应你的\"motivation\"，帮助你更好的了解自己的心路历程，代表你发出该条消息的“背后动机”或“原因”\n"  # noqa: E501
+                "[FILE]: 文件分享\n"
+                "[图片]: 这代表一张当前可见的图片，它的原始图像数据已经提供给你。\n"
+                "[表情包: xxx] 或 [图片: xxx]: 这代表早些时候的图片，你已经不能直接看到了，只能通过文字来理解它的“印象”。\n"  # noqa: E501
+            )
+
             external_info = (
                 f"<Conversation_Info>\n{history_components.conversation_info_block}\n</Conversation_Info>\n\n"
                 f"<user_logs>\n{history_components.user_list_block}\n</user_logs>\n\n"
+                f"<event_types>\n{event_types_block_str}\n</event_types>\n\n"
                 f"<chat_history>\n{history_components.chat_history_log_block}\n</chat_history>\n\n"
                 f"<unread_summary>\n{unread_summary_str or '所有其他会话均无未读消息。'}"
                 f"\n</unread_summary>"

@@ -14,6 +14,7 @@ from src.database import (
 )
 from src.database.services.event_storage_service import EventStorageService
 from src.focus_chat_mode.chat_session_manager import ChatSessionManager
+from src.message_processing.image_analysis_service import ImageAnalysisService
 from websockets.server import WebSocketServerProtocol
 
 if TYPE_CHECKING:
@@ -34,6 +35,7 @@ class DefaultMessageProcessor:
         event_service: EventStorageService,
         entity_service: EntityGraphService,
         action_log_service: ActionLogStorageService,  # 注入 ActionLog 服务
+        image_analysis_service: "ImageAnalysisService",
         semantic_model: "SemanticModel",
         interruption_broker: "InterruptionEventBroker",
         core_websocket_server: Optional["CoreWebsocketServer"] = None,
@@ -49,6 +51,7 @@ class DefaultMessageProcessor:
         self.core_comm_layer: CoreWebsocketServer | None = core_websocket_server
         self.qq_chat_session_manager = qq_chat_session_manager
         self.core_logic: CoreLogicFlow | None = None
+        self.image_analysis_service: ImageAnalysisService | None = image_analysis_service
         logger.info("DefaultMessageProcessor 初始化完成 (竞速模式适配版)。")
 
     async def process_event(
@@ -117,6 +120,15 @@ class DefaultMessageProcessor:
             if await self.event_service.save_event_document(saved_doc_dict):
                 logger.debug(f"事件文档 '{event.event_id}' 已保存。")
                 saved_doc = saved_doc_dict  # <-- 保存下来
+
+                # 检查事件是否包含图片
+                has_image = any(
+                    seg.type == "image" for seg in event.content
+                )
+                if has_image and self.image_analysis_service:
+                    logger.debug(f"事件 '{event.event_id}' 包含图片，已提交至后台进行分析。")
+                    # 将已保存的文档字典提交给分析服务
+                    await self.image_analysis_service.submit_event_for_analysis(saved_doc)
 
         # 3. 更新 Conversation 档案
         if event.conversation_info and event.conversation_info.conversation_id:

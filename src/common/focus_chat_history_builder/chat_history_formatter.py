@@ -16,6 +16,9 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+# --- 引入新的配置参数 ---
+# 定义“视觉窗口”的大小，即最近的多少条消息被认为是“当前可见”的
+VISUAL_VIEWPORT_SIZE = 20
 
 async def format_chat_history_for_llm(
     event_storage: "EventStorageService",
@@ -100,9 +103,7 @@ async def format_chat_history_for_llm(
                     content=content_segs,
                     user_info=protocol_user_info,
                     conversation_info=protocol_conv_info,
-                    raw_data=event_dict.get("raw_data")
-                    if isinstance(event_dict.get("raw_data"), dict)
-                    else None,
+                    raw_data=event_dict, # <-- 关键：将原始字典存入raw_data
                 )
                 if motivation:
                     event_obj.motivation = motivation
@@ -205,9 +206,10 @@ async def format_chat_history_for_llm(
         user_list_lines.append(user_line)
     user_list_block_str = "\n".join(user_list_lines)
 
-    # 开始构建聊天记录
+
+    # --- 开始构建聊天记录 (已应用“视觉窗口”逻辑) ---
     chat_log_lines: list[str] = []
-    image_references: list[str] = []
+    image_references_for_llm: list[str] = []
     unread_section_started = False
     last_valid_text_message: str | None = None
     added_platform_message_ids_for_log: set[str] = set()
@@ -218,11 +220,16 @@ async def format_chat_history_for_llm(
         if msg_id := event.get_message_id():
             message_id_to_event_map[msg_id] = event
 
-    for event_data_log in raw_events:
+    total_events = len(raw_events)
+    for i, event_data_log in enumerate(raw_events):
         log_line = ""
         msg_id_for_display = event_data_log.get_message_id() or event_data_log.event_id
 
-        # 标记已读未读的分割线
+        # 判断当前事件是否在“视觉窗口”内
+        # (total_events - 1 - i) 是从后往前的索引，0 代表最新一条
+        is_in_viewport = (total_events - 1 - i) < VISUAL_VIEWPORT_SIZE
+
+        # 标记已读/未读的
         if (
             not is_first_turn
             and event_data_log.time > last_processed_timestamp
@@ -260,9 +267,61 @@ async def format_chat_history_for_llm(
             main_content_parts = []
             main_content_type = "MSG"
             quote_display_str = ""
+            # 1. 在处理每条新消息前，为这条消息初始化一个图片分析索引
+            image_analysis_index = 0
 
             for seg in event_data_log.content:
-                if seg.type == "quote":
+                if seg.type == "image":
+                    if is_in_viewport:
+                        # **视觉窗口内**: 展示原始图片占位符，并收集原始数据
+                        main_content_parts.append(
+                            "[图片]" if seg.data.get("summary") != "sticker" else "[动画表情]"
+                        )
+                        if base64_data := seg.data.get("base64"):
+                            try:
+                                mime_type = seg.data.get("mime_type", "image/jpeg")
+                                data_uri = f"data:{mime_type};base64,{base64_data}"
+                                image_references_for_llm.append(data_uri)
+                            except Exception as e:
+                                logger.error(f"处理图片Data URI时失败: {e}", exc_info=True)
+                                if url := seg.data.get("url"):
+                                    image_references_for_llm.append(url)
+                        elif url := seg.data.get("url"):
+                            image_references_for_llm.append(url)
+                    else:
+                        # **印象区域 (窗口外)**: 展示文字描述
+                        analysis_list = (
+                            event_data_log.raw_data.get("image_analysis")
+                            if event_data_log.raw_data
+                            else None
+                        )
+
+                        description = "[图片]" # Fallback
+
+                        # 2. 检查分析列表是否存在，并且我们的索引没有越界
+                        if (
+                            analysis_list
+                            and isinstance(analysis_list, list)
+                            and image_analysis_index < len(analysis_list)
+                        ):
+
+                            # 3. 使用当前的索引来获取正确的分析结果
+                            analysis_item = analysis_list[image_analysis_index]
+
+                            details = analysis_item.get("details", {})
+                            desc_text = details.get("description", "图片")
+                            prefix = "表情包" if analysis_item.get("type") == "sticker" else "图片"
+                            description = f"[{prefix}: {desc_text}]"
+
+                            # 4. 关键：将索引向前移动一位，为下一张图片做准备
+                            image_analysis_index += 1
+
+                        main_content_parts.append(description)
+
+                elif seg.type == "text":
+                    main_content_parts.append(seg.data.get("text", ""))
+                # 处理其他类型的消息段
+                elif seg.type == "quote":
                     quoted_message_id = seg.data.get("message_id", "unknown_id")
                     if quoted_user_id := seg.data.get("user_id"):
                         quoted_user_uid = platform_id_to_uid_str.get(
@@ -281,25 +340,6 @@ async def format_chat_history_for_llm(
                             )
                         else:
                             quote_display_str = f"引用/回复 (id:{quoted_message_id})"
-
-                elif seg.type == "image":
-                    main_content_parts.append(
-                        "[图片]" if seg.data.get("summary") != "sticker" else "[动画表情]"
-                    )
-                    if base64_data := seg.data.get("base64"):
-                        try:
-                            mime_type = seg.data.get("mime_type", "image/jpeg")
-                            data_uri = f"data:{mime_type};base64,{base64_data}"
-                            image_references.append(data_uri)
-                            # logger.info(f"图片的Data URI已准备好，直接注入！MIME: {mime_type}")
-                        except Exception as e:
-                            logger.error(f"处理图片Data URI时高潮失败: {e}", exc_info=True)
-                            if url := seg.data.get("url"):
-                                image_references.append(url)
-                    elif url := seg.data.get("url"):
-                        image_references.append(url)
-                elif seg.type == "text":
-                    main_content_parts.append(seg.data.get("text", ""))
                 elif seg.type == "at":
                     at_user_id = seg.data.get("user_id")
                     at_display_name = seg.data.get("display_name")
@@ -491,7 +531,7 @@ async def format_chat_history_for_llm(
         user_map=user_map,
         uid_str_to_platform_id_map=uid_str_to_platform_id_map,
         processed_event_ids=processed_event_ids,
-        image_references=image_references,
+        image_references=image_references_for_llm,
         conversation_name=conversation_name_str,
         last_valid_text_message=last_valid_text_message,
     ), raw_events

@@ -422,6 +422,7 @@ class DBEventDocument:
     person_id_associated: str | None = None
     motivation: str | None = None
     embedding: list[float] | None = field(default=None, repr=False)
+    image_analysis: list[dict[str, Any]] | None = None
     status: str = "unread"
 
     @classmethod
