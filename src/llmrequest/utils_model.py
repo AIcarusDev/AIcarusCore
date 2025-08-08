@@ -209,13 +209,17 @@ class LLMClient:
         abandoned_keys_config: list[str] | None = None,
         proxy_host: str | None = None,
         proxy_port: int | None = None,
-        image_placeholder_tag: str = DEFAULT_IMAGE_PLACEHOLDER_TAG,
+        # 不再需要单一的占位符标签
+        # image_placeholder_tag: str = DEFAULT_IMAGE_PLACEHOLDER_TAG,
         stream_chunk_delay_seconds: float = DEFAULT_STREAM_CHUNK_DELAY_SECONDS,
         enable_image_compression: bool = True,
         image_compression_target_bytes: int = DEFAULT_IMAGE_COMPRESSION_TARGET_BYTES,
         rate_limit_disable_duration_seconds: int = DEFAULT_RATE_LIMIT_DISABLE_SECONDS,
         **kwargs: Unpack[GenerationParams],
     ) -> None:
+        # 定义用于解析唯一占位符的正则表达式
+        self.image_placeholder_pattern_regex = re.compile(r"\[(图片|动画表情)_(\d+)]")
+
         self.default_generation_config: GenerationParams = kwargs
         logger.debug(
             f"LLMClient __init__ received model: {model}, "
@@ -371,7 +375,6 @@ class LLMClient:
             except ValueError:
                 logger.warning(f"无效的代理端口号: {_proxy_port}.")
 
-        self.image_placeholder_tag = image_placeholder_tag
         self.stream_chunk_delay_seconds = stream_chunk_delay_seconds
         self.enable_image_compression = enable_image_compression
         self.image_compression_target_bytes = image_compression_target_bytes
@@ -390,7 +393,125 @@ class LLMClient:
             f"图像压缩: {'启用' if self.enable_image_compression else '禁用'}, "
             f"目标大小: {self.image_compression_target_bytes / (1024 * 1024):.2f} MB"
         )
-        self._session: aiohttp.ClientSession | None = None  # 新增：用于存储aiohttp会话
+        self._session: aiohttp.ClientSession | None = None
+
+    def _build_content_for_style(
+        self,
+        request_type: str,
+        prompt_text: str | None = None,
+        processed_images: list[dict[str, str]] | None = None,
+        text_to_embed: str | None = None,
+    ) -> str | list[dict[str, Any]] | dict[str, Any]:
+        """根据API风格组装请求内容.
+
+        Args:
+            request_type (str): 请求类型，可以是 "text", "image", "tool"
+            prompt_text (str | None): 输入的提示文本，如果是嵌入请求则为 None.
+            processed_images (list[dict[str, str]] | None): 处理后的图像数据列表，每个图像是一个字典，包含 'b64_data' 和 'mime_type'。
+            text_to_embed (str | None): 要嵌入的文本，如果是非嵌入请求则为 None.
+
+        Returns:
+            str | list[dict[str, Any]] | dict[str, Any]: 根据API风格组装的请求内容.
+        """  # noqa: E501
+        # --- 嵌入请求的逻辑保持不变 ---
+        if request_type == "embedding":
+            if self.api_endpoint_style == "google":
+                return {"parts": [{"text": text_to_embed}]} if text_to_embed else {}
+            elif self.api_endpoint_style == "openai":
+                return text_to_embed if text_to_embed else ""
+            raise NotImplementedError(
+                f"Embedding content for {self.api_endpoint_style} not implemented."
+            )
+
+        # --- 非嵌入请求（文本、视觉、工具）的核心组装逻辑 ---
+        api_request_elements: list[dict[str, Any]] = []
+
+        # 检查是否是纯文本请求，如果是，则快速处理
+        if not processed_images or not prompt_text:
+            if prompt_text:
+                api_request_elements.append({"type": "text", "text": prompt_text})
+            if processed_images:
+                for img_data in processed_images:
+                    api_request_elements.append(
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{img_data['mime_type']};base64,{img_data['b64_data']}"
+                            },
+                        }
+                    )
+            # 确保即使prompt为空也有内容
+            if not api_request_elements:
+                api_request_elements.append({"type": "text", "text": ""})
+
+        else:  # +++ 关键修改 3: 这是全新的图文混合组装逻辑 +++
+            last_end = 0
+            # 使用 finditer 遍历所有匹配的占位符
+            for match in self.image_placeholder_pattern_regex.finditer(prompt_text):
+                # 1. 添加占位符之前的文本部分
+                if match.start() > last_end:
+                    api_request_elements.append(
+                        {"type": "text", "text": prompt_text[last_end:match.start()]}
+                    )
+
+                # 2. 添加图片部分
+                try:
+                    # 从匹配组中提取图片索引 (e.g., [图片_1] -> 1)
+                    image_index = int(match.group(2)) - 1
+                    if 0 <= image_index < len(processed_images):
+                        img_data = processed_images[image_index]
+                        api_request_elements.append(
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": (
+                                        f"data:{img_data['mime_type']};base64,{img_data['b64_data']}"
+                                    )
+                                },
+                            }
+                        )
+                    else:
+                        logger.warning(
+                            f"聊天记录中的图片索引 '{match.group(0)}' 超出范围，已忽略。"
+                        )
+                except (ValueError, IndexError) as e:
+                    logger.error(f"解析或使用图片索引 '{match.group(0)}' 时出错: {e}")
+
+                last_end = match.end()
+
+            # 3. 添加最后一个占位符之后的剩余文本
+            if last_end < len(prompt_text):
+                api_request_elements.append({"type": "text", "text": prompt_text[last_end:]})
+
+        # --- 根据不同的API风格，返回最终格式 ---
+        if self.api_endpoint_style == "google":
+            # Google API的格式是 [{"text": "..."}, {"inline_data": ...}]
+            google_formatted_parts = []
+            for element in api_request_elements:
+                if element["type"] == "text":
+                    google_formatted_parts.append({"text": element["text"]})
+                elif element["type"] == "image_url":
+                    # 从 data URI 中解析出 mime_type 和 base64 数据
+                    header, encoded_data = element["image_url"]["url"].split(",", 1)
+                    mime_type = header.split(";")[0].split(":")[1]
+                    google_formatted_parts.append(
+                        {
+                            "inline_data": {
+                                "mime_type": mime_type,
+                                "data": encoded_data,
+                            }
+                        }
+                    )
+            return google_formatted_parts
+
+        elif self.api_endpoint_style == "openai":
+            # OpenAI API的格式是 [{"type": "text", "text": "..."}, {"type": "image_url", ...}]
+            return api_request_elements
+
+        raise NotImplementedError(
+            f"Content building for {self.api_endpoint_style} not implemented for {request_type}."
+        )
+
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """获取或创建aiohttp会话."""
@@ -631,98 +752,6 @@ class LLMClient:
         results = await asyncio.gather(*tasks)
         processed_data.extend(result for result in results if result)
         return processed_data
-
-    def _build_content_for_style(
-        self,
-        request_type: str,
-        prompt_text: str | None = None,
-        processed_images: list[dict[str, str]] | None = None,
-        text_to_embed: str | None = None,
-    ) -> str | list[dict[str, Any]] | dict[str, Any]:
-        if request_type == "embedding":
-            if self.api_endpoint_style == "google":
-                return {"parts": [{"text": text_to_embed}]} if text_to_embed else {}
-            elif self.api_endpoint_style == "openai":
-                return text_to_embed if text_to_embed else ""
-            raise NotImplementedError(
-                f"Embedding content for {self.api_endpoint_style} not implemented."
-            )
-
-        if self.api_endpoint_style == "google":
-            api_request_elements: list[dict[str, Any]] = []
-
-            if (
-                not processed_images
-                or not prompt_text
-                or self.image_placeholder_tag not in prompt_text
-            ):
-                if prompt_text:
-                    api_request_elements.append({"text": prompt_text})
-                if processed_images:
-                    for img_data in processed_images:
-                        api_request_elements.append(
-                            {
-                                "inline_data": {
-                                    "mime_type": img_data["mime_type"],
-                                    "data": img_data["b64_data"],
-                                }
-                            }
-                        )
-                return api_request_elements or [{"text": ""}]
-
-            text_segments = prompt_text.split(self.image_placeholder_tag)
-            img_idx = 0
-
-            for i, segment in enumerate(text_segments):
-                if segment:
-                    api_request_elements.append({"text": segment})
-
-                if i < len(text_segments) - 1 and img_idx < len(processed_images):
-                    img_data = processed_images[img_idx]
-                    api_request_elements.append(
-                        {
-                            "inline_data": {
-                                "mime_type": img_data["mime_type"],
-                                "data": img_data["b64_data"],
-                            }
-                        }
-                    )
-                    img_idx += 1
-
-            while img_idx < len(processed_images):
-                img_data = processed_images[img_idx]
-                api_request_elements.append(
-                    {
-                        "inline_data": {
-                            "mime_type": img_data["mime_type"],
-                            "data": img_data["b64_data"],
-                        }
-                    }
-                )
-                img_idx += 1
-
-            return api_request_elements
-
-        elif self.api_endpoint_style == "openai":
-            if not processed_images or request_type == "chat":
-                return prompt_text or ""
-            content_list: list[dict[str, Any]] = []
-            if prompt_text:
-                content_list.append({"type": "text", "text": prompt_text})
-            for img_data in processed_images:
-                content_list.append(
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:{img_data['mime_type']};base64,{img_data['b64_data']}"
-                        },
-                    }
-                )
-            return content_list
-
-        raise NotImplementedError(
-            f"Content building for {self.api_endpoint_style} not implemented for {request_type}."
-        )
 
     def _get_endpoint_path(self, request_type: str, is_streaming: bool) -> str:
         if request_type == "embedding":
