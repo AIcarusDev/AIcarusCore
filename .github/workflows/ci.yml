@@ -1,7 +1,5 @@
-# .github/workflows/ci.yml
 name: CI Pipeline (Lint & Test)
 
-# 触发工作流的事件
 on:
   push:
     branches: [ "main", "dev" ]
@@ -14,41 +12,35 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 第 1 步：检出代码
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 第 2 步：设置 Python 3.12 环境
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-          cache: 'pip' # 缓存依赖项以加快后续构建速度
+          cache: 'pip'
 
-      # 第 3 步：安装项目依赖和测试工具
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          # 如果你的 requirements.txt 存在，就从它安装
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          # 安装 Ruff 和 Pytest 相关的包
-          pip install ruff pytest pytest-asyncio pytest-mock
+          pip install pytest pytest-asyncio pytest-mock ruff
 
-      # 第 4 步：使用 Ruff 进行代码规范检查（只检查，不修复）
-      - name: Lint and Format Check with Ruff
-        run: |
-          echo "Running Ruff linter..."
-          ruff check .
-          echo "Running Ruff format checker..."
-          ruff format --check .
+      - name: Run Ruff Linter and Formatter
+        # 使用 chartboost/ruff-action 来获得带标注的检查结果
+        uses: chartboost/ruff-action@v1
+        with:
+          # 我们希望它同时执行 lint 和 format 检查
+          args: "check --output-format=github ." # `check` 会读取 pyproject.toml 的配置
+                                                 # `output-format=github` 是生成标注的关键
+          # 你也可以分开写两个步骤，一个 check，一个 format，但合在一起更简洁
+          # args: "format --check --diff ." # 如果只想检查格式，可以这样写
 
-      # 第 5 步：运行单元测试
       - name: Run tests with pytest
-        # 关键：从 GitHub Secrets 读取 .env 文件内容
         env:
           DOT_ENV_FILE: ${{ secrets.DOT_ENV_FILE }}
         run: |
-          # 将 Secret 的内容写入到 .env 文件中，供测试使用
           echo "Creating .env file from secrets..."
           echo "${DOT_ENV_FILE}" > .env
           echo "Running pytest..."
