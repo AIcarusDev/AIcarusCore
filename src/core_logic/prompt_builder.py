@@ -358,7 +358,7 @@ class ThoughtPromptBuilder:
         # 访问 self.chat_session_manager.focus_manager.focus_history
         if (
             not self.chat_session_manager
-            or not hasattr(self.chat_session_manager, "focus_manager") # 安全检查
+            or not hasattr(self.chat_session_manager, "focus_manager")  # 安全检查
             or len(self.chat_session_manager.focus_manager.focus_history) <= 1
         ):
             return ""

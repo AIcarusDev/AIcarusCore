@@ -223,15 +223,11 @@ class ChatSessionManager:
         if command == "deep_think":
             logger.info(f"检测到 [慢思考] 指令，参数: {params}，正在进入内部辩论流程...")
             session = self.core_logic._get_current_session() if self.core_logic else None
-            return await self.deliberation_service.execute(
-                params, current_internal_state, session
-            )
+            return await self.deliberation_service.execute(params, current_internal_state, session)
 
         else:
             logger.info(f"检测到 [意识转向] 指令: {command}, 参数: {params}, 正在处理...")
-            switched, feedback = await self.focus_manager.handle_focus_control(
-                command, params
-            )
+            switched, feedback = await self.focus_manager.handle_focus_control(command, params)
             if not switched:
                 self.last_command_feedback = feedback
             return None
