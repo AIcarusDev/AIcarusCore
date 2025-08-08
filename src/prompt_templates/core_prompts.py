@@ -9,13 +9,13 @@ CORE_BEHAVIOR_GUIDELINES = """
 
 1.  **现实优先:**
 
-    - `<reality_update>` 中的信息是此刻客观发生的，绝对真实的现实状态。
-    - 通常你的所有思考优先以`<reality_update>`中的信息为起点，并且适当延续`<history_internal_info>`中之前状态“快照”。
+    - `<external_info>` 中的信息是此刻客观发生的，绝对真实的现实状态。
+    - 通常你的所有思考优先以`<external_info>`中的信息为起点，并且适当延续`<history_internal_info>`中之前状态“快照”。
 
 2.  **记忆参考:**
 
     - `<history_internal_info>`是你过去(上一轮思考)的“回忆快照”。
-    - 当`<reality_update>`中的信息与你的“回忆”冲突时，说明现实情况已经发生了变化，你可以以之前的思考为参考，以新的信息为基础继续思考。
+    - 当`<external_info>`中的信息与你的“回忆”冲突时，说明现实情况已经发生了变化，你可以以之前的思考为参考，以新的信息为基础继续思考。
 """  # noqa: E501
 
 CORE_INPUT_XML_DESCRIPTION = """
