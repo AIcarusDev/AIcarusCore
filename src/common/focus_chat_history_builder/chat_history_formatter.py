@@ -20,6 +20,7 @@ logger = get_logger(__name__)
 # 定义“视觉窗口”的大小，即最近的多少条消息被认为是“当前可见”的
 VISUAL_VIEWPORT_SIZE = 20
 
+
 async def format_chat_history_for_llm(
     event_storage: "EventStorageService",
     conversation_id: str,
@@ -103,7 +104,7 @@ async def format_chat_history_for_llm(
                     content=content_segs,
                     user_info=protocol_user_info,
                     conversation_info=protocol_conv_info,
-                    raw_data=event_dict, # <-- 关键：将原始字典存入raw_data
+                    raw_data=event_dict,  # <-- 关键：将原始字典存入raw_data
                 )
                 if motivation:
                     event_obj.motivation = motivation
@@ -206,7 +207,6 @@ async def format_chat_history_for_llm(
         user_list_lines.append(user_line)
     user_list_block_str = "\n".join(user_list_lines)
 
-
     # --- 开始构建聊天记录 (已应用“视觉窗口”逻辑) ---
     chat_log_lines: list[str] = []
     image_references_for_llm: list[str] = []
@@ -296,7 +296,7 @@ async def format_chat_history_for_llm(
                             else None
                         )
 
-                        description = "[图片]" # Fallback
+                        description = "[图片]"  # Fallback
 
                         # 2. 检查分析列表是否存在，并且我们的索引没有越界
                         if (
@@ -304,7 +304,6 @@ async def format_chat_history_for_llm(
                             and isinstance(analysis_list, list)
                             and image_analysis_index < len(analysis_list)
                         ):
-
                             # 3. 使用当前的索引来获取正确的分析结果
                             analysis_item = analysis_list[image_analysis_index]
 

@@ -389,11 +389,7 @@ class ChatSessionManager:
             logger.error(f"执行“慢思考”决策管线时发生严重错误: {e}", exc_info=True)
             return None
 
-    async def _switch_focus(
-            self,
-            new_path: str,
-            history_entry_base: dict
-            ) -> tuple[bool, str]:
+    async def _switch_focus(self, new_path: str, history_entry_base: dict) -> tuple[bool, str]:
         """核心切换逻辑：停用旧会话，激活新会话，更新状态和日志.
 
         Args:
@@ -530,8 +526,7 @@ class ChatSessionManager:
                         f"(target_id='{target_id}') 的逻辑尚未完全适配，暂不支持。"
                     )
                     logger.error(
-                        f"无效操作: 不能从平台 '{platform_id}' "
-                        f"focus 到另一个平台 '{p_id}' 的会话。"
+                        f"无效操作: 不能从平台 '{platform_id}' focus 到另一个平台 '{p_id}' 的会话。"
                     )
             except ValueError:
                 logger.error(
@@ -560,9 +555,7 @@ class ChatSessionManager:
         current_path = self.current_focus.get("target_path", "core")
 
         if current_path == "core":
-            error_message = (
-                "该状态执行 'return' 为无效操作，已忽略。"
-            )
+            error_message = "该状态执行 'return' 为无效操作，已忽略。"
             logger.warning("在顶层Core-Level尝试执行 'return'，无效操作，已忽略。")
             return False, error_message
 
@@ -595,9 +588,7 @@ class ChatSessionManager:
 
         if level != "cellular":
             # 如果当前不是在细胞层，记录错误并返回
-            error_message = (
-                "'shift_focus' 只能会话中使用，当前状态不支持。"
-            )
+            error_message = "'shift_focus' 只能会话中使用，当前状态不支持。"
             logger.error(f"'shift_focus' 只能在会话层级使用，当前层级为 '{level}'。")
             return False, error_message
 
@@ -614,13 +605,12 @@ class ChatSessionManager:
             new_path = f"{p_id}.{conv_type}.{actual_id}"
             return await self._switch_focus(new_path, history_entry_base)
         except ValueError:
-            error_message = (f"shift_focus 的 target_id '{target_id}' 不是有效的会话实体UID。")
+            error_message = f"shift_focus 的 target_id '{target_id}' 不是有效的会话实体UID。"
             logger.error(error_message)
             return False, error_message
 
-    async def _handle_teleport_focus(self,
-        params: dict,
-        history_entry_base: dict
+    async def _handle_teleport_focus(
+        self, params: dict, history_entry_base: dict
     ) -> tuple[bool, str]:
         """处理 'teleport_focus' 指令，直接专注于指定的目标."""
         target_path = params.get("target_path")
@@ -637,9 +627,7 @@ class ChatSessionManager:
         如果历史记录中有多个条目，返回到倒数第二个条目。
         """
         if len(self.focus_history) < 2:
-            error_message = (
-                "历史记录不足，无法执行 'back' 操作。"
-            )
+            error_message = "历史记录不足，无法执行 'back' 操作。"
             logger.warning(error_message)
             return False, error_message
         # 如果历史记录中只有一个条目，说明没有上一个焦点可返回
@@ -649,10 +637,8 @@ class ChatSessionManager:
         return await self._switch_focus(target_path, history_entry_base)
 
     async def _handle_jump_to_history(
-            self,
-            params: dict,
-            history_entry_base: dict
-        ) -> tuple[bool, str]:
+        self, params: dict, history_entry_base: dict
+    ) -> tuple[bool, str]:
         """处理 'jump_to_history' 指令，跳转到指定的历史条目.
 
         这里的 history_index 是 T-n 的 n，表示从 T-1 开始的偏移量。
@@ -666,9 +652,7 @@ class ChatSessionManager:
 
             # 验证索引是否在有效范围内 (T-1 到 T-(len-1))
             if not (1 <= history_index < history_len):
-                error_message = (
-                    f"历史索引 T-{history_index} 超出范围 [T-1, T-{history_len - 1}]。"
-                )
+                error_message = f"历史索引 T-{history_index} 超出范围 [T-1, T-{history_len - 1}]。"
                 logger.error(error_message)
                 return False, error_message
             # 获取目标历史条目

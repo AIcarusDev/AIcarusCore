@@ -122,9 +122,7 @@ class DefaultMessageProcessor:
                 saved_doc = saved_doc_dict  # <-- 保存下来
 
                 # 检查事件是否包含图片
-                has_image = any(
-                    seg.type == "image" for seg in event.content
-                )
+                has_image = any(seg.type == "image" for seg in event.content)
                 if has_image and self.image_analysis_service:
                     logger.debug(f"事件 '{event.event_id}' 包含图片，已提交至后台进行分析。")
                     # 将已保存的文档字典提交给分析服务
