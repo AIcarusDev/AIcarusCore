@@ -39,17 +39,28 @@ class InternalInfoBuilder:
             if session and session.interruption_context:
                 snapshot_lines.append('<snapshot time="T-1" status="INTERRUPTED">')
                 snapshot_lines.extend(self._format_thought_content(latest_thought))
-                snapshot_lines.append(self._format_completed_action(action_payload))
-                snapshot_lines.append(self._format_completed_consciousness_control(action_payload))
-                snapshot_lines.append(
-                    await self._format_interruption(session, user_map_from_prompt_builder)
+
+                interruption_info = await self._format_interruption(
+                    session, user_map_from_prompt_builder
+                )
+                snapshot_lines.extend(
+                    [
+                        self._format_completed_action(action_payload),
+                        self._format_completed_consciousness_control(action_payload),
+                        interruption_info,
+                    ]
                 )
                 session.interruption_context = None
             else:
                 snapshot_lines.append('<snapshot time="T-1" status="COMPLETED">')
                 snapshot_lines.extend(self._format_thought_content(latest_thought))
-                snapshot_lines.append(self._format_completed_action(action_payload))
-                snapshot_lines.append(self._format_completed_consciousness_control(action_payload))
+
+                snapshot_lines.extend(
+                    [
+                        self._format_completed_action(action_payload),
+                        self._format_completed_consciousness_control(action_payload),
+                    ]
+                )
 
             snapshot_lines.append("</snapshot>")
 

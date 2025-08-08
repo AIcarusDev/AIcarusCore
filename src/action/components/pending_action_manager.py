@@ -8,7 +8,6 @@ from aicarus_protocols import find_seg_by_type
 from src.common.custom_logging.logging_config import get_logger
 from src.database import (
     ActionLogStorageService,
-    CoreDBCollections,
     ThoughtStorageService,
 )
 from src.database.services.event_storage_service import EventStorageService
@@ -165,46 +164,29 @@ class PendingActionManager:
         if original_action_type.endswith(".get_list"):
             await self._proactively_create_conversation_docs_from_list(details, sent_dict)
 
-        # 2. handle_friend_request 的后续处理
+        # 2. [修改] handle_friend_request 的后续处理
         if original_action_type.endswith(".handle_friend_request"):
-            # 从原始发送的事件中解析出参数
-            # 确保导入
             params_seg = find_seg_by_type(sent_dict.get("content", []), "action_params")
 
-            if params_seg and isinstance(params_seg.data, dict) and (params := params_seg.data):
-                user_id = params.get("user_id")
-                platform = sent_dict.get("platform")
+            if not (
+                params_seg
+                and isinstance(params_seg.data, dict)
+                and (params := params_seg.data)
+                and (user_id := params.get("user_id"))
+                and (platform := sent_dict.get("platform"))
+            ):
+                logger.error("处理 handle_friend_request 后续时，缺少 user_id 或 platform。")
+                return
 
-                if not user_id or not platform:
-                    logger.error("处理 handle_friend_request 后续时，缺少 user_id 或 platform。")
-                    return
+            entity_uid = f"{platform}_{user_id}"
+            approved = params.get("approve", False)
+            remark = params.get("remark") if approved else None
 
-                entity_uid = f"{platform}_{user_id}"
-
-                # 准备要更新的字段
-                update_fields = {"friend_request_pending": None}  # 无论同意还是拒绝，清除待处理标记
-
-                # 如果是同意，并且提供了备注，就更新备注字段
-                if (
-                    params.get("approve") is True
-                    and (remark := params.get("remark"))
-                    and isinstance(remark, str)
-                    and remark.strip()
-                ):
-                    update_fields["friend_remark"] = remark.strip()
-
-                # 执行数据库更新
-                try:
-                    # 我们需要 entity_service，它已经在 ActionHandler 中了
-                    entities_collection = await self.action_handler.entity_service._get_collection(
-                        CoreDBCollections.ENTITIES
-                    )
-                    await entities_collection.update({"_key": entity_uid, **update_fields})
-                    logger.info(f"好友请求处理完毕，已更新实体 '{entity_uid}' 的数据库状态。")
-                except Exception as e:
-                    logger.error(
-                        f"更新实体 '{entity_uid}' 的好友请求状态时失败: {e}", exc_info=True
-                    )
+            # [修改] 调用 EntityGraphService 的新公共方法
+            await self.action_handler.entity_service.finalize_friend_request(
+                entity_uid=entity_uid, approved=approved, remark=remark
+            )
+            logger.info(f"好友请求处理完毕，已通过服务更新实体 '{entity_uid}' 的数据库状态。")
 
     async def _gather_and_execute_db_updates(
         self,

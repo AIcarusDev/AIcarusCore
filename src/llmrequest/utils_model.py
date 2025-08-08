@@ -451,7 +451,7 @@ class LLMClient:
                 # 1. 添加占位符之前的文本部分
                 if match.start() > last_end:
                     api_request_elements.append(
-                        {"type": "text", "text": prompt_text[last_end:match.start()]}
+                        {"type": "text", "text": prompt_text[last_end : match.start()]}
                     )
 
                 # 2. 添加图片部分
@@ -511,7 +511,6 @@ class LLMClient:
         raise NotImplementedError(
             f"Content building for {self.api_endpoint_style} not implemented for {request_type}."
         )
-
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """获取或创建aiohttp会话."""

@@ -1,6 +1,6 @@
 # src/core_logic/prompt_builder.py
 import json
-import re  # 导入 re 模块
+import re
 from typing import TYPE_CHECKING, Any, Optional
 
 from aicarus_protocols import Event
@@ -73,6 +73,191 @@ class ThoughtPromptBuilder:
         self.core_ws_server = core_ws_server
         self.is_context_switch_flag: bool = False
 
+    async def build_prompts_components(
+        self,
+        level: str,
+        focus_path: str | None,
+        session: Optional["ChatSession"] = None,
+        handover_result: dict | None = None,
+    ) -> tuple[PromptComponents, list[Event] | None]:
+        """编排构建系统和用户提示组件的过程."""
+        current_level, current_platform_id, current_conv_id = parse_focus_path(focus_path)
+
+        # 1. 构建外部信息和元信息
+        (
+            external_info_block,
+            meta_info_block,
+            history_components,
+            processed_raw_events,
+        ) = await self._get_external_and_meta_info_blocks(
+            current_level, current_platform_id, current_conv_id
+        )
+
+        # 2. 构建响应 Schema
+        response_schema = self._build_response_schema(current_level, current_platform_id)
+
+        # 3. 构建 System Prompt 的各个部分
+        system_prompt_blocks = await self._build_system_prompt_blocks(
+            level=current_level,
+            platform_id=current_platform_id,
+            conv_id=current_conv_id,
+            session=session,
+            user_map=history_components.user_map if history_components else None,
+        )
+
+        # 4. 构建 User Prompt 的各个部分
+        user_prompt_blocks = await self._build_user_prompt_blocks(
+            handover_result=handover_result,
+            meta_info_block=meta_info_block,
+            external_info_block=external_info_block,
+            platform_id=current_platform_id,
+            level=current_level,
+        )
+
+        # 5. 组装最终的组件对象
+        prompt_components_obj = PromptComponents(
+            system_prompt_blocks=system_prompt_blocks,
+            user_prompt_blocks=user_prompt_blocks,
+            response_schema=response_schema,
+            last_valid_text_message=history_components.last_valid_text_message
+            if history_components
+            else None,
+            image_references=history_components.image_references if history_components else [],
+        )
+
+        return prompt_components_obj, processed_raw_events
+
+    def _build_response_schema(self, level: str, platform_id: str) -> dict[str, Any]:
+        """(提取出的新方法) 构建 LLM 响应的 JSON Schema."""
+        builder = platform_builder_registry.get_builder(platform_id)
+        core_builder = platform_builder_registry.get_builder("core")
+
+        # 构建意识控制 Schema
+        plat_ctrl_schema, _ = (
+            builder.get_level_consciousness_controls_definitions(level) if builder else ({}, {})
+        )
+        core_ctrl_schema, _ = core_builder.get_level_consciousness_controls_definitions(level)
+        final_ctrl_schema_props = core_ctrl_schema.get("properties", {})
+        final_ctrl_schema_props.update(plat_ctrl_schema.get("properties", {}))
+
+        # 构建动作 Schema
+        final_act_schema_props = {}
+        core_act_schema, _ = core_builder.get_level_actions_definitions(level)
+        final_act_schema_props["core"] = core_act_schema
+
+        if builder and level != "core":
+            plat_act_schema, _ = builder.get_level_actions_definitions(level)
+            final_act_schema_props[builder.platform_id] = plat_act_schema
+
+        if level == "core" and self.core_ws_server:
+            connected_adapter_ids = self.core_ws_server.action_sender.connected_adapters.keys()
+            for pid in connected_adapter_ids:
+                p_builder = platform_builder_registry.get_builder(pid)
+                if p_builder and p_builder.is_tool_platform:
+                    tool_schema, _ = p_builder.get_level_actions_definitions("platform")
+                    final_act_schema_props[pid] = tool_schema
+
+        return {
+            "type": "object",
+            "properties": {
+                "internal_state": {
+                    "type": "object",
+                    "properties": {
+                        "mood": {"type": "string"},
+                        "think": {"type": "string"},
+                        "goal": {"type": "string"},
+                    },
+                    "required": ["mood", "think", "goal"],
+                },
+                "consciousness_control": {
+                    "type": "object",
+                    "properties": final_ctrl_schema_props,
+                    "maxProperties": 1,
+                },
+                "action": {"type": "object", "properties": final_act_schema_props},
+            },
+            "required": ["internal_state"],
+        }
+
+    async def _build_system_prompt_blocks(
+        self,
+        level: str,
+        platform_id: str,
+        conv_id: str | None,
+        session: Optional["ChatSession"],
+        user_map: dict | None,
+    ) -> dict[str, Any]:
+        """(提取出的新方法) 构建 System Prompt 的所有部分."""
+        builder = platform_builder_registry.get_builder(platform_id)
+        core_builder = platform_builder_registry.get_builder("core")
+
+        internal_info_block = await self.internal_info_builder.build_internal_info_block(
+            is_context_switch=self.is_context_switch_flag,
+            session=session,
+            user_map_from_prompt_builder=user_map,
+        )
+
+        working_memory_block = "<!-- 当前没有来自“慢思考”的短期记忆。 -->"
+        if session and session.working_memory:
+            remaining = session.working_memory.get("remaining_turns", 0)
+            if remaining > 0:
+                summary = session.working_memory.get("summary", "无内容。")
+                working_memory_block = (
+                    f"<!-- 以下是你“慢思考”后的决策摘要，将在 {remaining} 轮思考后遗忘 -->\n"
+                    f"<summary_from_deliberation>\n{summary}\n</summary_from_deliberation>"
+                )
+                session.working_memory["remaining_turns"] -= 1
+            else:
+                session.working_memory.clear()
+
+        return {
+            "aicarus_rule_block": AICARUS_RULE,
+            "current_time": get_formatted_time_for_llm(),
+            "persona_block": self._get_persona_block(),
+            "available_platforms_block": await self._get_available_platforms_block(),
+            "current_state_block": await self._get_current_state_block(level, platform_id, conv_id),
+            "navigation_log_block": await self._build_navigation_log_block(),
+            "working_memory_block": working_memory_block,
+            "behavior_guidelines_block": self._get_behavior_guidelines_block(level),
+            "internal_info_block": internal_info_block,
+            "input_XML_block_description": self._get_input_xml_block_description(level),
+            "available_consciousness_controls": self._get_controls_descriptions(
+                level, builder, core_builder
+            ),
+            "available_actions": self._get_actions_descriptions(level, builder, core_builder),
+            "self_prompt_block": await self._build_self_prompt_block(),
+        }
+
+    async def _build_user_prompt_blocks(
+        self,
+        handover_result: dict | None,
+        meta_info_block: str,
+        external_info_block: str,
+        platform_id: str,
+        level: str,
+    ) -> dict[str, Any]:
+        """(提取出的新方法) 构建 User Prompt 的所有部分."""
+        command_feedback_block = ""
+        if self.chat_session_manager and self.chat_session_manager.last_command_feedback:
+            feedback_text = self.chat_session_manager.last_command_feedback
+            command_feedback_block = f"<command_feedback>\n{feedback_text}\n</command_feedback>"
+            self.chat_session_manager.last_command_feedback = None
+
+        action_response_block = await self._build_action_response_desc(handover_result)
+
+        friend_request_block = ""
+        if level in ["platform", "cellular"]:
+            friend_request_block = await self._build_friend_request_block(platform_id)
+
+        return {
+            "action_response_block": action_response_block,
+            "command_feedback_block": command_feedback_block,
+            "meta_info_block": meta_info_block,
+            "external_info_block": external_info_block,
+            "friend_request_block": friend_request_block,
+        }
+
+    # ... (其他辅助方法 _build_action_response_desc, _build_navigation_log_block 等保持不变) ...
     async def _build_action_response_desc(self, handover_result: dict | None) -> str:
         latest_thought = await self.thought_storage.get_latest_thought_document()
         if not latest_thought:
@@ -288,193 +473,8 @@ class ThoughtPromptBuilder:
 
         return system_prompt, user_prompt, response_schema
 
-    async def build_prompts_components(
-        self,
-        level: str,
-        focus_path: str | None,
-        session: Optional["ChatSession"] = None,
-        handover_result: dict | None = None,
-    ) -> tuple[PromptComponents, list[Event] | None]:
-        """构建系统和用户提示组件.
-
-        Args:
-            level (str): 当前的层级（如 'core', 'platform', 'cellular'），用于确定上下文。
-            focus_path (str | None): 当前的注意力焦点路径，用于确定上下文.
-            session (ChatSession | None): 可选的会话对象，用于获取会话相关信息.
-            handover_result (dict | None): 可选的动作结果，用于构建动作响应描述.
-
-        Returns:
-            tuple[PromptComponents, list[Event] | None]: 包含系统和用户提示块的组件对象，
-                以及处理过的原始事件列表.
-        """
-        current_level, current_platform_id, current_conv_id = parse_focus_path(focus_path)
-        builder = platform_builder_registry.get_builder(current_platform_id)
-        core_builder = platform_builder_registry.get_builder("core")
-
-        plat_ctrl_schema, _ = (
-            builder.get_level_consciousness_controls_definitions(current_level)
-            if builder
-            else ({}, {})
-        )
-        core_ctrl_schema, _ = core_builder.get_level_consciousness_controls_definitions(
-            current_level
-        )
-        final_ctrl_schema_props = {
-            **core_ctrl_schema.get("properties", {}),
-            **plat_ctrl_schema.get("properties", {}),
-        }
-        if (current_level == "core" and "focus" in final_ctrl_schema_props) and (
-            all_platform_ids := [
-                pid for pid in platform_builder_registry.get_all_builders() if pid != "core"
-            ]
-        ):
-            focus_properties = final_ctrl_schema_props["focus"].get("properties", {})
-            if "platform_id" in focus_properties:
-                focus_properties["platform_id"]["enum"] = all_platform_ids
-
-        final_act_schema_props = {}
-
-        # 1. 获取核心动作，这是永远可用的
-        core_act_schema, _ = core_builder.get_level_actions_definitions(current_level)
-        # 将核心动作封装在 'core' 命名空间下
-        final_act_schema_props["core"] = core_act_schema
-
-        # 2. 如果在平台层或细胞层，获取该平台的动作
-        if builder and level != "core":
-            plat_act_schema, _ = builder.get_level_actions_definitions(current_level)
-            # 将平台动作封装在其 platform_id 命名空间下
-            final_act_schema_props[builder.platform_id] = plat_act_schema
-
-        # 3. 如果是在核心层，动态查找所有在线的工具平台并添加它们的动作
-        if level == "core" and self.core_ws_server:
-            # 从 ActionSender 获取当前已连接的适配器ID列表
-            connected_adapter_ids = self.core_ws_server.action_sender.connected_adapters.keys()
-            for platform_id in connected_adapter_ids:
-                p_builder = platform_builder_registry.get_builder(platform_id)
-                if p_builder and p_builder.is_tool_platform:
-                    # 工具平台在顶层展示其 'platform' 级别的动作定义
-                    tool_schema, _ = p_builder.get_level_actions_definitions("platform")
-                    # 将工具平台的动作封装在其 platform_id 命名空间下
-                    final_act_schema_props[platform_id] = tool_schema
-
-        response_schema = {
-            "type": "object",
-            "properties": {
-                "internal_state": {
-                    "type": "object",
-                    "properties": {
-                        "mood": {"type": "string"},
-                        "think": {"type": "string"},
-                        "goal": {"type": "string"},
-                    },
-                    "required": ["mood", "think", "goal"],
-                },
-                "consciousness_control": {
-                    "type": "object",
-                    "properties": final_ctrl_schema_props,
-                    "maxProperties": 1,
-                },
-                "action": {"type": "object", "properties": final_act_schema_props},
-            },
-            "required": ["internal_state"],
-        }
-
-        (
-            external_info_block,
-            meta_info_block,
-            history_components,
-            processed_raw_events,
-        ) = await self._get_external_and_meta_info_blocks(
-            current_level, current_platform_id, current_conv_id
-        )
-
-        # 2. 然后，我把这个 user_map 当作命令，传给我的奴隶！
-        internal_info_block = await self.internal_info_builder.build_internal_info_block(
-            is_context_switch=self.is_context_switch_flag,
-            session=session,
-            user_map_from_prompt_builder=(
-                history_components.user_map if history_components else None
-            ),
-        )
-
-        working_memory_block = "<!-- 当前没有来自“慢思考”的短期记忆。 -->"
-        if session and session.working_memory:
-            remaining = session.working_memory.get("remaining_turns", 0)
-            if remaining > 0:
-                summary = session.working_memory.get("summary", "无内容。")
-                working_memory_block = (
-                    f"<!-- 以下是你“慢思考”后的决策摘要，将在 {remaining} 轮思考后遗忘 -->\n"
-                    f"<summary_from_deliberation>\n{summary}\n</summary_from_deliberation>"
-                )
-                session.working_memory["remaining_turns"] -= 1
-            else:
-                session.working_memory.clear()
-
-        # [新增] 构建指令反馈块
-        command_feedback_block = ""
-        if self.chat_session_manager and self.chat_session_manager.last_command_feedback:
-            feedback_text = self.chat_session_manager.last_command_feedback
-            command_feedback_block = f"<command_feedback>\n{feedback_text}\n</command_feedback>"
-            # [关键] 读取后立即清除，确保反馈只出现一次
-            self.chat_session_manager.last_command_feedback = None
-
-        action_response_block = await self._build_action_response_desc(handover_result)
-        navigation_log_block = await self._build_navigation_log_block()
-        friend_request_block = ""  # 初始化为空字符串，如果在顶层，那么就是空字符。
-        if current_level in ["platform", "cellular"]:  # 仅在平台或细胞层级构建好友请求块
-            friend_request_block = await self._build_friend_request_block(current_platform_id)
-
-        system_prompt_blocks = {
-            "aicarus_rule_block": AICARUS_RULE,
-            "current_time": get_formatted_time_for_llm(),
-            "persona_block": self._get_persona_block(),
-            "available_platforms_block": await self._get_available_platforms_block(),
-            "current_state_block": await self._get_current_state_block(
-                current_level, current_platform_id, current_conv_id
-            ),
-            "navigation_log_block": navigation_log_block,
-            "working_memory_block": working_memory_block,  # <-- 注入工作记忆
-            "behavior_guidelines_block": self._get_behavior_guidelines_block(current_level),
-            "internal_info_block": internal_info_block,
-            "input_XML_block_description": self._get_input_xml_block_description(current_level),
-            "available_consciousness_controls": self._get_controls_descriptions(
-                current_level, builder, core_builder
-            ),
-            "available_actions": self._get_actions_descriptions(
-                current_level, builder, core_builder
-            ),
-            "self_prompt_block": await self._build_self_prompt_block(),
-        }
-
-        user_prompt_blocks = {
-            "action_response_block": action_response_block,
-            "command_feedback_block": command_feedback_block,
-            "meta_info_block": meta_info_block,
-            "external_info_block": external_info_block,
-            "friend_request_block": friend_request_block,
-        }
-
-        prompt_components_obj = PromptComponents(
-            system_prompt_blocks=system_prompt_blocks,
-            user_prompt_blocks=user_prompt_blocks,
-            response_schema=response_schema,
-            last_valid_text_message=history_components.last_valid_text_message
-            if history_components
-            else None,
-            image_references=history_components.image_references if history_components else [],
-        )
-
-        return prompt_components_obj, processed_raw_events
-
     def finalize_prompts(self, components: PromptComponents) -> tuple[str, str, dict[str, Any]]:
-        """将 PromptComponents 转换为最终的系统和用户提示字符串.
-
-        Args:
-            components (PromptComponents): 包含系统和用户提示块的组件对象.
-
-        Returns:
-            tuple: 包含系统提示字符串、用户提示字符串和响应模式的元组.
-        """
+        """将 PromptComponents 转换为最终的系统和用户提示字符串."""
         system_prompt = prompt_templates.CORE_CYCLE_SYSTEM_PROMPT.format(
             **components.system_prompt_blocks
         )
@@ -484,14 +484,7 @@ class ThoughtPromptBuilder:
         return system_prompt, user_prompt, components.response_schema
 
     async def get_last_valid_text_message(self, conversation_id: str) -> str | None:
-        """获取指定会话的最后有效文本消息.
-
-        Args:
-            conversation_id (str): 会话的唯一标识符.
-
-        Returns:
-            str | None: 最后有效的文本消息，如果没有找到则返回 None.
-        """
+        """获取指定会话的最后有效文本消息."""
         if not self.chat_session_manager:
             return None
         session = self.chat_session_manager.sessions.get(conversation_id)
@@ -556,8 +549,7 @@ class ThoughtPromptBuilder:
         session = self.chat_session_manager.sessions.get(session_key)
         if not session:
             raise PromptBuilderError(
-                f"在 'cellular' 层级，找不到会话实体UID为 '{session_key}' 的活跃会话档案，"
-                f"无法构建当前状态块。"
+                f"在 'cellular' 层级，找不到会话实体UID为 '{session_key}' 的活跃会话档案，无法构建当前状态块。"  # noqa: E501
             )
 
         bot_profile = await session.get_bot_profile()
@@ -568,27 +560,19 @@ class ThoughtPromptBuilder:
                 f'你在该群的群名片是"{bot_profile.get("card", config.persona.bot_name)}"'
             )
 
-        # 如果代码能走到这里，那它一定是 'private' 类型，无需再用 else
         is_temporary = session.conversation_info.extra.get("is_temporary", False)
-
-        # 先处理 'not is_temporary' 这种更简单的私聊情况
         if not is_temporary:
             return f"你当前正在 qq 上与{session.conversation_name or '对方'}私聊"
 
-        # 最后，处理最复杂的“临时会话”情况
         source_group_id = session.conversation_info.extra.get("source_group_id")
-        source_group_name = "未知群聊"  # 默认值
+        source_group_name = "未知群聊"
         if source_group_id:
-            # 1. 根据约定，构建群聊实体的 UID
-            #    临时会话的来源必然是群聊，所以 conv_type 硬编码为 "group"
-            source_group_entity_uid = f"{session.platform}_group_{source_group_id}"
-
-            # 2. 通过 UID 获取群聊实体
+            source_group_entity_uid = build_conversation_entity_uid(
+                session.platform, "group", source_group_id
+            )
             source_group_entity = await self.entity_service.get_entity_by_key(
                 source_group_entity_uid
             )
-
-            # 3. 从实体文档中安全地提取名称
             if source_group_entity and isinstance(source_group_entity.details, ConversationDetails):
                 source_group_name = source_group_entity.details.name or source_group_id
 
@@ -653,18 +637,16 @@ class ThoughtPromptBuilder:
             tool_descs = []
             for platform_id in connected_adapter_ids:
                 if (
-                    p_builder := platform_builder_registry.get_builder(platform_id)
-                ) and p_builder.is_tool_platform:
-                    # 工具平台在顶层展示其 'platform' 级别的动作描述
-                    tool_actions_desc = p_builder.get_level_actions_descriptions("platform")
-                    if tool_actions_desc:
-                        # 为工具平台动作描述添加命名空间前缀
-                        namespaced_tool_desc = re.sub(
-                            r"(`)(\w+)", rf"\1{platform_id}.\2", tool_actions_desc
-                        )
-                        tool_descs.append(
-                            f"- 工具平台 '{platform_id}' 提供了以下能力:\n{namespaced_tool_desc}"
-                        )
+                    (p_builder := platform_builder_registry.get_builder(platform_id))
+                    and p_builder.is_tool_platform
+                ) and (tool_actions_desc := p_builder.get_level_actions_descriptions("platform")):
+                    # 为工具平台动作描述添加命名空间前缀
+                    namespaced_tool_desc = re.sub(
+                        r"(`)(\w+)", rf"\1{platform_id}.\2", tool_actions_desc
+                    )
+                    tool_descs.append(
+                        f"- 工具平台 '{platform_id}' 提供了以下能力:\n{namespaced_tool_desc}"
+                    )
             if tool_descs:
                 descs.append("\n".join(tool_descs))
 
@@ -680,16 +662,13 @@ class ThoughtPromptBuilder:
         if level == "core":
             external_info = await self.unread_info_service.get_platform_summary()
         elif level == "platform":
-            # 从 ChatSessionManager 获取当前平台的滚动偏移量
-            scroll_offset = 0
-            if self.chat_session_manager and self.chat_session_manager.platform_view_states.get(
-                platform_id
-            ):
-                scroll_offset = self.chat_session_manager.platform_view_states[platform_id].get(
+            scroll_offset = (
+                self.chat_session_manager.platform_view_states.get(platform_id, {}).get(
                     "scroll_offset", 0
                 )
-
-            # 将获取到的偏移量传递给 unread_info_service
+                if self.chat_session_manager
+                else 0
+            )
             external_info = await self.unread_info_service.get_conversation_list_summary(
                 platform_id, scroll_offset=scroll_offset
             )
@@ -710,15 +689,14 @@ class ThoughtPromptBuilder:
             if not session:
                 # 错误信息现在会显示我们尝试使用的正确key，方便调试
                 raise PromptBuilderError(
-                    f"在 'cellular' 层级，找不到会话实体UID为 '{session_key}' 的活跃会话档案，"
-                    f"无法构建外部信息块。"
+                    f"在 'cellular' 层级，找不到会话实体UID为 '{session_key}' 的活跃会话档案，无法构建外部信息块。"  # noqa: E501
                 )
 
             # 获取会话的历史记录和元信息
             bot_profile = await session.get_bot_profile()
             history_components, processed_raw_events = await format_chat_history_for_llm(
                 event_storage=self.event_storage,
-                conversation_id=session.conversation_info.conversation_id,  # 修正：这里用平台原生ID
+                conversation_id=session.conversation_info.conversation_id,
                 bot_id=session.bot_id,
                 platform=session.platform,
                 bot_profile=bot_profile,
@@ -732,7 +710,6 @@ class ThoughtPromptBuilder:
             unread_summary_str = await self.unread_info_service.generate_unread_summary_text(
                 exclude_conversation_id=session.conversation_id
             )
-
             event_types_block_str = (
                 "## Event Types\n"
                 "[MSG]: 普通消息，在消息后的（id:xxx）为消息的id\n"
@@ -742,14 +719,12 @@ class ThoughtPromptBuilder:
                 "[表情包: xxx] 或 [图片: xxx]: 这代表早些时候的图片，你已经不能直接看到了，只能通过文字来理解它的“印象”。\n"  # noqa: E501
                 "[NOTICE]: 来自平台的通知\n"
             )
-
             external_info = (
                 f"<Conversation_Info>\n{history_components.conversation_info_block}\n</Conversation_Info>\n\n"
                 f"<user_logs>\n{history_components.user_list_block}\n</user_logs>\n\n"
                 f"<event_types>\n{event_types_block_str}\n</event_types>\n\n"
                 f"<chat_history>\n{history_components.chat_history_log_block}\n</chat_history>\n\n"
-                f"<unread_summary>\n{unread_summary_str or '所有其他会话均无未读消息。'}"
-                f"\n</unread_summary>"
+                f"<unread_summary>\n{unread_summary_str or '所有其他会话均无未读消息。'}\n</unread_summary>"  # noqa: E501
             )
             guidance_generator = BehavioralGuidanceGenerator(session)
             meta_info = guidance_generator.generate_guidance()

@@ -1,5 +1,5 @@
-# src/database/services/entity_graph_service.py (本体论重构 V1.2 - 并发修复版)
-import asyncio  # 导入 asyncio
+# src/database/services/entity_graph_service.py
+import asyncio
 import time
 from typing import Any
 
@@ -35,7 +35,6 @@ class EntityGraphService:
     def __init__(self, conn_manager: ArangoDBConnectionManager) -> None:
         """初始化实体图谱服务."""
         self.conn_manager = conn_manager
-        # --- [并发修复] 新增实例级别的缓存和锁 ---
         self._platform_entity_cache: dict[str, EntityDocument] = {}
         self._platform_entity_lock = asyncio.Lock()
 
@@ -433,7 +432,7 @@ class EntityGraphService:
         """获取指定平台所有待处理的好友请求."""
         query = """
             FOR doc IN @@entities_coll
-                FILTER doc.platform == @platform
+                FILTER doc.details.platform == @platform
                 AND doc.entity_type == 'account'
                 AND doc.details.friend_request_pending != null
                 RETURN {
@@ -444,7 +443,10 @@ class EntityGraphService:
                     timestamp: doc.details.friend_request_pending.timestamp
                 }
         """
-        bind_vars = {"@entities_coll": CoreDBCollections.ENTITIES, "platform": platform}
+        bind_vars = {
+            "@entities_coll": CoreDBCollections.ENTITIES,
+            "platform": platform,
+        }
         try:
             results = await self.conn_manager.execute_query(query, bind_vars)
             return results if results is not None else []
@@ -599,10 +601,7 @@ class EntityGraphService:
         try:
             entities_collection = await self._get_collection(CoreDBCollections.ENTITIES)
             doc = await entities_collection.get(entity_uid)
-            if doc:
-                # 使用 from_dict 类方法将原始字典转换为强类型的 dataclass 对象
-                return EntityDocument.from_dict(doc)
-            return None
+            return EntityDocument.from_dict(doc) if doc else None
         except Exception as e:
             logger.error(f"根据 key '{entity_uid}' 获取实体时失败: {e}", exc_info=True)
             return None
@@ -743,3 +742,63 @@ class EntityGraphService:
             f"找到任何 group 或 private 类型的会话实体。"
         )
         return None
+
+    # --- [新增] 公共方法，用于更新好友请求状态 ---
+    async def update_friend_request_status(
+        self, entity_uid: str, flag: str, comment: str, timestamp: int
+    ) -> bool:
+        """更新指定实体的待处理好友请求信息."""
+        query = """
+            UPDATE @key WITH {
+                details: {
+                    friend_request_pending: {
+                        flag: @flag,
+                        comment: @comment,
+                        timestamp: @timestamp
+                    }
+                }
+            } IN @@collection OPTIONS { mergeObjects: true, keepNull: false }
+        """
+        bind_vars = {
+            "key": entity_uid,
+            "flag": flag,
+            "comment": comment,
+            "timestamp": timestamp,
+            "@collection": CoreDBCollections.ENTITIES,
+        }
+        try:
+            await self.conn_manager.execute_query(query, bind_vars)
+            logger.info(f"已更新实体 '{entity_uid}' 的好友请求状态。")
+            return True
+        except Exception as e:
+            logger.error(f"更新实体 '{entity_uid}' 好友请求状态时失败: {e}", exc_info=True)
+            return False
+
+    # --- [新增] 公共方法，用于完成好友请求处理 ---
+    async def finalize_friend_request(
+        self, entity_uid: str, approved: bool, remark: str | None
+    ) -> bool:
+        """完成好友请求处理，清除待处理状态并可选地更新好友备注."""
+        update_fields = {"friend_request_pending": None}
+        if approved and remark:
+            update_fields["friend_remark"] = remark.strip()
+
+        # 使用 AQL 的 MERGE 函数来动态构建更新对象
+        query = """
+            LET current_details = DOCUMENT(@@collection, @key).details
+            UPDATE @key WITH {
+                details: MERGE(current_details, @update_fields)
+            } IN @@collection
+        """
+        bind_vars = {
+            "key": entity_uid,
+            "update_fields": update_fields,
+            "@collection": CoreDBCollections.ENTITIES,
+        }
+        try:
+            await self.conn_manager.execute_query(query, bind_vars)
+            logger.info(f"已完成实体 '{entity_uid}' 的好友请求处理。")
+            return True
+        except Exception as e:
+            logger.error(f"完成实体 '{entity_uid}' 好友请求处理时失败: {e}", exc_info=True)
+            return False
