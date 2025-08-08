@@ -355,12 +355,18 @@ class ThoughtPromptBuilder:
 
     async def _build_navigation_log_block(self) -> str:
         """构建导航日志块，展示最近的注意力焦点历史."""
-        if not self.chat_session_manager or len(self.chat_session_manager.focus_history) <= 1:
+        # 访问 self.chat_session_manager.focus_manager.focus_history
+        if (
+            not self.chat_session_manager
+            or not hasattr(self.chat_session_manager, "focus_manager") # 安全检查
+            or len(self.chat_session_manager.focus_manager.focus_history) <= 1
+        ):
             return ""
 
         log_lines = ["<!-- 这是你最近的注意力焦点历史 -->"]
 
-        history = list(self.chat_session_manager.focus_history)  # 创建副本以安全迭代
+        # 从 self.chat_session_manager.focus_manager 获取历史记录
+        history = list(self.chat_session_manager.focus_manager.focus_history)  # 创建副本以安全迭代
         history_len = len(history)
 
         for i, entry in enumerate(reversed(history)):
@@ -371,8 +377,8 @@ class ThoughtPromptBuilder:
             relative_index = time_index - (history_len - 1)
             motivation = entry.get("motivation", "未知动机")
 
-            # [优化点] 调用异步方法获取丰富描述
-            desc = await self.chat_session_manager._get_focus_description(entry)
+            # 调用异步方法获取丰富描述
+            desc = await self.chat_session_manager.focus_manager._get_focus_description(entry)
 
             log_lines.append(f"[T{relative_index}] 专注于 {desc} (动机: {motivation})")
 
