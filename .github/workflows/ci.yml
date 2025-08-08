@@ -8,7 +8,7 @@ on:
 
 jobs:
   lint-and-test:
-    name: Code Linting and Unit Testing
+    name: Code Linting, Formatting, and Unit Testing
     runs-on: ubuntu-latest
 
     steps:
@@ -27,15 +27,20 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           pip install pytest pytest-asyncio pytest-mock ruff
 
-      - name: Run Ruff Linter and Formatter
-        # 使用 chartboost/ruff-action 来获得带标注的检查结果
+      # 步骤 4A: 使用 Ruff 进行代码规范检查 (Linting)
+      - name: Run Ruff Linter
         uses: chartboost/ruff-action@v1
         with:
-          # 我们希望它同时执行 lint 和 format 检查
-          args: "check --output-format=github ." # `check` 会读取 pyproject.toml 的配置
-                                                 # `output-format=github` 是生成标注的关键
-          # 你也可以分开写两个步骤，一个 check，一个 format，但合在一起更简洁
-          # args: "format --check --diff ." # 如果只想检查格式，可以这样写
+          # 这个步骤只负责 lint 检查，并能在 PR 中生成标注
+          args: "check --output-format=github ."
+
+      # 步骤 4B: 使用 Ruff 进行代码格式检查 (Formatting)
+      - name: Run Ruff Formatter Check
+        uses: chartboost/ruff-action@v1
+        with:
+          # 这个步骤只负责 format 检查
+          # 它不会生成标注，但如果失败，会在日志中用 --diff 显示差异
+          args: "format --check --diff ."
 
       - name: Run tests with pytest
         env:
