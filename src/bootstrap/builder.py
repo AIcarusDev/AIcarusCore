@@ -210,18 +210,52 @@ class ServiceBuilder:
             if not cfg or not cfg.provider or not cfg.model_name:
                 return None
             try:
+                # 1. 明确分离出仅供 UnderlyingLLMClient 内部使用的参数。
+                #    这些参数不应该被当作 API 的 generationConfig 发送出去。
+                internal_client_params = {
+                    "image_placeholder_tag",
+                    "stream_chunk_delay_seconds",
+                    "enable_image_compression",
+                    "image_compression_target_bytes",
+                    "rate_limit_disable_duration_seconds",
+                }
+
+                # 2. 从通用设置中筛选出合法的生成参数 (GenerationParams)。
+                #    这样可以确保只有 API 认识的字段才会进入 **kwargs。
+                valid_generation_params = {
+                    k: v
+                    for k, v in vars(general_llm_settings_obj).items()
+                    if k not in internal_client_params
+                }
+
+                # 3. 构建构造函数参数字典，现在它更干净、更安全了。
                 args = {
                     "model": {"provider": cfg.provider.upper(), "name": cfg.model_name},
-                    **vars(general_llm_settings_obj),
+                    # 仅传递合法的生成参数
+                    **valid_generation_params,
+                    # 传递模型专属的参数
                     **{
                         k: v
                         for k, v in vars(cfg).items()
                         if v is not None and k not in ["provider", "model_name"]
                     },
+                    # 显式传递那些内部使用的参数，而不是通过 **kwargs
+                    "stream_chunk_delay_seconds":
+                        general_llm_settings_obj.stream_chunk_delay_seconds,
+                    "enable_image_compression": general_llm_settings_obj.enable_image_compression,
+                    "image_compression_target_bytes":
+                        general_llm_settings_obj.image_compression_target_bytes,
+                    "rate_limit_disable_duration_seconds":
+                        general_llm_settings_obj.rate_limit_disable_duration_seconds,
                 }
+
                 if resolved_abandoned_keys:
                     args["abandoned_keys_config"] = resolved_abandoned_keys
-                client = ProcessorClient(**{k: v for k, v in args.items() if v is not None})
+
+                # 移除值为 None 的项，防止覆盖 ProcessorClient 中的默认值
+                final_args = {k: v for k, v in args.items() if v is not None}
+                # 创建 ProcessorClient 实例
+                client = ProcessorClient(**final_args)
                 logger.info(
                     f"为用途 '{purpose}' 创建 ProcessorClient 成功 "
                     f"(模型: {client.llm_client.model_name})。"
