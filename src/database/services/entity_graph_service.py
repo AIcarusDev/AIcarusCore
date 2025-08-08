@@ -1,4 +1,4 @@
-# src/database/services/entity_graph_service.py
+# src/database/services/entity_graph_service.py (本体论重构 V1.4 - 封装最终版)
 import asyncio
 import time
 from typing import Any
@@ -103,13 +103,13 @@ class EntityGraphService:
             return await self._create_profile_for_existing_entity(entity_doc)
         else:
             logger.debug(f"未找到账户实体: {entity_uid}，将创建新的 Profile 和 Entity。")
-            return await self._create_new_profile_with_account_entity(user_info, platform)
+            # 更新对此方法的内部调用
+            return await self.create_new_profile_with_account_entity(user_info, platform)
 
     async def _create_profile_for_existing_entity(
         self, entity_doc: dict[str, Any]
     ) -> tuple[str | None, str | None]:
         """内部工具：为一个已存在的实体创建一个新的侧写，并用'represents'边连接."""
-        # ... (此方法逻辑基本不变，因为它是通用的) ...
         profile = EntityProfileDocument.create_new()
         entity_uid = entity_doc["_key"]
         entity_id = entity_doc["_id"]
@@ -144,20 +144,31 @@ class EntityGraphService:
             logger.error(f"为现有实体创建Profile的AQL事务执行失败: {e}", exc_info=True)
             return None, None
 
-    async def _create_new_profile_with_account_entity(
+    # --- [修改] 变为公共方法，移除前导下划线，并更新文档字符串 ---
+    async def create_new_profile_with_account_entity(
         self,
         user_info: ProtocolUserInfo,
         platform: str,
         is_self: bool = False,
     ) -> tuple[str | None, str | None]:
-        """(内部重构) 创建一个新的Profile和一个新的“账户”Entity，并连接它们."""
+        """公共接口：创建一个新的Profile和一个新的“账户”Entity，并用 'represents' 边连接它们.
+
+        这是一个原子性的操作，用于为新用户或新平台身份登记.
+
+        Args:
+            user_info: 包含用户ID和昵称的协议对象。
+            platform: 该账户所属的平台ID。
+            is_self: 如果为True，则将此账户关联到核心AI的唯一Profile (aic_person_0)。
+
+        Returns:
+            一个元组 (profile_id, account_entity_uid)，如果操作失败则返回 (None, None)。
+        """
         profile = (
             EntityProfileDocument(_key=SELF_PROFILE_ID, profile_id=SELF_PROFILE_ID)
             if is_self
             else EntityProfileDocument.create_new()
         )
 
-        # // 核心区别：现在创建的是一个完整的 EntityDocument，类型是 account
         account_details = AccountDetails(
             platform=platform,
             platform_id=user_info.user_id,

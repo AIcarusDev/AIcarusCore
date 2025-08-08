@@ -669,13 +669,12 @@ class CoreWebsocketServer:
         # bot_id 对于工具平台来说，就是它的 platform_id
         bot_id_for_platform = adapter_id
 
-        # --- [新增的核心逻辑！] ---
         logger.info(f"为工具平台 '{adapter_id}' 创建或更新数据库中的基础Account档案...")
         # 1. 构造一个最基础的 UserInfo，只需要 user_id 和 nickname
         bot_user_info = ProtocolUserInfo(user_id=bot_id_for_platform, user_nickname=display_name)
-        # 2. 调用 entity_service 来创建“人”和“账号”，并把它们关联起来
+        # 2. 调用 entity_service 的公共方法来创建“人”和“账号”，并把它们关联起来
         #    is_self=True 会确保它关联到唯一的 aic_person_0
-        person_id, account_uid = await self.entity_service._create_new_profile_with_account_entity(
+        person_id, account_uid = await self.entity_service.create_new_profile_with_account_entity(
             user_info=bot_user_info, platform_id=adapter_id, is_self=True
         )
         if not person_id or not account_uid:
@@ -685,7 +684,7 @@ class CoreWebsocketServer:
             logger.success(
                 f"已成功为工具平台 '{adapter_id}' 在数据库中登记身份 (Account UID: {account_uid})。"
             )
-        # --- [新增逻辑结束] ---
+        # --- [修改结束] ---
 
         # 下面的内存ID地图更新逻辑保持不变
         if self.action_handler_instance.chat_session_manager:
