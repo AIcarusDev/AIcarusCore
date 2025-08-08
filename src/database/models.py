@@ -2,7 +2,7 @@
 import json
 import time
 import uuid
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import MISSING, asdict, dataclass, field, fields
 from typing import Any, ClassVar, Optional
 
 from aicarus_protocols import ConversationInfo as ProtocolConversationInfo
@@ -205,7 +205,8 @@ class EntityDocument:
         required_fields = {
             f.name
             for f in fields(details_class)
-            if f.default is field.MISSING and f.default_factory is field.MISSING
+            # 直接使用 MISSING 常量，而不是 field.MISSING
+            if f.default is MISSING and f.default_factory is MISSING
         }
         # 2. 检查传入的数据是否缺少了任何必填字段
         missing_fields = required_fields - set(details_data.keys())
