@@ -38,6 +38,7 @@ from src.database import (
 )
 from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.message_processing.default_message_processor import DefaultMessageProcessor
+from src.message_processing.image_analysis_service import ImageAnalysisService
 from src.platform_builders.registry import platform_builder_registry
 
 logger = get_logger(__name__)
@@ -60,6 +61,7 @@ class ServiceBuilder:
         platform_builder_registry.discover_and_register_builders(platform_builders)
         llm_clients = self._initialize_llm_clients()
         db_services = await self._initialize_database_and_services()
+        image_analysis_service = ImageAnalysisService(db_services["conn_manager"])
         interrupt_model = await self._initialize_interrupt_model(
             db_services["event_storage_service"]
         )
@@ -100,6 +102,7 @@ class ServiceBuilder:
             event_service=db_services["event_storage_service"],
             entity_service=db_services["entity_graph_service"],
             action_log_service=db_services["action_log_service"],
+            image_analysis_service=image_analysis_service,
             semantic_model=semantic_model,
             interruption_broker=interruption_broker,
             qq_chat_session_manager=None,  # 将在 wiring 阶段被注入
@@ -166,6 +169,7 @@ class ServiceBuilder:
             event_storage_service=db_services["event_storage_service"],
             thought_storage_service=db_services["thought_storage_service"],
             action_log_service=db_services["action_log_service"],
+            image_analysis_service=image_analysis_service,
             summary_storage_service=db_services["summary_storage_service"],
             entity_graph_service=db_services["entity_graph_service"],
             action_handler=action_handler,
