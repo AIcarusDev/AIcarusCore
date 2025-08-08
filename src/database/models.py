@@ -194,10 +194,7 @@ class EntityDocument:
 
     def to_dict(self) -> dict[str, Any]:
         """将实例序列化为可存入DB的字典."""
-        data = asdict(self)
-        # 别忘了把 details 这个小妖精也变成字典哦
-        # data["details"] = asdict(data["details"])
-        return data
+        return asdict(self)
 
     @classmethod
     def _create_details_obj(

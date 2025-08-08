@@ -599,10 +599,7 @@ class EntityGraphService:
         try:
             entities_collection = await self._get_collection(CoreDBCollections.ENTITIES)
             doc = await entities_collection.get(entity_uid)
-            if doc:
-                # 使用 from_dict 类方法将原始字典转换为强类型的 dataclass 对象
-                return EntityDocument.from_dict(doc)
-            return None
+            return EntityDocument.from_dict(doc) if doc else None
         except Exception as e:
             logger.error(f"根据 key '{entity_uid}' 获取实体时失败: {e}", exc_info=True)
             return None
