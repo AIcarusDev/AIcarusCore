@@ -88,6 +88,8 @@ async def start_core_system() -> None:
 
         if container:
             # 优雅地关闭核心服务
+            if container.chat_session_manager:
+                container.chat_session_manager.shutdown()
             if container.core_logic:
                 await container.core_logic.stop()  # 这会处理 intrusive_generator 的线程
             if container.core_comm_layer:

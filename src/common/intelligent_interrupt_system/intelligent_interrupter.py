@@ -122,9 +122,6 @@ class IntelligentInterrupter:
 
         if context_message_text is None or not context_message_text.strip():
             logger.info("===== 结论: [强制不中断]！因为没有有效的上下文消息，跳过中断判断。=====")
-            # Objective importance still applies though,
-            # so we should move this check after objective score.
-            pass
 
         speaker_id = new_message.get("speaker_id")
 
