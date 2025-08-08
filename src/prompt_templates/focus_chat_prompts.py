@@ -14,7 +14,6 @@ FOCUS_BEHAVIOR_GUIDELINES = """
 
 3.  **导航日志使用:**
     - `<navigation_log>`是你的记忆辅助，它的作用是告诉你“你从哪里来”，为你使用`back`和`jump_to_history`等注意力转移指令提供依据。
-    - 你的**首要目标是处理当前专注`[T-0]`** 的内容。
 
 ---
 
