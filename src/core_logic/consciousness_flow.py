@@ -200,9 +200,7 @@ class CoreLogic:
             await self._process_main_task_victory(main_task, session)
 
     async def _process_sentry_victory(
-        self,
-        sentry_task: asyncio.Task,
-        session: Optional["ChatSession"]
+        self, sentry_task: asyncio.Task, session: Optional["ChatSession"]
     ) -> None:
         """专门处理“哨兵”胜利的场景（即发生中断）."""
         if not session:
@@ -240,9 +238,7 @@ class CoreLogic:
         logger.info(f"[{session.conversation_id}] 中断发生，已设置立即思考信号以快速响应。")
 
     async def _process_main_task_victory(
-        self,
-        main_task: asyncio.Task,
-        session: Optional["ChatSession"]
+        self, main_task: asyncio.Task, session: Optional["ChatSession"]
     ) -> None:
         """专门处理“主任务”胜利的场景（即正常完成思考）."""
         last_processed_ts_from_task = await main_task
@@ -352,10 +348,7 @@ class CoreLogic:
         return None
 
     async def _listen_for_interruptions(
-        self,
-        session: "ChatSession",
-        initial_context_text: str | None,
-        start_timestamp: float
+        self, session: "ChatSession", initial_context_text: str | None, start_timestamp: float
     ) -> dict | None:
         """纯粹的中断监听器（哨兵），现在通过订阅事件代理来工作."""
         subscription_queue = None
@@ -398,11 +391,7 @@ class CoreLogic:
                 await self.interruption_broker.unsubscribe(session)
 
     def _evaluate_interrupt(
-        self,
-        event_doc: dict,
-        context_text: str,
-        current_bot_id: str,
-        session: "ChatSession"
+        self, event_doc: dict, context_text: str, current_bot_id: str, session: "ChatSession"
     ) -> tuple[dict | None, str | None]:
         """对单个事件进行中断评估的辅助函数."""
         user_info = event_doc.get("user_info") or {}

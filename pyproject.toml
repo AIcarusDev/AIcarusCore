@@ -68,3 +68,13 @@ docstring-code-format = true
 
 # 自动检测换行符，适应不同操作系统
 line-ending = "auto"
+
+[tool.pytest.ini_options]
+# 告诉 pytest 将项目根目录添加到 Python 路径中
+pythonpath = ["."]
+
+# 明确指定只在 `tests` 目录下寻找测试文件
+testpaths = ["tests"]
+
+# 这是一个异步项目，确保 pytest-asyncio 使用正确的模式
+asyncio_mode = "auto"
