@@ -211,27 +211,29 @@ class DefaultMessageProcessor:
         event_type = event_doc.get("event_type", "")
         if event_type.startswith("message."):
             # 检查发言人并重置连续发言计数器
-            if self.qq_chat_session_manager and self.core_logic and (
-                session := self.core_logic._get_current_session()
+            if (
+                self.qq_chat_session_manager
+                and self.core_logic
+                and (session := self.core_logic._get_current_session())
             ):
-                    # 2. 检查事件是否属于当前会话
-                    platform = event_doc.get("platform")
-                    conv_info = event_doc.get("conversation_info", {})
-                    conv_type = conv_info.get("type")
-                    conv_id = conv_info.get("conversation_id")
-                    # 如果平台、会话类型和会话ID都存在
-                    if platform and conv_type and conv_id:
-                        event_session_uid = f"{platform}_{conv_type}_{conv_id}"
-                        # 3. 如果事件属于当前专注的会话
-                        if session.conversation_id == event_session_uid:
-                            # 4. 检查发言人是否是自己
-                            sender_id = str(event_doc.get("user_info", {}).get("user_id", ""))
-                            bot_profile = await session.get_bot_profile()
-                            bot_platform_id = str(bot_profile.get("user_id"))
+                # 2. 检查事件是否属于当前会话
+                platform = event_doc.get("platform")
+                conv_info = event_doc.get("conversation_info", {})
+                conv_type = conv_info.get("type")
+                conv_id = conv_info.get("conversation_id")
+                # 如果平台、会话类型和会话ID都存在
+                if platform and conv_type and conv_id:
+                    event_session_uid = f"{platform}_{conv_type}_{conv_id}"
+                    # 3. 如果事件属于当前专注的会话
+                    if session.conversation_id == event_session_uid:
+                        # 4. 检查发言人是否是自己
+                        sender_id = str(event_doc.get("user_info", {}).get("user_id", ""))
+                        bot_profile = await session.get_bot_profile()
+                        bot_platform_id = str(bot_profile.get("user_id"))
 
-                            # 5. 如果发言人不是自己，则重置计数器
-                            if sender_id and sender_id != bot_platform_id:
-                                session.reset_consecutive_bot_message_count()
+                        # 5. 如果发言人不是自己，则重置计数器
+                        if sender_id and sender_id != bot_platform_id:
+                            session.reset_consecutive_bot_message_count()
 
             await self.interruption_broker.publish(event_doc)
             logger.debug(f"事件 '{event_doc.get('_key')}' 已发布到中断代理。")

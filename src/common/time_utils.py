@@ -98,6 +98,7 @@ def format_relative_time(past_timestamp_ms: int) -> str:
     years = days / 365
     return f"{int(years)}年前"
 
+
 def format_relative_time_for_memory(past_timestamp_ms: int) -> str:
     """针对记忆操作，将过去的毫秒时间戳转换为易于理解的相对时间字符串.
 
