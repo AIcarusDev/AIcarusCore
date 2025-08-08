@@ -61,9 +61,7 @@ class FocusManager:
         """属性：返回当前的注意力焦点状态字典."""
         return self.current_focus
 
-    async def handle_focus_control(
-        self, command: str, params: dict
-    ) -> tuple[bool, str | None]:
+    async def handle_focus_control(self, command: str, params: dict) -> tuple[bool, str | None]:
         """处理来自ChatSessionManager的意识控制指令."""
         handler = self._command_handlers.get(command)
         if not handler:
@@ -217,8 +215,8 @@ class FocusManager:
                 except ValueError:
                     # {# FIX: 恢复详细的错误信息 #}
                     error_message = (
-                    f"目标ID '{target_id}' 既不是有效的平台ID，"
-                    f"也不是格式正确的会话实体UID (platform_type_id)。"
+                        f"目标ID '{target_id}' 既不是有效的平台ID，"
+                        f"也不是格式正确的会话实体UID (platform_type_id)。"
                     )
                     logger.error(f"在顶层(core)执行 focus 失败：{error_message}")
         elif level == "platform":

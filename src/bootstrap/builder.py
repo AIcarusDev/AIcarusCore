@@ -240,13 +240,10 @@ class ServiceBuilder:
                         if v is not None and k not in ["provider", "model_name"]
                     },
                     # 显式传递那些内部使用的参数，而不是通过 **kwargs
-                    "stream_chunk_delay_seconds":
-                        general_llm_settings_obj.stream_chunk_delay_seconds,
+                    "stream_chunk_delay_seconds": general_llm_settings_obj.stream_chunk_delay_seconds,  # noqa: E501
                     "enable_image_compression": general_llm_settings_obj.enable_image_compression,
-                    "image_compression_target_bytes":
-                        general_llm_settings_obj.image_compression_target_bytes,
-                    "rate_limit_disable_duration_seconds":
-                        general_llm_settings_obj.rate_limit_disable_duration_seconds,
+                    "image_compression_target_bytes": general_llm_settings_obj.image_compression_target_bytes,  # noqa: E501
+                    "rate_limit_disable_duration_seconds": general_llm_settings_obj.rate_limit_disable_duration_seconds,  # noqa: E501
                 }
 
                 if resolved_abandoned_keys:
