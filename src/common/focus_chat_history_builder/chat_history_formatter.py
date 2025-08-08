@@ -104,7 +104,7 @@ async def format_chat_history_for_llm(
                     content=content_segs,
                     user_info=protocol_user_info,
                     conversation_info=protocol_conv_info,
-                    raw_data=event_dict,  # <-- 关键：将原始字典存入raw_data
+                    raw_data=event_dict,
                 )
                 if motivation:
                     event_obj.motivation = motivation
@@ -220,6 +220,9 @@ async def format_chat_history_for_llm(
         if msg_id := event.get_message_id():
             message_id_to_event_map[msg_id] = event
 
+    # +++ 关键修改 1: 引入图片引用计数器 +++
+    image_ref_counter = 0
+
     total_events = len(raw_events)
     for i, event_data_log in enumerate(raw_events):
         log_line = ""
@@ -273,10 +276,14 @@ async def format_chat_history_for_llm(
             for seg in event_data_log.content:
                 if seg.type == "image":
                     if is_in_viewport:
-                        # **视觉窗口内**: 展示原始图片占位符，并收集原始数据
-                        main_content_parts.append(
-                            "[图片]" if seg.data.get("summary") != "sticker" else "[动画表情]"
+                        # +++ 关键修改 2: 生成唯一的占位符 +++
+                        image_ref_counter += 1
+                        is_sticker = seg.data.get("summary") == "sticker"
+                        placeholder = (
+                            f"[{'动画表情' if is_sticker else '图片'}_{image_ref_counter}]"
                         )
+                        main_content_parts.append(placeholder)
+
                         if base64_data := seg.data.get("base64"):
                             try:
                                 mime_type = seg.data.get("mime_type", "image/jpeg")
@@ -501,7 +508,6 @@ async def format_chat_history_for_llm(
         if log_line:  # 只有当 log_line 被赋值后才添加
             chat_log_lines.append(log_line)
 
-    # 收尾工作，确保已读标记正确
     if not is_first_turn and not unread_section_started and chat_log_lines:
         marker_ts = raw_events[-1].time if raw_events else last_processed_timestamp
         read_marker_time_obj = datetime.fromtimestamp(marker_ts / 1000.0)
