@@ -319,10 +319,9 @@ async def format_chat_history_for_llm(
                             prefix = "表情包" if analysis_item.get("type") == "sticker" else "图片"
                             description = f"[{prefix}: {desc_text}]"
 
-                            # 4. 关键：将索引向前移动一位，为下一张图片做准备
-                            image_analysis_index += 1
-
                         main_content_parts.append(description)
+                        # 4. 关键：无论十分成功，将索引向前移动一位，为下一张图片做准备
+                        image_analysis_index += 1
 
                 elif seg.type == "text":
                     main_content_parts.append(seg.data.get("text", ""))

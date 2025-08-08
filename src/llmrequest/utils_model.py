@@ -209,8 +209,6 @@ class LLMClient:
         abandoned_keys_config: list[str] | None = None,
         proxy_host: str | None = None,
         proxy_port: int | None = None,
-        # 不再需要单一的占位符标签
-        # image_placeholder_tag: str = DEFAULT_IMAGE_PLACEHOLDER_TAG,
         stream_chunk_delay_seconds: float = DEFAULT_STREAM_CHUNK_DELAY_SECONDS,
         enable_image_compression: bool = True,
         image_compression_target_bytes: int = DEFAULT_IMAGE_COMPRESSION_TARGET_BYTES,
