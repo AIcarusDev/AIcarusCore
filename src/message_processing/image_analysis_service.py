@@ -18,41 +18,35 @@ logger = get_logger(__name__)
 STICKER_ANALYSIS_SCHEMA = {
     "type": "object",
     "properties": {
-        "emotion": {
-            "type": "string",
-            "description": "表情包传达的主要情绪。"
-        },
+        "emotion": {"type": "string", "description": "表情包传达的主要情绪。"},
         "description": {
             "type": "string",
-            "description": "对表情包内容的简洁描述，优先体现梗或含义。"
-        }
+            "description": "对表情包内容的简洁描述，优先体现梗或含义。",
+        },
     },
-    "required": ["emotion", "description"]
+    "required": ["emotion", "description"],
 }
 
 IMAGE_ANALYSIS_SCHEMA = {
     "type": "object",
     "properties": {
-        "primary_subject": {
-            "type": "string",
-            "description": "图片最主要的焦点或主体。"
-        },
+        "primary_subject": {"type": "string", "description": "图片最主要的焦点或主体。"},
         "description": {
             "type": "string",
-            "description": "对图片场景、物体、人物和事件的详细描述。"
+            "description": "对图片场景、物体、人物和事件的详细描述。",
         },
         "text_content": {
             "type": ["string", "null"],
-            "description": "图片中提取出的文字内容，如果没有则为 null。"
-        }
+            "description": "图片中提取出的文字内容，如果没有则为 null。",
+        },
     },
-    "required": ["primary_subject", "description", "text_content"]
+    "required": ["primary_subject", "description", "text_content"],
 }
-
 
 
 class ImageAnalysisService:
     """一个后台服务，负责异步地分析事件中的图片内容."""
+
     def __init__(self, conn_manager: ArangoDBConnectionManager) -> None:
         self.conn_manager = conn_manager
         self.events_collection_name = CoreDBCollections.EVENTS
@@ -67,7 +61,7 @@ class ImageAnalysisService:
     def _get_clip_model(self) -> SentenceTransformer:
         if self._clip_model is None:
             logger.info("正在加载 CLIP embedding 模型 (clip-ViT-B-32)...")
-            self._clip_model = SentenceTransformer('clip-ViT-B-32')
+            self._clip_model = SentenceTransformer("clip-ViT-B-32")
             logger.info("CLIP embedding 模型加载完成。")
         return self._clip_model
 
@@ -103,7 +97,8 @@ class ImageAnalysisService:
                 analysis_results = []
 
                 image_segments = [
-                    seg for seg in event_doc.get("content", [])
+                    seg
+                    for seg in event_doc.get("content", [])
                     if isinstance(seg, dict) and seg.get("type") == "image"
                 ]
 
@@ -113,9 +108,7 @@ class ImageAnalysisService:
 
                 for seg in image_segments:
                     image_type = (
-                        "sticker"
-                        if seg.get("data", {}).get("summary") == "sticker"
-                        else "image"
+                        "sticker" if seg.get("data", {}).get("summary") == "sticker" else "image"
                     )
                     base64_data = seg.get("data", {}).get("base64")
 
@@ -141,7 +134,7 @@ class ImageAnalysisService:
                             system_prompt = IMAGE_ANALYSIS_PROMPT
                             schema = IMAGE_ANALYSIS_SCHEMA
                         # 将 base64 数据转换为 Data URI
-                        mime_type = seg.get('data', {}).get('mime_type', 'image/jpeg')
+                        mime_type = seg.get("data", {}).get("mime_type", "image/jpeg")
                         data_uri = f"data:{mime_type};base64,{base64_data}"
 
                         # User Prompt 可以非常简洁，甚至为空，因为核心数据是图片本身
@@ -166,29 +159,24 @@ class ImageAnalysisService:
                         logger.error(f"为事件 '{event_id}' 的一张图片生成描述失败: {e}")
                         details = {"description": "分析失败"}
 
-                    analysis_results.append({
-                        "type": image_type,
-                        "embedding": embedding,
-                        "details": details
-                    })
+                    analysis_results.append(
+                        {"type": image_type, "embedding": embedding, "details": details}
+                    )
 
                 # 3. 将分析结果更新回数据库
                 if analysis_results:
                     collection = await self.conn_manager.get_collection(self.events_collection_name)
-                    await collection.update({
-                        "_key": event_id,
-                        "image_analysis": analysis_results
-                    })
+                    await collection.update({"_key": event_id, "image_analysis": analysis_results})
                     logger.info(
                         f"事件 '{event_id}' 的 {len(analysis_results)} 张图片"
                         f"分析完成并已存入数据库。"
-                        )
+                    )
 
                 self.task_queue.task_done()
 
             except asyncio.CancelledError:
                 logger.info("图像分析 Worker 被取消。")
-                break # 退出循环
+                break  # 退出循环
             except Exception as e:
                 event_id_for_log = event_doc.get("_key") if event_doc else "未知"
                 logger.error(f"分析事件 '{event_id_for_log}' 时发生未知错误: {e}", exc_info=True)
@@ -205,9 +193,10 @@ class ImageAnalysisService:
     async def stop(self) -> None:
         """停止后台 Worker."""
         if self._worker_task:
-            self.task_queue.put_nowait(None) # 发送停止信号
+            self.task_queue.put_nowait(None)  # 发送停止信号
             self._worker_task.cancel()
             import contextlib
+
             with contextlib.suppress(asyncio.CancelledError):
                 await self._worker_task
             logger.info("图像分析后台 Worker 已停止。")

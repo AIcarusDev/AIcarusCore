@@ -8,7 +8,6 @@ STICKER_ANALYSIS_PROMPT = """
 """  # noqa: E501
 
 
-
 IMAGE_ANALYSIS_PROMPT = """
 # 任务：描述图片内容
 你是一个专业的图像分析引擎。你的任务是详细、客观地描述给定的图片内容，并以JSON格式返回。
