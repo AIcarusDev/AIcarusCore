@@ -170,32 +170,23 @@ class DefaultMessageProcessor:
             )
             return profile_id, None
 
-        # --- 步骤 2: 根据事件类型执行特定的数据库更新 ---
-        entities_collection = await self.entity_service._get_collection(CoreDBCollections.ENTITIES)
-
-        # <!-- 新增逻辑：专门处理好友请求 -->
+        # 专门处理好友请求
         if event.event_type.endswith("request.friend.add"):
             request_data = event.content[0].data if event.content else {}
             flag = request_data.get("request_flag")
             comment = request_data.get("comment")
-
-            # 将好友请求信息更新到实体的 'friend_request_pending' 字段
-            await entities_collection.update(
-                {
-                    "_key": account_entity_uid,
-                    "friend_request_pending": {
-                        "flag": flag,
-                        "comment": comment,
-                        "timestamp": event.time,
-                    },
-                }
+            # 调用 EntityGraphService 的公共方法，而不是直接操作集合
+            await self.entity_service.update_friend_request_status(
+                entity_uid=account_entity_uid,
+                flag=flag,
+                comment=comment,
+                timestamp=event.time,
             )
             logger.info(f"已将实体 '{account_entity_uid}' 的好友请求标记为待处理。")
 
-        # --- 步骤 3: 丰富事件信息（注入好友备注） ---
-        # 这个逻辑对所有类型的事件都适用
-        entity_doc = await entities_collection.get(account_entity_uid)
-        if entity_doc and (remark := entity_doc.get("details", {}).get("friend_remark")):
+        # 步骤 3: 丰富事件信息（注入好友备注） ---
+        entity_doc = await self.entity_service.get_entity_by_key(account_entity_uid)
+        if entity_doc and (remark := entity_doc.details.friend_remark):
             # 如果数据库中有备注，就把它“塞”进当前事件的 user_info 里
             if not event.user_info.extra:
                 event.user_info.extra = {}
