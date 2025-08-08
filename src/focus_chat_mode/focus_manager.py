@@ -300,7 +300,7 @@ class FocusManager:
     async def _handle_back(self, params: dict, history_entry_base: dict) -> tuple[bool, str]:
         """处理 'back' 指令."""
         if len(self.focus_history) < 2:
-            return False, "历史记录不足。"
+            return False, "'back' 失败，你没有任何历史记录"
         target_entry = self.focus_history[-2]
         target_path = target_entry.get("target_path", "core")
         return await self._switch_focus(target_path, history_entry_base)

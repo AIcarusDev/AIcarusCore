@@ -36,9 +36,9 @@ CORE_CYCLE_SYSTEM_PROMPT = """
 {current_state_block}
 </current_state>
 
-<navigation_log>
-{navigation_log_block}
-</navigation_log>
+<attentional_trajectory>
+{attentional_trajectory_block}
+</attentional_trajectory>
 
 <working_memory>
 <!-- 如果存在由短期工作记忆，会在这里显示 -->

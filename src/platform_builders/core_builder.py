@@ -28,13 +28,13 @@ class CoreBuilder(BasePlatformBuilder):
         },
         "return": {
             "type": "object",
-            "description": "从当前注意力焦点返回。例如从当前会话返回到会话所属的平台，或退出当前平台。",
+            "description": "从当前注意力离开。例如从当前会话返回到会话所属的平台，或退出当前平台。",
             "properties": {"motivation": {"type": "string"}},
             "required": ["motivation"],
         },
         "shift_focus": {
             "type": "object",
-            "description": "将你的注意力从当前会话切换到另一个会话, 必须使用完整ID，例如`qq_group_123456`。",
+            "description": "将你的注意力从当前会话切换到另一个会话, 需要完整ID，例如`qq_group_123456`。",
             "properties": {
                 "target_id": {
                     "type": "string",
@@ -58,13 +58,13 @@ class CoreBuilder(BasePlatformBuilder):
         },
         "back": {
             "type": "object",
-            "description": "将你的注意力拉回到`<navigation_log>`中的上一个注意力焦点(T-1)。",
+            "description": "将你的注意力拉回到`<attentional_trajectory>`中的上一个注意力焦点(T-1)。",
             "properties": {"motivation": {"type": "string"}},
             "required": ["motivation"],
         },
         "jump_to_history": {
             "type": "object",
-            "description": "根据`<navigation_log>`，直接跳转到由`history_index`指定的历史焦点。",
+            "description": "根据`<attentional_trajectory>`，直接跳转到由`history_index`指定的历史焦点。",
             "properties": {
                 "history_index": {
                     "type": "integer",
@@ -266,18 +266,30 @@ class CoreBuilder(BasePlatformBuilder):
         return schema, {}
 
     def get_level_consciousness_controls_descriptions(self, level: str) -> str:
-        """返回核心平台的意识控制描述."""
-        descs = [
-            "    - `focus(target_id, motivation)`: 深入到下一层焦点。只需提供目标ID。",
-            "    - `return(motivation)`: 从当前焦点返回上一层。",
-            "    - `shift_focus(target_id, motivation)`: 平级切换到另一个会话，只需提供目标会话ID。",
-            "    - `teleport_focus(target_path, motivation)`: 强制跳转焦点。注意 `target_path` 必须是使用'.'分隔的完整路径！",
-            "    - `back(motivation)`: 回溯到上一个焦点 (T-1)。",
-            "    - `jump_to_history(history_index, motivation)`: 跳转到指定的历史焦点。",
-            "    - `deep_think(motivation, opinions)`: 【高风险决策时使用】触发一次内部辩论，权衡利弊。",
-        ]
+        """根据可用的意识控制定义，动态生成自然语言描述."""
+        # 1. 首先调用现有方法，以获取当前层级下真正可用的控制项。
+        #    这避免了重复编写 `if/elif` 逻辑。
+        schema, _ = self.get_level_consciousness_controls_definitions(level)
+        available_controls = schema.get("properties", {})
 
-        return "\n".join(descs)
+        descs = []
+        # 2. 遍历所有可用的控制项
+        for name, definition in available_controls.items():
+            # 从 'required' 字段中提取参数列表，并拼接成字符串
+            params_list = definition.get("required", [])
+            params_str = ", ".join(params_list)
+
+            # 从 'description' 字段中直接提取功能描述
+            description = definition.get("description", "（无可用描述）")
+
+            # 3. 按照统一格式生成描述字符串
+            #    格式为: " - `command(param1, param2)`: description"
+            desc_line = f"      - `{name}({params_str})`: {description}"
+            descs.append(desc_line)
+
+        # 对结果进行排序，可以确保每次输出的顺序都一致
+        return "\n".join(sorted(descs))
+
 
     def get_level_actions_descriptions(self, level: str) -> str:
         """返回核心平台的动作描述."""
