@@ -100,12 +100,17 @@ class ChatSession:
 
     async def get_bot_profile(self) -> dict[str, Any]:
         """智能获取祂的档案，如果缓存有效则直接返回，否则从数据库加载最新的客观数据."""
+        # --- 步骤 1: 检查缓存（The Fast Path） ---
         if self.bot_profile_cache and (
             time.time() - self.last_profile_update_time < CACHE_EXPIRATION_SECONDS
         ):
+            # 如果缓存存在且未过期，直接返回内存中的数据，避免任何数据库I/O
             return self.bot_profile_cache
 
-        # 1. 获取全局身份信息 (user_id, nickname)
+        # --- 步骤 2: 缓存未命中（The Slow Path）---
+        # 只有在缓存不存在或已过期的情况下，才会执行以下昂贵的操作
+
+        # 2.1. 执行数据库查询
         all_self_entities = await self.entity_graph_service.get_all_self_entities()
         entity_doc = next(
             (
@@ -142,10 +147,13 @@ class ChatSession:
                 base_profile["role"] = presence_info.get("permission_level")
                 logger.debug(f"[{self.conversation_id}] 成功获取到祂在本会话的群名片和权限。")
 
-        # 4. 缓存并返回合并后的完整档案
+        # --- 步骤 3: 更新缓存 ---
+        # 将从数据库新鲜获取的数据存入缓存，并更新时间戳
         self.bot_profile_cache = base_profile
         self.last_profile_update_time = time.time()
         logger.debug(f"[{self.conversation_id}] 已加载并缓存祂的完整档案。")
+
+        # 返回新鲜的数据
         return self.bot_profile_cache
 
     def reset_consecutive_bot_message_count(self) -> None:

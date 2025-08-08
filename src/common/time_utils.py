@@ -108,4 +108,7 @@ def format_relative_time_for_memory(past_timestamp_ms: int) -> str:
     Returns:
         一个描述相对时间的字符串，例如 "刚刚", "5分钟前", "3小时前", "昨天"。
     """
-    pass
+    # TODO: 此函数旨在为“记忆”提供更模糊或更人性化的时间描述，
+    # 例如“片刻之前”、“不久前”、“几天前”。
+    # 目前尚未实现，先明确抛出异常。
+    raise NotImplementedError("format_relative_time_for_memory 函数尚未实现。")

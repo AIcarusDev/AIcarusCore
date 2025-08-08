@@ -6,6 +6,7 @@ from aicarus_protocols import Event as ProtocolEvent
 from src.common.custom_logging.logging_config import get_logger
 from src.common.intelligent_interrupt_system.models import SemanticModel
 from src.common.interruption_broker import InterruptionEventBroker
+from src.common.utils import build_conversation_entity_uid
 from src.database import (
     ActionLogStorageService,
     CoreDBCollections,
@@ -233,7 +234,7 @@ class DefaultMessageProcessor:
                 conv_id = conv_info.get("conversation_id")
                 # 如果平台、会话类型和会话ID都存在
                 if platform and conv_type and conv_id:
-                    event_session_uid = f"{platform}_{conv_type}_{conv_id}"
+                    event_session_uid = build_conversation_entity_uid(platform, conv_type, conv_id)
                     # 3. 如果事件属于当前专注的会话
                     if session.conversation_id == event_session_uid:
                         # 4. 检查发言人是否是自己

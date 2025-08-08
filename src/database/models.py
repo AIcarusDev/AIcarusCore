@@ -200,26 +200,51 @@ class EntityDocument:
         return data
 
     @classmethod
+    def _create_details_obj(
+        cls, details_data: dict, details_class: type[DetailsUnion]
+    ) -> DetailsUnion:
+        """内部辅助方法：验证数据、过滤并创建 Details 数据类实例."""
+        # 1. 找出目标数据类所有没有默认值的必填字段
+        required_fields = {
+            f.name
+            for f in fields(details_class)
+            if f.default is field.MISSING and f.default_factory is field.MISSING
+        }
+        # 2. 检查传入的数据是否缺少了任何必填字段
+        missing_fields = required_fields - set(details_data.keys())
+        if missing_fields:
+            # 3. 如果有缺失，抛出带有详细信息的 ValueError
+            raise ValueError(
+                f"无法创建 {details_class.__name__} 实例。 "
+                f"传入的 details 数据中缺少必填字段: {', '.join(sorted(missing_fields))}"
+            )
+
+        # 4. 从传入的数据中，只筛选出目标数据类认识的字段，忽略数据库中可能存在的其他旧字段
+        known_fields = {f.name for f in fields(details_class)}
+        filtered_data = {k: v for k, v in details_data.items() if k in known_fields}
+
+        # 5. 使用过滤后的干净数据安全地创建实例
+        return details_class(**filtered_data)
+
+    @classmethod
     def from_dict(cls, data: dict) -> "EntityDocument":
         """从数据库字典反序列化为强类型对象."""
         entity_type = data.get("entity_type")
         details_data = data.get("details", {})
-        details_obj: DetailsUnion | None = None
+        details_obj: DetailsUnion
 
-        if entity_type == "account":
-            known_fields = {f.name for f in fields(AccountDetails)}
-            filtered_details_data = {k: v for k, v in details_data.items() if k in known_fields}
-            details_obj = AccountDetails(**filtered_details_data)
-        elif entity_type == "conversation":
-            known_fields = {f.name for f in fields(ConversationDetails)}
-            filtered_details_data = {k: v for k, v in details_data.items() if k in known_fields}
-            details_obj = ConversationDetails(**filtered_details_data)
-        elif entity_type == "platform":
-            known_fields = {f.name for f in fields(PlatformDetails)}
-            filtered_details_data = {k: v for k, v in details_data.items() if k in known_fields}
-            details_obj = PlatformDetails(**filtered_details_data)
-        else:
-            raise ValueError(f"从数据库加载实体时遇到未知的 entity_type: {entity_type}")
+        try:
+            if entity_type == "account":
+                details_obj = cls._create_details_obj(details_data, AccountDetails)
+            elif entity_type == "conversation":
+                details_obj = cls._create_details_obj(details_data, ConversationDetails)
+            elif entity_type == "platform":
+                details_obj = cls._create_details_obj(details_data, PlatformDetails)
+            else:
+                raise ValueError(f"从数据库加载实体时遇到未知的 entity_type: {entity_type}")
+        except ValueError as e:
+            # 捕获验证错误并重新抛出，附加上下文信息
+            raise ValueError(f"反序列化实体 '{data.get('_key')}' 的 details 字段时失败: {e}") from e
 
         # 1. 获取 EntityDocument 类自身定义的所有字段名称。
         defined_fields = {f.name for f in fields(cls)}

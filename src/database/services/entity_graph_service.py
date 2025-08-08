@@ -6,6 +6,7 @@ from typing import Any
 from aicarus_protocols import UserInfo as ProtocolUserInfo
 from arangoasync.collection import EdgeCollection, StandardCollection
 from src.common.custom_logging.logging_config import get_logger
+from src.common.utils import build_conversation_entity_uid
 from src.database import (
     ArangoDBConnectionManager,
     CoreDBCollections,
@@ -152,9 +153,9 @@ class EntityGraphService:
     ) -> tuple[str | None, str | None]:
         """(内部重构) 创建一个新的Profile和一个新的“账户”Entity，并连接它们."""
         profile = (
-            EntityProfileDocument.create_new()
-            if not is_self
-            else EntityProfileDocument(_key=SELF_PROFILE_ID, profile_id=SELF_PROFILE_ID)
+            EntityProfileDocument(_key=SELF_PROFILE_ID, profile_id=SELF_PROFILE_ID)
+            if is_self
+            else EntityProfileDocument.create_new()
         )
 
         # // 核心区别：现在创建的是一个完整的 EntityDocument，类型是 account
@@ -627,7 +628,7 @@ class EntityGraphService:
         platform_entity_id = platform_entity._id
 
         # --- 步骤 2: 确保会话实体存在 ---
-        conv_entity_uid = f"{platform}_{conv_type}_{conversation_id}"
+        conv_entity_uid = build_conversation_entity_uid(platform, conv_type, conversation_id)
         timestamp = int(time.time() * 1000)
         details = ConversationDetails(
             platform=platform,
@@ -726,13 +727,13 @@ class EntityGraphService:
         它会尝试匹配 group 和 private 两种可能性。
         """
         # 尝试匹配 group 类型
-        group_entity_uid = f"{platform}_group_{conversation_id}"
+        group_entity_uid = build_conversation_entity_uid(platform, "group", conversation_id)
         entity_doc = await self.get_entity_by_key(group_entity_uid)
         if entity_doc:
             return entity_doc
 
         # 如果不是 group，再尝试匹配 private 类型
-        private_entity_uid = f"{platform}_private_{conversation_id}"
+        private_entity_uid = build_conversation_entity_uid(platform, "private", conversation_id)
         entity_doc = await self.get_entity_by_key(private_entity_uid)
         if entity_doc:
             return entity_doc

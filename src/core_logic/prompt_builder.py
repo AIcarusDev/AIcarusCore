@@ -1,5 +1,6 @@
 # src/core_logic/prompt_builder.py
 import json
+import re  # 导入 re 模块
 from typing import TYPE_CHECKING, Any, Optional
 
 from aicarus_protocols import Event
@@ -7,7 +8,7 @@ from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logging_config import get_logger
 from src.common.focus_chat_history_builder.chat_history_formatter import format_chat_history_for_llm
 from src.common.time_utils import format_relative_time, get_formatted_time_for_llm
-from src.common.utils import parse_focus_path
+from src.common.utils import build_conversation_entity_uid, parse_focus_path
 from src.config import config
 from src.core_logic.internal_info_builder import InternalInfoBuilder
 from src.database import EntityGraphService, ThoughtStorageService
@@ -335,14 +336,16 @@ class ThoughtPromptBuilder:
 
         # 1. 获取核心动作，这是永远可用的
         core_act_schema, _ = core_builder.get_level_actions_definitions(current_level)
-        final_act_schema_props.update(core_act_schema.get("properties", {}))
+        # 将核心动作封装在 'core' 命名空间下
+        final_act_schema_props["core"] = core_act_schema
 
         # 2. 如果在平台层或细胞层，获取该平台的动作
         if builder and level != "core":
             plat_act_schema, _ = builder.get_level_actions_definitions(current_level)
-            final_act_schema_props.update(plat_act_schema.get("properties", {}))
+            # 将平台动作封装在其 platform_id 命名空间下
+            final_act_schema_props[builder.platform_id] = plat_act_schema
 
-        # 3. 【关键修改】如果是在核心层，动态查找所有在线的工具平台并添加它们的动作
+        # 3. 如果是在核心层，动态查找所有在线的工具平台并添加它们的动作
         if level == "core" and self.core_ws_server:
             # 从 ActionSender 获取当前已连接的适配器ID列表
             connected_adapter_ids = self.core_ws_server.action_sender.connected_adapters.keys()
@@ -351,8 +354,8 @@ class ThoughtPromptBuilder:
                 if p_builder and p_builder.is_tool_platform:
                     # 工具平台在顶层展示其 'platform' 级别的动作定义
                     tool_schema, _ = p_builder.get_level_actions_definitions("platform")
-                    # 将工具平台的动作属性合并到总的 schema 中
-                    final_act_schema_props.update(tool_schema.get("properties", {}))
+                    # 将工具平台的动作封装在其 platform_id 命名空间下
+                    final_act_schema_props[platform_id] = tool_schema
 
         response_schema = {
             "type": "object",
@@ -541,7 +544,7 @@ class ThoughtPromptBuilder:
 
             # 2. 根据平台ID、类型和真实ID，重新组装出完整的实体UID
             #    这与 ChatSessionManager.sessions 字典的 key 格式完全匹配
-            session_key = f"{platform_id}_{conv_type}_{actual_id}"
+            session_key = build_conversation_entity_uid(platform_id, conv_type, actual_id)
 
         except (ValueError, IndexError):
             # 如果 conv_id 格式不正确 (例如不包含'.')，则无法组装key，直接抛出错误
@@ -552,9 +555,9 @@ class ThoughtPromptBuilder:
         # 3. 使用这个正确的 key 进行查找
         session = self.chat_session_manager.sessions.get(session_key)
         if not session:
-            # 这里的错误信息现在会显示正确的、我们尝试查找的key，方便调试
             raise PromptBuilderError(
-                f"找不到会话实体UID '{session_key}' 的档案，无法构建当前状态块。"
+                f"在 'cellular' 层级，找不到会话实体UID为 '{session_key}' 的活跃会话档案，"
+                f"无法构建当前状态块。"
             )
 
         bot_profile = await session.get_bot_profile()
@@ -628,7 +631,9 @@ class ThoughtPromptBuilder:
 
         # 1. 核心动作描述永远存在
         if core_desc := core_builder.get_level_actions_descriptions(level):
-            descs.append(core_desc)
+            # 为核心动作描述添加命名空间前缀
+            namespaced_core_desc = re.sub(r"(`)(\w+)", r"\1core.\2", core_desc)
+            descs.append(f"- 核心能力:\n{namespaced_core_desc}")
 
         # 2. 如果在平台/细胞层，添加当前平台的动作描述
         if (
@@ -636,7 +641,9 @@ class ThoughtPromptBuilder:
             and builder
             and (plat_desc := builder.get_level_actions_descriptions(level))
         ):
-            descs.append(plat_desc)
+            # 为平台动作描述添加命名空间前缀
+            namespaced_plat_desc = re.sub(r"(`)(\w+)", rf"\1{builder.platform_id}.\2", plat_desc)
+            descs.append(f"- 平台 '{builder.platform_id}' 专属能力:\n{namespaced_plat_desc}")
 
         # 3. 如果是在核心层，动态查找在线的工具平台并添加它们的描述
         if level == "core" and self.core_ws_server:
@@ -651,13 +658,15 @@ class ThoughtPromptBuilder:
                     # 工具平台在顶层展示其 'platform' 级别的动作描述
                     tool_actions_desc = p_builder.get_level_actions_descriptions("platform")
                     if tool_actions_desc:
-                        # 更新描述格式，使其更清晰
-                        tool_descs.append(f"    - 平台 '{platform_id}':\n{tool_actions_desc}")
-
+                        # 为工具平台动作描述添加命名空间前缀
+                        namespaced_tool_desc = re.sub(
+                            r"(`)(\w+)", rf"\1{platform_id}.\2", tool_actions_desc
+                        )
+                        tool_descs.append(
+                            f"- 工具平台 '{platform_id}' 提供了以下能力:\n{namespaced_tool_desc}"
+                        )
             if tool_descs:
-                # 将所有在线工具的描述组合成一个块
-                tool_block = "\n- 当前已连接的工具平台提供了以下特殊能力:\n" + "\n".join(tool_descs)
-                descs.append(tool_block)
+                descs.append("\n".join(tool_descs))
 
         return "\n".join(filter(None, descs)).strip() or "你当前没有可用的外部行动。"
 
@@ -689,7 +698,7 @@ class ThoughtPromptBuilder:
                 # 1. 将路径的会话部分 (e.g., 'group.123') 分割成类型和ID
                 conv_type, actual_id = conv_id.split(".", 1)
                 # 2. 重新组装出完整的实体UID
-                session_key = f"{platform_id}_{conv_type}_{actual_id}"
+                session_key = build_conversation_entity_uid(platform_id, conv_type, actual_id)
             except (ValueError, IndexError):
                 # 如果 conv_id 格式不正确，则无法组装key，直接抛出错误
                 raise PromptBuilderError(
@@ -701,7 +710,8 @@ class ThoughtPromptBuilder:
             if not session:
                 # 错误信息现在会显示我们尝试使用的正确key，方便调试
                 raise PromptBuilderError(
-                    f"找不到会话实体UID '{session_key}' 的档案，无法构建外部信息块。"
+                    f"在 'cellular' 层级，找不到会话实体UID为 '{session_key}' 的活跃会话档案，"
+                    f"无法构建外部信息块。"
                 )
 
             # 获取会话的历史记录和元信息

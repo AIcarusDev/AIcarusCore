@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Optional
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logging_config import get_logger
 from src.common.time_utils import get_formatted_time_for_llm
-from src.common.utils import parse_focus_path
+from src.common.utils import build_conversation_entity_uid, parse_focus_path
 from src.config import config
 from src.config.aicarus_configs import FocusChatModeSettings
 from src.database.models import ConversationDetails
@@ -215,7 +215,7 @@ class ChatSessionManager:
             try:
                 # 根据路径信息构建完整的会话实体UID
                 conv_type, actual_id = conv_id.split(".", 1)
-                entity_uid = f"{platform_id}_{conv_type}_{actual_id}"
+                entity_uid = build_conversation_entity_uid(platform_id, conv_type, actual_id)
                 # 尝试从会话管理器获取会话实例
                 session = self.sessions.get(entity_uid)
                 if session and session.conversation_name:
@@ -255,6 +255,15 @@ class ChatSessionManager:
         """
         # 在处理新指令前，清除旧的反馈
         self.last_command_feedback = None
+
+        # 验证：检查是否违反了“最多一个指令”的规则
+        if len(control_json) > 1:
+            logger.error(
+                f"LLM违反了 'maxProperties: 1' 约束，"
+                f"在 'consciousness_control' 中提供了多个指令: {control_json}。将忽略所有指令。"
+            )
+            self.last_command_feedback = "错误：同时发出了多个意识控制指令，每轮只能执行一个。"
+            return None
 
         if not (command := next(iter(control_json), None)) or not (
             params := control_json.get(command)
@@ -663,3 +672,12 @@ class ChatSessionManager:
         except (IndexError, TypeError, ValueError) as e:
             logger.error(f"处理 'jump_to_history' 时发生错误: {e}")
             return False, f"处理 'jump_to_history' 时发生错误: {e}"
+
+    def shutdown(self) -> None:
+        """在应用程序关闭时执行清理操作.
+
+        主要负责清除平台视图状态，以防止跨会话的状态泄漏。
+        """
+        logger.info("ChatSessionManager 正在关闭，清理平台视图状态...")
+        self.platform_view_states.clear()
+        logger.info("平台视图状态已清除。")

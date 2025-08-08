@@ -18,12 +18,10 @@ class UnreadInfoService:
     def __init__(
         self,
         event_storage: EventStorageService,
-        # (±) 依赖注入变更！现在注入的是我们万能的实体图谱服务！
         entity_graph_service: EntityGraphService,
     ) -> None:
         """初始化未读信息服务."""
         self.event_storage = event_storage
-        # (±) 存储新神的服务实例
         self.entity_graph_service = entity_graph_service
         self.self_bot_ids: dict[str, str] = {}
 
@@ -35,11 +33,7 @@ class UnreadInfoService:
     async def _get_recently_active_conversations_with_details(
         self, exclude_conversation_id: str | None = None
     ) -> list[dict[str, Any]]:
-        """【核心改造】获取所有最近活跃的会话实体及其详细信息.
-
-        这个方法现在直接调用 EntityGraphService 的新方法，获取统一的实体数据。
-        """
-        # // 看！现在它直接向新神祈祷，获取神谕！
+        """获取所有最近活跃的会话实体及其详细信息."""
         return (
             await self.entity_graph_service.get_recently_active_conversation_entities_with_details(
                 exclude_conversation_id, self.self_bot_ids
@@ -75,86 +69,101 @@ class UnreadInfoService:
 
         return "未知用户"
 
-    def _create_message_preview(self, event: dict, display_name: str) -> str:
-        """生成消息预览内容，包含发送者名称和消息摘要."""
-        # ... (此方法内部逻辑不变，因为它只处理事件内容) ...
-        content = event.get("content", [])
-        event_type = event.get("event_type", "")
-        preview_parts = []
-        text_buffer = []
-        is_at_me = False
-        is_reply_to_me = False
+    # --- Refactoring Helper 1: 优先级标签生成器 ---
+    def _get_message_priority_tag(self, event: dict) -> str:
+        """检查事件内容，如果包含@我或回复我，则返回一个高亮标签."""
         all_my_bot_ids = set(self.self_bot_ids.values())
-
-        for seg in content:
-            target_user_id = None
+        for seg in event.get("content", []):
             seg_type = seg.get("type")
-
             if seg_type in ("at", "quote"):
                 target_user_id = str(seg.get("data", {}).get("user_id", ""))
-
-            if target_user_id:
                 if platform := event.get("platform"):
                     if (bot_id := self.self_bot_ids.get(platform)) and target_user_id == bot_id:
-                        if seg_type == "at":
-                            is_at_me = True
-                        if seg_type == "quote":
-                            is_reply_to_me = True
+                        return "<b>[有人@你]</b>" if seg_type == "at" else "<b>[有人回复你]</b>"
                 elif target_user_id in all_my_bot_ids:
-                    logger.warning(f"事件 {event.get('_key')} 缺少platform，回退检查命中！")
-                    if seg_type == "at":
-                        is_at_me = True
-                    if seg_type == "quote":
-                        is_reply_to_me = True
+                    return "<b>[有人@你]</b>" if seg_type == "at" else "<b>[有人回复你]</b>"
+        return ""
 
-        if event_type.endswith("user.poke"):
-            target_info = event.get("content", [{}])[0].get("data", {}).get("target_user_info", {})
-            if str(target_info.get("user_id")) in all_my_bot_ids:
-                return f'{display_name} "戳了戳" 你'
-            return f'{display_name} "戳了戳" {target_info.get("user_nickname", "某人")}'
+    # --- Refactoring Helper 2: 戳一戳事件预览生成器 ---
+    def _create_poke_preview(self, event: dict, display_name: str) -> str:
+        """专门为戳一戳事件生成预览文本."""
+        target_info = event.get("content", [{}])[0].get("data", {}).get("target_user_info", {})
+        all_my_bot_ids = set(self.self_bot_ids.values())
+        if str(target_info.get("user_id")) in all_my_bot_ids:
+            return f'{display_name} "戳了戳" 你'
+        return f'{display_name} "戳了戳" {target_info.get("user_nickname", "某人")}'
 
+    # --- Refactoring Helper 3: 消息段到文本的转换器 ---
+    def _format_segment_to_text(self, seg: dict) -> str:
+        """将单个消息段(segment)转换为可读的文本预览."""
+        seg_type = seg.get("type")
+        data = seg.get("data", {})
+        if seg_type == "text":
+            return data.get("text", "")
+        if seg_type == "image":
+            return "[动画表情]" if data.get("summary") == "sticker" else "[图片]"
+        if seg_type == "at":
+            return data.get("display_name", f"@{data.get('user_id', '某人')}")
+        return ""  # 其他未知类型暂时忽略
+
+    # --- Refactoring Helper 4: 从消息段列表构建内容预览 ---
+    def _build_content_preview_from_segments(self, content: list[dict]) -> str:
+        """从事件的 content 字段（消息段列表）构建核心预览字符串."""
+        preview_parts = []
+        text_buffer = []
         for seg in content:
-            seg_type = seg.get("type")
-            data = seg.get("data", {})
-            if seg_type == "text":
-                text_buffer.append(data.get("text", ""))
+            formatted_text = self._format_segment_to_text(seg)
+            if seg.get("type") == "text":
+                text_buffer.append(formatted_text)
             else:
                 if text_buffer:
                     preview_parts.append("".join(text_buffer))
                     text_buffer = []
-                if seg_type == "image":
-                    preview_parts.append(
-                        "[动画表情]" if data.get("summary") == "sticker" else "[图片]"
-                    )
-                elif seg_type == "at":
-                    preview_parts.append(
-                        data.get("display_name", f"@{data.get('user_id', '某人')}")
-                    )
-
+                if formatted_text:
+                    preview_parts.append(formatted_text)
         if text_buffer:
             preview_parts.append("".join(text_buffer))
+        return "".join(preview_parts).strip()
 
-        full_preview = "".join(preview_parts).strip()
-        if "\n" in full_preview:
-            full_preview = full_preview.split("\n")[0].strip() + "..."
-        elif len(full_preview) > 20:
-            full_preview = full_preview[:20] + "..."
-        full_preview = full_preview or "[消息]"
+    # --- Refactoring Helper 5: 最终格式化与截断 ---
+    def _format_and_truncate_preview(self, text: str) -> str:
+        """对生成的预览文本进行最终的格式化和截断处理."""
+        if not text:
+            return "[消息]"
+        if "\n" in text:
+            return text.split("\n")[0].strip() + "..."
+        if len(text) > 20:
+            return text[:20] + "..."
+        return text
 
-        final_preview = f"{display_name}：{full_preview}"
-        if is_at_me:
-            return f"<b>[有人@你]</b> {final_preview}"
-        if is_reply_to_me:
-            return f"<b>[有人回复你]</b> {final_preview}"
-        return final_preview
+    # --- 主函数（重构后） ---
+    def _create_message_preview(self, event: dict, display_name: str) -> str:
+        """生成消息预览内容，包含发送者名称和消息摘要 (重构版)."""
+        # 步骤 1: 使用卫语句处理特殊事件类型
+        event_type = event.get("event_type", "")
+        if event_type.endswith("user.poke"):
+            return self._create_poke_preview(event, display_name)
+
+        # 步骤 2: 获取优先级标签 (@我/回复我)
+        priority_tag = self._get_message_priority_tag(event)
+
+        # 步骤 3: 从消息段构建核心内容
+        content_list = event.get("content", [])
+        raw_preview = self._build_content_preview_from_segments(content_list)
+
+        # 步骤 4: 格式化并截断核心内容
+        formatted_preview = self._format_and_truncate_preview(raw_preview)
+
+        # 步骤 5: 组合最终的预览字符串
+        final_preview = f"{display_name}：{formatted_preview}"
+
+        # 如果有优先级标签，则加在最前面
+        return f"{priority_tag} {final_preview}" if priority_tag else final_preview
 
     async def get_conversation_list_summary(
         self, platform_id: str, scroll_offset: int = 0, page_size: int = 10
     ) -> str:
-        """生成特定平台的会话列表摘要，支持分页和头尾提示.
-
-        这个方法现在会从 EntityGraphService 获取所有会话实体，并生成一个 XML 格式的摘要。
-        """
+        """生成特定平台的会话列表摘要，支持分页和头尾提示."""
         all_active_convs = await self._get_recently_active_conversations_with_details()
         if not all_active_convs:
             return (
@@ -201,18 +210,14 @@ class UnreadInfoService:
             else:
                 summary_parts.append("--- 已经到顶了 ---")
 
-            # 构造尾部提示 (在添加完会话内容后再添加)
-            footer_text = ""
             remaining_count = total_count - end_index
-            if remaining_count > 0:
-                footer_text = (
-                    f"--- 下方还有 {remaining_count} 条未展示的对话 ---"
-                    f"\n<!-- 提示：你可以使用 scroll(params='down') 来查看更多 -->"
-                )
-            else:
-                footer_text = "--- 已经到底了 ---"
+            footer_text = (
+                f"--- 下方还有 {remaining_count} 条未展示的对话 ---\n"
+                f"<!-- 提示：你可以使用 scroll(params='down') 来查看更多 -->"
+                if remaining_count > 0
+                else "--- 已经到底了 ---"
+            )
 
-        # 3. 渲染当前页的会话列表
         for item in convs_to_display:
             conv_doc = item["conv_doc"]
             latest_event = item["latest_event"]
@@ -230,17 +235,13 @@ class UnreadInfoService:
             message_preview = self._create_message_preview(latest_event, sender_display_name)
 
             status_line = f"(时间：{time_str}/共 {unread_count} 条未读信息)"
-
+            header = f"- [{'临时会话' if is_temporary else '用户名称'}]：{conv_name}"
             if conv_type == "group":
-                summary_parts.append(f"- [群名称]：{conv_name}")
-            else:
-                summary_parts.append(
-                    f"- [{'临时会话' if is_temporary else '用户名称'}]：{conv_name}"
-                )
+                header = f"- [群名称]：{conv_name}"
 
-            # 添加会话的详细信息
             summary_parts.extend(
                 [
+                    header,
                     f"  - [ID]：{entity_uid}",
                     f"  - [最新消息]：{message_preview}",
                     f"  - {status_line}",
@@ -248,8 +249,7 @@ class UnreadInfoService:
                 ]
             )
 
-        # 如果尾部有未读消息提示，添加到摘要中
-        if "footer_text" in locals() and footer_text:
+        if "footer_text" in locals():
             summary_parts.append(footer_text)
 
         summary_parts.append("</conversation_list>")
@@ -271,11 +271,11 @@ class UnreadInfoService:
         preview = self._create_message_preview(event_for_preview, sender_name)
         is_temporary = conv_details.get("extra", {}).get("is_temporary", False)
 
+        header = f"- [{'临时会话' if is_temporary else '[用户名称]'}]：{
+            conv_details.get('name') or sender_name
+        }"
         if conv_type == "group":
             header = f"- [群名称]：{conv_details.get('name') or '未知群聊'}"
-        else:
-            prefix = "[临时会话]" if is_temporary else "[用户名称]"
-            header = f"- {prefix}：{conv_details.get('name') or sender_name}"
 
         # 生成单个会话的摘要文本列表
         return [
@@ -305,7 +305,6 @@ class UnreadInfoService:
         """辅助函数: 格式化单个平台的完整XML块."""
         section_parts = [f"<from_{platform}>"]
         items.sort(key=lambda x: x["has_high_priority"], reverse=True)
-        # (±) 核心适配点：从 entity.details 中获取 type
         group_chats = [c for c in items if c["conv_doc"].get("details", {}).get("type") == "group"]
         private_chats = [
             c for c in items if c["conv_doc"].get("details", {}).get("type") == "private"
@@ -330,7 +329,6 @@ class UnreadInfoService:
 
         grouped_by_platform = defaultdict(list)
         for item in unread_convs:
-            # (±) 核心适配点：从 entity.details 中获取 platform
             platform = item["conv_doc"].get("details", {}).get("platform", "unknown_platform")
             grouped_by_platform[platform].append(item)
 
@@ -354,7 +352,6 @@ class UnreadInfoService:
             lambda: {"has_high_priority": False, "latest_timestamp": 0, "has_any_news": False}
         )
         for item in unread_convs:
-            # (±) 核心适配点：从 entity.details 中获取 platform
             if platform := item["conv_doc"].get("details", {}).get("platform"):
                 platforms_with_news[platform]["has_any_news"] = True
                 if item["has_high_priority"]:
@@ -371,7 +368,7 @@ class UnreadInfoService:
             relative_time_str = format_relative_time(info["latest_timestamp"])
             if info["has_high_priority"]:
                 summary_lines.append(f"[{relative_time_str}] 你的 '{platform}' 上似乎有人找你。")
-            else:  # has_any_news is guaranteed to be true here
+            else:
                 summary_lines.append(f"[{relative_time_str}] 你的 '{platform}' 上似乎有未读消息。")
 
         return "\n".join(summary_lines) or "所有平台均无新消息。"

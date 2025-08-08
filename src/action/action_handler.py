@@ -215,21 +215,11 @@ class ActionHandler:
                 )
             return
 
-        # 2. 动态解析出需要执行的动作
-        # 我们不再写死平台名，而是动态地查找
-        core_actions = action_json.get("core", {})
-        # 找到第一个不是'core'的键和值，作为平台动作
-        platform_actions_tuple = next(
-            ((key, value) for key, value in action_json.items() if key != "core"),
-            (None, None),
-        )
-        platform_id_from_action, platform_actions = platform_actions_tuple
-
-        actions_to_process = platform_actions or core_actions
-
-        if not actions_to_process:
-            logger.info("AI决策的动作对象为空，无需执行。")
-            # 这种情况也属于“不行动”，如果是 cellular 层级则递增计数器
+        # 2. 从带有命名空间的动作字典中解析出平台ID和动作内容
+        if not (platform_id := next(iter(action_json), None)) or not (
+            actions_to_process := action_json.get(platform_id)
+        ):
+            logger.info("AI决策的动作对象为空或格式不正确，无需执行。")
             if self.core_logic and (session := self.core_logic._get_current_session()):
                 session.no_action_count += 1
                 logger.debug(
@@ -238,7 +228,6 @@ class ActionHandler:
                 )
             return
 
-        platform_id = platform_id_from_action if platform_actions else "core"
         action_name, params = next(iter(actions_to_process.items()))
 
         if platform_id == "qq" and action_name == "scroll":
@@ -247,8 +236,7 @@ class ActionHandler:
             # 将结果写回思想点
             if self.thought_storage_service:
                 await self.thought_storage_service.save_action_result_to_thought(
-                    thought_key=doc_key_for_updates,
-                    result_text=result_text,
+                    thought_key=doc_key_for_updates, result_text=result_text
                 )
 
             # 本地动作执行完，立即触发思考！
