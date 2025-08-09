@@ -185,9 +185,7 @@ class ImageAnalysisService:
                 results = await asyncio.gather(*analysis_tasks)
 
                 # 过滤掉失败的结果 (返回 None 的)
-                valid_results = [res for res in results if res is not None]
-
-                if valid_results:
+                if valid_results := [res for res in results if res is not None]:
                     await self._update_event_with_analysis_results(event_id, valid_results)
 
             except asyncio.CancelledError:
