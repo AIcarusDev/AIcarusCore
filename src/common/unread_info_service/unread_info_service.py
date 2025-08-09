@@ -132,9 +132,7 @@ class UnreadInfoService:
             return "[消息]"
         if "\n" in text:
             return text.split("\n")[0].strip() + "..."
-        if len(text) > 20:
-            return text[:20] + "..."
-        return text
+        return f"{text[:20]}..." if len(text) > 20 else text
 
     # --- 主函数（重构后） ---
     def _create_message_preview(self, event: dict, display_name: str) -> str:

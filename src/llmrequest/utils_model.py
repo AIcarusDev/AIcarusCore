@@ -421,7 +421,7 @@ class LLMClient:
             if self.api_endpoint_style == "google":
                 return {"parts": [{"text": text_to_embed}]} if text_to_embed else {}
             elif self.api_endpoint_style == "openai":
-                return text_to_embed if text_to_embed else ""
+                return text_to_embed or ""
             raise NotImplementedError(
                 f"Embedding content for {self.api_endpoint_style} not implemented."
             )

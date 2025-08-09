@@ -253,7 +253,7 @@ class ThoughtPromptBuilder:
         action_response_block = await self._build_action_response_desc(handover_result)
 
         friend_request_block = ""
-        if level in ["platform", "cellular"]:
+        if level in {"platform", "cellular"}:
             friend_request_block = await self._build_friend_request_block(platform_id)
 
         return {

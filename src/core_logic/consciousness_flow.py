@@ -262,10 +262,7 @@ class CoreLogic:
             action_payload=generated_thought_json,
         )
         saved_key = await self.thought_storage_service.save_thought_and_link(new_thought_pearl)
-        if not saved_key:
-            return None, None
-
-        return new_thought_pearl, saved_key
+        return (None, None) if not saved_key else (new_thought_pearl, saved_key)
 
     async def _run_full_thought_cycle(self, session: Optional["ChatSession"]) -> float | None:
         """执行完整的思考循环（重构后），主要负责编排."""

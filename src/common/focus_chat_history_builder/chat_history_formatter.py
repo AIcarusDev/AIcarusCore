@@ -16,7 +16,6 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# --- 引入新的配置参数 ---
 # 定义“视觉窗口”的大小，即最近的多少条消息被认为是“当前可见”的
 VISUAL_VIEWPORT_SIZE = 20
 
