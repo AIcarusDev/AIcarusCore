@@ -133,35 +133,36 @@ class ThoughtPromptBuilder:
 
         return prompt_components_obj, processed_raw_events
 
-    def _build_response_schema(self, level: str, platform_id: str) -> dict[str, Any]:
-        """(提取出的新方法) 构建 LLM 响应的 JSON Schema."""
-        builder = platform_builder_registry.get_builder(platform_id)
+    def _build_action_schema_properties(
+        self, level: str, builder: BasePlatformBuilder | None
+    ) -> dict:
+        """[Helper] 构建动作部分的 JSON Schema properties."""
         core_builder = platform_builder_registry.get_builder("core")
-
-        # 构建意识控制 Schema
-        plat_ctrl_schema, _ = (
-            builder.get_level_consciousness_controls_definitions(level) if builder else ({}, {})
-        )
-        core_ctrl_schema, _ = core_builder.get_level_consciousness_controls_definitions(level)
-        final_ctrl_schema_props = core_ctrl_schema.get("properties", {})
-        final_ctrl_schema_props.update(plat_ctrl_schema.get("properties", {}))
-
-        # 构建动作 Schema
-        final_act_schema_props = {}
         core_act_schema, _ = core_builder.get_level_actions_definitions(level)
-        final_act_schema_props["core"] = core_act_schema
 
+        # 1. 总是包含核心动作
+        action_props = {"core": core_act_schema}
+
+        # 2. 如果在平台/细胞层，添加平台专属动作
         if builder and level != "core":
             plat_act_schema, _ = builder.get_level_actions_definitions(level)
-            final_act_schema_props[builder.platform_id] = plat_act_schema
+            action_props[builder.platform_id] = plat_act_schema
 
+        # 3. 如果在核心层，动态添加所有在线工具平台的能力
         if level == "core" and self.core_ws_server:
             connected_adapter_ids = self.core_ws_server.action_sender.connected_adapters.keys()
             for pid in connected_adapter_ids:
                 p_builder = platform_builder_registry.get_builder(pid)
                 if p_builder and p_builder.is_tool_platform:
                     tool_schema, _ = p_builder.get_level_actions_definitions("platform")
-                    final_act_schema_props[pid] = tool_schema
+                    action_props[pid] = tool_schema
+
+        return action_props
+
+    def _build_response_schema(self, level: str, platform_id: str) -> dict[str, Any]:
+        """构建 LLM 响应的 JSON Schema (重构后)."""
+        builder = platform_builder_registry.get_builder(platform_id)
+        core_builder = platform_builder_registry.get_builder("core")
 
         return {
             "type": "object",
@@ -177,10 +178,26 @@ class ThoughtPromptBuilder:
                 },
                 "consciousness_control": {
                     "type": "object",
-                    "properties": final_ctrl_schema_props,
+                    "properties": {
+                        # 合并声明与赋值，并就近使用
+                        **core_builder.get_level_consciousness_controls_definitions(level)[0].get(
+                            "properties", {}
+                        ),
+                        **(
+                            builder.get_level_consciousness_controls_definitions(level)[0].get(
+                                "properties", {}
+                            )
+                            if builder
+                            else {}
+                        ),
+                    },
                     "maxProperties": 1,
                 },
-                "action": {"type": "object", "properties": final_act_schema_props},
+                "action": {
+                    "type": "object",
+                    # 提取复杂逻辑到辅助函数，并就近调用
+                    "properties": self._build_action_schema_properties(level, builder),
+                },
             },
             "required": ["internal_state"],
         }
