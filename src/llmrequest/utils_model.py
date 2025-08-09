@@ -1120,10 +1120,6 @@ class LLMClient:
             f"Headers: {loggable_headers}, Proxy: {self.proxy_url or 'No'}"
         )
 
-        logger.debug(
-            f"Final Payload to be sent: {json.dumps(payload, ensure_ascii=False, indent=2)}"
-        )
-
         try:
             prepared_data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         except TypeError as e:
