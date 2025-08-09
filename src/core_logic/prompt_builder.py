@@ -478,11 +478,13 @@ class ThoughtPromptBuilder:
         for i, p in enumerate(opinions):
             tag = p.get("tag", f"观点 {i + 1}")
             thought = p.get("initial_thought", "无具体想法。")
-            opinions_block_lines.append(f'            <pipeline tag="{tag}">')
-            opinions_block_lines.append(
-                f"                <initial_thought>{thought}</initial_thought>"
+            opinions_block_lines.extend(
+                [
+                    f'            <pipeline tag="{tag}">',
+                    f"                <initial_thought>{thought}</initial_thought>",
+                    "            </pipeline>",
+                ]
             )
-            opinions_block_lines.append("            </pipeline>")
 
         opinions_block = "\n".join(opinions_block_lines)
 

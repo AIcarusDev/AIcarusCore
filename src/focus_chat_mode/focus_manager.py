@@ -324,10 +324,9 @@ class FocusManager:
         self, params: dict, history_entry_base: dict
     ) -> tuple[bool, str]:
         """处理 'teleport_focus' 指令."""
-        target_path = params.get("target_path")
-        if not target_path:
-            return False, "缺少 target_path 参数。"
-        return await self._switch_focus(target_path, history_entry_base)
+        if target_path := params.get("target_path"):
+            return await self._switch_focus(target_path, history_entry_base)
+        return False, "缺少 target_path 参数。"
 
     async def _handle_back(self, params: dict, history_entry_base: dict) -> tuple[bool, str]:
         """处理 'back' 指令."""

@@ -209,8 +209,7 @@ class EntityDocument:
             if f.default is MISSING and f.default_factory is MISSING
         }
         # 2. 检查传入的数据是否缺少了任何必填字段
-        missing_fields = required_fields - set(details_data.keys())
-        if missing_fields:
+        if missing_fields := required_fields - set(details_data.keys()):
             # 3. 如果有缺失，抛出带有详细信息的 ValueError
             raise ValueError(
                 f"无法创建 {details_class.__name__} 实例。 "
