@@ -265,7 +265,6 @@ class ThoughtPromptBuilder:
         if session and session.last_command_feedback:
             feedback_text = session.last_command_feedback
             command_feedback_block = f"<command_feedback>\n{feedback_text}\n</command_feedback>"
-            session.last_command_feedback = None
 
         action_response_block = await self._build_action_response_desc(handover_result)
 
