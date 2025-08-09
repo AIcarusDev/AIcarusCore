@@ -720,14 +720,13 @@ class ThoughtPromptBuilder:
             history_components, processed_raw_events = await format_chat_history_for_llm(
                 event_storage=self.event_storage,
                 conversation_id=session.conversation_info.conversation_id,
-                bot_id=session.bot_id,
-                platform=session.platform,
                 bot_profile=bot_profile,
                 conversation_type=session.conversation_type,
                 conversation_name=session.conversation_name,
                 last_processed_timestamp=session.last_processed_timestamp,
                 is_first_turn=self.is_context_switch_flag,
             )
+
             if history_components.conversation_name:
                 session.conversation_name = history_components.conversation_name
             unread_summary_str = await self.unread_info_service.generate_unread_summary_text(
