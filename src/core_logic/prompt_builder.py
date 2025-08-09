@@ -89,6 +89,12 @@ class ThoughtPromptBuilder:
         """编排构建系统和用户提示组件的过程."""
         current_level, current_platform_id, current_conv_id = parse_focus_path(focus_path)
 
+        # 在构建任何组件之前，先判断是否可以执行 back/jump 操作
+        can_go_back = False
+        if self.chat_session_manager and self.chat_session_manager.focus_manager:
+            # 历史记录大于1条，意味着除了 T-0 (当前) 之外，至少还有 T-1
+            can_go_back = len(self.chat_session_manager.focus_manager.focus_history) > 1
+
         # 1. 构建外部信息和元信息
         (
             external_info_block,
@@ -101,15 +107,19 @@ class ThoughtPromptBuilder:
         )
 
         # 2. 构建响应 Schema
-        response_schema = self._build_response_schema(current_level, current_platform_id)
+        response_schema = self._build_response_schema(
+            current_level, current_platform_id, can_go_back=can_go_back
+        )
 
         # 3. 构建 System Prompt 的各个部分
+        # 传入 can_go_back 标志
         system_prompt_blocks = await self._build_system_prompt_blocks(
             level=current_level,
             platform_id=current_platform_id,
             conv_id=current_conv_id,
             session=session,
             user_map=history_components.user_map if history_components else None,
+            can_go_back=can_go_back,
         )
 
         # 4. 构建 User Prompt 的各个部分
@@ -161,10 +171,27 @@ class ThoughtPromptBuilder:
 
         return action_props
 
-    def _build_response_schema(self, level: str, platform_id: str) -> dict[str, Any]:
+    # 接收 can_go_back 标志
+    def _build_response_schema(
+        self, level: str, platform_id: str, can_go_back: bool
+    ) -> dict[str, Any]:
         """构建 LLM 响应的 JSON Schema (重构后)."""
         builder = platform_builder_registry.get_builder(platform_id)
         core_builder = platform_builder_registry.get_builder("core")
+
+        # 先获取完整的 controls schema
+        consciousness_controls_schema, _ = (
+            core_builder.get_level_consciousness_controls_definitions(level)
+        )
+        if builder:
+            plat_controls_schema, _ = builder.get_level_consciousness_controls_definitions(level)
+            consciousness_controls_schema["properties"].update(plat_controls_schema["properties"])
+
+        # 根据 can_go_back 标志动态移除无效指令
+        if not can_go_back:
+            consciousness_controls_schema["properties"].pop("back", None)
+            consciousness_controls_schema["properties"].pop("jump_to_history", None)
+
 
         return {
             "type": "object",
@@ -178,23 +205,8 @@ class ThoughtPromptBuilder:
                     },
                     "required": ["mood", "think", "goal"],
                 },
-                "consciousness_control": {
-                    "type": "object",
-                    "properties": {
-                        # 合并声明与赋值，并就近使用
-                        **core_builder.get_level_consciousness_controls_definitions(level)[0].get(
-                            "properties", {}
-                        ),
-                        **(
-                            builder.get_level_consciousness_controls_definitions(level)[0].get(
-                                "properties", {}
-                            )
-                            if builder
-                            else {}
-                        ),
-                    },
-                    "maxProperties": 1,
-                },
+                # 直接使用我们处理过的 schema
+                "consciousness_control": consciousness_controls_schema,
                 "action": {
                     "type": "object",
                     # 提取复杂逻辑到辅助函数，并就近调用
@@ -211,6 +223,7 @@ class ThoughtPromptBuilder:
         conv_id: str | None,
         session: Optional["ChatSession"],
         user_map: dict | None,
+        can_go_back: bool,
     ) -> dict[str, Any]:
         """(提取出的新方法) 构建 System Prompt 的所有部分."""
         builder = platform_builder_registry.get_builder(platform_id)
@@ -247,7 +260,7 @@ class ThoughtPromptBuilder:
             "internal_info_block": internal_info_block,
             "input_XML_block_description": self._get_input_xml_block_description(level),
             "available_consciousness_controls": self._get_controls_descriptions(
-                level, builder, core_builder
+                level, builder, core_builder, can_go_back=can_go_back
             ),
             "available_actions": self._get_actions_descriptions(level, builder, core_builder),
             "self_prompt_block": await self._build_self_prompt_block(),
@@ -639,16 +652,35 @@ class ThoughtPromptBuilder:
         return FOCUS_INPUT_XML_DESCRIPTION if level == "cellular" else ""
 
     def _get_controls_descriptions(
-        self, level: str, builder: BasePlatformBuilder, core_builder: CoreBuilder
+        self,
+        level: str,
+        builder: BasePlatformBuilder | None,
+        core_builder: CoreBuilder,
+        can_go_back: bool,
     ) -> str:
         """获取当前层级的意识控制描述."""
-        core_desc = core_builder.get_level_consciousness_controls_descriptions(level)
-        plat_desc = (
-            builder.get_level_consciousness_controls_descriptions(level)
-            if level != "core" and builder
-            else ""
-        )
-        return "\n".join(filter(None, [core_desc, plat_desc])) or "你当前没有可用的导航指令。"
+        # 先获取完整的 schema，再根据标志进行过滤
+        schema, _ = core_builder.get_level_consciousness_controls_definitions(level)
+        if builder:
+            plat_schema, _ = builder.get_level_consciousness_controls_definitions(level)
+            schema["properties"].update(plat_schema["properties"])
+
+        available_controls = schema.get("properties", {})
+
+        if not can_go_back:
+            available_controls.pop("back", None)
+            available_controls.pop("jump_to_history", None)
+
+        # 直接使用过滤后的 available_controls
+        descs = []
+        for name, definition in available_controls.items():
+            params_list = definition.get("required", [])
+            params_str = ", ".join(params_list)
+            description = definition.get("description", "（无可用描述）")
+            desc_line = f"      - `{name}({params_str})`: {description}"
+            descs.append(desc_line)
+
+        return "\n".join(sorted(descs)) or "你当前没有可用的导航指令。"
 
     def _get_actions_descriptions(
         self, level: str, builder: BasePlatformBuilder | None, core_builder: CoreBuilder
