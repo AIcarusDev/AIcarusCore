@@ -38,11 +38,11 @@ IMAGE_ANALYSIS_SCHEMA = {
             "description": "对图片场景、物体、人物和事件的详细描述。",
         },
         "text_content": {
-            "type": ["string", "null"],
-            "description": "图片中提取出的文字内容，如果没有则为 null。",
+            "type": "string",
+            "description": "图片中提取出的文字内容，如果没有则省略此字段。",
         },
     },
-    "required": ["primary_subject", "description", "text_content"],
+    "required": ["primary_subject", "description"],
 }
 
 
