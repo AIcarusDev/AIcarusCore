@@ -1,14 +1,13 @@
-# 文件: src/action/components/pending_action_manager.py (手滑修复版 V1.1)
+# src/action/components/pending_action_manager.py
 import asyncio
 import json
 import time
 from typing import TYPE_CHECKING, Any
 
+from aicarus_protocols import find_seg_by_type
 from src.common.custom_logging.logging_config import get_logger
 from src.database import (
     ActionLogStorageService,
-    ConversationStorageService,
-    EnrichedConversationInfo,
     ThoughtStorageService,
 )
 from src.database.services.event_storage_service import EventStorageService
@@ -36,7 +35,6 @@ class PendingActionManager:
         action_log_service: ActionLogStorageService,
         thought_storage_service: ThoughtStorageService,
         event_storage_service: EventStorageService,
-        conversation_service: ConversationStorageService,
         action_handler_instance: "ActionHandler",
     ) -> None:
         self._pending_actions: dict[
@@ -45,7 +43,6 @@ class PendingActionManager:
         self.action_log_service = action_log_service
         self.thought_storage_service = thought_storage_service
         self.event_storage_service = event_storage_service  # <-- 我明明存的是这个名字...
-        self.conversation_service = conversation_service
         self.action_handler = action_handler_instance
         logger.info(f"{self.__class__.__name__} instance created.")
 
@@ -88,6 +85,7 @@ class PendingActionManager:
             self._pending_actions.pop(action_id, None)
 
     async def _handle_action_timeout(self, action_id: str) -> None:
+        """处理动作超时的情况."""
         if action_id not in self._pending_actions:
             return
         logger.warning(f"动作 '{action_id}' 超时未收到响应！")
@@ -162,39 +160,33 @@ class PendingActionManager:
         if not original_action_type:
             return
 
-        # 1. send_message 的回声通知
-        if original_action_type.endswith(".send_message"):
-            await self._signal_echo_to_session(sent_dict)
-
-        # 2. get_list 成功后主动创建会话档案
+        # 1. get_list 成功后主动创建会话档案
         if original_action_type.endswith(".get_list"):
             await self._proactively_create_conversation_docs_from_list(details, sent_dict)
 
-    async def _signal_echo_to_session(self, sent_dict: dict[str, Any]) -> None:
-        """为 send_message 动作向对应的 ChatSession 发送回声信号.
+        # 2. [修改] handle_friend_request 的后续处理
+        if original_action_type.endswith(".handle_friend_request"):
+            params_seg = find_seg_by_type(sent_dict.get("content", []), "action_params")
 
-        Args:
-            sent_dict (dict[str, Any]): 原始发送的动作数据字典，包含
-                会话信息和原始动作ID.
-        """
-        conversation_info = sent_dict.get("conversation_info")
-        original_action_id = sent_dict.get("event_id")
+            if not (
+                params_seg
+                and isinstance(params_seg.data, dict)
+                and (params := params_seg.data)
+                and (user_id := params.get("user_id"))
+                and (platform := sent_dict.get("platform"))
+            ):
+                logger.error("处理 handle_friend_request 后续时，缺少 user_id 或 platform。")
+                return
 
-        if not isinstance(conversation_info, dict) or not original_action_id:
-            return
+            entity_uid = f"{platform}_{user_id}"
+            approved = params.get("approve", False)
+            remark = params.get("remark") if approved else None
 
-        conv_id = conversation_info.get("conversation_id")
-        if (
-            conv_id
-            and self.action_handler.chat_session_manager
-            and (session := self.action_handler.chat_session_manager.sessions.get(str(conv_id)))
-        ):
-            logger.info(
-                f"检测到 send_message 动作的回声，"
-                f"正在为动作 '{original_action_id}' "
-                f"调用 session.signal_echo_received()！"
+            # [修改] 调用 EntityGraphService 的新公共方法
+            await self.action_handler.entity_service.finalize_friend_request(
+                entity_uid=entity_uid, approved=approved, remark=remark
             )
-            await session.signal_echo_received(original_action_id)
+            logger.info(f"好友请求处理完毕，已通过服务更新实体 '{entity_uid}' 的数据库状态。")
 
     async def _gather_and_execute_db_updates(
         self,
@@ -266,16 +258,15 @@ class PendingActionManager:
     async def _proactively_create_conversation_docs_from_list(
         self, details: dict | None, sent_dict: dict
     ) -> None:
-        """当 get_list 动作成功后，主动为列表中的每个项目创建或更新会话档案."""
+        """当 get_list 动作成功后，主动为列表中的每个项目创建或更新会话实体."""
         if not details or not isinstance(details, dict):
             return
 
         list_type = sent_dict.get("content", [{}])[0].get("data", {}).get("list_type")
         platform_id = sent_dict.get("platform")
-        bot_id = sent_dict.get("bot_id")
 
-        if not list_type or not platform_id or not bot_id:
-            logger.warning("无法从 get_list 的原始请求中获取足够信息来创建会话档案。")
+        if not list_type or not platform_id:
+            logger.warning("无法从 get_list 的原始请求中获取足够信息来创建会话实体。")
             return
 
         items = details.get("friends", []) if list_type == "friend" else details.get("groups", [])
@@ -284,13 +275,18 @@ class PendingActionManager:
 
         logger.info(
             f"收到 get_list({list_type}) 的成功响应，准备为 {len(items)} "
-            f"个项目主动创建/更新会话档案。"
+            f"个项目主动创建/更新会话实体。"
         )
 
-        conversation_type = "private" if list_type == "friend" else "group"
-        # 准备批量更新会话档案的任务
-        # 这里我们使用 upsert 方法来确保不存在时创建，存在时更新
-        upsert_tasks = []
+        # 确保 entity_service 存在
+        if not self.action_handler.entity_service:
+            logger.error("EntityGraphService 未注入到 ActionHandler，无法主动创建会话实体。")
+            return
+
+        entity_service = self.action_handler.entity_service
+        conv_type = "private" if list_type == "friend" else "group"
+        # 准备批量创建会话实体的任务
+        creation_tasks = []
         for item in items:
             if not isinstance(item, dict):
                 continue
@@ -301,23 +297,21 @@ class PendingActionManager:
             if not conv_id:
                 continue
 
-            new_conv_info = EnrichedConversationInfo(
+            # 直接调用新服务的方法来处理实体的创建或获取
+            task = entity_service.get_or_create_conversation_entity(
                 conversation_id=str(conv_id),
                 platform=platform_id,
-                bot_id=bot_id,
-                type=conversation_type,
+                conv_type=conv_type,
                 name=conv_name,
             )
-            task = self.conversation_service.upsert_conversation_document(
-                new_conv_info.to_db_document()
-            )
-            upsert_tasks.append(task)
+            creation_tasks.append(task)
 
-        if upsert_tasks:
-            await asyncio.gather(*upsert_tasks)
-            logger.info(f"已完成对 {len(upsert_tasks)} 个项目的会话档案主动更新。")
+        if creation_tasks:
+            await asyncio.gather(*creation_tasks)
+            logger.info(f"已完成对 {len(creation_tasks)} 个项目的会话实体主动更新。")
 
     def _get_original_id_from_response(self, data: dict[str, Any]) -> str | None:
+        """从响应数据中提取原始动作ID."""
         content = data.get("content", [])
         if content and isinstance(content, list) and len(content) > 0:
             first_seg = content[0]
@@ -326,6 +320,7 @@ class PendingActionManager:
         return None
 
     def _parse_response_content(self, data: dict[str, Any]) -> tuple[bool, str, str, dict | None]:
+        """解析动作响应内容."""
         content = data.get("content", [])
         if not content:
             return False, "unknown", "响应内容为空", None
@@ -344,6 +339,7 @@ class PendingActionManager:
     def _create_final_result_message(
         self, desc: str, succ: bool, err: str, det: dict | None
     ) -> str:
+        """创建最终的结果消息."""
         if succ:
             msg = f"动作 '{desc}' 已成功执行。"
             if det:
@@ -358,6 +354,7 @@ class PendingActionManager:
         resp_data: dict[str, Any],
         motivation: str | None = None,
     ) -> None:
+        """将成功的动作存储为事件."""
         event_to_save = sent_dict.copy()
         event_to_save["event_id"] = action_id
         event_to_save["timestamp"] = int(time.time() * 1000)
@@ -397,15 +394,19 @@ class PendingActionManager:
             "user_nickname": "AIcarus (Self)",
         }
 
-        # =======================【 这 里 就 是 修 复 点 ！】=======================
-        # 我之前在这里不小心写成了 self.event_storage，真是该打屁股！
-        # 正确的名字应该是 self.event_storage_service！
         await self.event_storage_service.save_event_document(event_to_save)
-        # ======================================================================
-
         logger.info(f"成功的平台动作 '{action_id}' 已作为事件存入 events 表。")
 
     async def _get_sent_message_id_safe(self, event_data: dict[str, Any]) -> str:
+        """安全地从事件数据中提取已发送消息的ID.
+
+        如果无法提取，则返回一个默认值。
+        Args:
+            event_data (dict[str, Any]): 包含事件数据的字典.
+
+        Returns:
+            str: 提取的消息ID或默认值.
+        """
         default_id = "unknow_message_id"
         if not isinstance(event_data, dict):
             return default_id

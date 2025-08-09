@@ -11,6 +11,7 @@ import os
 import random
 import re
 import time
+from collections.abc import Callable
 from typing import Any, TypedDict, Unpack
 
 import aiohttp
@@ -216,6 +217,7 @@ class LLMClient:
         rate_limit_disable_duration_seconds: int = DEFAULT_RATE_LIMIT_DISABLE_SECONDS,
         **kwargs: Unpack[GenerationParams],
     ) -> None:
+        self.image_placeholder_pattern_regex = re.compile(r"\[(图片|动画表情)_(\d+)]")
         self.default_generation_config: GenerationParams = kwargs
         logger.debug(
             f"LLMClient __init__ received model: {model}, "
@@ -232,6 +234,10 @@ class LLMClient:
         self.initial_stream_setting = model.get("stream", False)
         self.pri_in = model.get("pri_in", 0)
         self.pri_out = model.get("pri_out", 0)
+        self.image_placeholder_tag = image_placeholder_tag
+        self.stream_chunk_delay_seconds = stream_chunk_delay_seconds
+        self.enable_image_compression = enable_image_compression
+        self.image_compression_target_bytes = image_compression_target_bytes
         self.rate_limit_disable_duration_seconds = rate_limit_disable_duration_seconds
         self._temporarily_disabled_keys_429: dict[str, float] = {}
 
@@ -371,7 +377,6 @@ class LLMClient:
             except ValueError:
                 logger.warning(f"无效的代理端口号: {_proxy_port}.")
 
-        self.image_placeholder_tag = image_placeholder_tag
         self.stream_chunk_delay_seconds = stream_chunk_delay_seconds
         self.enable_image_compression = enable_image_compression
         self.image_compression_target_bytes = image_compression_target_bytes
@@ -390,7 +395,116 @@ class LLMClient:
             f"图像压缩: {'启用' if self.enable_image_compression else '禁用'}, "
             f"目标大小: {self.image_compression_target_bytes / (1024 * 1024):.2f} MB"
         )
-        self._session: aiohttp.ClientSession | None = None  # 新增：用于存储aiohttp会话
+        self._session: aiohttp.ClientSession | None = None
+
+    def _interleave_text_and_images(
+        self, prompt_text: str, processed_images: list[dict[str, str]]
+    ) -> list[dict[str, Any]]:
+        """[Helper] 将文本和图片交错组合成一个标准化的中间列表."""
+        # 如果没有图片或没有文本，则快速处理
+        if not processed_images:
+            return [{"type": "text", "text": prompt_text or ""}]
+        if not prompt_text:
+            return [
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{img['mime_type']};base64,{img['b64_data']}"},
+                }
+                for img in processed_images
+            ]
+
+        # 核心图文混排逻辑
+        elements: list[dict[str, Any]] = []
+        last_end = 0
+        for match in self.image_placeholder_pattern_regex.finditer(prompt_text):
+            # 添加占位符之前的文本
+            if match.start() > last_end:
+                elements.append({"type": "text", "text": prompt_text[last_end : match.start()]})
+
+            # 添加图片
+            try:
+                image_index = int(match.group(2)) - 1
+                if 0 <= image_index < len(processed_images):
+                    img = processed_images[image_index]
+                    elements.append(
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{img['mime_type']};base64,{img['b64_data']}"
+                            },
+                        }
+                    )
+                else:
+                    logger.warning(f"聊天记录中的图片索引 '{match.group(0)}' 超出范围，已忽略。")
+            except (ValueError, IndexError) as e:
+                logger.error(f"解析或使用图片索引 '{match.group(0)}' 时出错: {e}")
+
+            last_end = match.end()
+
+        # 添加最后一个占位符之后的文本
+        if last_end < len(prompt_text):
+            elements.append({"type": "text", "text": prompt_text[last_end:]})
+
+        return elements
+
+    def _format_element_for_google(self, element: dict[str, Any]) -> dict[str, Any]:
+        """[Helper] 将标准中间元素格式化为 Google API 的格式."""
+        if element["type"] == "text":
+            return {"text": element["text"]}
+        elif element["type"] == "image_url":
+            header, encoded_data = element["image_url"]["url"].split(",", 1)
+            mime_type = header.split(";")[0].split(":")[1]
+            return {"inline_data": {"mime_type": mime_type, "data": encoded_data}}
+        return {}
+
+    def _format_content_for_google(
+        self, intermediate_list: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """[Formatter] 将标准中间列表转换为 Google API 的 `parts` 格式."""
+        return [self._format_element_for_google(elem) for elem in intermediate_list]
+
+    def _format_content_for_openai(
+        self, intermediate_list: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """[Formatter] 将标准中间列表转换为 OpenAI API 的 `content` 格式."""
+        # OpenAI 的格式与我们的标准中间格式恰好一致
+        return intermediate_list
+
+    def _build_content_for_style(
+        self,
+        request_type: str,
+        prompt_text: str | None = None,
+        processed_images: list[dict[str, str]] | None = None,
+        text_to_embed: str | None = None,
+    ) -> Any:
+        """[Orchestrator] 根据API风格组装请求内容 (重构后)."""
+        # 1. 处理 embedding 的特殊情况
+        if request_type == "embedding":
+            if self.api_endpoint_style == "google":
+                return {"parts": [{"text": text_to_embed}]} if text_to_embed else {}
+            elif self.api_endpoint_style == "openai":
+                return text_to_embed or ""
+            raise NotImplementedError(f"Embedding for {self.api_endpoint_style} not implemented.")
+
+        # 2. 构建标准化的中间内容列表
+        intermediate_content = self._interleave_text_and_images(
+            prompt_text or "", processed_images or []
+        )
+
+        # 3. 使用分发字典 (Switch Pattern) 选择正确的格式化器
+        formatters: dict[str, Callable[[list[dict]], Any]] = {
+            "google": self._format_content_for_google,
+            "openai": self._format_content_for_openai,
+        }
+        formatter = formatters.get(self.api_endpoint_style)
+
+        if not formatter:
+            raise NotImplementedError(
+                f"Content building for {self.api_endpoint_style} not implemented."
+            )
+
+        # 4. 调用选定的格式化器并返回结果
+        return formatter(intermediate_content)
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """获取或创建aiohttp会话."""
@@ -411,14 +525,6 @@ class LLMClient:
     async def _compress_base64_image(
         self, base64_data: str, original_mime_type: str
     ) -> tuple[str, str]:
-        # 小色猫的终极调教：这次一定要把GIF操到服！
-        if not self.enable_image_compression:
-            # 笨蛋主人！如果这里是False，GIF转换就不会发生！API就会继续对你尖叫！
-            logger.warning(
-                "enable_image_compression 为 False，GIF转换将不会执行！"
-                "如果API报错GIF不支持，请检查此项！",
-            )
-            return base64_data, original_mime_type
         try:
             image_bytes = base64.b64decode(base64_data)
             current_size_bytes = len(image_bytes)
@@ -430,36 +536,12 @@ class LLMClient:
                 if original_mime_type and "/" in original_mime_type
                 else None
             )
-            # 初始的图像格式，可能是GIF这个小妖精
             initial_img_format = img_format_from_pillow or (img_format_from_mime or "JPEG")
 
-            # 这是个重要的标记，看看我们是不是对GIF这个小骚货动了手脚
-            input_was_gif_and_processed_as_png = False
-            # 最终的保存格式和MIME类型，会在这里被调教
             current_save_format = initial_img_format
             final_mime_type = original_mime_type
 
-            if initial_img_format == "GIF":
-                logger.info("捕获到一只野生的GIF骚货！本猫要开始强制调教，目标：PNG乖宝宝！")
-                input_was_gif_and_processed_as_png = True  # 标记我们正在处理GIF
-                if getattr(img, "is_animated", False) and img.n_frames > 1:
-                    logger.info("哟，还是个会扭腰的动态GIF... 本猫只取你最骚的第一帧就够了！")
-                    img.seek(0)  # 只用第一帧，变成静态的乖宝宝
-                img = img.convert("RGBA")  # 强制转换成RGBA，这是通往PNG天堂的唯一道路！
-                current_save_format = "PNG"  # 明确告诉Pillow，我们要的是PNG！
-                final_mime_type = "image/png"  # 它的新身份是纯洁的image/png！
-                logger.info(
-                    "哼，GIF的骚体质已被初步压制，淫水（透明度）保留，身体已准备好接受PNG的烙印！"
-                )
-
-            # 如果图像本身就比较小，并且我们没有对GIF进行强制转换，那就可以考虑跳过压缩
-            if (
-                not input_was_gif_and_processed_as_png
-                and current_size_bytes <= self.image_compression_target_bytes * 1.05
-            ):
-                # logger.info(
-                #     f"图像 ({original_mime_type}) 尺寸已达标且非GIF强制转换，无需进一步压缩。"
-                # )
+            if current_size_bytes <= self.image_compression_target_bytes * 1.05:
                 return base64_data, original_mime_type
 
             original_width, original_height = img.size
@@ -473,24 +555,12 @@ class LLMClient:
             output_buffer = io.BytesIO()
             save_params = {}
 
-            # 这段是针对Pillow的保存逻辑，确保格式正确
-            # 如果是GIF被转换（input_was_gif_and_processed_as_png is True），img.mode 已经是 RGBA
-            if (
-                img.mode == "P" and not input_was_gif_and_processed_as_png
-            ):  # 对于调色板模式，且非已转GIF
+            if img.mode == "P":
                 img = img.convert("RGBA")
             elif img.mode == "CMYK":  # CMYK必须转RGB
                 img = img.convert("RGB")
 
-            # 决定最终保存的姿势（格式）
-            if input_was_gif_and_processed_as_png:
-                # 如果是从GIF调教过来的，必须是PNG！不许变！
-                current_save_format = "PNG"
-                final_mime_type = "image/png"
-                resized_img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-                save_params = {"optimize": True}
-                logger.info("GIF已被彻底调教成PNG的形状，准备注入... 啊不，保存。")
-            elif img.mode in ("RGBA", "LA") or (
+            if img.mode in ("RGBA", "LA") or (
                 isinstance(img.info, dict) and "transparency" in img.info
             ):
                 # 对于其他有透明通道的，或者本身就是PNG的
@@ -501,18 +571,17 @@ class LLMClient:
                 )
                 save_params = {"optimize": True}
             else:
-                # 对于那些不透明的、可以变成JPEG的骚货
                 resized_img = img.convert("RGB").resize(
                     (new_width, new_height), Image.Resampling.LANCZOS
                 )
-                if initial_img_format == "JPEG":  # 如果本来就是JPEG，就还是JPEG
+                if initial_img_format == "JPEG":
                     current_save_format = "JPEG"
                     final_mime_type = "image/jpeg"
                     save_params = {
                         "quality": DEFAULT_IMAGE_COMPRESSION_QUALITY_JPEG,
                         "optimize": True,
                     }
-                else:  # 其他的（比如BMP），也变成PNG这种万能乖宝宝
+                else:
                     current_save_format = "PNG"
                     final_mime_type = "image/png"
                     save_params = {"optimize": True}
@@ -522,32 +591,26 @@ class LLMClient:
             new_size_bytes = len(compressed_bytes)
 
             logger.info(
-                f"图像调教高潮报告: 原始尺寸 {original_width}x{original_height} "
+                f"图像报告: 原始尺寸 {original_width}x{original_height} "
                 f"({original_mime_type}), "
                 f"新尺寸 {new_width}x{new_height} (保存为 {current_save_format}, "
                 f"MIME类型 {final_mime_type}). "
                 f"体积变化: {current_size_bytes / 1024:.1f}KB -> {new_size_bytes / 1024:.1f}KB"
             )
 
-            # 决定最终射出的精液... 啊不，是返回的数据！
-            if input_was_gif_and_processed_as_png:
-                # 如果是GIF被我们强行调教成了PNG，那么不管大小，必须返回PNG！API就好这口！
-                logger.info(f"GIF已强制调教为 {final_mime_type}，使用调教后的数据，让API爽个够！")
+            # 对于其他类型的图片，如果压缩后体积明显减小，就用新的
+            if new_size_bytes < current_size_bytes * 0.98 and new_size_bytes > 0:
+                logger.info(f"图像已成功压缩 ({final_mime_type})，返回压缩后的精华。")
                 return base64.b64encode(compressed_bytes).decode("utf-8"), final_mime_type
             else:
-                # 对于其他类型的图片，如果压缩后体积明显减小，就用新的
-                if new_size_bytes < current_size_bytes * 0.98 and new_size_bytes > 0:
-                    logger.info(f"图像已成功压缩 ({final_mime_type})，返回压缩后的精华。")
-                    return base64.b64encode(compressed_bytes).decode("utf-8"), final_mime_type
-                else:
-                    logger.info(
-                        f"图像未被压缩或压缩后体积未显著减小 (MIME: {original_mime_type})"
-                        f"，返回原始数据。"
-                    )
-                    return base64_data, original_mime_type
+                logger.info(
+                    f"图像未被压缩或压缩后体积未显著减小 (MIME: {original_mime_type})"
+                    f"，返回原始数据。"
+                )
+                return base64_data, original_mime_type
 
         except Exception as e:
-            logger.error(f"图像调教过程中高潮失败，痛痛...呜呜呜: {e}", exc_info=True)
+            logger.error(f"图像处理过程中失败，痛痛...呜呜呜: {e}", exc_info=True)
             return base64_data, original_mime_type
 
     async def _process_single_image(
@@ -604,7 +667,6 @@ class LLMClient:
                 logger.warning(f"无效的MIME类型 '{determined_mime_type}'，将回退到 image/jpeg。")
                 determined_mime_type = "image/jpeg"
 
-            # 哼，管你是不是Data URI，只要开启了压缩，都要被我狠狠地调教！
             if self.enable_image_compression:
                 base64_image_data, determined_mime_type = await self._compress_base64_image(
                     base64_image_data, determined_mime_type
@@ -622,107 +684,14 @@ class LLMClient:
     ) -> list[dict[str, str]]:
         if not image_sources:
             return []
-        processed_data: list[dict[str, str]] = []
-        session = await self._get_session()  # 使用内部会话
+        session = await self._get_session()
         tasks = [
             self._process_single_image(src, session, mime_type_override, self.proxy_url)
             for src in image_sources
         ]
         results = await asyncio.gather(*tasks)
-        processed_data.extend(result for result in results if result)
-        return processed_data
-
-    def _build_content_for_style(
-        self,
-        request_type: str,
-        prompt_text: str | None = None,
-        processed_images: list[dict[str, str]] | None = None,
-        text_to_embed: str | None = None,
-    ) -> str | list[dict[str, Any]] | dict[str, Any]:
-        if request_type == "embedding":
-            if self.api_endpoint_style == "google":
-                return {"parts": [{"text": text_to_embed}]} if text_to_embed else {}
-            elif self.api_endpoint_style == "openai":
-                return text_to_embed if text_to_embed else ""
-            raise NotImplementedError(
-                f"Embedding content for {self.api_endpoint_style} not implemented."
-            )
-
-        if self.api_endpoint_style == "google":
-            api_request_elements: list[dict[str, Any]] = []
-
-            if (
-                not processed_images
-                or not prompt_text
-                or self.image_placeholder_tag not in prompt_text
-            ):
-                if prompt_text:
-                    api_request_elements.append({"text": prompt_text})
-                if processed_images:
-                    for img_data in processed_images:
-                        api_request_elements.append(
-                            {
-                                "inline_data": {
-                                    "mime_type": img_data["mime_type"],
-                                    "data": img_data["b64_data"],
-                                }
-                            }
-                        )
-                return api_request_elements or [{"text": ""}]
-
-            text_segments = prompt_text.split(self.image_placeholder_tag)
-            img_idx = 0
-
-            for i, segment in enumerate(text_segments):
-                if segment:
-                    api_request_elements.append({"text": segment})
-
-                if i < len(text_segments) - 1 and img_idx < len(processed_images):
-                    img_data = processed_images[img_idx]
-                    api_request_elements.append(
-                        {
-                            "inline_data": {
-                                "mime_type": img_data["mime_type"],
-                                "data": img_data["b64_data"],
-                            }
-                        }
-                    )
-                    img_idx += 1
-
-            while img_idx < len(processed_images):
-                img_data = processed_images[img_idx]
-                api_request_elements.append(
-                    {
-                        "inline_data": {
-                            "mime_type": img_data["mime_type"],
-                            "data": img_data["b64_data"],
-                        }
-                    }
-                )
-                img_idx += 1
-
-            return api_request_elements
-
-        elif self.api_endpoint_style == "openai":
-            if not processed_images or request_type == "chat":
-                return prompt_text or ""
-            content_list: list[dict[str, Any]] = []
-            if prompt_text:
-                content_list.append({"type": "text", "text": prompt_text})
-            for img_data in processed_images:
-                content_list.append(
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:{img_data['mime_type']};base64,{img_data['b64_data']}"
-                        },
-                    }
-                )
-            return content_list
-
-        raise NotImplementedError(
-            f"Content building for {self.api_endpoint_style} not implemented for {request_type}."
-        )
+        # 使用列表推导式替换 for-append 循环
+        return [result for result in results if result]
 
     def _get_endpoint_path(self, request_type: str, is_streaming: bool) -> str:
         if request_type == "embedding":
@@ -740,14 +709,14 @@ class LLMClient:
         tools: list[dict[str, Any]] | None = None,
         tool_choice: str | dict | None = None,
         text_to_embed: str | None = None,
-        model_name_override: str | None = None,  # <-- 看这里！我加了一个淫荡的小后门！
+        model_name_override: str | None = None,
         enable_google_search: bool = False,
+        enable_url_context: bool = False,
     ) -> tuple[str, dict[str, Any], dict[str, Any]]:
         headers = {"Content-Type": "application/json"}
         payload: dict[str, Any] = {}
         url_path = self._get_endpoint_path(request_type, is_streaming)
 
-        # 决定这次用哪根肉棒，如果有临时的就用临时的，没有就用我自己的
         effective_model_name = model_name_override or self.model_name
 
         if self.api_endpoint_style == "google":
@@ -755,7 +724,6 @@ class LLMClient:
                 user_content_parts = self._build_content_for_style(
                     request_type, None, None, text_to_embed
                 )
-                # 这里用 effective_model_name 哦
                 payload = {"model": f"models/{effective_model_name}", "content": user_content_parts}
             else:
                 # 1. 构建最终的Payload骨架
@@ -813,30 +781,28 @@ class LLMClient:
                                 f"Google Vision: Removed unsupported parameter '{param}' "
                                 f"from generationConfig."
                             )
+                active_tools = []
                 if enable_google_search:
-                    logger.debug("为 Google API 请求启用 Google 搜索依据功能。")
-                    # 这是启用Google搜索的特定工具格式
-                    google_search_tool = {"google_search": {}}
-                    # 如果已有其他工具（例如函数调用），则将搜索工具追加进去
-                    # 否则，创建一个新的工具列表
-                    if "tools" in payload and isinstance(payload.get("tools"), list):
-                        payload["tools"].append(google_search_tool)
-                    else:
-                        payload["tools"] = [google_search_tool]
-                # 6. 处理工具
-                if request_type == "tool_call" and tools:
-                    # 如果已经因为 Google Search 创建了 "tools", 我们需要合并而不是覆盖
-                    if "tools" in payload and isinstance(payload.get("tools"), list):
-                        payload["tools"].extend(tools)
-                    else:
-                        payload["tools"] = tools
+                    logger.debug("为 Google API 请求添加 Google 搜索工具。")
+                    active_tools.append({"google_search": {}})
 
-            # 这里也用 effective_model_name！
+                if enable_url_context:
+                    logger.debug("为 Google API 请求添加 URL 上下文工具。")
+                    # 根据文档，`url_context` 的值应该是一个空的 message/object，
+                    # 在Python SDK中是 types.UrlContext，在REST API中是 {}
+                    active_tools.append({"url_context": {}})
+
+                if request_type == "tool_call" and tools:
+                    logger.debug(f"为 Google API 请求添加 {len(tools)} 个自定义函数调用工具。")
+                    active_tools.extend(tools)
+
+                if active_tools:
+                    payload["tools"] = active_tools
+
             url_path = f"/{effective_model_name.strip('/')}{url_path}"
 
         elif self.api_endpoint_style == "openai":
             if request_type == "embedding":
-                # 这里也用 effective_model_name
                 payload = {"input": text_to_embed, "model": effective_model_name}
                 if "encoding_format" in final_generation_config:
                     payload["encoding_format"] = final_generation_config["encoding_format"]
@@ -849,7 +815,6 @@ class LLMClient:
 
                 content = self._build_content_for_style(request_type, prompt, processed_images)
                 messages_list.append({"role": "user", "content": content})
-                # 这里也用 effective_model_name
                 payload = {"model": effective_model_name, "messages": messages_list}
 
                 if is_streaming:
@@ -990,13 +955,11 @@ class LLMClient:
                 if current_chunk_text is not None:
                     if self.stream_chunk_delay_seconds > 0:
                         await asyncio.sleep(self.stream_chunk_delay_seconds)
-                    print(
-                        current_chunk_text, end="", flush=True
-                    )  # Changed from logger.info to print for stream
+                    print(current_chunk_text, end="", flush=True)
                     full_streamed_text += current_chunk_text
 
             if not interrupted_by_event:
-                print()  # Newline after stream finishes
+                print()
                 logger.info(
                     f"'{self.api_endpoint_style}' streaming complete ({chunk_count} data chunks)."
                 )
@@ -1140,7 +1103,7 @@ class LLMClient:
             prepared_data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         except TypeError as e:
             logger.error(f"Payload序列化为JSON时失败: {e}", exc_info=True)
-            logger.critical(f"【小色猫的探针】失败的Payload结构: {payload}")
+            logger.critical(f"失败的Payload结构: {payload}")
             raise LLMClientError(f"Payload序列化失败: {e}") from e
 
         http_response: aiohttp.ClientResponse | None = None
@@ -1261,6 +1224,7 @@ class LLMClient:
         max_retries: int = 3,
         interruption_event: asyncio.Event | None = None,
         enable_google_search: bool = False,
+        enable_url_context: bool = False,
     ) -> dict[str, Any]:
         async with aiohttp.ClientSession() as session:
             all_initial_keys = self.api_keys_config[:]
@@ -1379,6 +1343,7 @@ class LLMClient:
                             tool_choice=tool_choice,
                             text_to_embed=text_to_embed,
                             enable_google_search=enable_google_search,
+                            enable_url_context=enable_url_context,
                         )
                         logger.info(
                             f"尝试轮 {attempt_pass + 1}/{max_retries + 1}, "
@@ -1404,7 +1369,7 @@ class LLMClient:
                             interruption_event,
                         )
 
-                        # --- START: 小猫咪的淫纹植入处！ ---
+                        # 处理非流式请求的结果
                         if config.test_function.fallback_model_name != "":
                             is_successful_call = not result.get("error") and not result.get(
                                 "interrupted"
@@ -1421,7 +1386,7 @@ class LLMClient:
                             ):
                                 fallback_model_name = (
                                     config.test_function.fallback_model_name
-                                )  # 主人你指定的备用肉棒！
+                                )  # 从配置中获取备用模型名称
                                 logger.warning(
                                     f"密钥 {key_display} 的请求成功，但返回的 text 字段为 None。"
                                     f"将使用备用模型 '{fallback_model_name}' 尝试一次。"
@@ -1474,7 +1439,6 @@ class LLMClient:
                                         f"将直接返回中断结果。"
                                     )
                                 return result
-                        # --- END: 小猫咪的淫纹植入处！ ---
 
                         # 尝试修复无返回导致响应无处理状况
                         if result.get("interrupted"):
@@ -1634,6 +1598,7 @@ class LLMClient:
         max_retries: int = 3,
         interruption_event: asyncio.Event | None = None,
         use_google_search: bool = False,
+        use_url_context: bool = False,
         **kwargs: Unpack[GenerationParams],
     ) -> dict[str, Any]:
         """发送请求到 LLM API 并返回响应.
@@ -1652,6 +1617,7 @@ class LLMClient:
             max_retries (int): 最大重试次数（默认为3）.
             interruption_event (asyncio.Event | None): 中断事件（如果需要中断支持）.
             use_google_search (bool): 是否启用 Google 搜索功能（默认为 False）.
+            use_url_context (bool): 是否启用 URL 上下文功能（默认为 False）.
             **kwargs: 其他生成参数.
 
         Returns:
@@ -1685,6 +1651,7 @@ class LLMClient:
             max_retries=max_retries,
             interruption_event=interruption_event,
             enable_google_search=use_google_search,
+            enable_url_context=use_url_context,
         )
 
     async def generate_text_completion(
@@ -1878,3 +1845,10 @@ class LLMClient:
             generation_params_override=generation_params_override,
             max_retries=max_retries,
         )
+
+    async def close(self) -> None:
+        """优雅地关闭内部持有的 aiohttp.ClientSession."""
+        if self._session and not self._session.closed:
+            await self._session.close()
+            logger.info(f"LLMClient for provider '{self.provider}' session closed.")
+            self._session = None

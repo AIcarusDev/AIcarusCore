@@ -97,3 +97,51 @@ def format_relative_time(past_timestamp_ms: int) -> str:
 
     years = days / 365
     return f"{int(years)}年前"
+
+
+def format_relative_time_for_attention_log(
+    past_timestamp_ms: int, current_timestamp_ms: int
+) -> str:
+    """为注意力日志专门设计的、人性化的相对时间格式化函数.
+
+    Args:
+        past_timestamp_ms: 历史事件的毫秒时间戳。
+        current_timestamp_ms: 当前时间的毫秒时间戳，作为比较基准。
+
+    Returns:
+        一个模糊的、人性化的时间描述字符串。
+    """
+    if past_timestamp_ms <= 0:
+        return "很久以前"
+
+    delta_seconds = (current_timestamp_ms - past_timestamp_ms) / 1000.0
+    delta_minutes = delta_seconds / 60
+
+    if delta_minutes < 1:
+        return "刚才"
+    if 30 <= delta_minutes <= 40:
+        return "约半小时前"
+    if 50 <= delta_minutes < 60:
+        return "约1小时前"
+
+    if delta_minutes >= 60:
+        hours = round(delta_minutes / 60)
+        return f"约{hours}小时前"
+
+    # 默认情况
+    return f"{round(delta_minutes)}分钟前"
+
+
+def format_relative_time_for_memory(past_timestamp_ms: int) -> str:
+    """针对记忆操作，将过去的毫秒时间戳转换为易于理解的相对时间字符串.
+
+    Args:
+        past_timestamp_ms: 过去的毫秒级时间戳 (UTC)。
+
+    Returns:
+        一个描述相对时间的字符串，例如 "刚刚", "5分钟前", "3小时前", "昨天"。
+    """
+    # TODO: 此函数旨在为“记忆”提供更模糊或更人性化的时间描述，
+    # 例如“片刻之前”、“不久前”、“几天前”。
+    # 目前尚未实现，先明确抛出异常。
+    raise NotImplementedError("format_relative_time_for_memory 函数尚未实现。")

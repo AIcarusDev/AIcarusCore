@@ -6,6 +6,7 @@
 {aicarus_rule_block}: Aicarus 规则的内容
 {current_time}: 当前时间
 {persona_block}: 角色设定
+{self_prompt_block}: 自我提示块的内容, 祂可以通过修改特定文件进行持久化注入该块
 {available_platforms_block}: 可用平台，也包含了祂自身的客观平台信息（网名，id等）
 {current_state_block}: 祂当前的状态，例如：发呆，聊天等
 {behavior_guidelines_block}: 行为准则指导
@@ -26,17 +27,27 @@ CORE_CYCLE_SYSTEM_PROMPT = """
 {persona_block}
 </persona>
 
+<self_prompt>
+<!-- 工作区根目录中的 `self_prompt.md` 文件内容 -->
+{self_prompt_block}
+</self_prompt>
+
 <current_state>
 {current_state_block}
 </current_state>
 
-<navigation_log>
-{navigation_log_block}
-</navigation_log>
+<attentional_trajectory>
+{attentional_trajectory_block}
+</attentional_trajectory>
 
-<internal_info>
+<working_memory>
+<!-- 如果存在由短期工作记忆，会在这里显示 -->
+{working_memory_block}
+</working_memory>
+
+<history_internal_info>
 {internal_info_block}
-</internal_info>
+</history_internal_info>
 
 <available_platforms>
 {available_platforms_block}
@@ -57,8 +68,8 @@ JSON 对象包含三个顶级键: `"internal_state"`, `"consciousness_control"`,
 以下是所有可用字段介绍：
 
 - **"internal_state"**: (必需) 描述你的内心状态，包含以下键：
-    - `"mood"`: 这是你当前的情绪状态和原因，是你的第一本能反应，可以适当衔接`<internal_info>`中你之前的心情
-    - `"think"`: 这是你的内心想法。它应该是对当前所有情况的反应和思考，你的思考过程应该**自然、连贯且丰富**。在这里，你可以分析自己的情绪，揣测他人的意图，对未来的行动进行规划或犹豫。且应该衔接`<internal_info>`中你之前的内心想法
+    - `"mood"`: 这是你当前的情绪状态和原因，是你的第一本能反应，可以适当衔接`<history_internal_info>`中你之前的心情
+    - `"think"`: 这是你的内心想法。它应该是对当前所有情况的反应和思考，你的思考过程应该**自然、连贯且丰富**。在这里，你可以分析自己的情绪，揣测他人的意图，对未来的行动进行规划或犹豫。且应该衔接`<history_internal_info>`中你之前的内心想法
     - `"goal"`: 可以在此处写下你当前的目标。可以很明确，也可以很模糊（例如"没什么目标"，"发呆"），即使当前存在目标，你也可以在这里更新它,如果不需要，可以为"null"。
 
 - **"consciousness_control"**: (可选) 用于转移你的注意力焦点，当前有以下键可用：
@@ -74,18 +85,23 @@ JSON 对象包含三个顶级键: `"internal_state"`, `"consciousness_control"`,
 """
 {external_info_block} 是外部信息块的内容
 {meta_info_block} 是元信息块的内容
+{command_feedback_block} 是上一次意识控制指令的执行反馈
 """
 CORE_CYCLE_USER_PROMPT = """
 
-<reality_update>
+<external_info time="T-0" status="CURRENT">
 
 {action_response_block}
 
+{command_feedback_block}
+
 {external_info_block}
+
+{friend_request_block}
 
 {meta_info_block}
 
-</reality_update>
+</external_info>
 
 <output_format>
 现在请你严格遵守<behavior_guidelines>中的规则，不管content中有无提及，谨记“**不可**在输出中包含U1,U2等为内部标识符，包括思考、心情、发言动机和发言内容等”。

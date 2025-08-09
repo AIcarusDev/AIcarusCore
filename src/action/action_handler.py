@@ -1,4 +1,4 @@
-# 文件: src/action/action_handler.py (竞速模式适配版 V1.0)
+# src/action/action_handler.py
 import asyncio
 import io
 import os
@@ -15,13 +15,13 @@ from src.config.config_paths import PROJECT_ROOT
 from src.core_communication.action_sender import ActionSender
 from src.database import (
     ActionLogStorageService,
-    ConversationStorageService,
+    EntityGraphService,
     EventStorageService,
-    PersonStorageService,
     ThoughtStorageService,
 )
 from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.platform_builders.registry import platform_builder_registry
+from src.prompt_templates.url_context import URL_CONTEXT_SYSTEM_PROMPT, URL_CONTEXT_USER_PROMPT
 from src.prompt_templates.web_search import WEB_SEARCH_SYSTEM_PROMPT, WEB_SEARCH_USER_PROMPT
 
 if TYPE_CHECKING:
@@ -43,6 +43,7 @@ class ActionHandler:
 
     def __init__(self) -> None:
         self.web_search_agent_client: ProcessorClient | None = None
+        self.url_context_agent_client: ProcessorClient | None = None
         self.action_sender: ActionSender | None = None
         self.thought_storage_service: ThoughtStorageService | None = None
         self.action_log_service: ActionLogStorageService | None = None
@@ -50,7 +51,7 @@ class ActionHandler:
         self.pending_action_manager: PendingActionManager | None = None
         self.chat_session_manager: ChatSessionManager | None = None
         self.core_logic: CoreLogic | None = None
-        self.person_service: PersonStorageService | None = None
+        self.entity_service: EntityGraphService | None = None
         logger.info(f"{self.__class__.__name__} instance created.")
         self._workspace_root: Path | None = None
         logger.info(f"{self.__class__.__name__} instance created (等待依赖注入).")
@@ -78,7 +79,7 @@ class ActionHandler:
     def _get_safe_workspace_root(self) -> Path:
         """一个安全的获取器，确保在使用 _workspace_root 之前它一定被初始化了."""
         if self._workspace_root is None:
-            # 这是我们的保险丝！
+            # 这是第一次调用，必须初始化
             self._initialize_workspace()
         return self._workspace_root
 
@@ -127,9 +128,8 @@ class ActionHandler:
         thought_service: ThoughtStorageService,
         event_service: EventStorageService,
         action_log_service: ActionLogStorageService,
-        conversation_service: ConversationStorageService,
         action_sender: ActionSender,
-        person_service: PersonStorageService,
+        entity_service: EntityGraphService,
         chat_session_manager: "ChatSessionManager",
         core_logic: "CoreLogic",
     ) -> None:
@@ -137,7 +137,7 @@ class ActionHandler:
         self.thought_storage_service = thought_service
         self.action_log_service = action_log_service
         self.action_sender = action_sender
-        self.person_service = person_service
+        self.entity_service = entity_service
         self.chat_session_manager = chat_session_manager
         self.core_logic = core_logic
         # 关键：将 ActionHandler 自身的实例传递给 PendingActionManager
@@ -145,28 +145,33 @@ class ActionHandler:
             action_log_service=action_log_service,
             thought_storage_service=thought_service,
             event_storage_service=event_service,
-            conversation_service=conversation_service,
             action_handler_instance=self,  # 把自己传进去
         )
         self._initialize_workspace()
         logger.info("ActionHandler 的依赖已成功设置。")
 
     def set_thought_trigger(self, trigger_event: asyncio.Event | None) -> None:
-        """设置主思维触发器 (在竞速模式下，此触发器主要由CoreLogic自身管理)."""
+        """设置主思维触发器."""
         self.thought_trigger = trigger_event
         if trigger_event:
             logger.info("ActionHandler 的主思维触发器已成功设置。")
 
     async def initialize_llm_clients(self) -> None:
         """按需初始化LLM客户端."""
-        if self.web_search_agent_client:
+        if self.web_search_agent_client and self.url_context_agent_client:
             return
         from src.action.components.llm_client_factory import LLMClientFactory
 
         factory = LLMClientFactory()
         try:
-            self.web_search_agent_client = factory.create_client(purpose_key="web_search_agent")
-            logger.info("ActionHandler 的 web_search_agent_client 初始化成功。")
+            if not self.web_search_agent_client:
+                self.web_search_agent_client = factory.create_client(purpose_key="web_search_agent")
+                logger.info("ActionHandler 的 web_search_agent_client 初始化成功。")
+            if not self.url_context_agent_client:
+                self.url_context_agent_client = factory.create_client(
+                    purpose_key="url_context_agent"
+                )
+                logger.info("ActionHandler 的 url_context_agent_client 初始化成功。")
         except RuntimeError as e:
             logger.critical(f"为 ActionHandler 初始化LLM客户端失败: {e}")
             raise
@@ -195,6 +200,14 @@ class ActionHandler:
         if "do_nothing" in action_json.get("core", {}):
             motivation = action_json["core"]["do_nothing"].get("motivation", "决定保持沉默")
             logger.info(f"AI 决定不行动，动机: {motivation}")
+            # 如果层级为"cellular"，则递增计数器
+            if self.core_logic and (session := self.core_logic._get_current_session()):
+                session.no_action_count += 1
+                logger.debug(
+                    f"[{session.conversation_id}] 连续不发言计数器"
+                    f"已递增至: {session.no_action_count}"
+                )
+
             if self.thought_storage_service:
                 await self.thought_storage_service.save_action_result_to_thought(
                     thought_key=doc_key_for_updates,
@@ -202,24 +215,38 @@ class ActionHandler:
                 )
             return
 
-        # 2. 动态解析出需要执行的动作
-        # 我们不再写死平台名，而是动态地查找
-        core_actions = action_json.get("core", {})
-        # 找到第一个不是'core'的键和值，作为平台动作
-        platform_actions_tuple = next(
-            ((key, value) for key, value in action_json.items() if key != "core"),
-            (None, None),
-        )
-        platform_id_from_action, platform_actions = platform_actions_tuple
-
-        actions_to_process = platform_actions or core_actions
-
-        if not actions_to_process:
-            logger.info("AI决策的动作对象为空，无需执行。")
+        # 2. 从带有命名空间的动作字典中解析出平台ID和动作内容
+        if not (platform_id := next(iter(action_json), None)) or not (
+            actions_to_process := action_json.get(platform_id)
+        ):
+            logger.info("AI决策的动作对象为空或格式不正确，无需执行。")
+            if self.core_logic and (session := self.core_logic._get_current_session()):
+                session.no_action_count += 1
+                logger.debug(
+                    f"[{session.conversation_id}] 因无动作，连续不发言计数器"
+                    f"已递增至: {session.no_action_count}"
+                )
             return
 
-        platform_id = platform_id_from_action if platform_actions else "core"
         action_name, params = next(iter(actions_to_process.items()))
+
+        if platform_id == "qq" and action_name == "scroll":
+            result_text = self._execute_local_scroll_action(platform_id, params)
+
+            # 将结果写回思想点
+            if self.thought_storage_service:
+                await self.thought_storage_service.save_action_result_to_thought(
+                    thought_key=doc_key_for_updates, result_text=result_text
+                )
+
+            # 本地动作执行完，立即触发思考！
+            if self.thought_trigger:
+                logger.info(
+                    f"本地平台动作 '{platform_id}.{action_name}' 完成 "
+                    f"(Action ID: {action_id})，立即触发新一轮思考。"
+                )
+                self.thought_trigger.set()
+            return  # 任务完成，直接返回
 
         if platform_id == "core":
             result_text = await self._execute_core_action(action_name, params)
@@ -246,6 +273,8 @@ class ActionHandler:
         """核心动作的统一分发中心."""
         if action_name == "web_search":
             return await self._execute_core_web_search(params)
+        if action_name == "summarize_url":
+            return await self._execute_core_summarize_url(params)
 
         file_op_handlers = {
             "list_files": self._execute_core_list_files,
@@ -253,6 +282,7 @@ class ActionHandler:
             "write_file": self._execute_core_write_file,
             "edit_file": self._execute_core_edit_file,
             "get_aggregated_content": self._execute_core_get_aggregated_content,
+            "delete_workspace_file": self._execute_core_delete_workspace_file,
         }
 
         handler = file_op_handlers.get(action_name)
@@ -282,11 +312,6 @@ class ActionHandler:
             prompt=user_prompt, system_prompt=system_prompt, is_stream=False, use_google_search=True
         )
         return response.get("text", "搜索失败或未返回任何信息。")
-
-        # 4. 【移除】不再从此触发思考
-        # if self.thought_trigger:
-        #     logger.info(f"行动流程处理完毕 (Action ID: {action_id})，触发思考。")
-        #     self.thought_trigger.set()
 
     def _execute_core_list_files(self, params: dict) -> str:
         path_str = params.get("path", ".")
@@ -528,20 +553,32 @@ class ActionHandler:
             logger.error(f"找不到平台 '{platform_id}' 的翻译官。")
             return
 
-        if not self.person_service:
-            logger.error("PersonStorageService 未注入到 ActionHandler，无法获取祂的ID！")
+        if not self.entity_service:
+            logger.error("EntityGraphService 未注入到 ActionHandler，无法获取祂的ID！")
             return
 
-        self_account = await self.person_service.get_self_account_for_platform(platform_id)
-        if not self_account or not self_account.get("platform_id"):
-            logger.error(f"无法为平台 '{platform_id}' 获取已安检的祂的ID。动作无法执行。")
+        # 1. 调用正确的方法获取所有自身实体
+        all_self_entities = await self.entity_service.get_all_self_entities()
+        # 2. 从列表中筛选出当前平台的实体
+        self_entity = next(
+            (
+                entity
+                for entity in all_self_entities
+                if entity.get("details", {}).get("platform") == platform_id
+            ),
+            None,
+        )
+
+        # 3. 修正后续代码对 platform_id 的获取路径
+        if not self_entity or not self_entity.get("details", {}).get("platform_id"):
+            logger.error(f"无法为平台 '{platform_id}' 获取已安检的祂的客观实体ID。动作无法执行。")
             await self.thought_storage_service.save_action_result_to_thought(
                 thought_key=doc_key_for_updates,
                 result_text=f"动作执行失败：我找不到自己在这个平台({platform_id})上的身份信息。",
             )
             return
 
-        correct_bot_id = self_account["platform_id"]
+        correct_bot_id = self_entity["details"]["platform_id"]  # <--- 从 "details" 字段中获取ID
         action_event = builder.build_action_event(action_name, params, bot_id=correct_bot_id)
         if not action_event:
             logger.error(f"平台 '{platform_id}' 的翻译官不会翻译动作 '{action_name}'。")
@@ -641,3 +678,89 @@ class ActionHandler:
             result_payload["action_id"] = core_action_id
 
         return success, result_payload
+
+    def _execute_local_scroll_action(self, platform_id: str, params: dict) -> str:
+        """执行本地的 scroll 动作，直接修改 ChatSessionManager 的状态."""
+        params = params.get("params")
+        if not params or params not in ["up", "down"]:
+            return f"错误：收到无效的滚动方向 '{params}'。"
+
+        if not self.chat_session_manager:
+            return "错误：会话管理器未就绪，无法执行滚动。"
+
+        # 从 ChatSessionManager 获取平台视图状态
+        if platform_id not in self.chat_session_manager.platform_view_states:
+            # 这种情况理论上不应该发生，因为进入平台层时会初始化
+            return f"错误：找不到平台 '{platform_id}' 的视图状态。"
+
+        state = self.chat_session_manager.platform_view_states[platform_id]
+        current_offset = state.get("scroll_offset", 0)
+        page_size = 10  # 与 unread_info_service 中的 page_size 保持一致
+
+        if params == "down":
+            state["scroll_offset"] = current_offset + page_size
+            action_desc = "向下"
+        elif params == "up":
+            state["scroll_offset"] = max(0, current_offset - page_size)
+            action_desc = "向上"
+
+        logger.info(f"平台 '{platform_id}' 视图已滚动, 新偏移量: {state['scroll_offset']}")
+
+        return f"成功地将列表 {action_desc} 滚动了一页。"
+
+    async def _execute_core_summarize_url(self, params: dict) -> str:
+        """执行核心的 URL 总结动作，并直接返回结果字符串."""
+        await self.initialize_llm_clients()
+        url = params.get("url")
+        motivation = params.get("motivation", "没有明确动机")
+
+        if not url or not self.url_context_agent_client:
+            result_text = (
+                "动作执行失败：LLM想访问URL但没提供网址，或者URL上下文代理客户端未初始化。"
+            )
+            logger.warning(result_text)
+            return result_text
+
+        logger.info(f"正在调用 URL 上下文代理LLM，目标URL: '{url}'")
+
+        # 使用新的 prompt 模板
+        system_prompt = URL_CONTEXT_SYSTEM_PROMPT
+        # 在用户 prompt 中直接嵌入 URL，Gemini 会自动识别并提取
+        user_prompt = URL_CONTEXT_USER_PROMPT.format(url=url, motivation=motivation)
+
+        # 调用 LLM，并开启 use_url_context 功能
+        response = await self.url_context_agent_client.make_llm_request(
+            prompt=user_prompt,
+            system_prompt=system_prompt,
+            is_stream=False,
+            use_url_context=True,  # 关键！开启 URL 上下文功能
+        )
+        return response.get("text", "访问URL失败或未返回任何信息。")
+
+    def _execute_core_delete_workspace_file(self, params: dict) -> str:
+        """执行删除工作区文件的【危险】动作."""
+        path_str = params.get("path")
+        if not path_str:
+            return "错误：未提供要删除的文件路径。"
+
+        # 解析并验证路径
+        safe_path = self._resolve_safe_path(path_str)
+        # 关键的安全检查
+        if not safe_path:
+            return f"错误：路径 '{path_str}' 不安全或无效。"
+
+        # 进一步检查路径是否在允许的范围内
+        try:
+            if not safe_path.exists():
+                return f"操作完成：文件 '{path_str}' 本来就不存在。"
+
+            if not safe_path.is_file():
+                return f"错误：路径 '{path_str}' 是一个目录，此功能只能删除文件。"
+
+            # 执行删除
+            safe_path.unlink()
+
+            return f"成功！已删除文件 '{path_str}'。"
+        except Exception as e:
+            logger.error(f"删除文件时出错 ({path_str}): {e}", exc_info=True)
+            return f"错误：删除文件时发生未知错误: {e}"

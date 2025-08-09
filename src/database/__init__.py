@@ -7,40 +7,43 @@ from .core.connection_manager import (
     StandardCollection,
 )
 from .models import (
-    AccountDocument,
+    # 也可以导出新的 Details 模型
+    AccountDetails,
     ActionRecordDocument,
     AttentionProfile,
+    ConversationDetails,
     ConversationSummaryDocument,
     DBEventDocument,
     EnrichedConversationInfo,
+    EntityDocument,
+    EntityProfileDocument,
     MembershipProperties,
-    PersonDocument,
-    PersonProfile,
+    SubjectiveProfile,
 )
 from .services.action_log_storage_service import ActionLogStorageService
-from .services.conversation_storage_service import ConversationStorageService
+from .services.entity_graph_service import EntityGraphService
 from .services.event_storage_service import EventStorageService
-from .services.person_storage_service import PersonStorageService
 from .services.summary_storage_service import SummaryStorageService
 from .services.thought_storage_service import ThoughtStorageService
 
 __all__ = [
-    "AccountDocument",
+    "AccountDetails",
     "ActionLogStorageService",
     "ActionRecordDocument",
     "ArangoDBConnectionManager",
     "AttentionProfile",
-    "ConversationStorageService",
+    "ConversationDetails",
     "ConversationSummaryDocument",
     "CoreDBCollections",
     "DBEventDocument",
     "EnrichedConversationInfo",
+    "EntityDocument",
+    "EntityGraphService",
+    "EntityProfileDocument",
     "EventStorageService",
     "MembershipProperties",
-    "PersonDocument",
-    "PersonProfile",
-    "PersonStorageService",
     "StandardCollection",
+    "SubjectiveProfile",
     "SummaryStorageService",
     "ThoughtStorageService",
 ]

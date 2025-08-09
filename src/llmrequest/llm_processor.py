@@ -402,6 +402,9 @@ class Client:  # 这是 llm_processor.Client，是暴露给外部使用者的高
         if proxy_port is not None:
             underlying_client_constructor_args["proxy_port"] = proxy_port
         if image_placeholder_tag is not None:
+            # 确保 image_placeholder_tag 不会混入 generation_config
+            # 从 kwargs 中移除它（如果存在），然后单独传递
+            kwargs.pop("image_placeholder_tag", None)
             underlying_client_constructor_args["image_placeholder_tag"] = image_placeholder_tag
         if stream_chunk_delay_seconds is not None:
             underlying_client_constructor_args["stream_chunk_delay_seconds"] = (

@@ -1,4 +1,4 @@
-# 文件路径: src/database/core/connection_manager.py
+# src/database/core/connection_manager.py
 import os
 from collections.abc import AsyncIterator, Mapping
 from typing import Any, Protocol
@@ -152,9 +152,9 @@ class ArangoDBConnectionManager:
             StandardCollection: 确保存在的集合实例.
         """
         if is_edge:
-            if name in {CoreDBCollections.HAS_ACCOUNT, CoreDBCollections.PARTICIPATES_IN}:
+            if name in {CoreDBCollections.REPRESENTS, CoreDBCollections.IS_PRESENT_IN}:
                 if not self.main_graph:
-                    raise RuntimeError("主关系图未初始化，无法获取边集合！")
+                    raise RuntimeError("主认知图未初始化，无法获取边集合！")
                 return self.main_graph.edge_collection(name)
             elif name in {CoreDBCollections.PRECEDES_THOUGHT, CoreDBCollections.LEADS_TO_ACTION}:
                 if not self.thought_graph:
@@ -182,20 +182,26 @@ class ArangoDBConnectionManager:
                 collection_name, index_definitions, is_edge=is_edge
             )
 
-        # ---- 创建主关系图 (person_relation_graph) ----
+        # ---- 创建实体认知图 (entity_cognition_graph) ----
         main_graph_name = CoreDBCollections.MAIN_GRAPH_NAME
         if not await self.db.has_graph(main_graph_name):
-            logger.info(f"主关系图 '{main_graph_name}' 不存在，正在创建...")
+            logger.info(f"主认知图 '{main_graph_name}' 不存在，正在创建...")
             main_edge_definitions = [
                 {
-                    "collection": CoreDBCollections.HAS_ACCOUNT,
-                    "from": [CoreDBCollections.PERSONS],
-                    "to": [CoreDBCollections.ACCOUNTS],
+                    "collection": CoreDBCollections.REPRESENTS,  # 实体与档案之间的关系
+                    "from": [CoreDBCollections.ENTITY_PROFILES],
+                    "to": [CoreDBCollections.ENTITIES],
                 },
                 {
-                    "collection": CoreDBCollections.PARTICIPATES_IN,
-                    "from": [CoreDBCollections.ACCOUNTS],
-                    "to": [CoreDBCollections.CONVERSATIONS],
+                    "collection": CoreDBCollections.IS_PRESENT_IN,
+                    "from": [CoreDBCollections.ENTITIES],
+                    # 实体（人）现在只能存在于另一种实体（会话）中
+                    "to": [CoreDBCollections.ENTITIES],
+                },
+                {
+                    "collection": CoreDBCollections.RESIDES_ON,
+                    "from": [CoreDBCollections.ENTITIES],  # 会话实体
+                    "to": [CoreDBCollections.ENTITIES],  # 平台实体
                 },
             ]
             try:
@@ -203,10 +209,10 @@ class ArangoDBConnectionManager:
                     main_graph_name, edge_definitions=main_edge_definitions
                 )
             except GraphCreateError as e:
-                logger.error(f"创建主关系图 '{main_graph_name}' 失败: {e}", exc_info=True)
+                logger.error(f"创建主认知图 '{main_graph_name}' 失败: {e}", exc_info=True)
                 raise
         else:
-            logger.debug(f"主关系图 '{main_graph_name}' 已存在。")
+            logger.debug(f"主认知图 '{main_graph_name}' 已存在。")
             self.main_graph = self.db.graph(main_graph_name)
 
         # ---- 创建思想图 (consciousness_graph) ----

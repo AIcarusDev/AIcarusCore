@@ -1,4 +1,4 @@
-# 文件: src/bootstrap/builder.py (最终修正版 V1.1)
+# src/bootstrap/builder.py
 import json
 import os
 from asyncio import Event as AsyncioEvent
@@ -12,6 +12,7 @@ from src.common.custom_logging.logging_config import get_logger
 from src.common.intelligent_interrupt_system.iis_main import IISBuilder
 from src.common.intelligent_interrupt_system.intelligent_interrupter import IntelligentInterrupter
 from src.common.intelligent_interrupt_system.models import SemanticModel
+from src.common.interruption_broker import InterruptionEventBroker
 from src.common.summarization_observation.summarization_service import SummarizationService
 from src.common.unread_info_service.unread_info_service import UnreadInfoService
 from src.config import config
@@ -29,15 +30,15 @@ from src.core_logic.thought_persistor import ThoughtPersistor
 from src.database import (
     ActionLogStorageService,
     ArangoDBConnectionManager,
-    ConversationStorageService,
     CoreDBCollections,
+    EntityGraphService,
     EventStorageService,
-    PersonStorageService,
     SummaryStorageService,
     ThoughtStorageService,
 )
 from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.message_processing.default_message_processor import DefaultMessageProcessor
+from src.message_processing.image_analysis_service import ImageAnalysisService
 from src.platform_builders.registry import platform_builder_registry
 
 logger = get_logger(__name__)
@@ -60,6 +61,7 @@ class ServiceBuilder:
         platform_builder_registry.discover_and_register_builders(platform_builders)
         llm_clients = self._initialize_llm_clients()
         db_services = await self._initialize_database_and_services()
+        image_analysis_service = ImageAnalysisService(db_services["conn_manager"])
         interrupt_model = await self._initialize_interrupt_model(
             db_services["event_storage_service"]
         )
@@ -68,21 +70,23 @@ class ServiceBuilder:
         state_manager = AIStateManager(
             db_services["thought_storage_service"], db_services["action_log_service"]
         )
+
         unread_info_service = UnreadInfoService(
-            db_services["event_storage_service"], db_services["conversation_storage_service"]
+            db_services["event_storage_service"], db_services["entity_graph_service"]
         )
+
         internal_info_builder = InternalInfoBuilder(db_services["thought_storage_service"])
 
         prompt_builder = ThoughtPromptBuilder(
-            unread_info_service,
-            internal_info_builder,
-            db_services["event_storage_service"],
-            db_services["thought_storage_service"],  # <-- 新增的 thought_storage_service
-            db_services["conversation_storage_service"],
-            None,  # chat_session_manager 是可选的，后面注入
-            None,  # core_ws_server 也是可选的，后面注入
+            unread_info_service=unread_info_service,
+            internal_info_builder=internal_info_builder,
+            event_storage_service=db_services["event_storage_service"],
+            thought_storage_service=db_services["thought_storage_service"],
+            entity_graph_service=db_services["entity_graph_service"],
+            action_handler=action_handler,
+            chat_session_manager=None,
+            core_ws_server=None,
         )
-        # ======================================================================
 
         internal_info_builder.prompt_builder = prompt_builder
         summary_llm = (
@@ -91,17 +95,22 @@ class ServiceBuilder:
         summarization_service = SummarizationService(summary_llm)
         semantic_model = await self._get_semantic_model(db_services["event_storage_service"])
 
+        interruption_broker = InterruptionEventBroker()
+        await interruption_broker.start()
+
         message_processor = DefaultMessageProcessor(
             event_service=db_services["event_storage_service"],
-            conversation_service=db_services["conversation_storage_service"],
-            person_service=db_services["person_storage_service"],
+            entity_service=db_services["entity_graph_service"],
             action_log_service=db_services["action_log_service"],
+            image_analysis_service=image_analysis_service,
             semantic_model=semantic_model,
-            qq_chat_session_manager=None,
+            interruption_broker=interruption_broker,
+            qq_chat_session_manager=None,  # 将在 wiring 阶段被注入
         )
 
         action_sender = ActionSender()
         action_handler.web_search_agent_client = llm_clients["web_search_agent_client"]
+        action_handler.url_context_agent_client = llm_clients["url_context_agent_client"]
         event_receiver = EventReceiver(
             event_handler_callback=message_processor.process_event,
             action_handler_instance=action_handler,
@@ -114,7 +123,7 @@ class ServiceBuilder:
             action_sender=action_sender,
             event_storage_service=db_services["event_storage_service"],
             action_handler_instance=action_handler,
-            person_service=db_services["person_storage_service"],
+            entity_service=db_services["entity_graph_service"],
             unread_info_service=unread_info_service,
         )
         prompt_builder.core_ws_server = core_comm_layer
@@ -137,7 +146,7 @@ class ServiceBuilder:
             core_comm_layer=core_comm_layer,
             action_handler_instance=action_handler,
             state_manager=state_manager,
-            chat_session_manager=None,
+            chat_session_manager=None,  # 将在 wiring 阶段被注入
             thought_storage_service=db_services["thought_storage_service"],
             thought_generator=thought_generator,
             thought_persistor=thought_persistor,
@@ -145,6 +154,7 @@ class ServiceBuilder:
             stop_event=stop_event,
             immediate_thought_trigger=immediate_thought_trigger,
             intrusive_generator_instance=intrusive_generator,
+            interruption_broker=interruption_broker,
         )
 
         return ServiceContainer(
@@ -153,13 +163,15 @@ class ServiceBuilder:
             intrusive_thoughts_llm_client=llm_clients["intrusive_thoughts_llm_client"],
             focused_chat_llm_client=llm_clients["focused_chat_llm_client"],
             web_search_agent_client=llm_clients["web_search_agent_client"],
+            url_context_agent_client=llm_clients["url_context_agent_client"],
+            deliberation_llm_client=llm_clients["deliberation_llm_client"],  # <-- 存入容器
             conn_manager=db_services["conn_manager"],
             event_storage_service=db_services["event_storage_service"],
-            conversation_storage_service=db_services["conversation_storage_service"],
             thought_storage_service=db_services["thought_storage_service"],
             action_log_service=db_services["action_log_service"],
+            image_analysis_service=image_analysis_service,
             summary_storage_service=db_services["summary_storage_service"],
-            person_storage_service=db_services["person_storage_service"],
+            entity_graph_service=db_services["entity_graph_service"],
             action_handler=action_handler,
             intelligent_interrupter=interrupt_model,
             internal_info_builder=internal_info_builder,
@@ -167,6 +179,7 @@ class ServiceBuilder:
             message_processor=message_processor,
             prompt_builder=prompt_builder,
             state_manager=state_manager,
+            interruption_broker=interruption_broker,
             summarization_service=summarization_service,
             thought_generator=thought_generator,
             thought_persistor=thought_persistor,
@@ -177,11 +190,11 @@ class ServiceBuilder:
         )
 
     def _initialize_llm_clients(self) -> dict:
+        """初始化所有配置的LLM客户端."""
         logger.info("开始初始化LLM客户端...")
         general_llm_settings_obj = config.llm_client_settings
         resolved_abandoned_keys: list[str] | None = None
-        env_val_abandoned = os.getenv("LLM_ABANDONED_KEYS")
-        if env_val_abandoned:
+        if env_val_abandoned := os.getenv("LLM_ABANDONED_KEYS"):
             try:
                 keys_from_env = json.loads(env_val_abandoned)
                 if isinstance(keys_from_env, list):
@@ -192,25 +205,54 @@ class ServiceBuilder:
                 resolved_abandoned_keys = [
                     k.strip() for k in env_val_abandoned.split(",") if k.strip()
                 ]
-            if not resolved_abandoned_keys and env_val_abandoned.strip():
-                resolved_abandoned_keys = [env_val_abandoned.strip()]
 
         def _create_client(cfg: ModelParams, purpose: str) -> ProcessorClient | None:
             if not cfg or not cfg.provider or not cfg.model_name:
                 return None
             try:
+                # 1. 明确分离出仅供 UnderlyingLLMClient 内部使用的参数。
+                #    这些参数不应该被当作 API 的 generationConfig 发送出去。
+                internal_client_params = {
+                    "image_placeholder_tag",
+                    "stream_chunk_delay_seconds",
+                    "enable_image_compression",
+                    "image_compression_target_bytes",
+                    "rate_limit_disable_duration_seconds",
+                }
+
+                # 2. 从通用设置中筛选出合法的生成参数 (GenerationParams)。
+                #    这样可以确保只有 API 认识的字段才会进入 **kwargs。
+                valid_generation_params = {
+                    k: v
+                    for k, v in vars(general_llm_settings_obj).items()
+                    if k not in internal_client_params
+                }
+
+                # 3. 构建构造函数参数字典，现在它更干净、更安全了。
                 args = {
                     "model": {"provider": cfg.provider.upper(), "name": cfg.model_name},
-                    **vars(general_llm_settings_obj),
+                    # 仅传递合法的生成参数
+                    **valid_generation_params,
+                    # 传递模型专属的参数
                     **{
                         k: v
                         for k, v in vars(cfg).items()
                         if v is not None and k not in ["provider", "model_name"]
                     },
+                    # 显式传递那些内部使用的参数，而不是通过 **kwargs
+                    "stream_chunk_delay_seconds": general_llm_settings_obj.stream_chunk_delay_seconds,  # noqa: E501
+                    "enable_image_compression": general_llm_settings_obj.enable_image_compression,
+                    "image_compression_target_bytes": general_llm_settings_obj.image_compression_target_bytes,  # noqa: E501
+                    "rate_limit_disable_duration_seconds": general_llm_settings_obj.rate_limit_disable_duration_seconds,  # noqa: E501
                 }
+
                 if resolved_abandoned_keys:
                     args["abandoned_keys_config"] = resolved_abandoned_keys
-                client = ProcessorClient(**{k: v for k, v in args.items() if v is not None})
+
+                # 移除值为 None 的项，防止覆盖 ProcessorClient 中的默认值
+                final_args = {k: v for k, v in args.items() if v is not None}
+                # 创建 ProcessorClient 实例
+                client = ProcessorClient(**final_args)
                 logger.info(
                     f"为用途 '{purpose}' 创建 ProcessorClient 成功 "
                     f"(模型: {client.llm_client.model_name})。"
@@ -220,24 +262,27 @@ class ServiceBuilder:
                 logger.error(f"为用途 '{purpose}' 创建LLM客户端失败: {e}", exc_info=True)
                 return None
 
-        if not config.llm_models:
+        if not (models := config.llm_models):
             raise RuntimeError("[llm_models] 配置块缺失。")
-        models = config.llm_models
         clients = {
             "main_consciousness_llm_client": _create_client(
                 models.main_consciousness, "main_consciousness"
             ),
             "summary_llm_client": _create_client(models.information_summary, "information_summary"),
             "web_search_agent_client": _create_client(models.web_search_agent, "web_search_agent"),
-            "intrusive_thoughts_llm_client": None,
-            "focused_chat_llm_client": None,
-        }
-        if config.intrusive_thoughts_module_settings.enabled:
-            clients["intrusive_thoughts_llm_client"] = _create_client(
+            "url_context_agent_client": _create_client(
+                models.url_context_agent, "url_context_agent"
+            ),
+            "deliberation_llm_client": _create_client(models.deliberation, "deliberation"),
+            "intrusive_thoughts_llm_client": _create_client(
                 models.intrusive_thoughts, "intrusive_thoughts"
             )
-        if config.focus_chat_mode.enabled:
-            clients["focused_chat_llm_client"] = _create_client(models.focused_chat, "focused_chat")
+            if config.intrusive_thoughts_module_settings.enabled
+            else None,
+            "focused_chat_llm_client": _create_client(models.focused_chat, "focused_chat")
+            if config.focus_chat_mode.enabled
+            else None,
+        }
         if not clients["main_consciousness_llm_client"]:
             raise RuntimeError("主意识LLM客户端初始化失败。")
         if config.focus_chat_mode.enabled and not clients["focused_chat_llm_client"]:
@@ -246,27 +291,26 @@ class ServiceBuilder:
         return clients
 
     async def _initialize_database_and_services(self) -> dict:
+        """初始化数据库连接和所有核心数据服务."""
         conn_manager = await ArangoDBConnectionManager.create_from_config(
             config.database,
             core_collection_configs=CoreDBCollections.get_all_core_collection_configs(),
         )
         if not conn_manager or not conn_manager.db:
             raise RuntimeError("数据库连接管理器初始化失败。")
+
+        # 初始化核心数据存储服务
         services_to_create = {
             "event_storage_service": EventStorageService,
-            "conversation_storage_service": ConversationStorageService,
             "thought_storage_service": ThoughtStorageService,
             "action_log_service": ActionLogStorageService,
-            "person_storage_service": PersonStorageService,
+            "entity_graph_service": EntityGraphService,
             "summary_storage_service": SummaryStorageService,
         }
+
         initialized_services = {"conn_manager": conn_manager}
         for instance_name, service_class in services_to_create.items():
-            instance = (
-                service_class(db_manager=conn_manager)
-                if service_class is SummaryStorageService
-                else service_class(conn_manager=conn_manager)
-            )
+            instance = service_class(conn_manager=conn_manager)
             if isinstance(instance, Initializable):
                 await instance.initialize_infrastructure()
             initialized_services[instance_name] = instance
@@ -276,27 +320,28 @@ class ServiceBuilder:
     async def _initialize_interrupt_model(
         self, event_storage_service: EventStorageService
     ) -> IntelligentInterrupter:
+        """初始化中断判断模型."""
         logger.info("=== 开始初始化中断判断模型（小色猫）... ===")
-        iis_builder_instance = IISBuilder(event_storage=event_storage_service)
-        semantic_markov_model = await iis_builder_instance.get_or_create_model()
+        iis_builder = IISBuilder(event_storage=event_storage_service)
+        semantic_markov_model = await iis_builder.get_or_create_model()
         interrupt_config = config.interrupt_model
-        speaker_weights_dict = {
-            entry.id: entry.weight for entry in interrupt_config.speaker_weights
-        }
-        if "default" not in speaker_weights_dict:
-            speaker_weights_dict["default"] = 1.0
-        interrupt_model_instance = IntelligentInterrupter(
-            speaker_weights=speaker_weights_dict,
+        speaker_weights = {entry.id: entry.weight for entry in interrupt_config.speaker_weights}
+        if "default" not in speaker_weights:
+            speaker_weights["default"] = 1.0
+
+        interrupt_model = IntelligentInterrupter(
+            speaker_weights=speaker_weights,
             objective_keywords=interrupt_config.objective_keywords,
             core_importance_concepts=interrupt_config.core_importance_concepts,
             semantic_markov_model=semantic_markov_model,
         )
-        logger.info("=== 中断判断模型（小色猫·无状态版）已成功初始化！ ===")
-        return interrupt_model_instance
+        logger.info("=== 中断判断模型已成功初始化！ ===")
+        return interrupt_model
 
     async def _get_semantic_model(
         self, event_storage_service: EventStorageService
     ) -> SemanticModel:
-        iis_builder_instance = IISBuilder(event_storage=event_storage_service)
-        await iis_builder_instance.get_or_create_model()
-        return iis_builder_instance.base_semantic_model
+        """获取基础语义模型."""
+        iis_builder = IISBuilder(event_storage=event_storage_service)
+        await iis_builder.get_or_create_model()
+        return iis_builder.base_semantic_model

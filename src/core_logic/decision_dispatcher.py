@@ -1,5 +1,4 @@
-# src/core_logic/decision_dispatcher.py (竞速模式适配版 V1.0)
-import asyncio
+# src/core_logic/decision_dispatcher.py
 from typing import TYPE_CHECKING, Optional
 
 from aicarus_protocols import Event
@@ -50,23 +49,14 @@ async def _handle_send_message_action(
     params: dict,
     core_logic: "CoreLogic",
     processed_events_this_turn: list[Event] | None,
-) -> None:
-    """专门处理 send_message 动作的特种行动小队.
-
-    负责锁定状态、发送消息、等待回声、触发后续思考.
-
-    Args:
-        session: 当前的专注会话实例.
-        params: 包含发送消息所需的参数.
-        core_logic: 核心逻辑处理器，用于触发后续思考.
-        processed_events_this_turn: 本轮处理过的事件列表（可选）.
-    """
+) -> bool:
+    """专门处理 send_message 动作的特种行动小队."""
     # 1. 锁定时间戳
     if processed_events_this_turn:
         latest_ts = max(event.time for event in processed_events_this_turn)
         if latest_ts > session.last_processed_timestamp:
             session.last_processed_timestamp = latest_ts
-            logger.info(f"[{session.conversation_id}] 高潮锁定：时间戳已更新至 {latest_ts}")
+            logger.info(f"[{session.conversation_id}] 已更新 last_processed_timestamp: {latest_ts}")
 
     # 2. 锁定记忆烙印
     if steps := params.get("steps", []):
@@ -80,31 +70,19 @@ async def _handle_send_message_action(
     session.sent_action_ids_this_turn.clear()
     logger.debug(f"[{session.conversation_id}] 已清空上一轮的 sent_action_ids_this_turn 列表。")
 
-    message_builder = MessageBuilder(session, motivation=params.get("motivation"))
-    await message_builder.process_steps(steps)
+    message_builder = MessageBuilder(session, motivation=params.get("motivation", "没有明确动机"))
+    any_message_sent = await message_builder.process_steps(steps)
 
-    # 4. 等待回声
-    if sent_action_ids := session.sent_action_ids_this_turn:
-        logger.debug(
-            f"[{session.conversation_id}] 准备为 {len(sent_action_ids)} 个动作等待回声: "
-            f"{sent_action_ids}"
+    if any_message_sent:
+        logger.info(
+            f"[{session.conversation_id}] MessageBuilder 已成功发送消息，立即触发下一轮思考。"
         )
-        wait_tasks = [session.wait_for_echo(action_id) for action_id in sent_action_ids]
-        results = await asyncio.gather(*wait_tasks)
-
-        # 5. 处理结果
-        success_count = results.count(True)
-        if success_count == len(sent_action_ids):
-            logger.success(
-                f"[{session.conversation_id}] 所有 {len(sent_action_ids)} 条消息的回声均已收到。"
-            )
-            logger.info(f"[{session.conversation_id}] 消息已全部发送完毕，立即触发下一轮思考。")
-            core_logic.trigger_immediate_thought_cycle()
-        else:
-            logger.warning(
-                f"[{session.conversation_id}] {len(sent_action_ids) - success_count} "
-                f"/ {len(sent_action_ids)} 条消息的回声等待超时。"
-            )
+        # 立即触发思考，让AI的反应更连贯
+        core_logic.trigger_immediate_thought_cycle()
+        return True
+    else:
+        logger.warning(f"[{session.conversation_id}] MessageBuilder 未能发送任何消息。")
+        return False
 
 
 async def process_llm_decision(
@@ -136,37 +114,66 @@ async def process_llm_decision(
         return
 
     logger.info(f"决策分发器开始处理LLM决策: {decision_json}")
-    _, current_platform_id, current_conv_id = parse_focus_path(current_focus_path)
+    _, current_platform_id, _ = parse_focus_path(current_focus_path)
 
-    if action_payload := normalize_action_payload(decision_json.get("action"), current_platform_id):
-        if (platform_key := next(iter(action_payload), None)) and (
-            action_name := next(iter(action_payload[platform_key]), None)
-        ):
-            action_params = action_payload[platform_key].get(action_name, {})
+    # --- 步骤 1: 解析所有潜在指令 ---
+    control_payload = decision_json.get("consciousness_control")
+    action_payload = decision_json.get("action")
+    current_internal_state = decision_json.get("internal_state", {})
 
-            if action_name == "send_message":
-                if not session:
-                    logger.error("send_message 动作只能在专注会话中执行，但当前会话实例为空！")
-                else:
-                    # // 委托给专业的特种小队处理！
-                    await _handle_send_message_action(
-                        session, action_params, core_logic, processed_events_this_turn
-                    )
-            else:
-                logger.info(f"检测到 [即做即走类] 动作 ({platform_key}.{action_name})。")
-                await action_handler.process_action_flow(
-                    action_id=source_action_id,
-                    doc_key_for_updates=source_thought_key,
-                    action_json=action_payload,
-                )
+    # --- 步骤 2: (特例优先) 检查并执行“慢思考” ---
+    if control_payload and "deep_think" in control_payload:
+        logger.info("检测到 [慢思考] 指令，优先执行内部辩论...")
+
+        # “慢思考”是同步阻塞的，它会返回一个修正后的思考状态
+        new_internal_state = await focus_manager.handle_consciousness_control(
+            {"deep_think": control_payload["deep_think"]}, current_internal_state
+        )
+
+        if new_internal_state:
+            logger.success("“慢思考”决策管线已完成，使用其决议更新当前思考状态。")
+            current_internal_state = new_internal_state  # 更新思考状态
         else:
-            logger.warning(f"行动指令格式不正确，无法处理: {action_payload}")
+            logger.warning("“慢思考”执行完毕但未返回有效决议，将使用原始思考状态继续。")
 
-    if control_payload := decision_json.get("consciousness_control"):
-        logger.info("处理 [意识控制] 指令。")
-        await focus_manager.handle_consciousness_control(control_payload)
+        # 从控制载荷中移除已被处理的慢思考指令
+        del control_payload["deep_think"]
+        if not control_payload:  # 如果没有其他控制指令了
+            control_payload = None
 
-    if not decision_json.get("action") and not decision_json.get("consciousness_control"):
-        logger.info("本轮决策中无任何有效动作或意识控制指令。")
+    # --- 步骤 3: 执行“外部行动” ---
+    # 使用最新的（可能已被慢思考修正的）状态来驱动行动
+    normalized_action_payload = normalize_action_payload(action_payload, current_platform_id)
+    if normalized_action_payload:
+        logger.info("内部状态已确定，现在开始处理 [外部行动] 指令。")
+
+        platform_key = next(iter(normalized_action_payload), None)
+        action_name = next(iter(normalized_action_payload.get(platform_key, {})), None)
+
+        if action_name == "send_message":
+            logger.info("检测到 [send_message] 动作，将执行发送并立即触发后续思考。")
+            action_params = normalized_action_payload.get(platform_key, {}).get("send_message", {})
+            if session:
+                await _handle_send_message_action(
+                    session, action_params, core_logic, processed_events_this_turn
+                )
+            else:
+                logger.error("send_message 动作只能在专注会话中执行，但当前会话实例为空！")
+        else:
+            logger.info(f"检测到 [即做即走类] 动作 ({platform_key}.{action_name})，将立即执行。")
+            await action_handler.process_action_flow(
+                action_id=source_action_id,
+                doc_key_for_updates=source_thought_key,
+                action_json=normalized_action_payload,
+            )
+
+    # --- 步骤 4: (最后执行) 处理剩余的“注意力转移”指令 ---
+    if control_payload:
+        logger.info("所有外部行动已处理完毕，现在开始处理 [注意力转移] 。")
+        await focus_manager.handle_consciousness_control(control_payload, current_internal_state)
+
+    # --- 步骤 5: 检查是否无任何指令 ---
+    if not normalized_action_payload and not control_payload:
+        logger.info("本轮决策中无任何有效动作或注意力转移指令。")
 
     logger.info("决策分发处理完毕。")

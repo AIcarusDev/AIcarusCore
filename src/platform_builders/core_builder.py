@@ -1,5 +1,5 @@
 # ruff: noqa: E501
-# src/platform_builders/core_builder.py (修改后的完整文件)
+# src/platform_builders/core_builder.py
 from typing import Any, ClassVar
 
 from aicarus_protocols import Event
@@ -14,27 +14,27 @@ class CoreBuilder(BasePlatformBuilder):
 
     # --- v2.0 全新指令集的 JSON Schema 定义 ---
     _CONSCIOUSNESS_CONTROLS_DEFINITIONS: ClassVar = {
-        "push_focus": {
+        "focus": {
             "type": "object",
-            "description": "将注意力聚焦到指定的目标（平台或会话）。",
+            "description": "专注于指定的目标（平台或会话）。",
             "properties": {
                 "target_id": {
                     "type": "string",
-                    "description": "要聚焦的目标ID。例如平台ID 'qq' 或会话ID '123456'。",
+                    "description": "要专注的目标ID。例如平台ID 'qq' 或会话ID 'qq_group_123456'。",
                 },
                 "motivation": {"type": "string"},
             },
             "required": ["target_id", "motivation"],
         },
-        "pop_focus": {
+        "return": {
             "type": "object",
-            "description": "从当前注意力焦点返回。例如从当前会话返回到会话所属的平台，或退出当前平台。",
+            "description": "从当前注意力离开。例如从当前会话返回到会话所属的平台，或退出当前平台。",
             "properties": {"motivation": {"type": "string"}},
             "required": ["motivation"],
         },
-        "swap_focus": {
+        "shift_focus": {
             "type": "object",
-            "description": "将你的注意力从当前会话切换到另一个会话。",
+            "description": "将你的注意力从当前会话切换到另一个会话, 需要完整ID，例如`qq_group_123456`。",
             "properties": {
                 "target_id": {
                     "type": "string",
@@ -46,11 +46,11 @@ class CoreBuilder(BasePlatformBuilder):
         },
         "teleport_focus": {
             "type": "object",
-            "description": "直接将你的注意力聚焦到指定的目标。",
+            "description": "直接专注于指定的目标。",
             "properties": {
                 "target_path": {
                     "type": "string",
-                    "description": "要聚焦的绝对路径，必须是使用'.'作为分隔符的完整路径，例如`qq.123456`。",
+                    "description": "要专注的绝对路径，必须是使用'.'作为分隔符的完整路径，例如`qq.qq_group_123456`。",
                 },
                 "motivation": {"type": "string"},
             },
@@ -58,21 +58,48 @@ class CoreBuilder(BasePlatformBuilder):
         },
         "back": {
             "type": "object",
-            "description": "将你的注意力拉回到`<navigation_log>`中的上一个注意力焦点(T-1)。",
+            "description": "将你的注意力拉回到`<attentional_trajectory>`中的上一个注意力焦点(T-1)。",
             "properties": {"motivation": {"type": "string"}},
             "required": ["motivation"],
         },
         "jump_to_history": {
             "type": "object",
-            "description": "根据`<navigation_log>`，直接跳转到由`history_index`指定的历史焦点。",
+            "description": "根据`<attentional_trajectory>`，直接跳转到由`history_index`指定的历史焦点。",
             "properties": {
                 "history_index": {
                     "type": "integer",
                     "description": "导航日志中的时间索引 (例如 T-2 的索引是 -2)。",
                 },
-                "motivation": {"type": "string", "description": "你为什么要进行这次“跳跃”？"},
+                "motivation": {"type": "string"},
             },
             "required": ["history_index", "motivation"],
+        },
+        "deep_think": {
+            "type": "object",
+            "description": "进行理性的深度思考，在遇到陌生、复杂、抽象问题，或高风险的决策时使用。",
+            "properties": {
+                "motivation": {"type": "string"},
+                "opinions": {
+                    "type": "array",
+                    "description": "需要讨论的不同观点或策略，数量限制在2-5个。",
+                    "maxItems": 5,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "tag": {
+                                "type": "string",
+                                "description": "你对此观点或策略的简短标签。",
+                            },
+                            "initial_thought": {
+                                "type": "string",
+                                "description": "你对此观点或策略的详细初始想法。",
+                            },
+                        },
+                        "required": ["tag", "initial_thought"],
+                    },
+                },
+            },
+            "required": ["motivation", "opinions"],
         },
     }
 
@@ -82,6 +109,15 @@ class CoreBuilder(BasePlatformBuilder):
             "type": "object",
             "properties": {"query": {"type": "string"}, "motivation": {"type": "string"}},
             "required": ["query", "motivation"],
+        },
+        "summarize_url": {
+            "type": "object",
+            "description": "访问一个指定的网页URL。",
+            "properties": {
+                "url": {"type": "string", "description": "需要访问和总结的完整网页URL。"},
+                "motivation": {"type": "string"},
+            },
+            "required": ["url", "motivation"],
         },
         "list_files": {
             "type": "object",
@@ -164,16 +200,30 @@ class CoreBuilder(BasePlatformBuilder):
             },
             "required": ["source_path", "motivation"],
         },
+        "delete_workspace_file": {
+            "type": "object",
+            "description": "【危险操作】删除工作区内的指定文件。请谨慎使用！",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "要删除的文件的路径，【必须】相对于工作区根目录。",
+                },
+                "motivation": {"type": "string"},
+            },
+            "required": ["path", "motivation"],
+        },
     }
 
     # --- 同样，更新自然语言描述，让LLM更容易理解 ---
     _ACTIONS_DESCRIPTIONS: ClassVar = {
         "web_search": "    - `web_search`: 进行一次互联网搜索，以获取外部信息。",
+        "summarize_url": "    - `summarize_url`: 访问一个指定的网页URL，获取其中信息，需要提供网址（url）。",
         "list_files": "    - `list_files`: 列出工作区内指定路径的文件和目录。",
         "read_file": "    - `read_file`: 读取工作区内指定文件的内容。",
         "write_file": "    - `write_file`: 向工作区内的文件写入内容(可追加或覆盖)。",
         "edit_file": "    - `edit_file`: 替换文件内的指定文本。",
         "get_aggregated_content": "    - `get_aggregated_content`: 扫描并聚合工作区内的文件内容，直接返回一个包含所有内容的字符串。",
+        "delete_workspace_file": "    - `delete_workspace_file`: 【危险】删除工作区内的指定文件。",
     }
 
     @property
@@ -194,13 +244,13 @@ class CoreBuilder(BasePlatformBuilder):
         """根据指定的层级，返回该层级可用的和【内在控制】的JSON Schema定义."""
         props = {}
         if level == "core":
-            props["push_focus"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["push_focus"]
+            props["focus"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["focus"]
         elif level == "platform":
-            props["push_focus"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["push_focus"]
-            props["pop_focus"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["pop_focus"]
+            props["focus"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["focus"]
+            props["return"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["return"]
         elif level == "cellular":
-            props["pop_focus"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["pop_focus"]
-            props["swap_focus"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["swap_focus"]
+            props["return"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["return"]
+            props["shift_focus"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["shift_focus"]
 
         # back 和 jump_to_history 在任何层级都可用
         props["back"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["back"]
@@ -209,21 +259,36 @@ class CoreBuilder(BasePlatformBuilder):
         # teleport_focus 也应该是全局可用的
         props["teleport_focus"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["teleport_focus"]
 
+        # 慢思考作为一种基础认知能力，在所有层级都应该可用
+        props["deep_think"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["deep_think"]
+
         schema = {"type": "object", "properties": props, "maxProperties": 1}
         return schema, {}
 
     def get_level_consciousness_controls_descriptions(self, level: str) -> str:
-        """返回核心平台的意识控制描述."""
-        descs = [
-            "    - `push_focus(target_id, motivation)`: 深入到下一层焦点。只需提供目标ID。",
-            "    - `pop_focus(motivation)`: 从当前焦点返回上一层。",
-            "    - `swap_focus(target_id, motivation)`: 平级切换到另一个会话，只需提供目标会话ID。",
-            "    - `teleport_focus(target_path, motivation)`: 强制跳转焦点。注意 `target_path` 必须是使用'.'分隔的完整路径！",
-            "    - `back(motivation)`: 回溯到上一个焦点 (T-1)。",
-            "    - `jump_to_history(history_index, motivation)`: 跳转到指定的历史焦点。",
-        ]
+        """根据可用的意识控制定义，动态生成自然语言描述."""
+        # 1. 首先调用现有方法，以获取当前层级下真正可用的控制项。
+        #    这避免了重复编写 `if/elif` 逻辑。
+        schema, _ = self.get_level_consciousness_controls_definitions(level)
+        available_controls = schema.get("properties", {})
 
-        return "\n".join(descs)
+        descs = []
+        # 2. 遍历所有可用的控制项
+        for name, definition in available_controls.items():
+            # 从 'required' 字段中提取参数列表，并拼接成字符串
+            params_list = definition.get("required", [])
+            params_str = ", ".join(params_list)
+
+            # 从 'description' 字段中直接提取功能描述
+            description = definition.get("description", "（无可用描述）")
+
+            # 3. 按照统一格式生成描述字符串
+            #    格式为: " - `command(param1, param2)`: description"
+            desc_line = f"      - `{name}({params_str})`: {description}"
+            descs.append(desc_line)
+
+        # 对结果进行排序，可以确保每次输出的顺序都一致
+        return "\n".join(sorted(descs))
 
     def get_level_actions_descriptions(self, level: str) -> str:
         """返回核心平台的动作描述."""

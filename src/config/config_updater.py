@@ -296,7 +296,7 @@ def perform_config_update_check(
     Returns:
         bool: 如果配置文件被创建或更新，则返回 True，否则返回 False.
     """
-    logger.debug("开始仔细检查和更新配置文件，请稍等片刻，小猫正在施展魔法...")
+    logger.debug("开始仔细检查和更新配置文件，请稍等片刻...")
 
     config_was_created_or_updated: bool = False
 

@@ -6,7 +6,6 @@ from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 
 def wire_dependencies(container: ServiceContainer) -> None:
     """将容器中所有服务的依赖关系连接起来."""
-    # 获取 ActionSender 实例，它在 CoreWebsocketServer 内部
     action_sender = container.core_comm_layer.action_sender
 
     # 连接 ActionHandler 的依赖
@@ -14,55 +13,55 @@ def wire_dependencies(container: ServiceContainer) -> None:
         thought_service=container.thought_storage_service,
         event_service=container.event_storage_service,
         action_log_service=container.action_log_service,
-        conversation_service=container.conversation_storage_service,
         action_sender=action_sender,
-        chat_session_manager=container.chat_session_manager,  # 此时还是 None
+        chat_session_manager=container.chat_session_manager,
         core_logic=container.core_logic,
-        person_service=container.person_storage_service,
+        entity_service=container.entity_graph_service,
     )
     container.action_handler.set_thought_trigger(container.core_logic.immediate_thought_trigger)
 
-    # 连接 CoreLogic 的依赖 (ChatSessionManager 稍后连接)
-    # core_logic 已经在 __init__ 中获取了大部分依赖
-
-    # 连接 MessageProcessor 的依赖 (ChatSessionManager 稍后连接)
+    # 连接 MessageProcessor 的依赖
     container.message_processor.core_comm_layer = container.core_comm_layer
     container.message_processor.core_logic = container.core_logic
 
-    # ... 其他需要后期注入的简单依赖
-
 
 async def wire_dynamic_dependencies(container: ServiceContainer) -> None:
-    """处理动态依赖，特指 ChatSessionManager，它需要在安检后创建.
-
-    这个函数会在系统启动后被调用。
-    """
+    """处理动态依赖，特指 ChatSessionManager，它需要在安检后创建和注入."""
     # 1. 等待安检完成
     await container.core_comm_layer.wait_for_all_inspections()
 
     # 2. 获取安检后的 bot_ids
-    all_self_accounts = await container.person_storage_service.get_all_self_accounts()
+    all_self_entities = await container.entity_graph_service.get_all_self_entities()
+    # self_bot_ids_map 的构建逻辑需要适配新的实体结构
     bot_ids_map = (
-        {acc["platform"]: acc["platform_id"] for acc in all_self_accounts}
-        if all_self_accounts
+        {
+            acc.get("details", {}).get("platform"): acc.get("details", {}).get("platform_id")
+            for acc in all_self_entities
+            if isinstance(acc, dict)
+            and acc.get("details", {}).get("platform")
+            and acc.get("details", {}).get("platform_id")
+        }
+        if all_self_entities
         else {}
     )
 
     # 3. 创建并注入 ChatSessionManager
-    if config.focus_chat_mode.enabled:
+    if config.focus_chat_mode.enabled and container.focused_chat_llm_client:
+        # 创建 ChatSessionManager
         chat_session_manager = ChatSessionManager(
             config=config.focus_chat_mode,
             llm_client=container.focused_chat_llm_client,
+            deliberation_llm_client=container.deliberation_llm_client,
             event_storage=container.event_storage_service,
             action_handler=container.action_handler,
             self_bot_ids_map=bot_ids_map,
-            conversation_service=container.conversation_storage_service,
             summarization_service=container.summarization_service,
             summary_storage_service=container.summary_storage_service,
             intelligent_interrupter=container.intelligent_interrupter,
             thought_storage_service=container.thought_storage_service,
             internal_info_builder=container.internal_info_builder,
             core_logic=container.core_logic,
+            entity_graph_service=container.entity_graph_service,
         )
         container.chat_session_manager = chat_session_manager
 

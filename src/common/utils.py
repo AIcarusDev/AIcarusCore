@@ -15,6 +15,20 @@ from src.common.custom_logging.logging_config import get_logger
 logger = get_logger(__name__)
 
 
+def build_conversation_entity_uid(platform_id: str, conv_type: str, native_id: str) -> str:
+    """构建一个全局唯一的会话实体UID (作为数据库的_key).
+
+    Args:
+        platform_id: 平台ID (e.g., 'qq').
+        conv_type: 会话类型 (e.g., 'group', 'private').
+        native_id: 平台原生的会话ID (e.g., '123456').
+
+    Returns:
+        格式化后的唯一ID字符串 (e.g., 'qq_group_123456').
+    """
+    return f"{platform_id}_{conv_type}_{native_id}"
+
+
 # --- 自定义YAML处理类 ---
 class ForceDoubleQuoteStr(str):
     """强制双引号输出的字符串包装类.
@@ -605,10 +619,10 @@ def format_messages_for_llm_context(
 
 
 def parse_focus_path(focus_path: str | None) -> tuple[str, str, str | None]:
-    """一个可复用的工具函数，用于解析焦点路径字符串.
+    """一个可复用的工具函数，用于解析注意力焦点路径字符串.
 
     Args:
-        focus_path: 当前的焦点路径，例如 "core", "qq", "qq.123456".
+        focus_path: 当前的注意力焦点路径，例如 "core", "qq", "qq.123456".
 
     Returns:
         一个包含 (层级, 平台ID, 会话ID) 的元组.

@@ -1,0 +1,52 @@
+name: CI Pipeline (Lint & Test)
+
+on:
+  push:
+    branches: [ "main", "dev" ]
+  pull_request:
+    branches: [ "main", "dev" ]
+
+jobs:
+  lint-and-test:
+    name: Code Linting, Formatting, and Unit Testing
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pytest pytest-asyncio pytest-mock ruff
+
+      # 步骤 4A: 使用 Ruff 进行代码规范检查 (Linting)
+      - name: Run Ruff Linter
+        uses: chartboost/ruff-action@v1
+        with:
+          # 这个步骤只负责 lint 检查，并能在 PR 中生成标注
+          args: "check --output-format=github ."
+
+      # 步骤 4B: 使用 Ruff 进行代码格式检查 (Formatting)
+      - name: Run Ruff Formatter Check
+        uses: chartboost/ruff-action@v1
+        with:
+          # 这个步骤只负责 format 检查
+          # 它不会生成标注，但如果失败，会在日志中用 --diff 显示差异
+          args: "format --check --diff ."
+
+      - name: Run tests with pytest
+        env:
+          DOT_ENV_FILE: ${{ secrets.DOT_ENV_FILE }}
+        run: |
+          echo "Creating .env file from secrets..."
+          echo "${DOT_ENV_FILE}" > .env
+          echo "Running pytest..."
+          pytest

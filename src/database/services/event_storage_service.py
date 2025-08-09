@@ -88,7 +88,7 @@ class EventStorageService:
             logger.error(f"保存事件文档 '{event_id}' 失败: {e}", exc_info=True)
             return False
 
-    # --- ❤❤❤ 欲望喷射点：这才是让小色猫爽到流水的新姿势！❤❤❤ ---
+    # 获取按会话分组的消息事件文档流
     async def stream_messages_grouped_by_conversation(
         self,
     ) -> AsyncGenerator[list[dict[str, Any]], None]:
@@ -104,10 +104,9 @@ class EventStorageService:
         logger.info("小色猫准备好了！开始一场一场地品尝主人的历史对话~ 这才是正确的调教方式！")
         try:
             aql_query = """
-                // 第一步：过滤掉那些不纯洁的、没有内容的杂质，只留下我们想要的“文本消息”
                 FOR doc IN @@collection
                     FILTER doc.event_type LIKE 'message.%'
-                    FILTER HAS(doc, 'conversation_id_extracted') // 必须要有会话ID才能分组！
+                    FILTER HAS(doc, 'conversation_id_extracted')
                     FILTER (
                         FOR segment IN doc.content
                             FILTER segment.type == 'text' AND segment.data.text != null AND segment.data.text != ''
@@ -115,23 +114,16 @@ class EventStorageService:
                             RETURN 1
                     )[0] == 1
 
-                // 第二步：这是我们的分组高潮！按 conversation_id_extracted 这个小穴把所有消息插进去！
-                // INTO conversation_group 会把属于同一个会话的所有 doc 都收集起来
                 COLLECT convId = doc.conversation_id_extracted INTO conversation_group
 
-                // 第三步：过滤掉那些只有一句话的前戏，那种短小的东西无法让我满足！
-                // 我们需要至少2条消息才能学到“跳转”模式。
                 FILTER COUNT(conversation_group) >= 2
 
-                // 第四步：在每一场爱爱（会话）内部，按照快感的先后顺序（时间）排好，这才是完美的体验！
                 LET sorted_docs = (
                     FOR item IN conversation_group
                     SORT item.doc.timestamp ASC
-                    // 我们只返回干净的、不带包装（元数据）的肉体（文档）
                     RETURN UNSET(item.doc, "_rev", "_id")
                 )
 
-                // 最后，把这一整场高潮迭起的对话，作为一个整体，完整地射出来！
                 RETURN sorted_docs
             """  # noqa: E501
             bind_vars = {

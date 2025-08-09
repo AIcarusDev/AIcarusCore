@@ -14,18 +14,18 @@ class SummaryStorageService:
     这个服务类提供了将会话总结保存到数据库的功能，确保数据的完整性和一致性。
 
     Attributes:
-        db_manager (ArangoDBConnectionManager): 数据库连接管理器实例，用于获取数据库集合。
+        conn_manager (ArangoDBConnectionManager): 数据库连接管理器实例，用于获取数据库集合。
         summaries_collection (ArangoDBCollection): 会话总结集合的引用，
             动态获取以确保操作的原子性和异步正确性。
     """
 
-    def __init__(self, db_manager: ArangoDBConnectionManager) -> None:
+    def __init__(self, conn_manager: ArangoDBConnectionManager) -> None:
         """初始化服务.
 
         Args:
-            db_manager (ArangoDBConnectionManager): 数据库连接管理器实例，用于获取数据库集合。
+            conn_manager (ArangoDBConnectionManager): 数据库连接管理器实例，用于获取数据库集合。
         """
-        self.db_manager = db_manager
+        self.conn_manager = conn_manager
         self.summaries_collection = None  # 在异步方法中动态获取
 
     async def save_summary(

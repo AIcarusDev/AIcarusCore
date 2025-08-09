@@ -30,6 +30,12 @@ async def start_core_system() -> None:
         # 启动主思考循环
         logic_task = await container.core_logic.start_thinking_loop()
 
+        # 启动图像分析服务 (如果启用)
+        # 这会在后台异步运行，处理提交的图片分析任务
+        if container.image_analysis_service:
+            container.image_analysis_service.start()
+            logger.info("后台图像分析服务已启动。")
+
         # 启动侵入性思维后台线程 (如果启用)
         # 它的关闭是由 stop_event (threading.Event) 控制的，所以不在这里管理
         if container.intrusive_generator:
@@ -82,13 +88,34 @@ async def start_core_system() -> None:
 
         if container:
             # 优雅地关闭核心服务
+            if container.chat_session_manager:
+                container.chat_session_manager.shutdown()
             if container.core_logic:
                 await container.core_logic.stop()  # 这会处理 intrusive_generator 的线程
             if container.core_comm_layer:
                 await container.core_comm_layer.stop()
             if container.conn_manager:
                 await container.conn_manager.close_client()
-        logger.info("AIcarus Core 系统关闭流程执行完毕。")
+            if container.image_analysis_service:
+                await container.image_analysis_service.stop()
+            logger.info("AIcarus Core 系统关闭流程执行完毕。")
+            # 关闭所有 LLM 客户端
+            llm_clients_to_close = [
+                container.main_consciousness_llm_client,
+                container.summary_llm_client,
+                container.intrusive_thoughts_llm_client,
+                container.focused_chat_llm_client,
+                container.web_search_agent_client,
+                container.url_context_agent_client,
+            ]
+            for client in llm_clients_to_close:
+                if client and hasattr(client, "llm_client") and hasattr(client.llm_client, "close"):
+                    try:
+                        # 注意：我们要关闭的是底层的 UnderlyingLLMClient 实例
+                        await client.llm_client.close()
+                    except Exception as e_close:
+                        logger.error(f"关闭一个 LLM 客户端时出错: {e_close}")
+            logger.info("所有 LLM 客户端已处理完毕。")
 
 
 async def main() -> None:

@@ -45,14 +45,14 @@ class ThoughtGenerator:
             user_prompt (str): 用户提示，包含用户的输入或问题.
             image_inputs (list[str]): 可选的图像输入列表，用于多模态处理.
             response_schema (dict[str, Any] | None): 可选的响应模式定义，用于指导 LLM 的输出格式.
-            focus_path (str | None): 可选的焦点路径，用于指定当前思考的上下文.
+            focus_path (str | None): 可选的注意力焦点路径，用于指定当前思考的上下文.
 
         Returns:
             dict[str, Any] | None: 解析后的思考结果 JSON 对象，如果调用失败或解析错误则返回 None.
         """
         # 在这里打印所有即将发送给LLM的信息
         logger.debug("=" * 40 + " LLM DEBUG PROMPT " + "=" * 40)
-        logger.debug(f"当前思考焦点 (Focus Path): {focus_path or 'core'}")
+        logger.debug(f"当前注意力焦点 (Focus Path): {focus_path or 'core'}")
 
         # 使用 logger.info 打印多行内容，loguru会自动处理换行
         logger.debug(f"--- [SYSTEM PROMPT] ---\n{system_prompt}")
@@ -60,8 +60,8 @@ class ThoughtGenerator:
 
         if response_schema:
             try:
-                # 使用 json.dumps 美化输出，方便查看
-                schema_str = json.dumps(response_schema, indent=2, ensure_ascii=False)
+                # 使用 json.dumps
+                schema_str = json.dumps(response_schema, ensure_ascii=False)
                 logger.debug(f"--- [JSON SCHEMA] ---\n{schema_str}")
             except Exception as e:
                 logger.error(f"无法序列化 JSON Schema: {e}")
@@ -95,6 +95,19 @@ class ThoughtGenerator:
 
             if parsed_json is None:
                 logger.error("解析LLM的JSON响应失败，它返回了None。")
+                return None
+
+            # 验证JSON结构是否符合预期
+            if (
+                not isinstance(parsed_json, dict)
+                or "internal_state" not in parsed_json
+                or not isinstance(parsed_json.get("internal_state"), dict)
+            ):
+                logger.error(
+                    f"LLM响应的JSON结构不符合预期。'internal_state' "
+                    f"键必须存在且其值必须是一个对象/字典。"
+                    f"收到的内容: {str(parsed_json)[:200]}..."
+                )
                 return None
 
             if response_data.get("usage"):

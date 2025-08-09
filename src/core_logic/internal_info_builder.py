@@ -1,4 +1,5 @@
-# src/core_logic/internal_info_builder.py (完整实现版 v2.0)
+# src/core_logic/internal_info_builder.py
+import json
 from typing import TYPE_CHECKING, Optional
 
 from aicarus_protocols import Event
@@ -13,7 +14,7 @@ logger = get_logger(__name__)
 
 
 class InternalInfoBuilder:
-    """负责构建AI纯粹的内部信息块 (v2.0 结构化快照版)."""
+    """负责构建AI纯粹的内部信息块."""
 
     def __init__(self, thought_storage_service: ThoughtStorageService) -> None:
         self.thought_storage_service = thought_storage_service
@@ -25,34 +26,44 @@ class InternalInfoBuilder:
         session: Optional["ChatSession"] = None,
         user_map_from_prompt_builder: dict | None = None,
     ) -> str:
-        """构建结构化的 <internal_info> 块，包含意识快照."""
+        """构建结构化的 <history_internal_info> 块."""
         try:
             latest_thought = await self.thought_storage_service.get_latest_thought_document()
             if not latest_thought:
                 return "\n<!-- 你刚刚开始思考，还没有任何内部状态历史。 -->\n"
 
             snapshot_lines = []
+            action_payload = latest_thought.get("action_payload", {}) or {}
 
             # 检查中断状态
             if session and session.interruption_context:
                 snapshot_lines.append('<snapshot time="T-1" status="INTERRUPTED">')
                 snapshot_lines.extend(self._format_thought_content(latest_thought))
-                snapshot_lines.extend(
-                    (
-                        self._format_planned_action(latest_thought),
-                        await self._format_interruption(session, user_map_from_prompt_builder),
-                    )
+
+                interruption_info = await self._format_interruption(
+                    session, user_map_from_prompt_builder
                 )
-                # 中断发生后，清理上下文，避免下次思考时重复报告
+                snapshot_lines.extend(
+                    [
+                        self._format_completed_action(action_payload),
+                        self._format_completed_consciousness_control(action_payload),
+                        interruption_info,
+                    ]
+                )
                 session.interruption_context = None
             else:
                 snapshot_lines.append('<snapshot time="T-1" status="COMPLETED">')
                 snapshot_lines.extend(self._format_thought_content(latest_thought))
-                snapshot_lines.append(self._format_completed_action(latest_thought))
+
+                snapshot_lines.extend(
+                    [
+                        self._format_completed_action(action_payload),
+                        self._format_completed_consciousness_control(action_payload),
+                    ]
+                )
 
             snapshot_lines.append("</snapshot>")
 
-            # 使用缩进美化输出
             indented_lines = "\n".join(f"    {line}" for line in snapshot_lines)
             return f"\n{indented_lines}\n"
 
@@ -63,115 +74,50 @@ class InternalInfoBuilder:
     def _format_thought_content(self, thought_doc: dict) -> list[str]:
         """格式化思想内容（心情、想法、目标）."""
         lines = [
-            f"<mood>{thought_doc.get('mood', '平静')}</mood>",
-            f"<think>{thought_doc.get('think', '...')}</think>",
+            f"<mood>{self._escape_xml_text(thought_doc.get('mood', '平静'))}</mood>",
+            f"<think>{self._escape_xml_text(thought_doc.get('think', '...'))}</think>",
         ]
         if goal := thought_doc.get("goal"):
-            lines.append(f"<goal>{goal}</goal>")
+            lines.append(f"<goal>{self._escape_xml_text(goal)}</goal>")
         return lines
 
-    def _format_single_action_description(self, action_part: dict | None) -> str | None:
+    def _format_payload_as_json_string(self, payload: dict | None) -> str:
         """专门解析action的“行动组”.
 
-        它只负责一件事：把 action payload 翻译成人类能看懂的一句话.
-
-        Args:
-            action_part: 包含平台和动作的字典，可能为空或格式不正确.
-
-        Returns:
-            如果解析成功，返回描述字符串；否则返回 None.
+        如果 payload 为空或不是字典，返回 "None" 字符串。
+        现在使用 CDATA 来包裹 JSON，避免过度转义。
         """
-        if not action_part or not isinstance(action_part, dict):
-            return None
-
-        if action_part.get("core", {}).get("do_nothing"):
-            return "决定不采取任何行动"
-
+        if not payload or not isinstance(payload, dict):
+            return "None"
         try:
-            if (
-                (platform_key := next(iter(action_part)))
-                and (platform_actions := action_part.get(platform_key))
-                and isinstance(platform_actions, dict)
-                and (action_name := next(iter(platform_actions)))
-                and (action_params := platform_actions.get(action_name))
-            ):
-                if platform_key == "qq" and action_name == "send_message":
-                    steps = action_params.get("steps", [])
-                    texts = [
-                        s.get("params", {}).get("content")
-                        for s in steps
-                        if s.get("command") == "text" and s.get("params", {}).get("content")
-                    ]
-                    return (
-                        f"发言（内容：{'、'.join(f'“{t}”' for t in texts)}）"
-                        if texts
-                        else "发送一条非文本消息"
-                    )
-                else:
-                    return f"执行 {platform_key}.{action_name}"
-        except (StopIteration, TypeError, AttributeError) as e:
-            logger.debug(f"解析 planned_action 失败: {e}")
-            return "执行一个复杂的动作"
+            # 检查是否是 do_nothing 动作
+            # 注意：这里的 payload 可能是 {"core": {"do_nothing": ...}} 或直接是 {"do_nothing": ...}
+            if payload.get("do_nothing") or payload.get("core", {}).get("do_nothing"):
+                return "None"
 
-        return None
+            # 格式化 JSON 字符串
+            formatted_payload = json.dumps(payload, ensure_ascii=False)
 
-    def _format_control_description(self, control_part: dict | None) -> str | None:
-        """专门解析控制指令的“导航组”.
+            # 使用 CDATA 块包裹，这是处理 XML 中大段文本的最佳实践
+            return f"<![CDATA[\n{formatted_payload}\n]]>"
+        except Exception as e:
+            logger.error(f"格式化 payload 为 JSON CDATA 时出错: {e}")
+            # 返回通用错误消息，避免暴露敏感数据
+            return "<![CDATA[\n[格式化错误]\n]]>"
 
-        它只负责把 consciousness_control 翻译成人类能看懂的一句话.
+    def _format_completed_action(self, action_payload: dict) -> str:
+        """从完整的 payload 中提取 'action' 部分并格式化."""
+        action_part = action_payload.get("action")
+        formatted_json = self._format_payload_as_json_string(action_part)
+        return f"<completed_action>{formatted_json}</completed_action>"
 
-        Args:
-            control_part: 包含控制指令的字典，可能为空或格式不正确.
-
-        Returns:
-            如果解析成功，返回描述字符串；否则返回 None.
-        """
-        if not control_part or not isinstance(control_part, dict):
-            return None
-
-        try:
-            if (command := next(iter(control_part))) and (params := control_part.get(command)):
-                motivation = params.get("motivation", "无")
-                return f"转移注意力（指令: {command}，动机: {motivation}）"
-        except (StopIteration, TypeError, AttributeError):
-            return "转移注意力"
-
-        return None
-
-    def _format_planned_action(self, thought_doc: dict) -> str:
-        """格式化被中断前计划执行的动作, 只负责调度.
-
-        Args:
-            thought_doc: 包含动作信息的字典，可能为空或格式不正确.
-
-        Returns:
-            如果解析成功，返回描述字符串；否则返回 None.
-        """
-        action_payload = thought_doc.get("action_payload", {})
-
-        # // 委托给专业小弟去干活
-        action_desc = self._format_single_action_description(action_payload.get("action"))
-        control_desc = self._format_control_description(action_payload.get("consciousness_control"))
-
-        # // 用 filter(None, ...) 优雅地过滤掉空结果
-        descriptions = list(filter(None, [action_desc, control_desc]))
-
-        # // Hoshiori酱的指摘！(๑•̀ㅂ•́)و✧
-        # // 交换 if/else 分支，先处理有内容的情况，逻辑更清晰！
-        if descriptions:
-            return f"<planned_action>{' 并且 '.join(descriptions)}</planned_action>"
-        else:
-            return "<planned_action>无</planned_action>"
-
-    def _format_completed_action(self, thought_doc: dict) -> str:
-        """格式化已完成的动作及其结果."""
-        action_result = thought_doc.get("action_result")
-        if not action_result or "决策中未包含任何行动指令" in action_result:
-            return "<completed_action>无</completed_action>"
-
-        # 为了XML格式的整洁，对结果进行缩进处理
-        indented_result = "\n        ".join(action_result.split("\n"))
-        return f"<completed_action>\n        {indented_result}\n    </completed_action>"
+    def _format_completed_consciousness_control(self, action_payload: dict) -> str:
+        """从完整的 payload 中提取 'consciousness_control' 部分并格式化."""
+        control_part = action_payload.get("consciousness_control")
+        formatted_json = self._format_payload_as_json_string(control_part)
+        return (
+            f"<completed_consciousness_control>{formatted_json}</completed_consciousness_control>"
+        )
 
     async def _format_interruption(self, session: "ChatSession", user_map: dict | None) -> str:
         """格式化中断信息."""
@@ -198,8 +144,6 @@ class InternalInfoBuilder:
             f"    <content>{text}</content>",
             "</interruption>",
         ]
-
-        # 使用缩进连接字符串
         return "\n        ".join(lines)
 
     def _escape_xml_text(self, text: str) -> str:
