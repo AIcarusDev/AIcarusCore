@@ -209,6 +209,7 @@ class LLMClient:
         abandoned_keys_config: list[str] | None = None,
         proxy_host: str | None = None,
         proxy_port: int | None = None,
+        image_placeholder_tag: str = DEFAULT_IMAGE_PLACEHOLDER_TAG,
         stream_chunk_delay_seconds: float = DEFAULT_STREAM_CHUNK_DELAY_SECONDS,
         enable_image_compression: bool = True,
         image_compression_target_bytes: int = DEFAULT_IMAGE_COMPRESSION_TARGET_BYTES,
@@ -234,6 +235,10 @@ class LLMClient:
         self.initial_stream_setting = model.get("stream", False)
         self.pri_in = model.get("pri_in", 0)
         self.pri_out = model.get("pri_out", 0)
+        self.image_placeholder_tag = image_placeholder_tag # 直接使用命名参数
+        self.stream_chunk_delay_seconds = stream_chunk_delay_seconds
+        self.enable_image_compression = enable_image_compression
+        self.image_compression_target_bytes = image_compression_target_bytes
         self.rate_limit_disable_duration_seconds = rate_limit_disable_duration_seconds
         self._temporarily_disabled_keys_429: dict[str, float] = {}
 
@@ -1114,6 +1119,8 @@ class LLMClient:
             f"URL: {full_request_url}, Params: {request_params}, "
             f"Headers: {loggable_headers}, Proxy: {self.proxy_url or 'No'}"
         )
+
+        logger.debug(f"Final Payload to be sent: {json.dumps(payload, ensure_ascii=False, indent=2)}")
 
         try:
             prepared_data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
