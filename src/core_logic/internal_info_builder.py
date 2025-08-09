@@ -99,11 +99,11 @@ class InternalInfoBuilder:
             formatted_payload = json.dumps(payload, ensure_ascii=False)
 
             # 使用 CDATA 块包裹，这是处理 XML 中大段文本的最佳实践
-            return f"<![CDATA[\n{formatted_payload}\n]]>"
+            return f"<![CDATA[{formatted_payload}]]>"
         except Exception as e:
             logger.error(f"格式化 payload 为 JSON CDATA 时出错: {e}")
             # 返回通用错误消息，避免暴露敏感数据
-            return "<![CDATA[\n[格式化错误]\n]]>"
+            return "<![CDATA[[格式化错误]]]>"
 
     def _format_completed_action(self, action_payload: dict) -> str:
         """从完整的 payload 中提取 'action' 部分并格式化."""
