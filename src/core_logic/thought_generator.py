@@ -60,8 +60,8 @@ class ThoughtGenerator:
 
         if response_schema:
             try:
-                # 使用 json.dumps 美化输出，方便查看
-                schema_str = json.dumps(response_schema, indent=2, ensure_ascii=False)
+                # 使用 json.dumps
+                schema_str = json.dumps(response_schema, ensure_ascii=False)
                 logger.debug(f"--- [JSON SCHEMA] ---\n{schema_str}")
             except Exception as e:
                 logger.error(f"无法序列化 JSON Schema: {e}")

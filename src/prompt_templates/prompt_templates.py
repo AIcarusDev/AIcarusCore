@@ -36,9 +36,9 @@ CORE_CYCLE_SYSTEM_PROMPT = """
 {current_state_block}
 </current_state>
 
-<navigation_log>
-{navigation_log_block}
-</navigation_log>
+<attentional_trajectory>
+{attentional_trajectory_block}
+</attentional_trajectory>
 
 <working_memory>
 <!-- 如果存在由短期工作记忆，会在这里显示 -->
@@ -89,7 +89,7 @@ JSON 对象包含三个顶级键: `"internal_state"`, `"consciousness_control"`,
 """
 CORE_CYCLE_USER_PROMPT = """
 
-<reality_update>
+<external_info time="T-0" status="CURRENT">
 
 {action_response_block}
 
@@ -101,7 +101,7 @@ CORE_CYCLE_USER_PROMPT = """
 
 {meta_info_block}
 
-</reality_update>
+</external_info>
 
 <output_format>
 现在请你严格遵守<behavior_guidelines>中的规则，不管content中有无提及，谨记“**不可**在输出中包含U1,U2等为内部标识符，包括思考、心情、发言动机和发言内容等”。

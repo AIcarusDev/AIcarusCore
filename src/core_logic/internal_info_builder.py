@@ -96,7 +96,7 @@ class InternalInfoBuilder:
                 return "None"
 
             # 格式化 JSON 字符串
-            formatted_payload = json.dumps(payload, indent=2, ensure_ascii=False)
+            formatted_payload = json.dumps(payload, ensure_ascii=False)
 
             # 使用 CDATA 块包裹，这是处理 XML 中大段文本的最佳实践
             return f"<![CDATA[\n{formatted_payload}\n]]>"

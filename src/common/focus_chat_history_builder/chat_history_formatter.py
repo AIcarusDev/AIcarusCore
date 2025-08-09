@@ -274,9 +274,23 @@ async def format_chat_history_for_llm(
             image_analysis_index = 0
 
             for seg in event_data_log.content:
-                if seg.type == "image":
+                if seg.type == "video":
                     if is_in_viewport:
-                        # +++ 关键修改 2: 生成唯一的占位符 +++
+                        image_ref_counter += 1
+                        placeholder = f"[GIF_{image_ref_counter}]"
+                        main_content_parts.append(placeholder)
+
+                        if base64_data := seg.data.get("base64"):
+                            # 直接使用适配器传来的 mime_type
+                            mime_type = seg.data.get("mime_type", "video/mp4")
+                            data_uri = f"data:{mime_type};base64,{base64_data}"
+                            image_references_for_llm.append(data_uri)
+                    else:
+                        # 对于窗口外的内容，我们暂时没有视频分析，给一个文本描述
+                        main_content_parts.append("[GIF]")
+                elif seg.type == "image":
+                    if is_in_viewport:
+                        # 生成唯一的占位符
                         image_ref_counter += 1
                         is_sticker = seg.data.get("summary") == "sticker"
                         placeholder = (
@@ -319,10 +333,9 @@ async def format_chat_history_for_llm(
                             prefix = "表情包" if analysis_item.get("type") == "sticker" else "图片"
                             description = f"[{prefix}: {desc_text}]"
 
-                            # 4. 关键：将索引向前移动一位，为下一张图片做准备
-                            image_analysis_index += 1
-
                         main_content_parts.append(description)
+                        # 4. 关键：无论十分成功，将索引向前移动一位，为下一张图片做准备
+                        image_analysis_index += 1
 
                 elif seg.type == "text":
                     main_content_parts.append(seg.data.get("text", ""))
