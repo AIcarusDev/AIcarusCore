@@ -225,7 +225,8 @@ class _ChatHistoryFormatter:
             f"(id:{event.get_message_id() or event.event_id})"
         )
 
-        if sender_uid == "U0" and event.motivation:
+        if sender_uid == "U0" and hasattr(event, "motivation") and event.motivation:
+            # 确认存在后，再安全地访问它
             log_line += f"\n    - [MOTIVE]: {event.motivation}"
 
         return log_line
@@ -339,7 +340,12 @@ async def _fetch_and_prepare_events(
 
     for event_dict in event_dicts:
         try:
-            raw_events.append(Event.from_dict(event_dict))
+            event_obj = Event.from_dict(event_dict)
+            # 检查数据库文档中是否有 motivation 字段
+            if "motivation" in event_dict:
+                # 如果有，就动态地将其设置到 Event 对象上
+                event_obj.motivation = event_dict["motivation"]
+            raw_events.append(event_obj)
         except Exception as e:
             logger.bind(event_dict=event_dict).error(
                 f"转换DB事件字典为Event对象失败: {e}", exc_info=True
