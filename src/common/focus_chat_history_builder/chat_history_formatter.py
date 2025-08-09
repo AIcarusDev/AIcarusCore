@@ -63,9 +63,11 @@ class _ChatHistoryFormatter:
                 uid_counter += 1
                 uid_str = f"U{uid_counter}"
                 self.platform_id_to_uid_str[p_user_id] = uid_str
-                remark = (
-                    event.user_info.extra.get("friend_remark") if event.user_info.extra else None
-                )
+                remark = None
+                # 必须先用 hasattr 检查 extra 属性是否存在
+                if hasattr(event.user_info, "extra") and event.user_info.extra:
+                    # 确认存在后，再安全地访问它
+                    remark = event.user_info.extra.get("friend_remark")
                 self.user_map[p_user_id] = {
                     "uid_str": uid_str,
                     "nick": event.user_info.user_nickname or f"用户{p_user_id[:4]}",
