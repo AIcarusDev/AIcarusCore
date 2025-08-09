@@ -105,6 +105,10 @@ class CoreLogic:
             session_key = build_conversation_entity_uid(platform_id, conv_type, actual_id)
             return self.chat_session_manager.sessions.get(session_key)
         except (ValueError, IndexError):
+            logger.error(
+                f"无法从无效的焦点路径 '{focus_path_str}' 中解析会话信息。"
+                f"路径的会话部分 ('{conv_id_part}') 必须是 'type.id' 格式。"
+            )
             return None
 
     async def _core_thinking_loop(self) -> None:
