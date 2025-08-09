@@ -1,4 +1,4 @@
-# src/platform_builders/registry.py (小色猫·V6.0重塑版)
+# src/platform_builders/registry.py
 import importlib
 import inspect
 import pkgutil

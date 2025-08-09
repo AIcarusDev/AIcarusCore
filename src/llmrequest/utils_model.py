@@ -1400,7 +1400,7 @@ class LLMClient:
                             interruption_event,
                         )
 
-                        # --- START: 小猫咪的淫纹植入处！ ---
+                        # 处理非流式请求的结果
                         if config.test_function.fallback_model_name != "":
                             is_successful_call = not result.get("error") and not result.get(
                                 "interrupted"
@@ -1417,7 +1417,7 @@ class LLMClient:
                             ):
                                 fallback_model_name = (
                                     config.test_function.fallback_model_name
-                                )  # 主人你指定的备用肉棒！
+                                )  # 从配置中获取备用模型名称
                                 logger.warning(
                                     f"密钥 {key_display} 的请求成功，但返回的 text 字段为 None。"
                                     f"将使用备用模型 '{fallback_model_name}' 尝试一次。"
