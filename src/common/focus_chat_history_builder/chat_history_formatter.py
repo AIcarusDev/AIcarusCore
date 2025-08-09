@@ -246,21 +246,25 @@ class _ChatHistoryFormatter:
         is_sticker = seg.data.get("summary") == "sticker"
         placeholder = f"[{'动画表情' if is_sticker else '图片'}_{self.image_ref_counter}]"
 
-        if is_in_viewport:
-            if base64_data := seg.data.get("base64"):
-                mime_type = seg.data.get("mime_type", "image/jpeg")
-                self.image_references_for_llm.append(f"data:{mime_type};base64,{base64_data}")
-            elif url := seg.data.get("url"):
-                self.image_references_for_llm.append(url)
-            return placeholder
-        else:
+        # 只要是图片，就提取它的数据，确保占位符和数据列表一致
+        if base64_data := seg.data.get("base64"):
+            mime_type = seg.data.get("mime_type", "image/jpeg")
+            self.image_references_for_llm.append(f"data:{mime_type};base64,{base64_data}")
+        elif url := seg.data.get("url"):
+            self.image_references_for_llm.append(url)
+
+        # 对于不在可视范围内的旧图片，如果已经有分析结果，则使用分析结果作为文本提示
+        if not is_in_viewport:
             analysis_list = event.get("image_analysis", [])
             if isinstance(analysis_list, list) and analysis_index < len(analysis_list):
                 analysis_item = analysis_list[analysis_index]
                 desc_text = analysis_item.get("details", {}).get("description", "图片")
                 prefix = "表情包" if analysis_item.get("type") == "sticker" else "图片"
+                # 返回分析文本，而不是占位符
                 return f"[{prefix}: {desc_text}]"
-            return "[图片]"
+
+        # 对于可视范围内的图片，或没有分析结果的旧图片，返回占位符
+        return placeholder
 
     def _format_video_segment(self, seg: Seg, is_in_viewport: bool) -> str:
         """格式化视频/GIF消息段."""
@@ -336,7 +340,7 @@ async def _fetch_and_prepare_events(
     if event_dicts is None:
         # 数据库返回的事件是按时间戳倒序（从新到旧）
         event_dicts = await event_storage.get_recent_chat_message_documents(
-            conversation_id=conversation_id, limit=50, fetch_all_event_types=False
+            conversation_id=conversation_id, limit=50, fetch_all_event_types=True
         )
 
     if not event_dicts:

@@ -717,7 +717,7 @@ class ThoughtPromptBuilder:
 
             # 获取会话的历史记录和元信息
             bot_profile = await session.get_bot_profile()
-            history_components, processed_raw_events = await format_chat_history_for_llm(
+            history_components, processed_raw_event_dicts = await format_chat_history_for_llm(
                 event_storage=self.event_storage,
                 conversation_id=session.conversation_info.conversation_id,
                 bot_profile=bot_profile,
@@ -725,6 +725,12 @@ class ThoughtPromptBuilder:
                 conversation_name=session.conversation_name,
                 last_processed_timestamp=session.last_processed_timestamp,
                 is_first_turn=self.is_context_switch_flag,
+            )
+
+            processed_raw_events = (
+                [Event.from_dict(doc) for doc in processed_raw_event_dicts]
+                if processed_raw_event_dicts
+                else None
             )
 
             if history_components.conversation_name:
