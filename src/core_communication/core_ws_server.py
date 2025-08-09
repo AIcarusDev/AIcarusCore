@@ -301,7 +301,7 @@ class CoreWebsocketServer:
             )
             message_dict = json.loads(registration_message_str)
 
-            # --- ❤❤❤ 最终高潮点！直接从 event_type 解析！❤❤❤ ---
+            # 尝试从消息中解析出 event_type
             event_type = message_dict.get("event_type", "")
             parts = event_type.split(".")
 

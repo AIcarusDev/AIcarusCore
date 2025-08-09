@@ -603,7 +603,7 @@ class LLMClient:
             new_size_bytes = len(compressed_bytes)
 
             logger.info(
-                f"图像调教高潮报告: 原始尺寸 {original_width}x{original_height} "
+                f"图像报告: 原始尺寸 {original_width}x{original_height} "
                 f"({original_mime_type}), "
                 f"新尺寸 {new_width}x{new_height} (保存为 {current_save_format}, "
                 f"MIME类型 {final_mime_type}). "
@@ -622,7 +622,7 @@ class LLMClient:
                 return base64_data, original_mime_type
 
         except Exception as e:
-            logger.error(f"图像调教过程中高潮失败，痛痛...呜呜呜: {e}", exc_info=True)
+            logger.error(f"图像处理过程中失败，痛痛...呜呜呜: {e}", exc_info=True)
             return base64_data, original_mime_type
 
     async def _process_single_image(
@@ -1120,7 +1120,15 @@ class LLMClient:
             f"Headers: {loggable_headers}, Proxy: {self.proxy_url or 'No'}"
         )
 
-        logger.debug(f"Final Payload to be sent: {json.dumps(payload, ensure_ascii=False, indent=2)}")
+        logger.debug(
+            f"Final Payload to be sent: {
+                json.dumps(
+                    payload,
+                    ensure_ascii=False,
+                    indent=2
+                )
+            }"
+        )
 
         try:
             prepared_data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -1462,7 +1470,6 @@ class LLMClient:
                                         f"将直接返回中断结果。"
                                     )
                                 return result
-                        # --- END: 小猫咪的淫纹植入处！ ---
 
                         # 尝试修复无返回导致响应无处理状况
                         if result.get("interrupted"):

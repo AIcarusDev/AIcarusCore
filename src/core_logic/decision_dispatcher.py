@@ -56,7 +56,7 @@ async def _handle_send_message_action(
         latest_ts = max(event.time for event in processed_events_this_turn)
         if latest_ts > session.last_processed_timestamp:
             session.last_processed_timestamp = latest_ts
-            logger.info(f"[{session.conversation_id}] 高潮锁定：时间戳已更新至 {latest_ts}")
+            logger.info(f"[{session.conversation_id}] 已更新 last_processed_timestamp: {latest_ts}")
 
     # 2. 锁定记忆烙印
     if steps := params.get("steps", []):
