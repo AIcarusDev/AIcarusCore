@@ -95,7 +95,7 @@ class ThoughtPromptBuilder:
             history_components,
             processed_raw_events,
         ) = await self._get_external_and_meta_info_blocks(
-            current_level, current_platform_id, current_conv_id
+            current_level, current_platform_id, current_conv_id, session
         )
 
         # 2. 构建响应 Schema
@@ -117,6 +117,7 @@ class ThoughtPromptBuilder:
             external_info_block=external_info_block,
             platform_id=current_platform_id,
             level=current_level,
+            session=session,
         )
 
         # 5. 组装最终的组件对象
@@ -240,13 +241,14 @@ class ThoughtPromptBuilder:
         external_info_block: str,
         platform_id: str,
         level: str,
+        session: Optional["ChatSession"] = None,
     ) -> dict[str, Any]:
         """(提取出的新方法) 构建 User Prompt 的所有部分."""
         command_feedback_block = ""
-        if self.chat_session_manager and self.chat_session_manager.last_command_feedback:
-            feedback_text = self.chat_session_manager.last_command_feedback
+        if session and session.last_command_feedback:
+            feedback_text = session.last_command_feedback
             command_feedback_block = f"<command_feedback>\n{feedback_text}\n</command_feedback>"
-            self.chat_session_manager.last_command_feedback = None
+            session.last_command_feedback = None
 
         action_response_block = await self._build_action_response_desc(handover_result)
 
@@ -668,7 +670,11 @@ class ThoughtPromptBuilder:
         return "\n".join(filter(None, descs)).strip() or "你当前没有可用的外部行动。"
 
     async def _get_external_and_meta_info_blocks(
-        self, level: str, platform_id: str, conv_id: str | None
+        self,
+        level: str,
+        platform_id: str,
+        conv_id: str | None,
+        session: Optional["ChatSession"] = None,
     ) -> tuple[str, str, PromptComponents | None, list[Event] | None]:
         """获取外部信息和元信息块."""
         external_info, meta_info, history_components, processed_raw_events = "", "", None, None
@@ -699,8 +705,10 @@ class ThoughtPromptBuilder:
                     f"无法从会话部分 '{conv_id}' 解析出类型和ID，无法构建外部信息块。"
                 ) from None
 
-            # 3. 使用这个正确的 key 进行查找
-            session = self.chat_session_manager.sessions.get(session_key)
+            # 3. 使用正确的 key 进行查找
+            if not session:
+                session = self.chat_session_manager.sessions.get(session_key)
+
             if not session:
                 # 错误信息现在会显示我们尝试使用的正确key，方便调试
                 raise PromptBuilderError(

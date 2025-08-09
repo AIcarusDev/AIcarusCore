@@ -90,6 +90,7 @@ class ChatSession:
         self.interruption_context: dict | None = None
         self.sent_action_ids_this_turn: list[str] = []
         self.current_handover_summary: str | None = None
+        self.last_command_feedback: str | None = None
 
         # --- 缓存 ---
         self.bot_profile_cache: dict[str, Any] = {}

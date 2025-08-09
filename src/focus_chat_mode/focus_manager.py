@@ -81,6 +81,11 @@ class FocusManager:
             from_desc = await self._get_focus_description(previous_path_for_desc)
             to_desc = await self._get_focus_description(self.current_focus_path)
             self._last_switch_description = f"你刚刚从“{from_desc}”来到了“{to_desc}”"
+            new_session = await self._get_session_from_path(
+                self.current_focus_path.get("target_path")
+            )
+            if new_session:
+                new_session.last_command_feedback = self._last_switch_description
             logger.info(
                 f"AI 决定 [{command}]，{self._last_switch_description} "
                 f"(动机: {history_entry_base['motivation']})"
@@ -88,6 +93,12 @@ class FocusManager:
             self.trigger_thought_cycle_callback()
             return True, None
         else:
+            current_session = await self._get_session_from_path(
+                self.current_focus_path.get("target_path")
+            )
+            if current_session:
+                current_session.last_command_feedback = feedback_message
+
             logger.warning(f"意识转向指令 '{command}' 执行失败: {feedback_message}")
             return False, feedback_message
 

@@ -64,7 +64,6 @@ class ChatSessionManager:
         self.sessions: dict[str, ChatSession] = {}
         self.lock = asyncio.Lock()
         self.platform_view_states: dict[str, dict[str, Any]] = {}
-        self.last_command_feedback: str | None = None
 
         # 初始化新的服务
         self.focus_manager = FocusManager(
@@ -200,9 +199,6 @@ class ChatSessionManager:
 
         此方法现在可以处理“慢思考”指令，并返回一个新的思考状态。
         """
-        # 在处理新指令前，清除旧的反馈
-        self.last_command_feedback = None
-
         # 验证：检查是否违反了“最多一个指令”的规则
         if len(control_json) > 1:
             logger.error(
@@ -216,7 +212,6 @@ class ChatSessionManager:
             params := control_json.get(command)
         ):
             logger.warning(f"收到的意识控制指令格式不正确或为空: {control_json}")
-            self.last_command_feedback = "指令格式不正确或为空。"
             return None
 
         # 如果是“慢思考”指令，则进入内部辩论流程
@@ -227,9 +222,7 @@ class ChatSessionManager:
 
         else:
             logger.info(f"检测到 [意识转向] 指令: {command}, 参数: {params}, 正在处理...")
-            switched, feedback = await self.focus_manager.handle_focus_control(command, params)
-            if not switched:
-                self.last_command_feedback = feedback
+            await self.focus_manager.handle_focus_control(command, params)
             return None
 
     def shutdown(self) -> None:
