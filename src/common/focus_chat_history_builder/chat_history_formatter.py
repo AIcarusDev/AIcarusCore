@@ -1,12 +1,8 @@
 # src/common/focus_chat_history_builder/chat_history_formatter.py
-
-import os
-import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-# 导入必要的协议和工具函数
-from aicarus_protocols import ConversationInfo, Event, Seg, UserInfo, extract_text_from_content
+from aicarus_protocols import Event, Seg, extract_text_from_content
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
 from src.focus_chat_mode.components import PromptComponents
@@ -16,15 +12,352 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# 定义“视觉窗口”的大小，即最近的多少条消息被认为是“当前可见”的
 VISUAL_VIEWPORT_SIZE = 20
+
+
+class _ChatHistoryFormatter:
+    """一个内部辅助类，封装了单次聊天记录格式化的所有状态和逻辑."""
+
+    def __init__(
+        self,
+        session_events: list[Event],
+        bot_profile: dict,
+        conversation_type: str,
+        last_processed_timestamp: float,
+        is_first_turn: bool,
+    ) -> None:
+        self.events = session_events
+        self.bot_profile = bot_profile
+        self.conversation_type = conversation_type
+        self.last_processed_timestamp = last_processed_timestamp
+        self.is_first_turn = is_first_turn
+
+        # 初始化将要构建的组件
+        self.user_map: dict[str, dict[str, Any]] = {}
+        self.platform_id_to_uid_str: dict[str, str] = {}
+        self.image_references_for_llm: list[str] = []
+        self.last_valid_text_message: str | None = None
+        self.image_ref_counter = 0
+
+        self._build_user_maps()
+
+    def _build_user_maps(self) -> None:
+        """构建用户ID到UID的映射表."""
+        uid_counter = 0
+        final_bot_id = str(self.bot_profile.get("user_id"))
+        self.platform_id_to_uid_str[final_bot_id] = "U0"
+        self.user_map[final_bot_id] = {
+            "uid_str": "U0",
+            "nick": self.bot_profile.get("nickname", config.persona.bot_name or "bot"),
+            "card": self.bot_profile.get("card", self.bot_profile.get("nickname")),
+            "title": self.bot_profile.get("title", ""),
+            "perm": self.bot_profile.get("role", "成员"),
+        }
+
+        for event in self.events:
+            if (
+                event.user_info
+                and (p_user_id := event.user_info.user_id)
+                and (p_user_id not in self.platform_id_to_uid_str)
+            ):
+                uid_counter += 1
+                uid_str = f"U{uid_counter}"
+                self.platform_id_to_uid_str[p_user_id] = uid_str
+                remark = (
+                    event.user_info.extra.get("friend_remark") if event.user_info.extra else None
+                )
+                self.user_map[p_user_id] = {
+                    "uid_str": uid_str,
+                    "nick": event.user_info.user_nickname or f"用户{p_user_id[:4]}",
+                    "card": (
+                        remark or event.user_info.user_cardname or event.user_info.user_nickname
+                    ),
+                    "title": event.user_info.user_titlename or "",
+                    "perm": event.user_info.permission_level or "成员",
+                }
+
+    def format_user_list_block(self) -> str:
+        """格式化用户列表文本块."""
+        lines = []
+        sorted_ids = sorted(
+            self.user_map.keys(), key=lambda pid: int(self.user_map[pid]["uid_str"][1:])
+        )
+        for p_id in sorted_ids:
+            user_data = self.user_map[p_id]
+            suffix = "（你）" if user_data["uid_str"] == "U0" else ""
+            if self.conversation_type == "private":
+                line = (
+                    f"{user_data['uid_str']}: {p_id}{suffix} [nick:{user_data['nick']}, "
+                    f"card:{user_data['card']}]"
+                )
+            else:
+                title_part = f"title:{user_data['title']}, " if user_data["title"] else ""
+                line = (
+                    f"{user_data['uid_str']}: {p_id}{suffix} [nick:{user_data['nick']}, "
+                    f"card:{user_data['card']}, {title_part}perm:{user_data['perm']}]"
+                )
+            lines.append(line)
+        return "\n".join(lines)
+
+    def format_chat_log_block(self) -> str:
+        """核心逻辑：格式化完整的聊天记录文本块."""
+        log_lines: list[str] = []
+        unread_section_started = False
+        added_platform_message_ids: set[str] = set()
+        total_events = len(self.events)
+
+        for i, event in enumerate(self.events):
+            is_in_viewport = (total_events - 1 - i) < VISUAL_VIEWPORT_SIZE
+
+            # 插入已读/未读分割线
+            if (
+                not self.is_first_turn
+                and event.time > self.last_processed_timestamp
+                and not unread_section_started
+            ):
+                if log_lines:
+                    read_marker_time = datetime.fromtimestamp(
+                        self.last_processed_timestamp / 1000.0
+                    )
+                    log_lines.append(
+                        f"--- 以上消息是你已经思考过的内容，已读 "
+                        f"(标记时间: {read_marker_time.strftime('%H:%M:%S')}) ---"
+                    )
+                log_lines.append("--- 请关注以下未读的新消息---")
+                unread_section_started = True
+
+            # 格式化单条日志
+            log_line = self._format_single_log_entry(
+                event, is_in_viewport, added_platform_message_ids
+            )
+            if log_line:
+                log_lines.append(log_line)
+
+        # 如果循环结束后仍未开始未读部分，在末尾添加已读标记
+        if not self.is_first_turn and not unread_section_started and log_lines:
+            last_event_time = self.events[-1].time if self.events else self.last_processed_timestamp
+            read_marker_time = datetime.fromtimestamp(last_event_time / 1000.0)
+            log_lines.append(
+                f"--- 以上消息是你已经思考过的内容，已读 "
+                f"(标记时间: {read_marker_time.strftime('%H:%M:%S')}) ---"
+            )
+
+        return "\n".join(log_lines) or "当前没有聊天记录。"
+
+    def _format_single_log_entry(
+        self, event: Event, is_in_viewport: bool, added_ids: set[str]
+    ) -> str | None:
+        """格式化单条事件为一行日志字符串."""
+        time_str = datetime.fromtimestamp(event.time / 1000.0).strftime("%H:%M:%S")
+        sender_uid = "SYS"
+        if event.user_info and event.user_info.user_id:
+            sender_uid = self.platform_id_to_uid_str.get(
+                event.user_info.user_id, f"Unknown({event.user_info.user_id[:4]})"
+            )
+
+        if event.event_type.startswith("message."):
+            return self._format_message_entry(
+                event, sender_uid, time_str, is_in_viewport, added_ids
+            )
+        if event.event_type.startswith("notice."):
+            return self._format_notice_entry(event, sender_uid, time_str)
+        if event.event_type == "internal.focus_chat_mode.thought_log":
+            motivation = extract_text_from_content(event.content)
+            return f"[{time_str}] {sender_uid} [MOTIVE]: {motivation}"
+
+        # 其他通用事件
+        content_preview = extract_text_from_content(event.content)
+        event_type_display = event.event_type.split(".")[-1].upper()
+        return (
+            f"[{time_str}] {sender_uid} [{event_type_display}]: "
+            f"{content_preview[:30]}{'...' if len(content_preview) > 30 else ''} "
+            f"(id:{event.event_id})"
+        )
+
+    def _format_message_entry(
+        self,
+        event: Event,
+        sender_uid: str,
+        time_str: str,
+        is_in_viewport: bool,
+        added_ids: set[str],
+    ) -> str | None:
+        """格式化消息类型事件."""
+        if msg_id := event.get_message_id():
+            if msg_id in added_ids:
+                return None
+            added_ids.add(msg_id)
+
+        content_parts, content_type, quote_str = [], "MSG", ""
+        image_analysis_index = 0
+
+        for seg in event.content:
+            if seg.type == "text":
+                content_parts.append(seg.data.get("text", ""))
+            elif seg.type == "image":
+                content_parts.append(
+                    self._format_image_segment(seg, is_in_viewport, event, image_analysis_index)
+                )
+                image_analysis_index += 1
+            elif seg.type == "video":
+                content_parts.append(self._format_video_segment(seg, is_in_viewport))
+            elif seg.type == "quote":
+                quote_str = self._format_quote_segment(seg)
+            elif seg.type == "at":
+                content_parts.append(self._format_at_segment(seg))
+            elif seg.type == "face":
+                content_parts.append(f"[表情:{seg.data.get('id', '未知')}]")
+            elif seg.type == "file":
+                content_type = "FILE"
+                content_parts.append(
+                    f"[FILE:{seg.data.get('name', '未知')} ({seg.data.get('size', 0)} bytes)]"
+                )
+
+        main_content = "".join(content_parts).strip()
+        if text_only := extract_text_from_content(event.content):
+            self.last_valid_text_message = text_only
+
+        display_tag = f"{content_type}{', ' + quote_str if quote_str else ''}"
+        log_line = (
+            f"[{time_str}] {sender_uid} [{display_tag}]: {main_content} "
+            f"(id:{event.get_message_id() or event.event_id})"
+        )
+
+        if sender_uid == "U0" and event.motivation:
+            log_line += f"\n    - [MOTIVE]: {event.motivation}"
+
+        return log_line
+
+    def _format_image_segment(
+        self, seg: Seg, is_in_viewport: bool, event: Event, analysis_index: int
+    ) -> str:
+        """格式化图片消息段."""
+        self.image_ref_counter += 1
+        is_sticker = seg.data.get("summary") == "sticker"
+        placeholder = f"[{'动画表情' if is_sticker else '图片'}_{self.image_ref_counter}]"
+
+        if is_in_viewport:
+            if base64_data := seg.data.get("base64"):
+                mime_type = seg.data.get("mime_type", "image/jpeg")
+                self.image_references_for_llm.append(f"data:{mime_type};base64,{base64_data}")
+            elif url := seg.data.get("url"):
+                self.image_references_for_llm.append(url)
+            return placeholder
+        else:
+            analysis_list = event.raw_data.get("image_analysis") if event.raw_data else []
+            if (
+                analysis_list
+                and isinstance(analysis_list, list)
+                and analysis_index < len(analysis_list)
+            ):
+                analysis_item = analysis_list[analysis_index]
+                desc_text = analysis_item.get("details", {}).get("description", "图片")
+                prefix = "表情包" if analysis_item.get("type") == "sticker" else "图片"
+                return f"[{prefix}: {desc_text}]"
+            return "[图片]"
+
+    def _format_video_segment(self, seg: Seg, is_in_viewport: bool) -> str:
+        """格式化视频/GIF消息段."""
+        if is_in_viewport:
+            self.image_ref_counter += 1
+            if base64_data := seg.data.get("base64"):
+                mime_type = seg.data.get("mime_type", "video/mp4")
+                self.image_references_for_llm.append(f"data:{mime_type};base64,{base64_data}")
+            return f"[GIF_{self.image_ref_counter}]"
+        return "[GIF]"
+
+    def _format_quote_segment(self, seg: Seg) -> str:
+        """格式化引用消息段."""
+        msg_id = seg.data.get("message_id", "unknown")
+        user_id = seg.data.get("user_id")
+        user_uid = (
+            self.platform_id_to_uid_str.get(str(user_id), f"未知({str(user_id)[:4]})")
+            if user_id
+            else "未知用户"
+        )
+        return f"引用/回复 {user_uid}(id:{msg_id})"
+
+    def _format_at_segment(self, seg: Seg) -> str:
+        """格式化@消息段."""
+        at_user_id = seg.data.get("user_id")
+        at_display_name = seg.data.get("display_name")
+        if at_user_id and at_user_id in self.platform_id_to_uid_str:
+            return f"@{self.platform_id_to_uid_str[at_user_id]} "
+        return f"@{at_display_name or at_user_id or '未知'} "
+
+    def _format_notice_entry(self, event: Event, sender_uid: str, time_str: str) -> str:
+        """格式化通知类型事件."""
+        notice_data = event.content[0].data if event.content else {}
+        notice_subtype = event.event_type.split(".")[-1]
+
+        operator_id = notice_data.get("operator_user_info", {}).get("user_id")
+        operator_uid = (
+            self.platform_id_to_uid_str.get(str(operator_id), "系统") if operator_id else "系统"
+        )
+
+        target_id = event.user_info.user_id if event.user_info else None
+        target_uid = (
+            self.platform_id_to_uid_str.get(str(target_id), "某人") if target_id else "某人"
+        )
+
+        content = f"收到一条 {notice_subtype} 类型的平台通知。"
+        if notice_subtype == "member_increase":
+            content = (
+                f"{operator_uid} 邀请 {target_uid} 加入了群聊。"
+                if notice_data.get("join_type") != "approve"
+                else f"{target_uid} 加入了群聊。"
+            )
+        elif notice_subtype == "member_decrease":
+            content = (
+                f"{operator_uid} 将 {target_uid} 移出了群聊。"
+                if notice_data.get("leave_type") == "kick"
+                else f"{target_uid} 退出了群聊。"
+            )
+        elif notice_subtype == "recalled":
+            content = f"{operator_uid} 撤回了一条消息。"
+
+        return f"[{time_str}] [NOTICE]: {content}"
+
+
+async def _fetch_and_prepare_events(
+    event_storage: "EventStorageService",
+    conversation_id: str,
+    raw_events_from_caller: list[dict] | None,
+) -> list[Event]:
+    """获取、转换并去重事件列表."""
+    event_dicts = raw_events_from_caller
+    if event_dicts is None:
+        event_dicts = await event_storage.get_recent_chat_message_documents(
+            conversation_id=conversation_id, limit=50, fetch_all_event_types=False
+        )
+
+    raw_events: list[Event] = []
+    if not event_dicts:
+        return raw_events
+
+    for event_dict in event_dicts:
+        try:
+            raw_events.append(Event.from_dict(event_dict))
+        except Exception as e:
+            logger.bind(event_dict=event_dict).error(
+                f"转换DB事件字典为Event对象失败: {e}", exc_info=True
+            )
+
+    # 去重并排序
+    unique_events: dict[str, Event] = {}
+    for event in sorted(raw_events, key=lambda e: e.time, reverse=True):
+        key = (
+            f"msg_{event.get_message_id()}" if event.get_message_id() else f"core_{event.event_id}"
+        )
+        if key not in unique_events:
+            unique_events[key] = event
+
+    return sorted(unique_events.values(), key=lambda e: e.time)
 
 
 async def format_chat_history_for_llm(
     event_storage: "EventStorageService",
     conversation_id: str,
-    bot_id: str,
-    platform: str,
     bot_profile: dict,
     conversation_type: str,
     conversation_name: str | None,
@@ -32,523 +365,59 @@ async def format_chat_history_for_llm(
     is_first_turn: bool,
     raw_events_from_caller: list[dict[str, Any]] | None = None,
 ) -> tuple[PromptComponents, list[Event]]:
-    """通用的聊天记录格式化工具.
+    """通用的聊天记录格式化工具（Orchestrator）.
 
-    该函数会从数据库（或直接传入的事件列表）中获取事件，并将其格式化为适合大语言模型（LLM）处理的结构，
-    包括用户映射、聊天记录格式化以及图片等内容的处理。
-    最终，所有相关信息会被封装到 `PromptComponents` 容器中返回。
-
-    Args:
-        event_storage: 事件存储服务实例。
-        conversation_id: 目标会话的ID。
-        bot_id: 祂的ID。
-        platform: 平台名称，例如 'qq'。
-        bot_profile: 祂在该会话中的用户信息。
-        conversation_type: 会话类型（如 "group" 或 "private"）。
-        conversation_name: 会话名称。
-        last_processed_timestamp: 上次处理的时间戳，用于区分已读和未读消息。
-        is_first_turn: 是否为本次专注模式的第一次调用。
-        raw_events_from_caller: （可选）直接传入的事件列表，若不提供则从数据库获取。
-
-    Returns:
-        一个元组，包含：
-        - 填充好的 `PromptComponents` 对象。
-        - 本次处理过的原始 `Event` 对象列表。
+    它编排一系列辅助方法来获取、处理和格式化聊天记录及相关元数据.
     """
-    # 确保有一个地方可以临时存放图片数据
-    temp_image_dir = config.runtime_environment.temp_file_directory
-    os.makedirs(temp_image_dir, exist_ok=True)
+    # 1. 获取、转换并去重事件
+    prepared_events = await _fetch_and_prepare_events(
+        event_storage, conversation_id, raw_events_from_caller
+    )
 
-    # 决定是从数据库获取事件还是使用调用者传入的原始事件
-    if raw_events_from_caller is not None:
-        event_dicts = raw_events_from_caller
-    else:
-        event_dicts = await event_storage.get_recent_chat_message_documents(
-            conversation_id=conversation_id,
-            limit=50,  # 每次最多获取50条消息
-            fetch_all_event_types=False,
-        )
+    # 2. 初始化辅助类，它将处理所有复杂的格式化逻辑
+    formatter = _ChatHistoryFormatter(
+        session_events=prepared_events,
+        bot_profile=bot_profile,
+        conversation_type=conversation_type,
+        last_processed_timestamp=last_processed_timestamp,
+        is_first_turn=is_first_turn,
+    )
 
-    # 把字典列表转换为 Event 对象列表
-    raw_events: list[Event] = []
-    if event_dicts:
-        for event_dict in event_dicts:
-            try:
-                content_segs_data = event_dict.get("content", [])
-                content_segs = [
-                    Seg(type=s_data.get("type", "unknown"), data=s_data.get("data", {}))
-                    for s_data in content_segs_data
-                    if isinstance(s_data, dict)
-                ]
-                user_info_dict = event_dict.get("user_info")
-                protocol_user_info = (
-                    UserInfo.from_dict(user_info_dict)
-                    if user_info_dict and isinstance(user_info_dict, dict)
-                    else None
-                )
-                conv_info_dict = event_dict.get("conversation_info")
-                protocol_conv_info = (
-                    ConversationInfo.from_dict(conv_info_dict)
-                    if conv_info_dict and isinstance(conv_info_dict, dict)
-                    else None
-                )
-                motivation = event_dict.pop("motivation", None)
-                event_obj = Event(
-                    event_id=str(
-                        event_dict.get("event_id", event_dict.get("_key", str(uuid.uuid4())))
-                    ),
-                    event_type=str(event_dict.get("event_type", "unknown")),
-                    time=float(event_dict.get("timestamp", event_dict.get("time", 0.0))),
-                    bot_id=str(event_dict.get("bot_id", bot_id)),
-                    content=content_segs,
-                    user_info=protocol_user_info,
-                    conversation_info=protocol_conv_info,
-                    raw_data=event_dict,
-                )
-                if motivation:
-                    event_obj.motivation = motivation
-                raw_events.append(event_obj)
-            except Exception as e_conv:
-                logger.bind(event_dict=event_dict).error(
-                    f"将数据库事件字典转换为Event对象时出错: {e_conv}", exc_info=True
-                )
-
-    # 去重，确保每个消息只出现一次
-    if raw_events:
-        unique_events_dict: dict[str, Event] = {}
-        for event_obj in sorted(raw_events, key=lambda e: e.time, reverse=True):
-            dedup_key: str | None = None
-            if event_obj.event_type.startswith("message.") and (
-                platform_msg_id := event_obj.get_message_id()
-            ):
-                dedup_key = f"msg_{platform_msg_id}"
-            if not dedup_key:
-                dedup_key = f"core_{event_obj.event_id}"
-            if dedup_key not in unique_events_dict:
-                unique_events_dict[dedup_key] = event_obj
-        raw_events = sorted(unique_events_dict.values(), key=lambda e: e.time)
-
-    # 准备用户映射和平台ID到UID的映射
-    user_map: dict[str, dict[str, Any]] = {}
-    platform_id_to_uid_str: dict[str, str] = {}
-    uid_counter = 0
-    conversation_name_str = conversation_name or "未知会话"
-
-    # 先把祂自己加进去
-    final_bot_id = str(bot_profile.get("user_id", bot_id))
-    final_bot_nickname = bot_profile.get("nickname", config.persona.bot_name or "bot")
-    final_bot_card = bot_profile.get("card", final_bot_nickname)
-    platform_id_to_uid_str[final_bot_id] = "U0"
-    user_map[final_bot_id] = {
-        "uid_str": "U0",
-        "nick": final_bot_nickname,
-        "card": final_bot_card,
-        "title": bot_profile.get("title", ""),
-        "perm": bot_profile.get("role", "成员"),
-    }
-
-    # 从最新的消息里获取会话名称
-    if raw_events:
-        for event in reversed(raw_events):
+    # 3. 生成各个文本块
+    final_conversation_name = conversation_name or "未知会话"
+    if prepared_events:
+        for event in reversed(prepared_events):
             if event.conversation_info and event.conversation_info.name:
-                conversation_name_str = event.conversation_info.name
+                final_conversation_name = event.conversation_info.name
                 break
 
-    # 把其他人的用户信息也加进来
-    for event_data in raw_events:
-        if event_data.user_info and event_data.user_info.user_id:
-            p_user_id = event_data.user_info.user_id
-            if p_user_id not in platform_id_to_uid_str:
-                uid_counter += 1
-                uid_str = f"U{uid_counter}"
-                platform_id_to_uid_str[p_user_id] = uid_str
-
-                remark = None
-                if hasattr(event_data.user_info, "extra") and event_data.user_info.extra:
-                    remark = event_data.user_info.extra.get("friend_remark")
-
-                user_map[p_user_id] = {
-                    "uid_str": uid_str,
-                    "nick": event_data.user_info.user_nickname or f"用户{p_user_id[:4]}",
-                    "card": (
-                        remark
-                        or event_data.user_info.user_cardname
-                        or (event_data.user_info.user_nickname or f"用户{p_user_id[:4]}")
-                    ),
-                    "title": event_data.user_info.user_titlename or "",
-                    "perm": event_data.user_info.permission_level or "成员",
-                }
-
-    # 准备好会话信息和用户列表的文字块
-    conversation_info_block_str = f"""- conversation_name: "{conversation_name_str}"
-        - conversation_type: "{conversation_type}"
-    """
-
-    user_list_lines = []
-    sorted_user_platform_ids = sorted(
-        user_map.keys(), key=lambda pid_sort: int(user_map[pid_sort]["uid_str"][1:])
+    conversation_info_block = (
+        f'- conversation_name: "{final_conversation_name}"\n'
+        f'- conversation_type: "{conversation_type}"'
     )
-    for p_id_list in sorted_user_platform_ids:
-        user_data_item = user_map[p_id_list]
-        user_identity_suffix = "（你）" if user_data_item["uid_str"] == "U0" else ""
-        if conversation_type == "private":
-            user_line = (
-                f"{user_data_item['uid_str']}: {p_id_list}{user_identity_suffix} "
-                f"[nick:{user_data_item['nick']}, card:{user_data_item['card']}]"
-            )
-        else:
-            user_line = (
-                f"{user_data_item['uid_str']}: {p_id_list}{user_identity_suffix} "
-                f"[nick:{user_data_item['nick']}, card:{user_data_item['card']}, "
-                f"{f'title:{user_data_item["title"]}, ' if user_data_item['title'] else ''}"
-                f"perm:{user_data_item['perm']}]"
-            )
-        user_list_lines.append(user_line)
-    user_list_block_str = "\n".join(user_list_lines)
+    user_list_block = formatter.format_user_list_block()
+    chat_history_log_block = formatter.format_chat_log_block()
 
-    # --- 开始构建聊天记录 (已应用“视觉窗口”逻辑) ---
-    chat_log_lines: list[str] = []
-    image_references_for_llm: list[str] = []
-    unread_section_started = False
-    last_valid_text_message: str | None = None
-    added_platform_message_ids_for_log: set[str] = set()
-
-    # 这里我们需要一个映射，方便后续处理消息的用户ID
-    message_id_to_event_map: dict[str, Event] = {}
-    for event in raw_events:
-        if msg_id := event.get_message_id():
-            message_id_to_event_map[msg_id] = event
-
-    # +++ 关键修改 1: 引入图片引用计数器 +++
-    image_ref_counter = 0
-
-    total_events = len(raw_events)
-    for i, event_data_log in enumerate(raw_events):
-        log_line = ""
-        msg_id_for_display = event_data_log.get_message_id() or event_data_log.event_id
-
-        # 判断当前事件是否在“视觉窗口”内
-        # (total_events - 1 - i) 是从后往前的索引，0 代表最新一条
-        is_in_viewport = (total_events - 1 - i) < VISUAL_VIEWPORT_SIZE
-
-        # 标记已读/未读的
-        if (
-            not is_first_turn
-            and event_data_log.time > last_processed_timestamp
-            and not unread_section_started
-        ):
-            if chat_log_lines:
-                read_marker_time_obj = datetime.fromtimestamp(last_processed_timestamp / 1000.0)
-                chat_log_lines.append(
-                    f"--- 以上消息是你已经思考过的内容，已读 "
-                    f"(标记时间: {read_marker_time_obj.strftime('%H:%M:%S')}) ---"
-                )
-            chat_log_lines.append("--- 请关注以下未读的新消息---")
-            unread_section_started = True
-
-        time_str = datetime.fromtimestamp(event_data_log.time / 1000.0).strftime("%H:%M:%S")
-        log_user_id_str = "SYS"
-        if event_data_log.user_info and event_data_log.user_info.user_id:
-            log_user_id_str = platform_id_to_uid_str.get(
-                event_data_log.user_info.user_id,
-                f"UnknownUser({event_data_log.user_info.user_id[:4]})",
-            )
-
-        is_self_msg = log_user_id_str == "U0" and (
-            event_data_log.event_type.startswith("message.")
-            or event_data_log.event_type == "action.message.send"
-        )
-
-        # 处理普通消息
-        if event_data_log.event_type.startswith("message.") or is_self_msg:
-            if current_platform_msg_id := event_data_log.get_message_id():
-                if current_platform_msg_id in added_platform_message_ids_for_log:
-                    continue
-                added_platform_message_ids_for_log.add(current_platform_msg_id)
-
-            main_content_parts = []
-            main_content_type = "MSG"
-            quote_display_str = ""
-            # 1. 在处理每条新消息前，为这条消息初始化一个图片分析索引
-            image_analysis_index = 0
-
-            for seg in event_data_log.content:
-                if seg.type == "video":
-                    if is_in_viewport:
-                        image_ref_counter += 1
-                        placeholder = f"[GIF_{image_ref_counter}]"
-                        main_content_parts.append(placeholder)
-
-                        if base64_data := seg.data.get("base64"):
-                            # 直接使用适配器传来的 mime_type
-                            mime_type = seg.data.get("mime_type", "video/mp4")
-                            data_uri = f"data:{mime_type};base64,{base64_data}"
-                            image_references_for_llm.append(data_uri)
-                    else:
-                        # 对于窗口外的内容，我们暂时没有视频分析，给一个文本描述
-                        main_content_parts.append("[GIF]")
-                elif seg.type == "image":
-                    if is_in_viewport:
-                        # 生成唯一的占位符
-                        image_ref_counter += 1
-                        is_sticker = seg.data.get("summary") == "sticker"
-                        placeholder = (
-                            f"[{'动画表情' if is_sticker else '图片'}_{image_ref_counter}]"
-                        )
-                        main_content_parts.append(placeholder)
-
-                        if base64_data := seg.data.get("base64"):
-                            try:
-                                mime_type = seg.data.get("mime_type", "image/jpeg")
-                                data_uri = f"data:{mime_type};base64,{base64_data}"
-                                image_references_for_llm.append(data_uri)
-                            except Exception as e:
-                                logger.error(f"处理图片Data URI时失败: {e}", exc_info=True)
-                                if url := seg.data.get("url"):
-                                    image_references_for_llm.append(url)
-                        elif url := seg.data.get("url"):
-                            image_references_for_llm.append(url)
-                    else:
-                        # **印象区域 (窗口外)**: 展示文字描述
-                        analysis_list = (
-                            event_data_log.raw_data.get("image_analysis")
-                            if event_data_log.raw_data
-                            else None
-                        )
-
-                        description = "[图片]"  # Fallback
-
-                        # 2. 检查分析列表是否存在，并且我们的索引没有越界
-                        if (
-                            analysis_list
-                            and isinstance(analysis_list, list)
-                            and image_analysis_index < len(analysis_list)
-                        ):
-                            # 3. 使用当前的索引来获取正确的分析结果
-                            analysis_item = analysis_list[image_analysis_index]
-
-                            details = analysis_item.get("details", {})
-                            desc_text = details.get("description", "图片")
-                            prefix = "表情包" if analysis_item.get("type") == "sticker" else "图片"
-                            description = f"[{prefix}: {desc_text}]"
-
-                        main_content_parts.append(description)
-                        # 4. 关键：无论十分成功，将索引向前移动一位，为下一张图片做准备
-                        image_analysis_index += 1
-
-                elif seg.type == "text":
-                    main_content_parts.append(seg.data.get("text", ""))
-                # 处理其他类型的消息段
-                elif seg.type == "quote":
-                    quoted_message_id = seg.data.get("message_id", "unknown_id")
-                    if quoted_user_id := seg.data.get("user_id"):
-                        quoted_user_uid = platform_id_to_uid_str.get(
-                            str(quoted_user_id), f"未知用户({str(quoted_user_id)[:4]})"
-                        )
-                        quote_display_str = f"引用/回复 {quoted_user_uid}(id:{quoted_message_id})"
-                    else:
-                        original_message_event = message_id_to_event_map.get(quoted_message_id)
-                        if original_message_event and original_message_event.user_info:
-                            original_sender_id = original_message_event.user_info.user_id
-                            quoted_user_uid = platform_id_to_uid_str.get(
-                                original_sender_id, f"未知用户({original_sender_id[:4]})"
-                            )
-                            quote_display_str = (
-                                f"引用/回复 {quoted_user_uid}(id:{quoted_message_id})"
-                            )
-                        else:
-                            quote_display_str = f"引用/回复 (id:{quoted_message_id})"
-                elif seg.type == "at":
-                    at_user_id = seg.data.get("user_id")
-                    at_display_name = seg.data.get("display_name")
-                    if at_user_id and at_user_id in platform_id_to_uid_str:
-                        at_display_name = platform_id_to_uid_str[at_user_id]
-                    elif not at_display_name and at_user_id:
-                        at_display_name = f"@{at_user_id}"
-                    elif not at_display_name:
-                        at_display_name = "@未知用户"
-                    main_content_parts.append(f"@{at_display_name} ")
-                elif seg.type == "face":
-                    face_id = seg.data.get("id", "未知表情")
-                    main_content_parts.append(f"[表情:{face_id}]")
-                elif seg.type == "file":
-                    main_content_type = "FILE"
-                    file_name = seg.data.get("name", "未知文件")
-                    file_size = seg.data.get("size", 0)
-                    main_content_parts.append(f"[FILE:{file_name} ({file_size} bytes)]")
-
-            main_content_str = "".join(main_content_parts).strip()
-            if text_only := extract_text_from_content(event_data_log.content):
-                last_valid_text_message = text_only
-
-            display_tag = (
-                f"{main_content_type}{', ' + quote_display_str if quote_display_str else ''}"
-            )
-            log_line = (
-                f"[{time_str}] {log_user_id_str} [{display_tag}]: "
-                f"{main_content_str} (id:{msg_id_for_display})"
-            )
-            # 检查 Event 对象上是否存在 motivation 属性
-            if (
-                log_user_id_str == "U0"
-                and hasattr(event_data_log, "motivation")
-                and event_data_log.motivation
-            ):
-                # [FIX] 从 Event 对象上直接访问 motivation 属性，而不是使用 .get()
-                # [DEBUG] 添加日志，确认动机被正确读取
-                # logger.debug(
-                #     f"Event(id:{event_data_log.event_id}) 包含动机: '{event_data_log.motivation}'"
-                # )
-                log_line += f"\n    - [MOTIVE]: {event_data_log.motivation}"
-
-        elif event_data_log.event_type.startswith("notice."):
-            main_content_parts = []  # 确保这里也初始化了
-            main_content_type = "NOTICE"
-            notice_data = event_data_log.content[0].data if event_data_log.content else {}
-            # 从事件类型里把具体的通知类型抠出来，比如 'member_increase'
-            notice_subtype = event_data_log.event_type.split(".")[-1]
-
-            # 开始区分不同的通知类型
-            if notice_subtype == "member_increase":
-                operator_info = notice_data.get("operator_user_info", {})
-                operator_id = operator_info.get("user_id") if operator_info else None
-                operator_uid = (
-                    platform_id_to_uid_str.get(operator_id, f"未知用户({str(operator_id)[:4]})")
-                    if operator_id
-                    else "系统"
-                )
-
-                target_id = event_data_log.user_info.user_id if event_data_log.user_info else None
-                target_uid = (
-                    platform_id_to_uid_str.get(target_id, f"未知用户({str(target_id)[:4]})")
-                    if target_id
-                    else "一位新成员"
-                )
-
-                if notice_data.get("join_type") == "approve":
-                    main_content_parts.append(f"{target_uid} 加入了群聊。")
-                else:
-                    main_content_parts.append(f"{operator_uid} 邀请 {target_uid} 加入了群聊。")
-
-            elif notice_subtype == "member_decrease":
-                operator_info = notice_data.get("operator_user_info", {})
-                operator_id = operator_info.get("user_id") if operator_info else None
-                operator_uid = (
-                    platform_id_to_uid_str.get(operator_id, f"未知用户({str(operator_id)[:4]})")
-                    if operator_id
-                    else "系统"
-                )
-
-                target_id = event_data_log.user_info.user_id if event_data_log.user_info else None
-                target_uid = (
-                    platform_id_to_uid_str.get(target_id, f"未知用户({str(target_id)[:4]})")
-                    if target_id
-                    else "一位成员"
-                )
-
-                if notice_data.get("leave_type") == "kick":
-                    main_content_parts.append(f"{operator_uid} 将 {target_uid} 移出了群聊。")
-                else:
-                    main_content_parts.append(f"{target_uid} 退出了群聊。")
-
-            elif notice_subtype == "member_ban":
-                operator_info = notice_data.get("operator_user_info", {})
-                operator_id = operator_info.get("user_id") if operator_info else None
-                operator_uid = (
-                    platform_id_to_uid_str.get(operator_id, "管理员") if operator_id else "管理员"
-                )
-
-                target_info = notice_data.get("target_user_info", {})
-                target_id = target_info.get("user_id") if target_info else None
-                target_uid = (
-                    platform_id_to_uid_str.get(target_id, "一位成员") if target_id else "一位成员"
-                )
-
-                duration = notice_data.get("duration_seconds", 0)
-                if duration > 0:
-                    main_content_parts.append(
-                        f"{operator_uid} 将 {target_uid} 禁言了 {duration} 秒。"
-                    )
-                else:
-                    main_content_parts.append(f"{operator_uid} 解除了 {target_uid} 的禁言。")
-
-            elif notice_subtype == "recalled":
-                operator_info = notice_data.get("operator_user_info", {})
-                operator_id = operator_info.get("user_id") if operator_info else None
-                operator_uid = (
-                    platform_id_to_uid_str.get(operator_id, "一位用户")
-                    if operator_id
-                    else "一位用户"
-                )
-                main_content_parts.append(f"{operator_uid} 撤回了一条消息。")
-
-            elif notice_subtype == "poke":
-                sender_info = notice_data.get("sender_user_info", {})
-                sender_id = sender_info.get("user_id") if sender_info else None
-                sender_uid = (
-                    platform_id_to_uid_str.get(sender_id, "一位用户") if sender_id else "一位用户"
-                )
-
-                target_info = notice_data.get("target_user_info", {})
-                target_id = target_info.get("user_id") if target_info else None
-                target_uid = (
-                    platform_id_to_uid_str.get(target_id, "一位用户") if target_id else "一位用户"
-                )
-                main_content_parts.append(f"{sender_uid} 戳了戳 {target_uid}。")
-
-            else:
-                # 对于其他不认识的通知，就随便糊弄一下
-                main_content_parts.append(f"收到一条 {notice_subtype} 类型的平台通知。")
-
-            main_content_str = "".join(main_content_parts).strip()
-            log_line = f"[{time_str}] [{main_content_type}]: {main_content_str}"
-
-        elif event_data_log.event_type == "internal.focus_chat_mode.thought_log":
-            motivation_text = extract_text_from_content(event_data_log.content)
-
-            # log_user_id_str 可能是 U0
-            log_line = f"[{time_str}] {log_user_id_str} [MOTIVE]: {motivation_text}"
-        else:  # 其他类型的事件
-            content_preview = extract_text_from_content(event_data_log.content)
-            event_type_display = event_data_log.event_type.split(".")[-1].upper()
-            log_line = (
-                f"[{time_str}] {log_user_id_str} [{event_type_display}]: "
-                f"{content_preview[:30]}{'...' if len(content_preview) > 30 else ''} "
-                f"(id:{event_data_log.event_id})"
-            )
-
-        if log_line:  # 只有当 log_line 被赋值后才添加
-            chat_log_lines.append(log_line)
-
-    if not is_first_turn and not unread_section_started and chat_log_lines:
-        marker_ts = raw_events[-1].time if raw_events else last_processed_timestamp
-        read_marker_time_obj = datetime.fromtimestamp(marker_ts / 1000.0)
-        chat_log_lines.append(
-            f"--- 以上消息是你已经思考过的内容，已读 "
-            f"(标记时间: {read_marker_time_obj.strftime('%H:%M:%S')}) ---"
-        )
-
-    chat_history_log_block_str = "\n".join(chat_log_lines) or "当前没有聊天记录。"
-
-    # 收集需要标记为已读的事件ID
+    # 4. 收集需要标记为已读的事件ID
     processed_event_ids = [
         event.event_id
-        for event in raw_events
+        for event in prepared_events
         if event.event_type.startswith("message.") and event.time > last_processed_timestamp
     ]
 
-    # 准备好反向的用户ID映射
-    uid_str_to_platform_id_map = {uid: pid for pid, uid in platform_id_to_uid_str.items()}
-
-    # 最后，把所有零件组合成一个 PromptComponents 对象
-    return PromptComponents(
-        chat_history_log_block=chat_history_log_block_str,
-        user_list_block=user_list_block_str,
-        conversation_info_block=conversation_info_block_str,
-        user_map=user_map,
-        uid_str_to_platform_id_map=uid_str_to_platform_id_map,
+    # 5. 组装并返回最终结果
+    components = PromptComponents(
+        chat_history_log_block=chat_history_log_block,
+        user_list_block=user_list_block,
+        conversation_info_block=conversation_info_block,
+        user_map=formatter.user_map,
+        uid_str_to_platform_id_map={
+            uid: pid for pid, uid in formatter.platform_id_to_uid_str.items()
+        },
         processed_event_ids=processed_event_ids,
-        image_references=image_references_for_llm,
-        conversation_name=conversation_name_str,
-        last_valid_text_message=last_valid_text_message,
-    ), raw_events
+        image_references=formatter.image_references_for_llm,
+        conversation_name=final_conversation_name,
+        last_valid_text_message=formatter.last_valid_text_message,
+    )
+
+    return components, prepared_events
