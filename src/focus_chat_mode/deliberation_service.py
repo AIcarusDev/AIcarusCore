@@ -2,6 +2,9 @@
 from typing import TYPE_CHECKING, Any
 
 from src.common.custom_logging.logging_config import get_logger
+
+# 导入你的 JSON 解析工具
+from src.common.json_parser.json_parser import parse_llm_json_response
 from src.common.time_utils import get_formatted_time_for_llm
 from src.config import config
 from src.llmrequest.llm_processor import Client as LLMProcessorClient
@@ -75,19 +78,26 @@ class DeliberationService:
                 opinions_block=opinions_block,
             )
 
-            deliberation_result_json = await self.deliberation_llm_client.make_llm_request(
+            raw_llm_response = await self.deliberation_llm_client.make_llm_request(
                 prompt=user_prompt,
                 system_prompt=system_prompt,
                 is_stream=False,
                 response_schema=DELIBERATION_RESPONSE_SCHEMA,
             )
 
-            if (
-                not deliberation_result_json
-                or deliberation_result_json.get("error")
-                or "resolution" not in deliberation_result_json
-            ):
-                logger.error(f"慢思考LLM调用失败或返回结果格式不正确: {deliberation_result_json}")
+            # 1. 检查原始响应是否有错误
+            if not raw_llm_response or raw_llm_response.get("error"):
+                logger.error(f"慢思考LLM调用失败: {raw_llm_response}")
+                return None
+
+            # 2. 从 'text' 字段中提取 JSON 字符串并进行解析
+            deliberation_result_json = parse_llm_json_response(raw_llm_response.get("text"))
+
+            # 3. 使用解析后的 JSON 对象进行验证
+            if not deliberation_result_json or "resolution" not in deliberation_result_json:
+                logger.error(
+                    f"慢思考LLM返回结果格式不正确或解析失败: {raw_llm_response.get('text')}"
+                )
                 return None
 
             resolution = deliberation_result_json["resolution"]
