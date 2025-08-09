@@ -570,11 +570,8 @@ class ThoughtPromptBuilder:
             return "未知状态"
 
         try:
-
             if "." not in conv_id:
-                raise PromptBuilderError(
-                    f"无效的会话ID格式 '{conv_id}'。它必须是 'type.id' 格式。"
-                )
+                raise PromptBuilderError(f"无效的会话ID格式 '{conv_id}'。它必须是 'type.id' 格式。")
 
             # 1. 将路径的会话部分 (e.g., 'group.123456') 分割成类型和ID
             conv_type, actual_id = conv_id.split(".", 1)
@@ -722,7 +719,6 @@ class ThoughtPromptBuilder:
             )
         elif level == "cellular" and conv_id:
             try:
-
                 if "." not in conv_id:
                     raise PromptBuilderError(
                         f"无效的会话ID格式 '{conv_id}'。它必须是 'type.id' 格式。"

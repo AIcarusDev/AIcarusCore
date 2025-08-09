@@ -109,9 +109,7 @@ class ChatSession:
 
         # --- 步骤 2: 缓存未命中，直接、精确地从数据库获取当前平台实体 ---
         # 移除了原有的 "获取全部再查找" 的低效逻辑
-        entity_doc = await self.entity_graph_service.get_self_entity_by_platform(
-            self.platform
-        )
+        entity_doc = await self.entity_graph_service.get_self_entity_by_platform(self.platform)
 
         if not (entity_doc and isinstance(entity_doc, dict)):
             logger.warning(f"[{self.conversation_id}] 未找到祂有效的全局档案。将使用临时基础档案。")

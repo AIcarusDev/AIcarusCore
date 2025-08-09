@@ -101,9 +101,7 @@ class CoreLogic:
         try:
             # 在分割前，验证会话部分是否包含预期的分隔符
             if "." not in conv_id_part:
-                logger.error(
-                    f"无效的焦点路径会话部分: '{conv_id_part}'。它必须是 'type.id' 格式。"
-                )
+                logger.error(f"无效的焦点路径会话部分: '{conv_id_part}'。它必须是 'type.id' 格式。")
                 return None
 
             # 1. 将路径的会话部分 (e.g., 'group.123456') 分割成类型和ID

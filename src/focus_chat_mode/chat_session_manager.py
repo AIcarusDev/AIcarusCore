@@ -241,9 +241,7 @@ class ChatSessionManager:
         # 如果是“慢思考”指令，则进入深度思考流程
         if command == "deep_think":
             logger.info(f"检测到 [慢思考]，参数: {params}，正在进入深度思考...")
-            return await self.deliberation_service.execute(
-                params, current_internal_state, session
-            )
+            return await self.deliberation_service.execute(params, current_internal_state, session)
 
         # 其他所有已知指令都属于注意力转移
         logger.info(f"检测到 [注意力转移]，指令: {command}, 参数: {params}, 正在处理...")
