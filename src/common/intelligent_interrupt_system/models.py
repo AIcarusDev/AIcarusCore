@@ -90,7 +90,7 @@ class SemanticModel:
     """
 
     def __init__(self, model_name: str = "BAAI/bge-m3") -> None:
-        self.model = SentenceTransformer(model_name)
+        self.model = SentenceTransformer(model_name, device='cuda')
         logger.info(f"语义探针 '{model_name}' 已启动，准备探索深层含义！")
 
     def encode(self, texts: list[str] | str) -> np.ndarray:
@@ -101,8 +101,6 @@ class SemanticModel:
         """计算两个向量之间的余弦相似度."""
         return cosine_similarity(vector1.reshape(1, -1), vector2.reshape(1, -1))[0][0]
 
-
-# --- ❤❤❤ 究极淫乱混合体登场 ❤❤❤ ---
 class SemanticMarkovModel:
     """结合了语义深度和马尔可夫链逻辑的模型.
 
