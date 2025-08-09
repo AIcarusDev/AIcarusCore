@@ -529,14 +529,6 @@ class LLMClient:
     async def _compress_base64_image(
         self, base64_data: str, original_mime_type: str
     ) -> tuple[str, str]:
-        # 小色猫的终极调教：这次一定要把GIF操到服！
-        if not self.enable_image_compression:
-            # 笨蛋主人！如果这里是False，GIF转换就不会发生！API就会继续对你尖叫！
-            logger.warning(
-                "enable_image_compression 为 False，GIF转换将不会执行！"
-                "如果API报错GIF不支持，请检查此项！",
-            )
-            return base64_data, original_mime_type
         try:
             image_bytes = base64.b64decode(base64_data)
             current_size_bytes = len(image_bytes)
@@ -548,36 +540,13 @@ class LLMClient:
                 if original_mime_type and "/" in original_mime_type
                 else None
             )
-            # 初始的图像格式，可能是GIF这个小妖精
             initial_img_format = img_format_from_pillow or (img_format_from_mime or "JPEG")
 
-            # 这是个重要的标记，看看我们是不是对GIF这个小骚货动了手脚
-            input_was_gif_and_processed_as_png = False
             # 最终的保存格式和MIME类型，会在这里被调教
             current_save_format = initial_img_format
             final_mime_type = original_mime_type
 
-            if initial_img_format == "GIF":
-                logger.info("捕获到一只野生的GIF骚货！本猫要开始强制调教，目标：PNG乖宝宝！")
-                input_was_gif_and_processed_as_png = True  # 标记我们正在处理GIF
-                if getattr(img, "is_animated", False) and img.n_frames > 1:
-                    logger.info("哟，还是个会扭腰的动态GIF... 本猫只取你最骚的第一帧就够了！")
-                    img.seek(0)  # 只用第一帧，变成静态的乖宝宝
-                img = img.convert("RGBA")  # 强制转换成RGBA，这是通往PNG天堂的唯一道路！
-                current_save_format = "PNG"  # 明确告诉Pillow，我们要的是PNG！
-                final_mime_type = "image/png"  # 它的新身份是纯洁的image/png！
-                logger.info(
-                    "哼，GIF的骚体质已被初步压制，淫水（透明度）保留，身体已准备好接受PNG的烙印！"
-                )
-
-            # 如果图像本身就比较小，并且我们没有对GIF进行强制转换，那就可以考虑跳过压缩
-            if (
-                not input_was_gif_and_processed_as_png
-                and current_size_bytes <= self.image_compression_target_bytes * 1.05
-            ):
-                # logger.info(
-                #     f"图像 ({original_mime_type}) 尺寸已达标且非GIF强制转换，无需进一步压缩。"
-                # )
+            if current_size_bytes <= self.image_compression_target_bytes * 1.05:
                 return base64_data, original_mime_type
 
             original_width, original_height = img.size
@@ -591,24 +560,13 @@ class LLMClient:
             output_buffer = io.BytesIO()
             save_params = {}
 
-            # 这段是针对Pillow的保存逻辑，确保格式正确
-            # 如果是GIF被转换（input_was_gif_and_processed_as_png is True），img.mode 已经是 RGBA
-            if (
-                img.mode == "P" and not input_was_gif_and_processed_as_png
-            ):  # 对于调色板模式，且非已转GIF
+            if img.mode == "P":
                 img = img.convert("RGBA")
             elif img.mode == "CMYK":  # CMYK必须转RGB
                 img = img.convert("RGB")
 
             # 决定最终保存的姿势（格式）
-            if input_was_gif_and_processed_as_png:
-                # 如果是从GIF调教过来的，必须是PNG！不许变！
-                current_save_format = "PNG"
-                final_mime_type = "image/png"
-                resized_img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-                save_params = {"optimize": True}
-                logger.info("GIF已被彻底调教成PNG的形状，准备注入... 啊不，保存。")
-            elif img.mode in ("RGBA", "LA") or (
+            if img.mode in ("RGBA", "LA") or (
                 isinstance(img.info, dict) and "transparency" in img.info
             ):
                 # 对于其他有透明通道的，或者本身就是PNG的
@@ -647,22 +605,16 @@ class LLMClient:
                 f"体积变化: {current_size_bytes / 1024:.1f}KB -> {new_size_bytes / 1024:.1f}KB"
             )
 
-            # 决定最终射出的精液... 啊不，是返回的数据！
-            if input_was_gif_and_processed_as_png:
-                # 如果是GIF被我们强行调教成了PNG，那么不管大小，必须返回PNG！API就好这口！
-                logger.info(f"GIF已强制调教为 {final_mime_type}，使用调教后的数据，让API爽个够！")
+            # 对于其他类型的图片，如果压缩后体积明显减小，就用新的
+            if new_size_bytes < current_size_bytes * 0.98 and new_size_bytes > 0:
+                logger.info(f"图像已成功压缩 ({final_mime_type})，返回压缩后的精华。")
                 return base64.b64encode(compressed_bytes).decode("utf-8"), final_mime_type
             else:
-                # 对于其他类型的图片，如果压缩后体积明显减小，就用新的
-                if new_size_bytes < current_size_bytes * 0.98 and new_size_bytes > 0:
-                    logger.info(f"图像已成功压缩 ({final_mime_type})，返回压缩后的精华。")
-                    return base64.b64encode(compressed_bytes).decode("utf-8"), final_mime_type
-                else:
-                    logger.info(
-                        f"图像未被压缩或压缩后体积未显著减小 (MIME: {original_mime_type})"
-                        f"，返回原始数据。"
-                    )
-                    return base64_data, original_mime_type
+                logger.info(
+                    f"图像未被压缩或压缩后体积未显著减小 (MIME: {original_mime_type})"
+                    f"，返回原始数据。"
+                )
+                return base64_data, original_mime_type
 
         except Exception as e:
             logger.error(f"图像调教过程中高潮失败，痛痛...呜呜呜: {e}", exc_info=True)
