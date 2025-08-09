@@ -323,7 +323,9 @@ class ThoughtPromptBuilder:
 
             # 规范化动作载荷
             known_platform_keys = platform_builder_registry.get_all_builders().keys()
-            if not any(key in known_platform_keys for key in action_part):
+            if not any(
+                key in known_platform_keys for key in action_part
+                ) and "core" not in action_part:
                 action_part = {"core": action_part}
 
             platform_key = next(iter(action_part), None)
@@ -348,23 +350,64 @@ class ThoughtPromptBuilder:
 
         return f"你刚才执行了动作 “{platform_key}.{action_name}”，得到了以下结果："
 
-    def _post_process_get_list_result(self, result_text: str, platform_key: str) -> str:
-        """[Helper] 对 get_list 动作的结果进行后处理，修复实体ID格式."""
+    # 用于清洗和转换 get_list 结果的辅助函数
+    async def _post_process_get_list_result(self, result_text: str, platform_key: str) -> str:
+        """对 get_list 动作的结果进行后处理，修复实体ID格式、过滤自身和无用字段."""
         try:
+            # 1. 获取AI自身在该平台的ID
+            self_entity = await self.entity_service.get_self_entity_by_platform(platform_key)
+            self_platform_id = str(
+                self_entity.get("details", {}).get("platform_id")
+            ) if self_entity else None
+
+            # 2. 解析JSON
             result_list = json.loads(result_text)
             if not isinstance(result_list, list):
                 return result_text
 
-            for item in result_list:
-                if "user_id" in item:
-                    item["user_id"] = f"{platform_key}_private_{item['user_id']}"
-                elif "group_id" in item:
-                    item["group_id"] = f"{platform_key}_group_{item['group_id']}"
+            # 3. 遍历并清洗
+            cleaned_list = []
+            keys_to_keep = {
+                "birthday_year",
+                "birthday_month",
+                "birthday_day",
+                "user_id",
+                "group_id",
+                "nickname",
+                "remark",
+                "group_name",
+                "sex",
+                "age",
+                "phone_num"
+            }
 
-            return json.dumps(result_list, indent=4, ensure_ascii=False)
+            for item in result_list:
+                if not isinstance(item, dict):
+                    continue
+
+                # 过滤掉AI自己
+                if self_platform_id and str(item.get("user_id")) == self_platform_id:
+                    continue
+
+                cleaned_item = {k: v for k, v in item.items() if k in keys_to_keep}
+
+                # 转换ID为实体UID
+                if "user_id" in cleaned_item:
+                    cleaned_item["user_id"] = build_conversation_entity_uid(
+                        platform_key, "private", str(cleaned_item["user_id"])
+                    )
+                elif "group_id" in cleaned_item:
+                    cleaned_item["group_id"] = build_conversation_entity_uid(
+                        platform_key, "group", str(cleaned_item["group_id"])
+                    )
+
+                cleaned_list.append(cleaned_item)
+
+            # 4. 重新序列化为格式化的JSON字符串
+            return json.dumps(cleaned_list, indent=4, ensure_ascii=False)
         except (json.JSONDecodeError, TypeError) as e:
             logger.warning(f"后处理 get_list 动作结果时失败: {e}")
-            return result_text
+            return result_text # 出错则返回原始文本
 
     async def _build_action_response_desc(self, handover_result: dict | None) -> str:
         """[Orchestrator] 构建上一个动作的结果描述块 (重构后)."""
@@ -374,7 +417,7 @@ class ThoughtPromptBuilder:
         )
 
         # 2. 守卫子句：如果没有有效结果，则提前返回
-        if not action_result_text or "决策中未包含任何行动指令" in action_result_text:
+        if not action_result_text or "决定不行动" in action_result_text:
             return ""
 
         # 3. 解析动作细节
@@ -387,11 +430,20 @@ class ThoughtPromptBuilder:
             platform_key, action_name, action_params
         )
 
-        # 5. 对特定动作结果进行后处理
-        if action_name == "get_list" and platform_key:
-            action_result_text = self._post_process_get_list_result(
-                action_result_text, platform_key
-            )
+        # 5. [修改] 对特定动作结果进行后处理
+        if action_name == "get_list" and platform_key and "详情" not in action_result_text:
+            # ` "详情" not in action_result_text ` 是一个临时检查，避免重复处理已格式化的文本
+            # 更好的方法是检查 `action_result_text` 是否是有效的JSON数组字符串
+            try:
+                # 尝试解析，如果成功说明是原始JSON，需要处理
+                json.loads(action_result_text)
+                action_result_text = await self._post_process_get_list_result(
+                    action_result_text, platform_key
+                )
+            except json.JSONDecodeError:
+                # 如果解析失败，说明可能已经是被处理过的文本，直接使用
+                pass
+
 
         # 6. 格式化并返回最终的XML块
         return f"<action_response>\n{action_desc}\n{action_result_text}\n</action_response>"

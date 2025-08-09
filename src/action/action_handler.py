@@ -34,6 +34,9 @@ ACTION_RESPONSE_TIMEOUT_SECONDS = 30
 MAX_CONTENT_PREVIEW_SIZE = 32768
 MAX_AGGREGATE_SIZE = 65535
 
+# 定义一个集合，包含所有执行后应立即触发思考的信息获取类动作
+# 当前只有get_list是实装的
+INFO_GATHERING_ACTIONS = {"get_list", "get_group_info", "get_bot_profile", "get_history"}
 
 class ActionHandler:
     """处理所有与动作相关的逻辑.
@@ -268,6 +271,14 @@ class ActionHandler:
             await self._execute_platform_action_flow(
                 platform_id, action_name, params, doc_key_for_updates
             )
+            # 在这里为信息获取类动作触发思考
+            if action_name in INFO_GATHERING_ACTIONS and self.thought_trigger:
+                logger.info(
+                    f"信息获取类平台动作 '{platform_id}.{action_name}' 完成 "
+                    f"(Action ID: {action_id})，立即触发新一轮思考。"
+                )
+                self.thought_trigger.set()
+
 
     async def _execute_core_action(self, action_name: str, params: dict) -> str:
         """核心动作的统一分发中心."""
@@ -534,6 +545,39 @@ class ActionHandler:
             logger.error(f"聚合内容时出错 ({source_path_str}): {e}", exc_info=True)
             return f"错误：聚合内容时发生未知错误: {e}"
 
+    # 辅助函数，用于解析和归一化ID
+    def _resolve_target_id(self, action_name: str, params: dict, platform_id: str) -> str | None:
+        """解析并归一化动作参数中的目标ID，支持实体UID和原始平台ID."""
+        id_key = "user_id" if "friend" in action_name else "group_id"
+        target_id_str = params.get(id_key)
+
+        # 1. 如果ID缺失（只在会话层合法），从当前会话上下文推断
+        if not target_id_str:
+            if self.core_logic and (session := self.core_logic._get_current_session()):
+                # 从会话的 entity_uid (e.g., qq_private_12345) 中提取原始ID
+                try:
+                    return session.conversation_id.split("_")[-1]
+                except (IndexError, AttributeError):
+                    logger.error("无法从当前会话上下文中推断目标ID。")
+                    return None
+            else:
+                logger.error(f"动作 '{action_name}' 缺少必要的 '{id_key}' 且不在会话上下文中。")
+                return None
+
+        # 2. 如果ID存在，判断是实体UID还是原始ID
+        # 实体UID的特征是包含下划线分隔符
+        if f"{platform_id}_" in target_id_str:
+            try:
+                # 从 qq_private_12345 中提取 12345
+                return target_id_str.split("_")[-1]
+            except IndexError:
+                logger.error(f"无法从格式不正确的实体UID '{target_id_str}' 中解析原始ID。")
+                return None
+        else:
+            # 假设是原始ID，直接返回
+            return target_id_str
+
+
     async def _execute_platform_action_flow(
         self, platform_id: str, action_name: str, params: dict, doc_key_for_updates: str
     ) -> None:
@@ -556,6 +600,24 @@ class ActionHandler:
         if not self.entity_service:
             logger.error("EntityGraphService 未注入到 ActionHandler，无法获取祂的ID！")
             return
+
+        # ID解析和归一化
+        # 对于需要目标ID的破坏性动作，进行特殊处理
+        if action_name in {"delete_friend", "leave_conversation"}:
+            resolved_id = self._resolve_target_id(action_name, params, platform_id)
+            if not resolved_id:
+                error_msg = f"动作 '{action_name}' 执行失败：无法确定目标ID。"
+                logger.error(error_msg)
+                if self.thought_storage_service:
+                    await self.thought_storage_service.save_action_result_to_thought(
+                        thought_key=doc_key_for_updates, result_text=error_msg
+                    )
+                return
+
+            # 用解析后的原始ID更新参数
+            id_key = "user_id" if "friend" in action_name else "group_id"
+            params[id_key] = resolved_id
+            logger.debug(f"已将动作 '{action_name}' 的目标ID归一化为: '{resolved_id}'")
 
         # 1. 调用正确的方法获取所有自身实体
         all_self_entities = await self.entity_service.get_all_self_entities()
