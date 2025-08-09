@@ -3,7 +3,7 @@ import asyncio
 import time
 from collections import deque
 from collections.abc import Callable, Coroutine
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from src.common.custom_logging.logging_config import get_logger
 from src.common.utils import build_conversation_entity_uid, parse_focus_path
@@ -13,6 +13,8 @@ from src.platform_builders.registry import platform_builder_registry
 if TYPE_CHECKING:
     from src.database.services.entity_graph_service import EntityGraphService
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
+
+    from .chat_session import ChatSession
 
 
 logger = get_logger(__name__)
@@ -101,6 +103,25 @@ class FocusManager:
 
             logger.warning(f"意识转向指令 '{command}' 执行失败: {feedback_message}")
             return False, feedback_message
+
+    async def _get_session_from_path(self, focus_path: str | None) -> Optional["ChatSession"]:
+        """一个辅助函数，根据焦点路径安全地获取会话实例."""
+        if not focus_path:
+            return None
+
+        level, platform_id, conv_part = parse_focus_path(focus_path)
+        if level != "cellular" or not platform_id or not conv_part:
+            return None
+
+        try:
+            # 确保 conv_part 包含 "."，否则 split 会抛出 ValueError
+            if "." not in conv_part:
+                return None
+            conv_type, actual_id = conv_part.split(".", 1)
+            entity_uid = build_conversation_entity_uid(platform_id, conv_type, actual_id)
+            return self.chat_session_manager.sessions.get(entity_uid)
+        except (ValueError, IndexError):
+            return None
 
     async def _get_focus_description(self, focus_path_or_entry: str | dict | None) -> str:
         """根据 focus_path 或历史条目 生成一个详细的、人类可读的位置描述."""
