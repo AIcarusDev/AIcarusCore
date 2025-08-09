@@ -264,100 +264,105 @@ class ThoughtPromptBuilder:
             "friend_request_block": friend_request_block,
         }
 
-    async def _build_action_response_desc(self, handover_result: dict | None) -> str:
-        """构建上一个动作的结果描述块."""
+    async def _get_latest_action_context(
+        self, handover_result: dict | None
+    ) -> tuple[dict | None, str | None, dict | None]:
+        """[Helper] 获取最新的思考文档、动作结果文本和动作载荷."""
         latest_thought = await self.thought_storage.get_latest_thought_document()
         if not latest_thought:
-            return ""
+            return None, None, None
 
         action_result_text = None
-        action_payload = latest_thought.get("action_payload") or {}
-
         if handover_result:
             action_result_text = handover_result.get("result_text")
         elif thought_action_result := latest_thought.get("action_result"):
             action_result_text = thought_action_result
 
+        action_payload = latest_thought.get("action_payload") or {}
+        return latest_thought, action_result_text, action_payload
+
+    def _parse_action_details_from_payload(
+        self, action_payload: dict
+    ) -> tuple[str | None, str | None, dict | None]:
+        """[Helper] 从动作载荷中解析出平台、动作名和参数."""
+        try:
+            action_part = action_payload.get("action", {})
+            if not action_part or not isinstance(action_part, dict):
+                return None, None, None
+
+            # 规范化动作载荷
+            known_platform_keys = platform_builder_registry.get_all_builders().keys()
+            if not any(key in known_platform_keys for key in action_part):
+                action_part = {"core": action_part}
+
+            platform_key = next(iter(action_part), None)
+            platform_actions = action_part.get(platform_key, {}) if platform_key else {}
+            action_name = next(iter(platform_actions), None)
+            action_params = platform_actions.get(action_name, {}) if action_name else {}
+
+            return platform_key, action_name, action_params
+        except (StopIteration, AttributeError) as e:
+            logger.warning(f"解析动作载荷时出错: {e}。载荷: {action_payload}")
+            return None, None, None
+
+    def _create_action_description_prefix(
+        self, platform_key: str | None, action_name: str | None, action_params: dict | None
+    ) -> str:
+        """[Helper] 根据动作细节创建描述性前缀文本."""
+        if not action_name:
+            return "你刚才的行动成功了，返回了以下信息："
+
+        if action_name == "web_search" and action_params and (query := action_params.get("query")):
+            return f"你刚才执行了网页搜索，搜索的关键词是“{query}”，得到了以下结果："
+
+        return f"你刚才执行了动作 “{platform_key}.{action_name}”，得到了以下结果："
+
+    def _post_process_get_list_result(self, result_text: str, platform_key: str) -> str:
+        """[Helper] 对 get_list 动作的结果进行后处理，修复实体ID格式."""
+        try:
+            result_list = json.loads(result_text)
+            if not isinstance(result_list, list):
+                return result_text
+
+            for item in result_list:
+                if "user_id" in item:
+                    item["user_id"] = f"{platform_key}_private_{item['user_id']}"
+                elif "group_id" in item:
+                    item["group_id"] = f"{platform_key}_group_{item['group_id']}"
+
+            return json.dumps(result_list, indent=4, ensure_ascii=False)
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.warning(f"后处理 get_list 动作结果时失败: {e}")
+            return result_text
+
+    async def _build_action_response_desc(self, handover_result: dict | None) -> str:
+        """[Orchestrator] 构建上一个动作的结果描述块 (重构后)."""
+        # 1. 获取上下文
+        _, action_result_text, action_payload = await self._get_latest_action_context(
+            handover_result
+        )
+
+        # 2. 守卫子句：如果没有有效结果，则提前返回
         if not action_result_text or "决策中未包含任何行动指令" in action_result_text:
             return ""
 
-        # 如果没有提供动作结果文本，则使用默认的描述
-        action_desc = "你刚才的行动成功了，返回了以下信息："  # 默认回退描述
+        # 3. 解析动作细节
+        platform_key, action_name, action_params = self._parse_action_details_from_payload(
+            action_payload
+        )
 
-        try:
-            # 1. 尝试从 payload 中解析出平台、动作名和参数
-            action_part = action_payload.get("action", {})
-            if not action_part or not isinstance(action_part, dict):
-                # 如果没有 action 部分或格式不正确，则直接返回默认描述
-                return f"<action_response>\n{action_desc}\n{action_result_text}\n</action_response>"
+        # 4. 生成描述前缀
+        action_desc = self._create_action_description_prefix(
+            platform_key, action_name, action_params
+        )
 
-            # 2. 在这里对 action_part 进行规范化处理
-            # 检查它是否已经是规范的嵌套结构
-            known_platform_keys = platform_builder_registry.get_all_builders().keys()
-            is_normalized = any(key in known_platform_keys for key in action_part)
+        # 5. 对特定动作结果进行后处理
+        if action_name == "get_list" and platform_key:
+            action_result_text = self._post_process_get_list_result(
+                action_result_text, platform_key
+            )
 
-            if not is_normalized:
-                # 如果是扁平结构 (如 {"web_search": ...})，则假定它是核心动作并包装它
-                action_part = {"core": action_part}
-
-            # 3. 现在可以安全地使用之前的解析逻辑，因为 action_part 结构已统一
-            if action_part and isinstance(action_part, dict):
-                # 动态获取平台名 (e.g., 'core', 'qq')
-                platform_key = next(iter(action_part), None)
-                platform_actions = action_part.get(platform_key, {}) if platform_key else {}
-
-                if platform_actions and isinstance(platform_actions, dict):
-                    # 动态获取动作名 (e.g., 'web_search', 'get_list')
-                    action_name = next(iter(platform_actions), None)
-                    action_params = platform_actions.get(action_name, {}) if action_name else {}
-
-                    # 根据解析出的动作名，构建不同的描述
-                    if action_name == "web_search" and (query := action_params.get("query")):
-                        # 特例：为 web_search 构建包含关键词的丰富描述
-                        action_desc = (
-                            f"你刚才执行了网页搜索，搜索的关键词是“{query}”，得到了以下结果："
-                        )
-
-                    # 特例：为 get_list 修正实体ID格式
-                    if action_name == "get_list" and action_result_text:
-                        try:
-                            # action_result_text 此时是一个JSON字符串，我们先解析它
-                            result_list = json.loads(action_result_text)
-                            if isinstance(result_list, list):
-                                list_type = action_params.get("list_type")  # 获取列表类型
-                                # 根据 list_type 修复实体ID格式
-                                for item in result_list:
-                                    if list_type == "friend" and "user_id" in item:
-                                        # 修复好友ID
-                                        raw_id = item["user_id"]
-                                        item["user_id"] = f"{platform_key}_private_{raw_id}"
-                                    elif list_type == "group" and "group_id" in item:
-                                        # 修复群聊ID
-                                        raw_id = item["group_id"]
-                                        item["group_id"] = f"{platform_key}_group_{raw_id}"
-
-                                # 将修复后的列表重新序列化为格式化的JSON字符串
-                                action_result_text = json.dumps(
-                                    result_list, indent=4, ensure_ascii=False
-                                )
-                                logger.info(
-                                    f"已成功对 get_list (type: {list_type}) "
-                                    f"的返回结果进行实体ID格式化。"
-                                )
-                        except Exception as e_postprocess:
-                            logger.warning(f"后处理 get_list 动作结果时失败: {e_postprocess}")
-                            # 如果失败，就保持原始结果不变
-                    elif action_name:
-                        # 通用情况：为所有其他动作构建清晰的描述
-                        # 例如: "你刚才执行了动作 “xxx”，得到了以下结果："
-                        action_desc = (
-                            f"你刚才执行了动作 “{platform_key}.{action_name}”，得到了以下结果："
-                        )
-
-        except Exception as e:
-            logger.warning(f"解析上一个动作的 payload 以增强描述时出错: {e}。将使用通用描述。")
-            # 如果解析过程中出现任何意外，程序不会崩溃，而是安全地使用上面的默认描述
-
+        # 6. 格式化并返回最终的XML块
         return f"<action_response>\n{action_desc}\n{action_result_text}\n</action_response>"
 
     async def _build_attentional_trajectory_block(self) -> str:
@@ -510,8 +515,6 @@ class ThoughtPromptBuilder:
         prompt_components, _ = await format_chat_history_for_llm(
             event_storage=self.event_storage,
             conversation_id=session.conversation_id,
-            bot_id=session.bot_id,
-            platform=session.platform,
             bot_profile=await session.get_bot_profile(),
             conversation_type=session.conversation_type,
             conversation_name=session.conversation_name,
