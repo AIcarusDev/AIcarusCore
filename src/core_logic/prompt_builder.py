@@ -187,11 +187,13 @@ class ThoughtPromptBuilder:
             plat_controls_schema, _ = builder.get_level_consciousness_controls_definitions(level)
             consciousness_controls_schema["properties"].update(plat_controls_schema["properties"])
 
-        # 根据 can_go_back 标志动态移除无效指令
+        # 根据上下文动态过滤指令
         if not can_go_back:
             consciousness_controls_schema["properties"].pop("back", None)
             consciousness_controls_schema["properties"].pop("jump_to_history", None)
 
+        if level == "cellular":
+            consciousness_controls_schema["properties"].pop("focus", None)
 
         return {
             "type": "object",
@@ -205,11 +207,9 @@ class ThoughtPromptBuilder:
                     },
                     "required": ["mood", "think", "goal"],
                 },
-                # 直接使用我们处理过的 schema
                 "consciousness_control": consciousness_controls_schema,
                 "action": {
                     "type": "object",
-                    # 提取复杂逻辑到辅助函数，并就近调用
                     "properties": self._build_action_schema_properties(level, builder),
                 },
             },
@@ -671,7 +671,9 @@ class ThoughtPromptBuilder:
             available_controls.pop("back", None)
             available_controls.pop("jump_to_history", None)
 
-        # 直接使用过滤后的 available_controls
+        if level == "cellular":
+            available_controls.pop("focus", None)
+
         descs = []
         for name, definition in available_controls.items():
             params_list = definition.get("required", [])
