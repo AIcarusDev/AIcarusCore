@@ -116,6 +116,7 @@ class FocusManager:
         try:
             # 确保 conv_part 包含 "."，否则 split 会抛出 ValueError
             if "." not in conv_part:
+                logger.warning(f"无法解析会话路径部分 '{conv_part}'，缺少分隔符。")
                 return None
             conv_type, actual_id = conv_part.split(".", 1)
             entity_uid = build_conversation_entity_uid(platform_id, conv_type, actual_id)

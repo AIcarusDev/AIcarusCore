@@ -31,6 +31,12 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+class ThoughtGenerationError(Exception):
+    """Custom exception for critical failures during thought generation or persistence."""
+
+    pass
+
+
 class CoreLogic:
     """核心逻辑处理类."""
 
@@ -93,11 +99,14 @@ class CoreLogic:
             return None
 
         try:
-            # 1. 将路径的会话部分 (e.g., 'group.123456') 分割成类型和ID
-            # 确保 conv_id_part 确实包含 "."，否则 split 会抛出 ValueError
+            # 在分割前，验证会话部分是否包含预期的分隔符
             if "." not in conv_id_part:
+                logger.error(
+                    f"无效的焦点路径会话部分: '{conv_id_part}'。它必须是 'type.id' 格式。"
+                )
                 return None
 
+            # 1. 将路径的会话部分 (e.g., 'group.123456') 分割成类型和ID
             conv_type, actual_id = conv_id_part.split(".", 1)
 
             # 2. 根据平台ID、类型和真实ID，重新组装出完整的实体UID
@@ -225,13 +234,12 @@ class CoreLogic:
             session.interruption_context = None
         self._last_interrupt_context_text = None
 
-    # --- [采纳] 新的提取出的方法 ---
     async def _generate_and_persist_thought(
         self,
         prompt_components: PromptComponents,
         focus_path_str: str | None,
-    ) -> tuple[ThoughtChainDocument, str] | tuple[None, None]:
-        """生成思考，创建文档，并将其持久化到思想链中."""
+    ) -> tuple[ThoughtChainDocument, str]:
+        """生成思考，创建文档，并将其持久化到思想链中。失败时会引发ThoughtGenerationError."""
         system_prompt, user_prompt, response_schema = self.prompt_builder.finalize_prompts(
             prompt_components
         )
@@ -245,7 +253,7 @@ class CoreLogic:
             focus_path=focus_path_str,
         )
         if not generated_thought_json:
-            return None, None
+            raise ThoughtGenerationError("LLM未能生成有效的思考JSON。")
 
         action_payload = generated_thought_json.get("action") or generated_thought_json.get(
             "consciousness_control"
@@ -262,7 +270,10 @@ class CoreLogic:
             action_payload=generated_thought_json,
         )
         saved_key = await self.thought_storage_service.save_thought_and_link(new_thought_pearl)
-        return (None, None) if not saved_key else (new_thought_pearl, saved_key)
+        if not saved_key:
+            raise ThoughtGenerationError("未能将新的思考持久化到数据库。")
+
+        return new_thought_pearl, saved_key
 
     async def _run_full_thought_cycle(self, session: Optional["ChatSession"]) -> float | None:
         """执行完整的思考循环（重构后），主要负责编排."""
@@ -288,12 +299,12 @@ class CoreLogic:
         if session:
             session.pending_handover_result = None
 
-        new_thought_pearl, saved_key = await self._generate_and_persist_thought(
-            prompt_components, focus_path_str
-        )
-
-        if not (new_thought_pearl and saved_key):
-            logger.warning("未能生成或持久化有效的思考，本轮循环中止。")
+        try:
+            new_thought_pearl, saved_key = await self._generate_and_persist_thought(
+                prompt_components, focus_path_str
+            )
+        except ThoughtGenerationError as e:
+            logger.error(f"核心思考过程失败，中止本轮循环: {e}")
             return None
 
         await process_llm_decision(
