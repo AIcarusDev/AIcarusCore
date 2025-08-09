@@ -351,16 +351,23 @@ async def _fetch_and_prepare_events(
                 f"转换DB事件字典为Event对象失败: {e}", exc_info=True
             )
 
-    # 去重并排序
-    unique_events: dict[str, Event] = {}
-    for event in sorted(raw_events, key=lambda e: e.time, reverse=True):
+    # 1. raw_events 列表当前是从新到旧的
+    unique_events_desc: dict[str, Event] = {}
+    for event in raw_events:
+        # 2. 去重，因为我们是按时间倒序遍历，所以最先遇到的就是最新的，直接保留
         key = (
             f"msg_{event.get_message_id()}" if event.get_message_id() else f"core_{event.event_id}"
         )
-        if key not in unique_events:
-            unique_events[key] = event
+        if key not in unique_events_desc:
+            unique_events_desc[key] = event
 
-    return sorted(unique_events.values(), key=lambda e: e.time)
+    # 3. 将去重后的事件（仍然是从新到旧）提取出来
+    final_events_desc = list(unique_events_desc.values())
+
+    # 4. 直接反转列表，得到从旧到新的最终顺序
+    final_events_asc = final_events_desc[::-1]
+
+    return final_events_asc
 
 
 async def format_chat_history_for_llm(
