@@ -214,14 +214,14 @@ class ChatSessionManager:
             logger.warning(f"收到的意识控制指令格式不正确或为空: {control_json}")
             return None
 
-        # 如果是“慢思考”指令，则进入内部辩论流程
+        # 如果是“慢思考”指令，则进入深度思考流程
         if command == "deep_think":
-            logger.info(f"检测到 [慢思考] 指令，参数: {params}，正在进入内部辩论流程...")
+            logger.info(f"检测到 [慢思考]，参数: {params}，正在进入深度思考...")
             session = self.core_logic._get_current_session() if self.core_logic else None
             return await self.deliberation_service.execute(params, current_internal_state, session)
 
         else:
-            logger.info(f"检测到 [意识转向] 指令: {command}, 参数: {params}, 正在处理...")
+            logger.info(f"检测到 [注意力转移]，指令: {command}, 参数: {params}, 正在处理...")
             await self.focus_manager.handle_focus_control(command, params)
             return None
 

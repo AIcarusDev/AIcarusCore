@@ -167,13 +167,13 @@ async def process_llm_decision(
                 action_json=normalized_action_payload,
             )
 
-    # --- 步骤 4: (最后执行) 处理剩余的“意识转向”指令 ---
+    # --- 步骤 4: (最后执行) 处理剩余的“注意力转移”指令 ---
     if control_payload:
-        logger.info("所有外部行动已处理完毕，现在开始处理 [意识转向] 指令。")
+        logger.info("所有外部行动已处理完毕，现在开始处理 [注意力转移] 。")
         await focus_manager.handle_consciousness_control(control_payload, current_internal_state)
 
     # --- 步骤 5: 检查是否无任何指令 ---
     if not normalized_action_payload and not control_payload:
-        logger.info("本轮决策中无任何有效动作或意识控制指令。")
+        logger.info("本轮决策中无任何有效动作或注意力转移指令。")
 
     logger.info("决策分发处理完毕。")
