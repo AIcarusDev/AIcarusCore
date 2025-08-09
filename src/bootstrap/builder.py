@@ -96,7 +96,7 @@ class ServiceBuilder:
         semantic_model = await self._get_semantic_model(db_services["event_storage_service"])
 
         interruption_broker = InterruptionEventBroker()
-        interruption_broker.start()
+        await interruption_broker.start()
 
         message_processor = DefaultMessageProcessor(
             event_service=db_services["event_storage_service"],

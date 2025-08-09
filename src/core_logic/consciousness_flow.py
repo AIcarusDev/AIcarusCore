@@ -105,6 +105,10 @@ class CoreLogic:
             session_key = build_conversation_entity_uid(platform_id, conv_type, actual_id)
             return self.chat_session_manager.sessions.get(session_key)
         except (ValueError, IndexError):
+            logger.error(
+                f"无法从无效的焦点路径 '{focus_path_str}' 中解析会话信息。"
+                f"路径的会话部分 ('{conv_id_part}') 必须是 'type.id' 格式。"
+            )
             return None
 
     async def _core_thinking_loop(self) -> None:
@@ -258,10 +262,7 @@ class CoreLogic:
             action_payload=generated_thought_json,
         )
         saved_key = await self.thought_storage_service.save_thought_and_link(new_thought_pearl)
-        if not saved_key:
-            return None, None
-
-        return new_thought_pearl, saved_key
+        return (None, None) if not saved_key else (new_thought_pearl, saved_key)
 
     async def _run_full_thought_cycle(self, session: Optional["ChatSession"]) -> float | None:
         """执行完整的思考循环（重构后），主要负责编排."""

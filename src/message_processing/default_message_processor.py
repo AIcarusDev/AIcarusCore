@@ -9,7 +9,6 @@ from src.common.interruption_broker import InterruptionEventBroker
 from src.common.utils import build_conversation_entity_uid
 from src.database import (
     ActionLogStorageService,
-    CoreDBCollections,
     DBEventDocument,
     EntityGraphService,
 )
@@ -266,34 +265,15 @@ class DefaultMessageProcessor:
                 f"'{update_type}' -> '{new_value}'"
             )
 
-            # 获取 Entities 集合的句柄
-            entities_collection = await self.entity_service._get_collection(
-                CoreDBCollections.ENTITIES
+            success = await self.entity_service.update_bot_profile_in_conversation(
+                conversation_entity_uid=conversation_entity_uid,
+                update_type=update_type,
+                new_value=new_value,
             )
 
-            # 获取当前的会话实体文档
-            conv_entity_doc = await entities_collection.get(conversation_entity_uid)
-            if not conv_entity_doc:
-                logger.warning(f"无法更新档案，因为找不到会话实体 '{conversation_entity_uid}'")
+            if not success:
+                logger.error(f"通过服务层更新会话实体 '{conversation_entity_uid}' 档案失败。")
                 return
-
-            # 更新 bot_profile_in_this_conversation 字段
-            profile_to_update = conv_entity_doc.get("bot_profile_in_this_conversation", {})
-            if not isinstance(profile_to_update, dict):  # 健壮性检查
-                profile_to_update = {}
-
-            if update_type == "card_change":
-                profile_to_update["card"] = new_value
-
-            profile_to_update["updated_at"] = int(time.time() * 1000)
-
-            # 将更新后的字段写回数据库
-            await entities_collection.update(
-                {
-                    "_key": conversation_entity_uid,
-                    "bot_profile_in_this_conversation": profile_to_update,
-                }
-            )
 
             # 如果会话当前处于激活状态，也更新内存中的缓存
             session = (

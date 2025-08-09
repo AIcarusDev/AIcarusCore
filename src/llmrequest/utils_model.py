@@ -235,7 +235,7 @@ class LLMClient:
         self.initial_stream_setting = model.get("stream", False)
         self.pri_in = model.get("pri_in", 0)
         self.pri_out = model.get("pri_out", 0)
-        self.image_placeholder_tag = image_placeholder_tag # 直接使用命名参数
+        self.image_placeholder_tag = image_placeholder_tag  # 直接使用命名参数
         self.stream_chunk_delay_seconds = stream_chunk_delay_seconds
         self.enable_image_compression = enable_image_compression
         self.image_compression_target_bytes = image_compression_target_bytes
@@ -421,7 +421,7 @@ class LLMClient:
             if self.api_endpoint_style == "google":
                 return {"parts": [{"text": text_to_embed}]} if text_to_embed else {}
             elif self.api_endpoint_style == "openai":
-                return text_to_embed if text_to_embed else ""
+                return text_to_embed or ""
             raise NotImplementedError(
                 f"Embedding content for {self.api_endpoint_style} not implemented."
             )
@@ -1121,13 +1121,7 @@ class LLMClient:
         )
 
         logger.debug(
-            f"Final Payload to be sent: {
-                json.dumps(
-                    payload,
-                    ensure_ascii=False,
-                    indent=2
-                )
-            }"
+            f"Final Payload to be sent: {json.dumps(payload, ensure_ascii=False, indent=2)}"
         )
 
         try:

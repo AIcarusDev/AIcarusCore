@@ -128,13 +128,11 @@ class UnreadInfoService:
     # --- Refactoring Helper 5: 最终格式化与截断 ---
     def _format_and_truncate_preview(self, text: str) -> str:
         """对生成的预览文本进行最终的格式化和截断处理."""
-        if not text:
+        if not text or not text.strip():
             return "[消息]"
         if "\n" in text:
             return text.split("\n")[0].strip() + "..."
-        if len(text) > 20:
-            return text[:20] + "..."
-        return text
+        return f"{text[:20]}..." if len(text) > 20 else text
 
     # --- 主函数（重构后） ---
     def _create_message_preview(self, event: dict, display_name: str) -> str:
