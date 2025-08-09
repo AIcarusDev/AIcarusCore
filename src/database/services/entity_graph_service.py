@@ -813,3 +813,68 @@ class EntityGraphService:
         except Exception as e:
             logger.error(f"完成实体 '{entity_uid}' 好友请求处理时失败: {e}", exc_info=True)
             return False
+
+    async def update_bot_profile_in_conversation(
+        self,
+        conversation_entity_uid: str,
+        update_type: str,
+        new_value: Any,
+    ) -> bool:
+        """一个专门的公共方法，用于原子性地更新会话实体中 '祂' 的档案信息.
+
+        它使用 AQL 的 MERGE 函数来安全地更新嵌套对象.
+
+        Args:
+            conversation_entity_uid: 目标会话实体的 _key。
+            update_type: 要更新的字段类型，例如 "card_change"。
+            new_value: 要设置的新值。
+
+        Returns:
+            操作是否成功。
+        """
+        # 映射更新类型到数据库字段名
+        field_to_update_map = {"card_change": "card", "role_change": "role"}
+        db_field_name = field_to_update_map.get(update_type)
+
+        if not db_field_name:
+            logger.warning(f"未知的档案更新类型: '{update_type}'，操作已忽略。")
+            return False
+
+        # 构建要合并到 bot_profile_in_this_conversation 对象中的数据
+        update_data = {
+            db_field_name: new_value,
+            "updated_at": int(time.time() * 1000),
+        }
+
+        # 使用 AQL 的 MERGE 来安全地更新嵌套对象，这能处理字段不存在的初始情况
+        query = """
+            LET doc = DOCUMENT(@@collection, @key)
+            FILTER doc != null
+            // MERGE 会智能地合并旧对象和新数据
+            LET new_profile = MERGE(doc.bot_profile_in_this_conversation, @update_data)
+            UPDATE doc WITH { bot_profile_in_this_conversation: new_profile } IN @@collection
+            RETURN true
+        """
+        bind_vars = {
+            "@collection": CoreDBCollections.ENTITIES,
+            "key": conversation_entity_uid,
+            "update_data": update_data,
+        }
+
+        try:
+            results = await self.conn_manager.execute_query(query, bind_vars)
+            if results:
+                logger.info(f"已通过服务层成功更新会话实体 '{conversation_entity_uid}' 的档案。")
+                return True
+            else:
+                logger.warning(
+                    f"尝试更新会话实体 '{conversation_entity_uid}' 档案时，"
+                    "AQL 查询未返回成功标识（可能是文档不存在）。"
+                )
+                return False
+        except Exception as e:
+            logger.error(
+                f"通过服务层更新会话实体 '{conversation_entity_uid}' 档案时失败: {e}",
+                exc_info=True,
+            )
+            return False
