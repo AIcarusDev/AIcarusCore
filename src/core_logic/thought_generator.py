@@ -98,9 +98,14 @@ class ThoughtGenerator:
                 return None
 
             # 验证JSON结构是否符合预期
-            if not isinstance(parsed_json, dict) or "internal_state" not in parsed_json:
+            if (
+                not isinstance(parsed_json, dict)
+                or "internal_state" not in parsed_json
+                or not isinstance(parsed_json.get("internal_state"), dict)
+            ):
                 logger.error(
-                    f"LLM响应的JSON结构不符合预期。缺少必须的 'internal_state' 键。"
+                    f"LLM响应的JSON结构不符合预期。'internal_state' "
+                    f"键必须存在且其值必须是一个对象/字典。"
                     f"收到的内容: {str(parsed_json)[:200]}..."
                 )
                 return None

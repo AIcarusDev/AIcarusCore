@@ -1,5 +1,7 @@
+# tests/core_logic/test_thought_generator.py
+
 import pytest
-from pytest_mock import MockerFixture  # <-- 修正点 1
+from pytest_mock import MockerFixture
 from src.core_logic.thought_generator import ThoughtGenerator
 
 
@@ -66,30 +68,54 @@ async def test_generate_thought_llm_error(mocker: MockerFixture) -> None:
 
     # 3. Patch make_llm_request 方法
     mock_llm_client.make_llm_request = mocker.AsyncMock(return_value=fake_llm_response)
-
-    # 4. 创建 ThoughtGenerator 实例
     thought_generator = ThoughtGenerator(llm_client=mock_llm_client)
-
-    # 5. 调用方法
     result = await thought_generator.generate_thought(
         system_prompt="sys", user_prompt="user", image_inputs=[], response_schema={}
     )
-
-    # 6. 断言结果为 None
     assert result is None
     mock_llm_client.make_llm_request.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_generate_thought_malformed_json(mocker: MockerFixture) -> None:
-    """测试当 LLM 返回格式错误的 JSON 时，generate_thought 返回 None."""
+async def test_generate_thought_invalid_internal_state_structure(mocker: MockerFixture) -> None:
+    """测试当 internal_state 的值不是一个字典时，generate_thought 返回 None."""
     mock_llm_client = mocker.Mock()
+    # 这个JSON在语法上是正确的，但在结构上是错误的
     fake_llm_response = {
         "error": None,
         "text": """
         ```json
         {
-            "internal_state": "this is not valid json",
+            "internal_state": "this is not a dict"
+        }
+        ```
+        """,
+    }
+    mock_llm_client.make_llm_request = mocker.AsyncMock(return_value=fake_llm_response)
+
+    thought_generator = ThoughtGenerator(llm_client=mock_llm_client)
+
+    result = await thought_generator.generate_thought(
+        system_prompt="sys", user_prompt="user", image_inputs=[], response_schema={}
+    )
+
+    # 因为我们加强了验证，现在这里应该断言为 None
+    assert result is None
+    mock_llm_client.make_llm_request.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_generate_thought_truly_malformed_json(mocker: MockerFixture) -> None:
+    """测试当 LLM 返回语法错误的 JSON 时，generate_thought 返回 None."""
+    mock_llm_client = mocker.Mock()
+    # 这个JSON在语法上就是错误的（缺少逗号）
+    fake_llm_response = {
+        "error": None,
+        "text": """
+        ```json
+        {
+            "internal_state": {"mood": "happy"}
+            "action": {}
         }
         ```
         """,
@@ -107,7 +133,7 @@ async def test_generate_thought_malformed_json(mocker: MockerFixture) -> None:
 
 @pytest.mark.asyncio
 async def test_generate_thought_unexpected_structure(mocker: MockerFixture) -> None:
-    """测试当 LLM 返回的 JSON 结构不符合预期时，generate_thought 返回 None."""
+    """测试当 LLM 返回的 JSON 结构缺少 internal_state 键时，generate_thought 返回 None."""
     mock_llm_client = mocker.Mock()
     fake_llm_response = {
         "error": None,
