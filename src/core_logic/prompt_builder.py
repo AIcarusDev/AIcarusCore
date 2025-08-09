@@ -483,7 +483,7 @@ class ThoughtPromptBuilder:
         logger.debug(f"--- [USER PROMPT (慢思考)] ---\n{user_prompt}")
         logger.debug(
             f"--- [JSON SCHEMA (慢思考)] ---\n{
-                json.dumps(response_schema, indent=2, ensure_ascii=False)
+                json.dumps(response_schema, ensure_ascii=False)
             }"
         )
         logger.debug("=" * 31 + " END OF DEBUG " + "=" * 31)
@@ -540,7 +540,7 @@ class ThoughtPromptBuilder:
             raise PromptBuilderError("会话管理器尚未准备就绪，无法构建当前状态块。")
 
         if level == "core":
-            return "你当前专注于：发呆/自我思考。"
+            return "你当前似乎没有干什么。"
 
         if level == "platform":
             return f"你当前专注于：{platform_id} 平台。"
