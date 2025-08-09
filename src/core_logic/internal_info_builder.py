@@ -102,8 +102,8 @@ class InternalInfoBuilder:
             return f"<![CDATA[\n{formatted_payload}\n]]>"
         except Exception as e:
             logger.error(f"格式化 payload 为 JSON CDATA 时出错: {e}")
-            # Fallback 时也使用 CDATA
-            return f"<![CDATA[\n{payload!r}\n]]>"
+            # 返回通用错误消息，避免暴露敏感数据
+            return "<![CDATA[\n[格式化错误]\n]]>"
 
     def _format_completed_action(self, action_payload: dict) -> str:
         """从完整的 payload 中提取 'action' 部分并格式化."""
