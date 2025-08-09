@@ -3,7 +3,7 @@ import asyncio
 import time
 from collections import deque
 from collections.abc import Callable, Coroutine
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 from src.common.custom_logging.logging_config import get_logger
 from src.common.utils import build_conversation_entity_uid, parse_focus_path
@@ -104,7 +104,7 @@ class FocusManager:
             logger.warning(f"意识转向指令 '{command}' 执行失败: {feedback_message}")
             return False, feedback_message
 
-    async def _get_session_from_path(self, focus_path: str | None) -> "ChatSession" | None:
+    async def _get_session_from_path(self, focus_path: str | None) -> Optional["ChatSession"]:
         """一个辅助函数，根据焦点路径安全地获取会话实例."""
         if not focus_path:
             return None
