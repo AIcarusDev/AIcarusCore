@@ -878,3 +878,36 @@ class EntityGraphService:
                 exc_info=True,
             )
             return False
+
+    async def get_self_entity_by_platform(self, platform_id: str) -> dict[str, Any] | None:
+        """直接通过精确的AQL查询获取“祂”在特定平台上的客观实体.
+
+        这比获取所有实体然后在Python中过滤要高效得多.
+
+        Args:
+            platform_id: 目标平台的ID (e.g., "qq").
+
+        Returns:
+            包含实体信息的字典，如果未找到则返回 None.
+        """
+        query = """
+            LET self_profile = DOCUMENT(@@profiles_coll, @self_profile_key)
+            FILTER self_profile != null
+            FOR entity IN 1..1 OUTBOUND self_profile @@represents_coll
+                FILTER entity.details.platform == @platform_id
+                AND entity.entity_type == 'account'
+                LIMIT 1
+                RETURN UNSET(entity, "details.friend_remark", "details.friend_request_pending")
+        """
+        bind_vars = {
+            "@profiles_coll": CoreDBCollections.ENTITY_PROFILES,
+            "self_profile_key": SELF_PROFILE_ID,
+            "@represents_coll": CoreDBCollections.REPRESENTS,
+            "platform_id": platform_id,
+        }
+        try:
+            results = await self.conn_manager.execute_query(query, bind_vars)
+            return results[0] if results else None
+        except Exception as e:
+            logger.error(f"获取平台 '{platform_id}' 的自身实体时失败: {e}", exc_info=True)
+            return None

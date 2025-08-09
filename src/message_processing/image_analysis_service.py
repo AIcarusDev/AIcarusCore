@@ -3,6 +3,7 @@ import asyncio
 import base64
 import contextlib
 import io
+import threading
 from typing import Any
 
 from PIL import Image
@@ -54,6 +55,7 @@ class ImageAnalysisService:
         self.events_collection_name = CoreDBCollections.EVENTS
         self.task_queue: asyncio.Queue[dict] = asyncio.Queue()
         self._worker_task: asyncio.Task | None = None
+        self._start_lock = threading.Lock()
 
         # 延迟加载模型，避免启动时阻塞
         self._clip_model: SentenceTransformer | None = None
@@ -88,7 +90,6 @@ class ImageAnalysisService:
         try:
             image_bytes = base64.b64decode(base64_data)
             image = Image.open(io.BytesIO(image_bytes))
-            # .encode() 是一个同步的、计算密集型操作，应在线程中运行以避免阻塞事件循环
             embedding = await asyncio.to_thread(self._get_clip_model().encode, image)
             return embedding.tolist()
         except Exception as e:
@@ -199,9 +200,13 @@ class ImageAnalysisService:
                     self.task_queue.task_done()
 
     def start(self) -> None:
-        """启动后台 Worker."""
-        if self._worker_task is None or self._worker_task.done():
-            self._worker_task = asyncio.create_task(self._worker())
+        """启动后台 Worker (线程/协程安全)."""
+        with self._start_lock:
+            if self._worker_task is None or self._worker_task.done():
+                self._worker_task = asyncio.create_task(self._worker())
+                logger.info("图像分析后台 Worker 任务已创建并启动。")
+            else:
+                logger.debug("图像分析后台 Worker 已在运行，无需重复启动。")
 
     async def stop(self) -> None:
         """停止后台 Worker."""
@@ -209,4 +214,5 @@ class ImageAnalysisService:
             self._worker_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._worker_task
+            self._worker_task = None
             logger.info("图像分析后台 Worker 已停止。")

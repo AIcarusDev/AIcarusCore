@@ -105,22 +105,12 @@ class ChatSession:
         if self.bot_profile_cache and (
             time.time() - self.last_profile_update_time < CACHE_EXPIRATION_SECONDS
         ):
-            # 如果缓存存在且未过期，直接返回内存中的数据，避免任何数据库I/O
             return self.bot_profile_cache
 
-        # --- 步骤 2: 缓存未命中（The Slow Path）---
-        # 只有在缓存不存在或已过期的情况下，才会执行以下昂贵的操作
-
-        # 2.1. 执行数据库查询
-        all_self_entities = await self.entity_graph_service.get_all_self_entities()
-        entity_doc = next(
-            (
-                entity
-                for entity in all_self_entities
-                if (details := entity.get("details", {}))
-                and details.get("platform") == self.platform
-            ),
-            None,
+        # --- 步骤 2: 缓存未命中，直接、精确地从数据库获取当前平台实体 ---
+        # 移除了原有的 "获取全部再查找" 的低效逻辑
+        entity_doc = await self.entity_graph_service.get_self_entity_by_platform(
+            self.platform
         )
 
         if not (entity_doc and isinstance(entity_doc, dict)):
@@ -129,15 +119,14 @@ class ChatSession:
 
         details = entity_doc.get("details") or {}
 
-        # 2. 构建基础档案
+        # 2.1 构建基础档案
         base_profile = {
-            "user_id": entity_doc.get("details", {}).get("platform_id"),
-            "nickname": entity_doc.get("details", {}).get("nickname"),
+            "user_id": details.get("platform_id"),
+            "nickname": details.get("nickname"),
             "platform": self.platform,
         }
 
         # 3. 获取特定于本会话的身份信息 (card, role)
-        #    只有群聊才有 card 和 role 的概念
         if self.conversation_type == "group":
             presence_info = await self.entity_graph_service.get_self_presence_in_conversation(
                 platform=self.platform,
@@ -148,13 +137,11 @@ class ChatSession:
                 base_profile["role"] = presence_info.get("permission_level")
                 logger.debug(f"[{self.conversation_id}] 成功获取到祂在本会话的群名片和权限。")
 
-        # --- 步骤 3: 更新缓存 ---
-        # 将从数据库新鲜获取的数据存入缓存，并更新时间戳
+        # --- 步骤 4: 更新缓存 ---
         self.bot_profile_cache = base_profile
         self.last_profile_update_time = time.time()
         logger.debug(f"[{self.conversation_id}] 已加载并缓存祂的完整档案。")
 
-        # 返回新鲜的数据
         return self.bot_profile_cache
 
     def reset_consecutive_bot_message_count(self) -> None:
