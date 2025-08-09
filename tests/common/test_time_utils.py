@@ -57,12 +57,17 @@ def test_get_formatted_time_for_llm_no_input_uses_now(mocker: MockerFixture) -> 
     # 1. 创建一个固定的时间点，用于模拟 datetime.now() 的返回值
     mock_now = datetime(2025, 10, 31, 5, 0)
 
-    # 2. 使用 mocker "patch" time_utils 模块中的 datetime 对象
-    #    这样当函数内部调用 datetime.now() 时，会得到我们预设的 mock_now
-    mocker.patch("src.common.time_utils.datetime.now", return_value=mock_now)
+    # 2. 创建一个模拟的 datetime 对象
+    mock_dt_object = mocker.MagicMock()
+    # 3. 配置这个模拟对象的 now 方法，使其返回我们预设的时间点
+    mock_dt_object.now.return_value = mock_now
 
-    # 3. 在不传递任何参数的情况下调用函数
+    # 4. 使用 mocker "patch" time_utils 模块中的 *整个 datetime 对象*
+    #    这样当函数内部调用 datetime.now() 时，实际上调用的是 mock_dt_object.now()
+    mocker.patch("src.common.time_utils.datetime", new=mock_dt_object)
+
+    # 5. 在不传递任何参数的情况下调用函数
     formatted_str = get_formatted_time_for_llm()
 
-    # 4. 断言结果是否与我们模拟的时间点匹配
+    # 6. 断言结果是否与我们模拟的时间点匹配
     assert formatted_str == "现在是2025年的秋天，10月31日，清晨5点0分"
