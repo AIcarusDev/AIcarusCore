@@ -199,13 +199,20 @@ class ChatSessionManager:
 
         此方法现在可以处理“慢思考”指令，并返回一个新的思考状态。
         """
+        # 在处理新指令前，获取当前会话并清除旧的反馈
+        session = self.core_logic._get_current_session() if self.core_logic else None
+        if session:
+            session.last_command_feedback = None
+
         # 验证：检查是否违反了“最多一个指令”的规则
         if len(control_json) > 1:
+            error_message = "错误：同时发出了多个意识控制指令，每轮只能执行一个。"
             logger.error(
                 f"LLM违反了 'maxProperties: 1' 约束，"
                 f"在 'consciousness_control' 中提供了多个指令: {control_json}。将忽略所有指令。"
             )
-            self.last_command_feedback = "错误：同时发出了多个意识控制指令，每轮只能执行一个。"
+            if session:
+                session.last_command_feedback = error_message
             return None
 
         if not (command := next(iter(control_json), None)) or not (
@@ -214,16 +221,34 @@ class ChatSessionManager:
             logger.warning(f"收到的意识控制指令格式不正确或为空: {control_json}")
             return None
 
+        # 检查指令是否合法
+        known_commands = {
+            "deep_think",
+            "focus",
+            "return",
+            "back",
+            "shift_focus",
+            "teleport_focus",
+            "jump_to_history",
+        }
+        if command not in known_commands:
+            error_message = f"未知的意识控制指令: '{command}'。"
+            logger.error(f"收到未知的意识控制指令: '{command}'，无法处理。")
+            if session:
+                session.last_command_feedback = error_message
+            return None
+
         # 如果是“慢思考”指令，则进入深度思考流程
         if command == "deep_think":
             logger.info(f"检测到 [慢思考]，参数: {params}，正在进入深度思考...")
-            session = self.core_logic._get_current_session() if self.core_logic else None
-            return await self.deliberation_service.execute(params, current_internal_state, session)
+            return await self.deliberation_service.execute(
+                params, current_internal_state, session
+            )
 
-        else:
-            logger.info(f"检测到 [注意力转移]，指令: {command}, 参数: {params}, 正在处理...")
-            await self.focus_manager.handle_focus_control(command, params)
-            return None
+        # 其他所有已知指令都属于注意力转移
+        logger.info(f"检测到 [注意力转移]，指令: {command}, 参数: {params}, 正在处理...")
+        await self.focus_manager.handle_focus_control(command, params)
+        return None
 
     def shutdown(self) -> None:
         """在应用程序关闭时执行清理操作.
