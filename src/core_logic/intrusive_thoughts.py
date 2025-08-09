@@ -177,6 +177,12 @@ class IntrusiveThoughtsGenerator:
 
             thoughts_json = parse_llm_json_response(raw_text)
 
+            if not thoughts_json or not isinstance(thoughts_json, dict):
+                logger.error(
+                    f"解析侵入性思维失败，返回的不是有效的JSON对象。原始文本: {raw_text[:200]}..."
+                )
+                return None
+
             generated_thoughts = [
                 thoughts_json[key]
                 for key in thoughts_json

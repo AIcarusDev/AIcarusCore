@@ -97,6 +97,18 @@ class ThoughtGenerator:
                 logger.error("解析LLM的JSON响应失败，它返回了None。")
                 return None
 
+            # 验证JSON结构是否符合预期
+            if (
+                not isinstance(parsed_json, dict)
+                or "internal_state" not in parsed_json
+                or "action" not in parsed_json
+            ):
+                logger.error(
+                    f"LLM响应的JSON结构不符合预期。缺少 'internal_state' 或 'action' 键。"
+                    f"收到的内容: {str(parsed_json)[:200]}..."
+                )
+                return None
+
             if response_data.get("usage"):
                 parsed_json["_llm_usage_info"] = response_data.get("usage")
 

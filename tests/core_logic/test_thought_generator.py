@@ -53,3 +53,79 @@ async def test_generate_thought_success(mocker: MockerFixture) -> None:
 
     # 7. 验证我们的模拟方法是否确实被调用了
     mock_llm_client.make_llm_request.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_generate_thought_llm_error(mocker: MockerFixture) -> None:
+    """测试当 LLM 客户端返回错误时，generate_thought 返回 None."""
+    # 1. 准备一个模拟的 LLM 客户端
+    mock_llm_client = mocker.Mock()
+
+    # 2. 定义一个包含错误的假返回数据
+    fake_llm_response = {"error": "Simulated API Error", "text": None}
+
+    # 3. Patch make_llm_request 方法
+    mock_llm_client.make_llm_request = mocker.AsyncMock(return_value=fake_llm_response)
+
+    # 4. 创建 ThoughtGenerator 实例
+    thought_generator = ThoughtGenerator(llm_client=mock_llm_client)
+
+    # 5. 调用方法
+    result = await thought_generator.generate_thought(
+        system_prompt="sys", user_prompt="user", image_inputs=[], response_schema={}
+    )
+
+    # 6. 断言结果为 None
+    assert result is None
+    mock_llm_client.make_llm_request.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_generate_thought_malformed_json(mocker: MockerFixture) -> None:
+    """测试当 LLM 返回格式错误的 JSON 时，generate_thought 返回 None."""
+    mock_llm_client = mocker.Mock()
+    fake_llm_response = {
+        "error": None,
+        "text": """
+        ```json
+        {
+            "internal_state": "this is not valid json",
+        }
+        ```
+        """,
+    }
+    mock_llm_client.make_llm_request = mocker.AsyncMock(return_value=fake_llm_response)
+    thought_generator = ThoughtGenerator(llm_client=mock_llm_client)
+
+    result = await thought_generator.generate_thought(
+        system_prompt="sys", user_prompt="user", image_inputs=[], response_schema={}
+    )
+
+    assert result is None
+    mock_llm_client.make_llm_request.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_generate_thought_unexpected_structure(mocker: MockerFixture) -> None:
+    """测试当 LLM 返回的 JSON 结构不符合预期时，generate_thought 返回 None."""
+    mock_llm_client = mocker.Mock()
+    fake_llm_response = {
+        "error": None,
+        "text": """
+        ```json
+        {
+            "a_different_key": "some value",
+            "another_key": {}
+        }
+        ```
+        """,
+    }
+    mock_llm_client.make_llm_request = mocker.AsyncMock(return_value=fake_llm_response)
+    thought_generator = ThoughtGenerator(llm_client=mock_llm_client)
+
+    result = await thought_generator.generate_thought(
+        system_prompt="sys", user_prompt="user", image_inputs=[], response_schema={}
+    )
+
+    assert result is None
+    mock_llm_client.make_llm_request.assert_awaited_once()
