@@ -482,9 +482,7 @@ class ThoughtPromptBuilder:
         logger.debug(f"--- [SYSTEM PROMPT (慢思考)] ---\n{system_prompt}")
         logger.debug(f"--- [USER PROMPT (慢思考)] ---\n{user_prompt}")
         logger.debug(
-            f"--- [JSON SCHEMA (慢思考)] ---\n{
-                json.dumps(response_schema, ensure_ascii=False)
-            }"
+            f"--- [JSON SCHEMA (慢思考)] ---\n{json.dumps(response_schema, ensure_ascii=False)}"
         )
         logger.debug("=" * 31 + " END OF DEBUG " + "=" * 31)
 

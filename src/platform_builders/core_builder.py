@@ -290,7 +290,6 @@ class CoreBuilder(BasePlatformBuilder):
         # 对结果进行排序，可以确保每次输出的顺序都一致
         return "\n".join(sorted(descs))
 
-
     def get_level_actions_descriptions(self, level: str) -> str:
         """返回核心平台的动作描述."""
         all_descs = "\n".join(self._ACTIONS_DESCRIPTIONS.values())

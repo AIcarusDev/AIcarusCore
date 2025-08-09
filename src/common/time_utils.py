@@ -98,10 +98,10 @@ def format_relative_time(past_timestamp_ms: int) -> str:
     years = days / 365
     return f"{int(years)}年前"
 
+
 def format_relative_time_for_attention_log(
-        past_timestamp_ms: int,
-        current_timestamp_ms: int
-    ) -> str:
+    past_timestamp_ms: int, current_timestamp_ms: int
+) -> str:
     """为注意力日志专门设计的、人性化的相对时间格式化函数.
 
     Args:
@@ -130,8 +130,6 @@ def format_relative_time_for_attention_log(
 
     # 默认情况
     return f"{round(delta_minutes)}分钟前"
-
-
 
 
 def format_relative_time_for_memory(past_timestamp_ms: int) -> str:
