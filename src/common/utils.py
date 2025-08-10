@@ -68,7 +68,7 @@ class MyDumper(yaml.SafeDumper):
     pass
 
 
-def force_double_quote_str_representer( # TODO:疑似孤儿方法
+def force_double_quote_str_representer(  # TODO:疑似孤儿方法
     dumper: MyDumper, data: ForceDoubleQuoteStr
 ) -> yaml.ScalarNode:
     """强制双引号字符串表示器.
@@ -407,7 +407,7 @@ def format_platform_status_summary(  # TODO:疑似孤儿方法
 
 
 # --- 聊天记录格式化 ---
-def format_messages_for_llm_context(  #TODO:疑似孤儿方法
+def format_messages_for_llm_context(  # TODO:疑似孤儿方法
     raw_messages_from_db: list[dict[str, Any]],
     style: str = "yaml",
     image_placeholder_key: str = "llm_image_placeholder",

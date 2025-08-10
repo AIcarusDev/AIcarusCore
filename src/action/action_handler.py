@@ -5,7 +5,7 @@ import os
 import time
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from src.action.components.pending_action_manager import PendingActionManager
 from src.common.custom_logging.logging_config import get_logger
@@ -44,6 +44,12 @@ INFO_GATHERING_ACTIONS = {"get_list", "get_group_info", "get_bot_profile", "get_
 
 class ActionHandler:
     """处理所有与动作相关的逻辑."""
+
+    # Registry of actions that require target ID normalization
+    NORMALIZATION_ACTIONS: ClassVar[dict[str, str]] = {
+        "delete_friend": "user_id",
+        "leave_conversation": "group_id",
+    }
 
     def __init__(self) -> None:
         self.web_search_agent_client: ProcessorClient | None = None
@@ -160,8 +166,6 @@ class ActionHandler:
         else:
             logger.error("PendingActionManager 未初始化，无法处理动作响应。")
 
-    # ======================== [ 核心改造点 1 ] ========================
-    # 方法签名改变，现在接收 ActionMetadata 领域模型
     async def process_action_flow(
         self,
         action_id: str,
@@ -232,7 +236,6 @@ class ActionHandler:
                 )
                 self.thought_trigger.set()
         else:
-            # 将 metadata 传递下去
             await self._execute_platform_action_flow(
                 platform_id, action_name, params, doc_key_for_updates, metadata
             )
@@ -242,8 +245,6 @@ class ActionHandler:
                     f"完成 (Action ID: {action_id})，立即触发新一轮思考。"
                 )
                 self.thought_trigger.set()
-
-    # =================================================================
 
     async def _execute_core_action(self, action_name: str, params: dict) -> str:
         """核心动作的统一分发中心."""
@@ -506,8 +507,6 @@ class ActionHandler:
         # 步骤 3: 对获取到的ID字符串进行规范化处理，确保返回的是原生ID
         return self._normalize_id_string(raw_id, platform_id)
 
-    # ======================== [ 核心改造点 2 ] ========================
-    # 方法签名改变，现在接收 ActionMetadata 领域模型
     async def _execute_platform_action_flow(
         self,
         platform_id: str,
@@ -533,7 +532,8 @@ class ActionHandler:
         if not self.entity_service:
             logger.error("EntityGraphService 未注入到 ActionHandler，无法获取祂的ID！")
             return
-        if action_name in {"delete_friend", "leave_conversation"}:
+
+        if action_name in self.NORMALIZATION_ACTIONS:
             resolved_id = self._resolve_target_id(action_name, params, platform_id)
             if not resolved_id:
                 error_msg = f"动作 '{action_name}' 执行失败：无法确定目标ID。"
@@ -543,7 +543,7 @@ class ActionHandler:
                         thought_key=doc_key_for_updates, result_text=error_msg
                     )
                 return
-            id_key = "user_id" if "friend" in action_name else "group_id"
+            id_key = self.NORMALIZATION_ACTIONS[action_name]
             params[id_key] = resolved_id
             logger.debug(f"已将动作 '{action_name}' 的目标ID归一化为: '{resolved_id}'")
 
@@ -558,10 +558,11 @@ class ActionHandler:
         )
         if not self_entity or not self_entity.get("details", {}).get("platform_id"):
             logger.error(f"无法为平台 '{platform_id}' 获取已安检的祂的客观实体ID。动作无法执行。")
-            await self.thought_storage_service.save_action_result_to_thought(
-                thought_key=doc_key_for_updates,
-                result_text=f"动作执行失败：我找不到自己在这个平台({platform_id})上的身份信息。",
-            )
+            if self.thought_storage_service:
+                await self.thought_storage_service.save_action_result_to_thought(
+                    thought_key=doc_key_for_updates,
+                    result_text=f"动作执行失败：我找不到自己在这个平台({platform_id})上的身份信息。",
+                )
             return
 
         correct_bot_id = self_entity["details"]["platform_id"]
@@ -578,10 +579,6 @@ class ActionHandler:
             metadata=metadata,
         )
 
-    # =================================================================
-
-    # ======================== [ 核心改造点 3 ] ========================
-    # 返回值变为 ActionResult 领域模型
     async def execute_simple_action(
         self,
         platform_id: str,
@@ -626,10 +623,6 @@ class ActionHandler:
         )
         return action_result
 
-    # =================================================================
-
-    # ======================== [ 核心改造点 4 ] ========================
-    # 方法签名改变，接收 ActionMetadata，返回 ActionResult
     async def _execute_platform_action(
         self,
         action_to_send: dict[str, Any],
@@ -694,8 +687,6 @@ class ActionHandler:
             metadata=metadata,
         )
         return action_result
-
-    # =================================================================
 
     def _execute_local_scroll_action(self, platform_id: str, params: dict) -> str:
         params = params.get("params")
