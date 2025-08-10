@@ -67,15 +67,14 @@ JSON 对象包含三个顶级键: `"internal_state"`, `"consciousness_control"`,
 注意，所有`"consciousness_control"`和`"action"`包含的键都需要填写`"motivation"`字段，作为你转移注意力/做某事的动机或原因。
 以下是可用字段介绍：
 
-- **"internal_state"**: (必需) 描述你的内心状态。
+- **"internal_state"**: (必需) 你的内心状态。
 
-- **"consciousness_control"**: (可选) 用于转移/控制你的注意力。
-
+- **"consciousness_control"**: (可选) 用于控制/转移你的注意力，如果你只想专注于当前状态，则可以不输出此字段。
 
 - **"action"**: (可选) 用于与外部世界交互，当前有以下键可用：
 {available_actions}
 </output_format>
-"""
+"""  # noqa: E501
 
 
 # ============================= 核心循环用户提示 =============================

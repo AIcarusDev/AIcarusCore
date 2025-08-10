@@ -318,9 +318,16 @@ class ThoughtPromptBuilder:
         session: Optional["ChatSession"] = None,
     ) -> dict[str, Any]:
         """(提取出的新方法) 构建 User Prompt 的所有部分."""
-        command_feedback_block = ""
+        feedback_text = ""
         if session and session.last_command_feedback:
             feedback_text = session.last_command_feedback
+            session.last_command_feedback = None  # 清除会话层反馈
+        elif self.chat_session_manager and self.chat_session_manager.global_command_feedback:
+            feedback_text = self.chat_session_manager.global_command_feedback
+            self.chat_session_manager.global_command_feedback = None  # 清除全局反馈
+
+        command_feedback_block = ""
+        if feedback_text:
             command_feedback_block = f"<command_feedback>\n{feedback_text}\n</command_feedback>"
 
         action_response_block = await self._build_action_response_desc(handover_result)

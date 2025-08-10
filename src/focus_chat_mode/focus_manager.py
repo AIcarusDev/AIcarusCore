@@ -106,6 +106,9 @@ class FocusManager:
             )
             if current_session:
                 current_session.last_command_feedback = detailed_feedback
+            else:
+                # 如果不在任何会话中（即在 core 或 platform 层），则使用全局反馈槽
+                self.chat_session_manager.global_command_feedback = detailed_feedback
 
             logger.warning(f"意识转向指令 '{command}' 执行失败: {feedback_message}")
             # 注意：返回给上层的原始 feedback_message 保持不变，只修改注入到 Prompt 的内容
