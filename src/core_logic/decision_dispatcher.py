@@ -148,11 +148,15 @@ async def process_llm_decision(
         logger.info("内部状态已确定，现在开始处理 [外部行动] 指令。")
 
         platform_key = next(iter(normalized_action_payload), None)
-        action_name = next(iter(normalized_action_payload.get(platform_key, {})), None)
+        platform_actions = normalized_action_payload.get(platform_key)
+        if not isinstance(platform_actions, dict):
+            # 如果LLM返回了类似 {"core": null} 的结构，这里会将其视为空字典，避免崩溃
+            platform_actions = {}
+        action_name = next(iter(platform_actions), None)
 
         if action_name == "send_message":
             logger.info("检测到 [send_message] 动作，将执行发送并立即触发后续思考。")
-            action_params = normalized_action_payload.get(platform_key, {}).get("send_message", {})
+            action_params = platform_actions.get("send_message", {})
             if session:
                 await _handle_send_message_action(
                     session, action_params, core_logic, processed_events_this_turn
