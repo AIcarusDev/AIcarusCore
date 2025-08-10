@@ -18,6 +18,7 @@ from src.config import config
 from src.core_logic.internal_info_builder import InternalInfoBuilder
 from src.database import EntityGraphService, ThoughtStorageService
 from src.database.models import ConversationDetails
+from src.domain.models import Stimulus
 from src.focus_chat_mode.behavioral_guidance_generator import BehavioralGuidanceGenerator
 from src.focus_chat_mode.components import PromptComponents
 from src.platform_builders.base_builder import BasePlatformBuilder
@@ -807,9 +808,9 @@ class ThoughtPromptBuilder:
         conv_id: str | None,
         session: Optional["ChatSession"] = None,
         last_shown_core_summary: str | None = None,
-    ) -> tuple[str, str, PromptComponents | None, list[Event] | None, str | None]:
-        """获取外部信息和元信息块."""
-        external_info, meta_info, history_components, processed_raw_events = "", "", None, None
+    ) -> tuple[str, str, PromptComponents | None, list[Stimulus] | None, str | None]:
+        """获取外部信息和元信息块。现在返回 Stimulus 列表."""
+        external_info, meta_info, history_components, processed_stimuli = "", "", None, None
         summary_to_show_this_turn: str | None = None
 
         if not self.chat_session_manager:
@@ -875,7 +876,8 @@ class ThoughtPromptBuilder:
 
             # 获取会话的历史记录和元信息
             bot_profile = await session.get_bot_profile()
-            history_components, processed_raw_event_dicts = await format_chat_history_for_llm(
+            # 调用新的格式化函数，它现在返回 Stimulus 列表
+            history_components, processed_stimuli = await format_chat_history_for_llm(
                 event_storage=self.event_storage,
                 conversation_id=session.conversation_info.conversation_id,
                 bot_profile=bot_profile,
@@ -883,12 +885,6 @@ class ThoughtPromptBuilder:
                 conversation_name=session.conversation_name,
                 last_processed_timestamp=session.last_processed_timestamp,
                 is_first_turn=self.is_context_switch_flag,
-            )
-
-            processed_raw_events = (
-                [Event.from_dict(doc) for doc in processed_raw_event_dicts]
-                if processed_raw_event_dicts
-                else None
             )
 
             if history_components.conversation_name:
@@ -920,6 +916,6 @@ class ThoughtPromptBuilder:
             external_info,
             meta_info,
             history_components,
-            processed_raw_events,
+            processed_stimuli,  # <-- 返回的是 processed_stimuli
             summary_to_show_this_turn,
         )

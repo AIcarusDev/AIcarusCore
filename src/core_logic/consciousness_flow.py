@@ -8,7 +8,6 @@ import traceback
 import uuid
 from typing import TYPE_CHECKING, Optional
 
-from aicarus_protocols import Event, Seg, extract_text_from_content
 from src.action.action_handler import ActionHandler
 from src.common.custom_logging.logging_config import get_logger
 from src.common.interruption_broker import InterruptionEventBroker
@@ -23,6 +22,7 @@ from src.core_logic.thought_generator import ThoughtGenerator
 from src.core_logic.thought_persistor import ThoughtPersistor
 from src.database import ThoughtStorageService
 from src.database.models import ThoughtChainDocument
+from src.domain.models import Stimulus
 from src.focus_chat_mode.components import PromptComponents
 
 if TYPE_CHECKING:
@@ -210,20 +210,27 @@ class CoreLogic:
         """专门处理“哨兵”胜利的场景（即发生中断）."""
         if not session:
             return
-        interrupting_event_doc = await sentry_task
-        if not interrupting_event_doc:
+
+        # ======================== [ 核心改造点 ] ========================
+        # sentry_task 现在返回的是 Stimulus 对象
+        interrupting_stimulus = await sentry_task
+        if not interrupting_stimulus:
             return
 
         logger.warning(f"[{session.conversation_id}] 中断哨兵获胜！思考-行动主任务被中断。")
+
+        # 上下文现在存储的是 Stimulus 对象，而不是原始的 event_doc
         session.interruption_context = {
             "was_interrupted": True,
-            "interrupting_event_doc": interrupting_event_doc,
+            "interrupting_stimulus": interrupting_stimulus,
         }
-        if interrupting_ts := interrupting_event_doc.get("timestamp"):
-            session.last_processed_timestamp = interrupting_ts
-        self._last_interrupt_context_text = Event.from_dict(
-            interrupting_event_doc
-        ).get_text_content()
+
+        # 从 Stimulus 对象获取时间戳和文本内容
+        if interrupting_stimulus.timestamp:
+            session.last_processed_timestamp = interrupting_stimulus.timestamp
+        self._last_interrupt_context_text = interrupting_stimulus.text_content
+        # =============================================================
+
         self.trigger_immediate_thought_cycle()
 
     async def _process_main_task_victory(
@@ -283,16 +290,18 @@ class CoreLogic:
         return new_thought_pearl, saved_key
 
     async def _run_full_thought_cycle(self, session: Optional["ChatSession"]) -> float | None:
-        """执行完整的思考循环（重构后），主要负责编排."""
+        """执行完整的思考循环，主要负责编排."""
         focus_path_str = (
             self.chat_session_manager.current_focus_path.get("target_path")
             if self.chat_session_manager and self.chat_session_manager.current_focus_path
             else "core"
         )
         try:
+            # ======================== [ 核心改造点 ] ========================
+            # processed_raw_events 现在是 processed_stimuli
             (
                 prompt_components,
-                processed_raw_events,
+                processed_stimuli,
                 summary_actually_shown,
             ) = await self.prompt_builder.build_prompts_components(
                 level=parse_focus_path(focus_path_str)[0],
@@ -301,6 +310,7 @@ class CoreLogic:
                 handover_result=session.pending_handover_result if session else None,
                 last_shown_core_summary=self._last_shown_unread_summary,
             )
+            # =============================================================
             self._last_shown_unread_summary = summary_actually_shown
         except PromptBuilderError as e:
             logger.error(f"构建Prompt失败，中止本轮思考循环: {e}")
@@ -317,6 +327,8 @@ class CoreLogic:
             logger.error(f"核心思考过程失败，中止本轮循环: {e}")
             return None
 
+        # ======================== [ 核心改造点 ] ========================
+        # 传递 processed_stimuli
         await process_llm_decision(
             decision_json=new_thought_pearl.action_payload,
             focus_manager=self.chat_session_manager,
@@ -326,16 +338,17 @@ class CoreLogic:
             source_action_id=new_thought_pearl.action_id,
             current_focus_path=focus_path_str,
             session=session,
-            processed_events_this_turn=processed_raw_events,
+            processed_events_this_turn=processed_stimuli,
         )
+        # =============================================================
 
-        if processed_raw_events:
-            return max(event.time for event in processed_raw_events)
+        if processed_stimuli:
+            return max(s.timestamp for s in processed_stimuli)
         return session.last_processed_timestamp if session else None
 
     async def _listen_for_interruptions(
         self, session: "ChatSession", initial_context_text: str | None, start_timestamp: float
-    ) -> dict | None:
+    ) -> Stimulus | None:  # <-- 返回类型变为 Stimulus
         """纯粹的中断监听器（哨兵），现在通过订阅事件代理来工作."""
         subscription_queue = None
         try:
@@ -345,14 +358,19 @@ class CoreLogic:
             current_bot_id = str(bot_profile.get("user_id") or session.bot_id)
 
             while True:
-                new_event_doc = await subscription_queue.get()
-                if new_event_doc.get("timestamp", 0) <= start_timestamp:
+                # ======================== [ 核心改造点 ] ========================
+                # 从队列中获取的是 Stimulus 对象
+                new_stimulus = await subscription_queue.get()
+                if new_stimulus.timestamp <= start_timestamp:
                     continue
-                interrupting_event, new_context = self._evaluate_interrupt(
-                    new_event_doc, context_text, current_bot_id, session
+
+                # 传递 Stimulus 对象进行评估
+                interrupting_stimulus, new_context = self._evaluate_interrupt(
+                    new_stimulus, context_text, current_bot_id, session
                 )
-                if interrupting_event:
-                    return interrupting_event
+                if interrupting_stimulus:
+                    return interrupting_stimulus  # 返回 Stimulus 对象
+                # =============================================================
                 if new_context:
                     context_text = new_context
         except asyncio.CancelledError:
@@ -365,28 +383,30 @@ class CoreLogic:
                 await self.interruption_broker.unsubscribe(session)
 
     def _evaluate_interrupt(
-        self, event_doc: dict, context_text: str, current_bot_id: str, session: "ChatSession"
-    ) -> tuple[dict | None, str | None]:
-        """对单个事件进行中断评估的辅助函数."""
-        sender_id = (event_doc.get("user_info") or {}).get("user_id")
-        if sender_id and str(sender_id) == current_bot_id:
+        self,
+        stimulus: Stimulus,
+        context_text: str | None,
+        current_bot_id: str,
+        session: "ChatSession",
+    ) -> tuple[Stimulus | None, str | None]:
+        """对单个刺激物进行中断评估的辅助函数."""
+        # ======================== [ 核心改造点 ] ========================
+        # 方法签名和内部逻辑都基于 Stimulus 对象
+        if stimulus.sender_id and stimulus.sender_id == current_bot_id:
             return None, None
 
-        text_content = extract_text_from_content(
-            [Seg.from_dict(c) for c in (event_doc.get("content") or []) if isinstance(c, dict)]
-        )
-        if not text_content:
+        if not stimulus.text_content:
             return None, None
 
-        message_to_check = {"speaker_id": str(sender_id), "text": text_content}
+        message_to_check = {"speaker_id": stimulus.sender_id, "text": stimulus.text_content}
         if session.intelligent_interrupter.should_interrupt(
             new_message=message_to_check, context_message_text=context_text
         ):
             logger.info(
-                f"[{session.conversation_id}] IIS决策：中断！元凶ID: {event_doc.get('_key')}"
+                f"[{session.conversation_id}] IIS决策：中断！元凶事件ID: {stimulus.event_id}"
             )
-            return event_doc, text_content
-        return None, text_content
+            return stimulus, stimulus.text_content
+        return None, stimulus.text_content
 
     async def _wait_for_next_cycle(self, interval: float) -> None:
         """等待下一个思考周期，可以被 immediate_thought_trigger 立即中断."""

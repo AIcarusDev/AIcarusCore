@@ -1,10 +1,10 @@
 # src/core_logic/decision_dispatcher.py
 from typing import TYPE_CHECKING, Optional
 
-from aicarus_protocols import Event
 from src.action.components.message_builder import MessageBuilder
 from src.common.custom_logging.logging_config import get_logger
 from src.common.utils import parse_focus_path
+from src.domain.models import ActionMetadata, Stimulus
 from src.platform_builders.registry import platform_builder_registry
 
 if TYPE_CHECKING:
@@ -48,12 +48,12 @@ async def _handle_send_message_action(
     session: "ChatSession",
     params: dict,
     core_logic: "CoreLogic",
-    processed_events_this_turn: list[Event] | None,
+    processed_events_this_turn: list[Stimulus] | None,  # <-- 类型变为 Stimulus
 ) -> bool:
     """专门处理 send_message 动作的特种行动小队."""
-    # 1. 锁定时间戳
     if processed_events_this_turn:
-        latest_ts = max(event.time for event in processed_events_this_turn)
+        # Stimulus 对象有 timestamp 属性，这里可以直接使用
+        latest_ts = max(s.timestamp for s in processed_events_this_turn)
         if latest_ts > session.last_processed_timestamp:
             session.last_processed_timestamp = latest_ts
             logger.info(f"[{session.conversation_id}] 已更新 last_processed_timestamp: {latest_ts}")
@@ -94,21 +94,9 @@ async def process_llm_decision(
     source_action_id: str | None = None,
     current_focus_path: str | None = None,
     session: Optional["ChatSession"] = None,
-    processed_events_this_turn: list[Event] | None = None,
+    processed_events_this_turn: list[Stimulus] | None = None,
 ) -> None:
-    """一个统一的LLM决策分发器.
-
-    Args:
-        decision_json: LLM返回的决策JSON对象.
-        focus_manager: 当前的专注会话管理器.
-        action_handler: 处理动作流的核心处理器.
-        core_logic: 核心逻辑处理器.
-        source_thought_key: 来源思考的键（可选）.
-        source_action_id: 来源动作的ID（可选）.
-        current_focus_path: 当前专注路径（可选）.
-        session: 当前的专注会话实例（可选）.
-        processed_events_this_turn: 本轮处理过的事件列表（可选）.
-    """
+    """一个统一的LLM决策分发器."""
     if not decision_json or not isinstance(decision_json, dict):
         logger.warning("收到的LLM决策为空或非字典格式，无法分发。")
         return
@@ -116,33 +104,24 @@ async def process_llm_decision(
     logger.info(f"决策分发器开始处理LLM决策: {decision_json}")
     _, current_platform_id, _ = parse_focus_path(current_focus_path)
 
-    # --- 步骤 1: 解析所有潜在指令 ---
     control_payload = decision_json.get("consciousness_control")
     action_payload = decision_json.get("action")
     current_internal_state = decision_json.get("internal_state", {})
 
-    # --- 步骤 2: (特例优先) 检查并执行“慢思考” ---
     if control_payload and "deep_think" in control_payload:
         logger.info("检测到 [慢思考] 指令，优先执行内部辩论...")
-
-        # “慢思考”是同步阻塞的，它会返回一个修正后的思考状态
         new_internal_state = await focus_manager.handle_consciousness_control(
             {"deep_think": control_payload["deep_think"]}, current_internal_state
         )
-
         if new_internal_state:
             logger.success("“慢思考”决策管线已完成，使用其决议更新当前思考状态。")
-            current_internal_state = new_internal_state  # 更新思考状态
+            current_internal_state = new_internal_state
         else:
             logger.warning("“慢思考”执行完毕但未返回有效决议，将使用原始思考状态继续。")
-
-        # 从控制载荷中移除已被处理的慢思考指令
         del control_payload["deep_think"]
-        if not control_payload:  # 如果没有其他控制指令了
+        if not control_payload:
             control_payload = None
 
-    # --- 步骤 3: 执行“外部行动” ---
-    # 使用最新的（可能已被慢思考修正的）状态来驱动行动
     normalized_action_payload = normalize_action_payload(action_payload, current_platform_id)
     if normalized_action_payload:
         logger.info("内部状态已确定，现在开始处理 [外部行动] 指令。")
@@ -150,9 +129,30 @@ async def process_llm_decision(
         platform_key = next(iter(normalized_action_payload), None)
         platform_actions = normalized_action_payload.get(platform_key)
         if not isinstance(platform_actions, dict):
-            # 如果LLM返回了类似 {"core": null} 的结构，这里会将其视为空字典，避免崩溃
             platform_actions = {}
         action_name = next(iter(platform_actions), None)
+
+        # ======================== [ 最终优化点 ] ========================
+        # 1. 精准追溯 source_event_id
+        source_event_id = None
+        if processed_events_this_turn:
+            # 找到最后一个非机器人自己发出的事件作为源头
+            last_external_stimulus = next(
+                (s for s in reversed(processed_events_this_turn) if s.bot_id != s.sender_id), None
+            )
+            if last_external_stimulus:
+                source_event_id = last_external_stimulus.event_id
+
+        # 2. 创建包含完整信息的 ActionMetadata
+        motivation_text = current_internal_state.get("intent") or current_internal_state.get(
+            "think", "无明确动机"
+        )
+        metadata = ActionMetadata(
+            motivation=motivation_text,
+            source_thought_id=source_thought_key,
+            source_event_id=source_event_id,
+        )
+        # =================================================================
 
         if action_name == "send_message":
             logger.info("检测到 [send_message] 动作，将执行发送并立即触发后续思考。")
@@ -169,14 +169,13 @@ async def process_llm_decision(
                 action_id=source_action_id,
                 doc_key_for_updates=source_thought_key,
                 action_json=normalized_action_payload,
+                metadata=metadata,
             )
 
-    # --- 步骤 4: (最后执行) 处理剩余的“注意力转移”指令 ---
     if control_payload:
         logger.info("所有外部行动已处理完毕，现在开始处理 [注意力转移] 。")
         await focus_manager.handle_consciousness_control(control_payload, current_internal_state)
 
-    # --- 步骤 5: 检查是否无任何指令 ---
     if not normalized_action_payload and not control_payload:
         logger.info("本轮决策中无任何有效动作或注意力转移指令。")
 

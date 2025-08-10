@@ -2,7 +2,6 @@
 import json
 from typing import TYPE_CHECKING, Optional
 
-from aicarus_protocols import Event
 from src.common.custom_logging.logging_config import get_logger
 from src.database.services.thought_storage_service import ThoughtStorageService
 
@@ -122,17 +121,19 @@ class InternalInfoBuilder:
     async def _format_interruption(self, session: "ChatSession", user_map: dict | None) -> str:
         """格式化中断信息."""
         context = session.interruption_context
-        event_doc = context.get("interrupting_event_doc", {})
-        if not event_doc:
+        # ======================== [ 核心改造点 ] ========================
+        # 从上下文中获取 Stimulus 对象
+        stimulus = context.get("interrupting_stimulus")
+        if not stimulus:
             return "<interruption>未知</interruption>"
-        # 解析事件文档，提取必要信息
-        event = Event.from_dict(event_doc)
-        text = self._escape_xml_text(event.get_text_content() or "[非文本消息]")
-        sender_id = event.user_info.user_id if event.user_info else "未知"
+
+        # 直接从 Stimulus 对象获取信息
+        text = self._escape_xml_text(stimulus.text_content or "[非文本消息]")
+        sender_id = stimulus.sender_id or "未知"
+        # =============================================================
 
         sender_uid = f"未知用户({sender_id[:4]})"
         if user_map and sender_id != "未知":
-            # 遍历 user_map 找到对应的 uid_str
             for p_id, data in user_map.items():
                 if str(p_id) == str(sender_id):
                     sender_uid = data.get("uid_str", sender_uid)
