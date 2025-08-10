@@ -2,14 +2,10 @@
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from aicarus_protocols import Event as ProtocolEvent
+from aicarus_protocols import Seg, extract_text_from_content
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
-
-# ======================== [ 新增导入 ] ========================
 from src.domain.models import Stimulus
-
-# =============================================================
 from src.focus_chat_mode.components import PromptComponents
 
 if TYPE_CHECKING:
@@ -70,8 +66,8 @@ class _ChatHistoryFormatter:
                     "uid_str": uid_str,
                     "nick": stimulus.sender_nickname or f"用户{stimulus.sender_id[:4]}",
                     "card": stimulus.sender_cardname or stimulus.sender_nickname,
-                    "title": "",  # Stimulus 目前不包含 title 信息，可后续添加
-                    "perm": "成员",  # Stimulus 目前不包含权限信息
+                    "title": "",
+                    "perm": "成员",
                 }
 
     def format_user_list_block(self) -> str:
@@ -101,6 +97,7 @@ class _ChatHistoryFormatter:
         """核心逻辑：格式化完整的聊天记录文本块."""
         log_lines: list[str] = []
         unread_section_started = False
+        added_platform_message_ids: set[str] = set()
         total_stimuli = len(self.stimuli)
 
         for i, stimulus in enumerate(self.stimuli):
@@ -122,7 +119,9 @@ class _ChatHistoryFormatter:
                 log_lines.append("--- 请关注以下未读的新消息---")
                 unread_section_started = True
 
-            log_line = self._format_single_log_entry(stimulus, is_in_viewport)
+            log_line = self._format_single_log_entry(
+                stimulus, is_in_viewport, added_platform_message_ids
+            )
             if log_line:
                 log_lines.append(log_line)
 
@@ -138,8 +137,9 @@ class _ChatHistoryFormatter:
 
         return "\n".join(log_lines) or "当前没有聊天记录。"
 
-    def _format_single_log_entry(self, stimulus: Stimulus, is_in_viewport: bool) -> str | None:
-        """格式化单条 Stimulus 为一行日志字符串."""
+    def _format_single_log_entry(
+        self, stimulus: Stimulus, is_in_viewport: bool, added_ids: set[str]
+    ) -> str | None:
         event_type = stimulus.raw_event_type or "unknown"
         time_str = datetime.fromtimestamp(stimulus.timestamp / 1000.0).strftime("%H:%M:%S")
         sender_uid = "SYS"
@@ -149,49 +149,170 @@ class _ChatHistoryFormatter:
             )
 
         if event_type.startswith("message."):
-            return self._format_message_entry(stimulus, sender_uid, time_str, is_in_viewport)
+            return self._format_message_entry(
+                stimulus, sender_uid, time_str, is_in_viewport, added_ids
+            )
+        if event_type.startswith("notice."):
+            return self._format_notice_entry(stimulus, time_str)
+        if event_type == "internal.focus_chat_mode.thought_log":
+            return f"[{time_str}] {sender_uid} [MOTIVE]: {stimulus.text_content}"
 
-        # 简化处理，未来可以扩展
         event_type_display = event_type.split(".")[-1].upper()
         return (
-            f"[{time_str}] {sender_uid} [{event_type_display}]: "
-            f"{stimulus.text_content[:30]}... (id:{stimulus.event_id})"
+            f"[{time_str}] {sender_uid} [{event_type_display}]: {stimulus.text_content[:30]}... "
+            f"(id:{stimulus.event_id})"
         )
 
     def _format_message_entry(
-        self, stimulus: Stimulus, sender_uid: str, time_str: str, is_in_viewport: bool
+        self,
+        stimulus: Stimulus,
+        sender_uid: str,
+        time_str: str,
+        is_in_viewport: bool,
+        added_ids: set[str],
     ) -> str | None:
-        """格式化消息类型的 Stimulus."""
-        # 注意：这里的实现简化了，直接使用 stimulus.text_content。
-        # 一个更完整的实现会重新解析 ProtocolEvent 的 content 列表来处理图片、at等。
-        # 但为了演示核心思想，我们先用纯文本。
-        content_type = "MSG"
-        main_content = stimulus.text_content
-        if stimulus.image_urls:
-            image_placeholders = []
-            for url in stimulus.image_urls:
-                self.image_ref_counter += 1
-                image_placeholders.append(f"[图片_{self.image_ref_counter}]")
-                if is_in_viewport:
-                    self.image_references_for_llm.append(url)
-            main_content += " " + " ".join(image_placeholders)
+        content_segs = [Seg.from_dict(c) for c in stimulus.raw_content]
+        msg_id = None
+        for seg in content_segs:
+            if seg.type == "message_metadata":
+                msg_id = seg.data.get("message_id")
+                break
+        if msg_id:
+            if msg_id in added_ids:
+                return None
+            added_ids.add(msg_id)
 
-        if main_content:
-            self.last_valid_text_message = main_content
+        content_parts, content_type, quote_str = [], "MSG", ""
+        image_analysis_index = 0
 
+        for seg in content_segs:
+            if seg.type == "text":
+                content_parts.append(seg.data.get("text", ""))
+            elif seg.type == "image":
+                content_parts.append(
+                    self._format_image_segment(seg, is_in_viewport, stimulus, image_analysis_index)
+                )
+                image_analysis_index += 1
+            elif seg.type == "video":
+                content_parts.append(self._format_video_segment(seg, is_in_viewport))
+            elif seg.type == "quote":
+                quote_str = self._format_quote_segment(seg)
+            elif seg.type == "at":
+                content_parts.append(self._format_at_segment(seg))
+            elif seg.type == "face":
+                content_parts.append(f"[表情:{seg.data.get('id', '未知')}]")
+            elif seg.type == "file":
+                content_type = "FILE"
+                content_parts.append(
+                    f"[FILE:{seg.data.get('name', '未知')} ({seg.data.get('size', 0)} bytes)]"
+                )
+
+        main_content = "".join(content_parts).strip()
+        if text_only := extract_text_from_content(content_segs):
+            self.last_valid_text_message = text_only
+
+        display_tag = f"{content_type}{', ' + quote_str if quote_str else ''}"
+        event_identifier = msg_id or stimulus.event_id
         log_line = (
-            f"[{time_str}] {sender_uid} [{content_type}]: "
-            f"{main_content.strip()} (id:{stimulus.event_id})"
+            f"[{time_str}] {sender_uid} [{display_tag}]: {main_content} (id:{event_identifier})"
         )
+
+        if sender_uid == "U0" and stimulus.motivation:
+            log_line += f"\n    - [MOTIVE]: {stimulus.motivation}"
+
         return log_line
 
+    def _format_image_segment(
+        self, seg: Seg, is_in_viewport: bool, stimulus: Stimulus, analysis_index: int
+    ) -> str:
+        self.image_ref_counter += 1
+        is_sticker = seg.data.get("summary") == "sticker"
+        placeholder = f"[{'动画表情' if is_sticker else '图片'}_{self.image_ref_counter}]"
 
-# ======================== [ 核心改造点 ] ========================
+        base64_data = seg.data.get("base64")
+        if isinstance(base64_data, str) and base64_data.strip():
+            mime_type = seg.data.get("mime_type", "image/jpeg")
+            self.image_references_for_llm.append(f"data:{mime_type};base64,{base64_data}")
+        elif url := seg.data.get("url"):
+            self.image_references_for_llm.append(url)
+
+        if (
+            not is_in_viewport
+            and stimulus.image_analysis
+            and analysis_index < len(stimulus.image_analysis)
+        ):
+            analysis_item = stimulus.image_analysis[analysis_index]
+            desc_text = analysis_item.get("details", {}).get("description", "图片")
+            prefix = "表情包" if analysis_item.get("type") == "sticker" else "图片"
+            return f"[{prefix}: {desc_text}]"
+
+        return placeholder
+
+    def _format_video_segment(self, seg: Seg, is_in_viewport: bool) -> str:
+        if is_in_viewport:
+            self.image_ref_counter += 1
+            if base64_data := seg.data.get("base64"):
+                mime_type = seg.data.get("mime_type", "video/mp4")
+                self.image_references_for_llm.append(f"data:{mime_type};base64,{base64_data}")
+            return f"[GIF_{self.image_ref_counter}]"
+        return "[GIF]"
+
+    def _format_quote_segment(self, seg: Seg) -> str:
+        msg_id = seg.data.get("message_id", "unknown")
+        user_id = seg.data.get("user_id")
+        user_uid = (
+            self.platform_id_to_uid_str.get(str(user_id), f"未知({str(user_id)[:4]})")
+            if user_id
+            else "未知用户"
+        )
+        return f"引用/回复 {user_uid}(id:{msg_id})"
+
+    def _format_at_segment(self, seg: Seg) -> str:
+        at_user_id = seg.data.get("user_id")
+        at_display_name = seg.data.get("display_name")
+        if at_user_id and at_user_id in self.platform_id_to_uid_str:
+            return f"@{self.platform_id_to_uid_str[at_user_id]} "
+        return f"@{at_display_name or at_user_id or '未知'} "
+
+    def _format_notice_entry(self, stimulus: Stimulus, time_str: str) -> str:
+        content_segs = [Seg.from_dict(c) for c in stimulus.raw_content]
+        notice_data = content_segs[0].data if content_segs else {}
+        notice_subtype = (stimulus.raw_event_type or "").split(".")[-1]
+
+        operator_info = notice_data.get("operator_user_info") or {}
+        operator_id = operator_info.get("user_id")
+        operator_uid = (
+            self.platform_id_to_uid_str.get(str(operator_id), "系统") if operator_id else "系统"
+        )
+
+        target_id = stimulus.sender_id
+        target_uid = (
+            self.platform_id_to_uid_str.get(str(target_id), "某人") if target_id else "某人"
+        )
+
+        content = f"收到一条 {notice_subtype} 类型的平台通知。"
+        if notice_subtype == "member_increase":
+            content = (
+                f"{operator_uid} 邀请 {target_uid} 加入了群聊。"
+                if notice_data.get("join_type") != "approve"
+                else f"{target_uid} 加入了群聊。"
+            )
+        elif notice_subtype == "member_decrease":
+            content = (
+                f"{operator_uid} 将 {target_uid} 移出了群聊。"
+                if notice_data.get("leave_type") == "kick"
+                else f"{target_uid} 退出了群聊。"
+            )
+        elif notice_subtype == "recalled":
+            content = f"{operator_uid} 撤回了一条消息。"
+
+        return f"[{time_str}] [NOTICE]: {content}"
+
+
 async def _fetch_and_prepare_stimuli(
     event_storage: "EventStorageService",
     conversation_id: str,
 ) -> list[Stimulus]:
-    """获取、去重、排序事件字典，并最终转换为 Stimulus 领域模型列表."""
     event_dicts = await event_storage.get_recent_chat_message_documents(
         conversation_id=conversation_id, limit=50, fetch_all_event_types=True
     )
@@ -202,7 +323,7 @@ async def _fetch_and_prepare_stimuli(
     for event in event_dicts:
         content = event.get("content", [])
         msg_id = None
-        if content and isinstance(content, list):
+        if isinstance(content, list):
             for seg in content:
                 if seg.get("type") == "message_metadata":
                     msg_id = seg.get("data", {}).get("message_id")
@@ -211,13 +332,9 @@ async def _fetch_and_prepare_stimuli(
         if key not in unique_events_desc:
             unique_events_desc[key] = event
 
-    final_events_desc = list(unique_events_desc.values())
-    final_events_asc = final_events_desc[::-1]
+    final_events_asc = list(unique_events_desc.values())[::-1]
 
-    # 在这里完成从数据库字典 -> ProtocolEvent -> Stimulus 的转换
-    stimuli = [
-        Stimulus.from_protocol_event(ProtocolEvent.from_dict(doc)) for doc in final_events_asc
-    ]
+    stimuli = [Stimulus.from_db_document(doc) for doc in final_events_asc]
     return stimuli
 
 
@@ -230,7 +347,7 @@ async def format_chat_history_for_llm(
     last_processed_timestamp: float,
     is_first_turn: bool,
 ) -> tuple[PromptComponents, list[Stimulus]]:
-    """通用的聊天记录格式化工具，现在返回 Stimulus 列表."""
+    """格式化聊天记录以供 LLM 使用."""
     prepared_stimuli = await _fetch_and_prepare_stimuli(event_storage, conversation_id)
 
     formatter = _ChatHistoryFormatter(
@@ -277,6 +394,3 @@ async def format_chat_history_for_llm(
         last_valid_text_message=formatter.last_valid_text_message,
     )
     return components, processed_stimuli
-
-
-# =============================================================

@@ -30,8 +30,11 @@ class Stimulus:
     sender_nickname: str | None = None
     sender_cardname: str | None = None
 
-    # 原始事件的元数据，供特殊情况追溯
+    # --- [新增] 供格式化器等特殊模块使用的附加信息 ---
     raw_event_type: str | None = None
+    raw_content: list[dict[str, Any]] = field(default_factory=list)
+    image_analysis: list[dict[str, Any]] | None = None
+    motivation: str | None = None  # 用于记录 AI 自身发言的动机
 
     @classmethod
     def from_protocol_event(cls, event: ProtocolEvent) -> "Stimulus":
@@ -61,7 +64,20 @@ class Stimulus:
             sender_nickname=event.user_info.user_nickname if event.user_info else None,
             sender_cardname=event.user_info.user_cardname if event.user_info else None,
             raw_event_type=event.event_type,
+            raw_content=[seg.to_dict() for seg in event.content],
         )
+
+    @classmethod
+    def from_db_document(cls, doc: dict) -> "Stimulus":
+        """从【历史】的数据库事件文档创建 Stimulus，包含更丰富的渲染信息."""
+        proto_event = ProtocolEvent.from_dict(doc)
+        stimulus = cls.from_protocol_event(proto_event)
+
+        # 使用 object.__setattr__ 来修改 frozen dataclass 的字段
+        object.__setattr__(stimulus, "image_analysis", doc.get("image_analysis"))
+        object.__setattr__(stimulus, "motivation", doc.get("motivation"))
+
+        return stimulus
 
 
 @dataclass(frozen=True)
