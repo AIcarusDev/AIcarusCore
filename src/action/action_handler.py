@@ -470,12 +470,11 @@ class ActionHandler:
             if parsed_tuple := parse_entity_uid(session.conversation_id):
                 # parse_entity_uid 返回 (platform, type, native_id)
                 return parsed_tuple[2]
-            else:
-                logger.error(
-                    f"无法从当前会话的实体UID '{session.conversation_id}' 中解析出原生ID。"
-                )
-                return None
-        return None
+
+            logger.error(
+                f"无法从当前会话的实体UID '{session.conversation_id}' 中解析出原生ID。"
+            )
+            return None
 
     def _normalize_id_string(self, id_string: str, platform_id: str) -> str | None:
         """将一个可能是完整UID的字符串规范化为平台原生ID."""

@@ -1,4 +1,5 @@
 # src/common/focus_chat_history_builder/chat_history_formatter.py
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -14,6 +15,15 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 VISUAL_VIEWPORT_SIZE = 20
+
+
+@dataclass
+class ParsedContent:
+    """一个用于存放消息段解析结果的数据容器."""
+
+    content_parts: list[str] = field(default_factory=list)
+    content_type: str = "MSG"
+    quote_str: str = ""
 
 
 class _ChatHistoryFormatter:
@@ -143,6 +153,7 @@ class _ChatHistoryFormatter:
     def _format_single_log_entry(
         self, stimulus: Stimulus, is_in_viewport: bool, added_ids: set[str]
     ) -> str | None:
+        """[协调者] 格式化单条日志条目，并将任务分发给具体的处理器."""
         event_type = stimulus.raw_event_type or "unknown"
         time_str = datetime.fromtimestamp(stimulus.timestamp / 1000.0).strftime("%H:%M:%S")
         sender_uid = "SYS"
@@ -161,60 +172,80 @@ class _ChatHistoryFormatter:
             return f"[{time_str}] {sender_uid} [MOTIVE]: {stimulus.text_content}"
 
         event_type_display = event_type.split(".")[-1].upper()
+        # [FIX] 修复了 f-string 拼接问题
         return (
             f"[{time_str}] {sender_uid} [{event_type_display}]: {stimulus.text_content[:30]}... "
             f"(id:{stimulus.event_id})"
         )
 
-    def _format_message_entry(
-        self,
-        stimulus: Stimulus,
-        sender_uid: str,
-        time_str: str,
-        is_in_viewport: bool,
-        added_ids: set[str],
-    ) -> str | None:
-        content_segs = [Seg.from_dict(c) for c in stimulus.raw_content]
-        msg_id = None
-        for seg in content_segs:
-            if seg.type == "message_metadata":
-                msg_id = seg.data.get("message_id")
-                break
+    # ======================== [ Refactor Start ] ========================
+    # `_format_message_entry` 已被重构为以下几个辅助函数和一个协调者
+
+    def _get_message_id_and_check_duplicate(
+        self, content_segs: list[Seg], added_ids: set[str]
+    ) -> tuple[str | None, bool]:
+        """[辅助函数] 从消息段中提取 message_id 并检查是否重复."""
+        msg_id = next(
+            (
+                seg.data.get("message_id")
+                for seg in content_segs
+                if seg.type == "message_metadata"
+            ),
+            None,
+        )
         if msg_id:
             if msg_id in added_ids:
-                return None
+                return msg_id, True  # 是重复的
             added_ids.add(msg_id)
+        return msg_id, False  # 不是重复的
 
-        content_parts, content_type, quote_str = [], "MSG", ""
+    def _parse_message_segments(
+        self, content_segs: list[Seg], stimulus: Stimulus, is_in_viewport: bool
+    ) -> ParsedContent:
+        """[辅助函数] 遍历所有消息段并将其解析为结构化内容."""
+        parsed = ParsedContent()
         image_analysis_index = 0
 
         for seg in content_segs:
-            if seg.type == "text":
-                content_parts.append(seg.data.get("text", ""))
-            elif seg.type == "image":
-                content_parts.append(
-                    self._format_image_segment(seg, is_in_viewport, stimulus, image_analysis_index)
+            seg_type, seg_data = seg.type, seg.data
+            if seg_type == "text":
+                parsed.content_parts.append(seg_data.get("text", ""))
+            elif seg_type == "image":
+                parsed.content_parts.append(
+                    self._format_image_segment(
+                        seg, is_in_viewport, stimulus, image_analysis_index
+                    )
                 )
                 image_analysis_index += 1
-            elif seg.type == "video":
-                content_parts.append(self._format_video_segment(seg, is_in_viewport))
-            elif seg.type == "quote":
-                quote_str = self._format_quote_segment(seg)
-            elif seg.type == "at":
-                content_parts.append(self._format_at_segment(seg))
-            elif seg.type == "face":
-                content_parts.append(f"[表情:{seg.data.get('id', '未知')}]")
-            elif seg.type == "file":
-                content_type = "FILE"
-                content_parts.append(
-                    f"[FILE:{seg.data.get('name', '未知')} ({seg.data.get('size', 0)} bytes)]"
+            elif seg_type == "video":
+                parsed.content_parts.append(self._format_video_segment(seg, is_in_viewport))
+            elif seg_type == "quote":
+                parsed.quote_str = self._format_quote_segment(seg)
+            elif seg_type == "at":
+                parsed.content_parts.append(self._format_at_segment(seg))
+            elif seg_type == "face":
+                parsed.content_parts.append(f"[表情:{seg_data.get('id', '未知')}]")
+            elif seg_type == "file":
+                parsed.content_type = "FILE"
+                parsed.content_parts.append(
+                    f"[FILE:{seg_data.get('name', '未知')} ({seg_data.get('size', 0)} bytes)]"
                 )
+        return parsed
 
-        main_content = "".join(content_parts).strip()
-        if text_only := extract_text_from_content(content_segs):
-            self.last_valid_text_message = text_only
-
-        display_tag = f"{content_type}{', ' + quote_str if quote_str else ''}"
+    def _assemble_log_line(
+        self,
+        parsed_content: ParsedContent,
+        stimulus: Stimulus,
+        sender_uid: str,
+        time_str: str,
+        msg_id: str | None,
+    ) -> str:
+        """[辅助函数] 将解析后的内容组装成最终的日志行字符串."""
+        main_content = "".join(parsed_content.content_parts).strip()
+        display_tag = (
+            f"{parsed_content.content_type}"
+            f"{', ' + parsed_content.quote_str if parsed_content.quote_str else ''}"
+        )
         event_identifier = msg_id or stimulus.event_id
         log_line = (
             f"[{time_str}] {sender_uid} [{display_tag}]: {main_content} (id:{event_identifier})"
@@ -224,6 +255,34 @@ class _ChatHistoryFormatter:
             log_line += f"\n    - [MOTIVE]: {stimulus.motivation}"
 
         return log_line
+
+    def _format_message_entry(
+        self,
+        stimulus: Stimulus,
+        sender_uid: str,
+        time_str: str,
+        is_in_viewport: bool,
+        added_ids: set[str],
+    ) -> str | None:
+        """[协调者] 格式化消息条目，调用辅助函数完成工作."""
+        content_segs = [Seg.from_dict(c) for c in stimulus.raw_content]
+
+        # 守卫子句: 处理消息ID并检查重复
+        msg_id, is_duplicate = self._get_message_id_and_check_duplicate(content_segs, added_ids)
+        if is_duplicate:
+            return None
+
+        # 步骤 1: 将所有消息段解析为结构化对象
+        parsed = self._parse_message_segments(content_segs, stimulus, is_in_viewport)
+
+        # 步骤 2: 更新最后一条有效文本消息 (副作用)
+        if text_only := extract_text_from_content(content_segs):
+            self.last_valid_text_message = text_only
+
+        # 步骤 3: 组装最终的日志行
+        return self._assemble_log_line(parsed, stimulus, sender_uid, time_str, msg_id)
+
+    # ========================= [ Refactor End ] =========================
 
     def _format_image_segment(
         self, seg: Seg, is_in_viewport: bool, stimulus: Stimulus, analysis_index: int
