@@ -104,7 +104,7 @@ if __name__ == '__main__':
         'spacing': 25, # 间距
         'margin': 50, # 边距
         'background_color': '#FFFFFF', # 背景色
-        'font_path': None,  # 设置为 None 或一个无效路径会使用默认字体
+        'font_path': 'MAPLEMONO-NF-CN-SEMIBOLD.TTF',  # 设置为 None 或一个无效路径会使用默认字体
         'font_size': 50, # 字体大小
         'label_color': '#333333', # 标签颜色
         'label_spacing': 15 # 标签与缩略图之间的间距
