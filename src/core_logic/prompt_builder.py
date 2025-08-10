@@ -175,6 +175,12 @@ class ThoughtPromptBuilder:
 
         return action_props
 
+    def _filter_navigation_controls(self, properties: dict[str, Any], can_go_back: bool) -> None:
+        """[Helper] 根据历史记录情况，过滤掉 'back' 和 'jump_to_history' 指令."""
+        if not can_go_back:
+            properties.pop("back", None)
+            properties.pop("jump_to_history", None)
+
     # 接收 can_go_back 标志
     def _build_response_schema(
         self, level: str, platform_id: str, conv_id: str | None, can_go_back: bool
@@ -192,9 +198,7 @@ class ThoughtPromptBuilder:
             consciousness_controls_schema["properties"].update(plat_controls_schema["properties"])
 
         # 根据上下文动态过滤指令
-        if not can_go_back:
-            consciousness_controls_schema["properties"].pop("back", None)
-            consciousness_controls_schema["properties"].pop("jump_to_history", None)
+        self._filter_navigation_controls(consciousness_controls_schema["properties"], can_go_back)
 
         if level == "cellular":
             consciousness_controls_schema["properties"].pop("focus", None)
@@ -371,22 +375,19 @@ class ThoughtPromptBuilder:
 
         return f"你刚才执行了动作 “{platform_key}.{action_name}”，得到了以下结果："
 
-    # 用于清洗和转换 get_list 结果的辅助函数
     async def _post_process_get_list_result(self, result_text: str, platform_key: str) -> str:
         """对 get_list 动作的结果进行后处理，修复实体ID格式、过滤自身和无用字段."""
         try:
-            # 1. 获取AI自身在该平台的ID
             self_entity = await self.entity_service.get_self_entity_by_platform(platform_key)
             self_platform_id = (
                 str(self_entity.get("details", {}).get("platform_id")) if self_entity else None
             )
 
-            # 2. 解析JSON
             result_list = json.loads(result_text)
             if not isinstance(result_list, list):
+                logger.warning(f"get_list 结果不是一个列表，无法后处理。类型: {type(result_list)}")
                 return result_text
 
-            # 3. 遍历并清洗
             cleaned_list = []
             keys_to_keep = {
                 "birthday_year",
@@ -404,31 +405,51 @@ class ThoughtPromptBuilder:
 
             for item in result_list:
                 if not isinstance(item, dict):
+                    logger.debug(f"跳过 get_list 结果中的非字典项: {item}")
                     continue
 
-                # 过滤掉AI自己
-                if self_platform_id and str(item.get("user_id")) == self_platform_id:
+                user_id = item.get("user_id")
+                group_id = item.get("group_id")
+
+                item_type = None
+                item_id = None
+                if user_id:
+                    item_type = "private"
+                    item_id = str(user_id)
+                elif group_id:
+                    item_type = "group"
+                    item_id = str(group_id)
+
+                if not item_id:
+                    logger.warning(
+                        f"跳过 get_list 结果中的一个项目，"
+                        f"因为它缺少 user_id 或 group_id: {str(item)[:100]}"
+                    )
+                    continue
+
+                if item_type == "private" and self_platform_id and item_id == self_platform_id:
+                    logger.debug(f"在 get_list 结果中过滤掉 AI 自身 (ID: {item_id})。")
                     continue
 
                 cleaned_item = {k: v for k, v in item.items() if k in keys_to_keep}
 
-                # 转换ID为实体UID
-                if "user_id" in cleaned_item:
-                    cleaned_item["user_id"] = build_conversation_entity_uid(
-                        platform_key, "private", str(cleaned_item["user_id"])
-                    )
-                elif "group_id" in cleaned_item:
-                    cleaned_item["group_id"] = build_conversation_entity_uid(
-                        platform_key, "group", str(cleaned_item["group_id"])
-                    )
+                entity_uid = build_conversation_entity_uid(platform_key, item_type, item_id)
+                if item_type == "private":
+                    cleaned_item["user_id"] = entity_uid
+                else:  # item_type == "group"
+                    cleaned_item["group_id"] = entity_uid
 
                 cleaned_list.append(cleaned_item)
 
-            # 4. 重新序列化为格式化的JSON字符串
             return json.dumps(cleaned_list, indent=4, ensure_ascii=False)
         except (json.JSONDecodeError, TypeError) as e:
-            logger.warning(f"后处理 get_list 动作结果时失败: {e}")
-            return result_text  # 出错则返回原始文本
+            logger.warning(
+                f"后处理 get_list 动作结果时失败: {e}. 原始文本: '{result_text[:200]}...'"
+            )
+            return result_text
+        except Exception as e:
+            logger.error(f"在 _post_process_get_list_result 中发生意外错误: {e}", exc_info=True)
+            return result_text
 
     async def _build_action_response_desc(self, handover_result: dict | None) -> str:
         """[Orchestrator] 构建上一个动作的结果描述块 (重构后)."""
@@ -451,18 +472,17 @@ class ThoughtPromptBuilder:
             platform_key, action_name, action_params
         )
 
-        # 5. [修改] 对特定动作结果进行后处理
-        if action_name == "get_list" and platform_key and "详情" not in action_result_text:
-            # ` "详情" not in action_result_text ` 是一个临时检查，避免重复处理已格式化的文本
-            # 更好的方法是检查 `action_result_text` 是否是有效的JSON数组字符串
+        # 5. 对特定动作结果进行后处理
+        if action_name == "get_list" and platform_key:
             try:
-                # 尝试解析，如果成功说明是原始JSON，需要处理
-                json.loads(action_result_text)
-                action_result_text = await self._post_process_get_list_result(
-                    action_result_text, platform_key
-                )
-            except json.JSONDecodeError:
-                # 如果解析失败，说明可能已经是被处理过的文本，直接使用
+                parsed_result = json.loads(action_result_text)
+                if isinstance(parsed_result, list):
+                    logger.debug("get_list 结果被识别为原始JSON列表，将进行后处理。")
+                    action_result_text = await self._post_process_get_list_result(
+                        action_result_text, platform_key
+                    )
+            except (json.JSONDecodeError, TypeError):
+                logger.debug("get_list 结果不是原始JSON列表，将按原样使用。")
                 pass
 
         # 6. 格式化并返回最终的XML块
@@ -739,9 +759,7 @@ class ThoughtPromptBuilder:
 
         available_controls = schema.get("properties", {})
 
-        if not can_go_back:
-            available_controls.pop("back", None)
-            available_controls.pop("jump_to_history", None)
+        self._filter_navigation_controls(available_controls, can_go_back)
 
         if level == "cellular":
             available_controls.pop("focus", None)
