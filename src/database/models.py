@@ -136,6 +136,7 @@ class ImageAnalysisCacheDocument:
 
     _key: str  # 图片内容的 SHA-256 哈希值
     analysis_result: dict[str, Any]
+    version: str  # 新增：用于标识分析逻辑的版本
     timestamp: int = field(default_factory=lambda: int(time.time() * 1000))
 
     def to_dict(self) -> dict[str, Any]:

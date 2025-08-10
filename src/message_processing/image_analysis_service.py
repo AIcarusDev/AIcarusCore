@@ -52,6 +52,10 @@ IMAGE_ANALYSIS_SCHEMA = {
 class ImageAnalysisService:
     """一个后台服务，负责异步地分析事件中的图片内容."""
 
+    # 定义缓存版本和TTL（生存时间）
+    CACHE_VERSION = "v1.0"  # 当分析逻辑（如Prompt或模型）发生变化时，应递增此版本号
+    CACHE_TTL_SECONDS = 7 * 24 * 3600  # 缓存有效期设置为7天
+
     def __init__(
         self,
         conn_manager: ArangoDBConnectionManager,
@@ -152,8 +156,10 @@ class ImageAnalysisService:
         # 步骤 1: 计算图片哈希值
         image_hash = self._calculate_image_hash(base64_data)
 
-        # 步骤 2: 查询缓存
-        cached_result = await self.cache_service.get_analysis_by_hash(image_hash)
+        # 步骤 2: 查询缓存（带版本和TTL）
+        cached_result = await self.cache_service.get_analysis_by_hash(
+            image_hash, version=self.CACHE_VERSION, ttl_seconds=self.CACHE_TTL_SECONDS
+        )
         if cached_result:
             return cached_result  # 缓存命中，直接返回结果
 
@@ -173,8 +179,10 @@ class ImageAnalysisService:
             "details": details_result,
         }
 
-        # 步骤 4: 将新结果存入缓存
-        await self.cache_service.save_analysis(image_hash, analysis_result)
+        # 步骤 4: 将新结果（包含版本）存入缓存
+        await self.cache_service.save_analysis(
+            image_hash, analysis_result, version=self.CACHE_VERSION
+        )
 
         return analysis_result
 

@@ -32,11 +32,14 @@ def parse_entity_uid(entity_uid: str) -> tuple[str, str, str] | None:
     Returns:
         一个包含 (平台, 类型, 原生ID) 的元组，如果格式无效则返回 None.
     """
-    try:
-        # 使用 maxsplit=2 来确保只分割两次，允许原生ID本身包含下划线
-        platform, conv_type, native_id = entity_uid.split("_", 2)
+    # 使用 maxsplit=2 来确保只分割两次，允许原生ID本身包含下划线
+    parts = entity_uid.split("_", 2)
+
+    # 显式检查分割后的部分是否正好为3个，增强了代码的可读性和健壮性
+    if len(parts) == 3:
+        platform, conv_type, native_id = parts
         return platform, conv_type, native_id
-    except ValueError:
+    else:
         logger.warning(f"尝试解析一个格式不正确的实体UID: '{entity_uid}'")
         return None
 
