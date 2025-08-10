@@ -58,7 +58,7 @@ class ImageAnalysisService:
         cache_service: ImageAnalysisCacheService,
     ) -> None:
         self.conn_manager = conn_manager
-        self.cache_service = cache_service # 存储缓存服务实例
+        self.cache_service = cache_service  # 存储缓存服务实例
         self.events_collection_name = CoreDBCollections.EVENTS
         self.task_queue: asyncio.Queue[dict] = asyncio.Queue()
         self._worker_task: asyncio.Task | None = None

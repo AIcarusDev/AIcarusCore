@@ -77,7 +77,7 @@ class CoreDBCollections:
         ],
         SYSTEM_STATE: [],  # 这个集合只有一条记录，不需要索引
         IMAGE_ANALYSIS_CACHE: [  # 为新集合添加索引定义
-            (["timestamp"], False, False), # 可以用于未来清理旧缓存
+            (["timestamp"], False, False),  # 可以用于未来清理旧缓存
         ],
     }
 
@@ -94,7 +94,7 @@ class CoreDBCollections:
             cls.SYSTEM_STATE,
             cls.INTRUSIVE_POOL_COLLECTION,
             cls.THOUGHTS_LEGACY,
-            cls.IMAGE_ANALYSIS_CACHE, # <--- [新增]
+            cls.IMAGE_ANALYSIS_CACHE,  # <--- [新增]
             # Edges
             cls.REPRESENTS,
             cls.IS_PRESENT_IN,
@@ -133,6 +133,7 @@ class CoreDBCollections:
 @dataclass
 class ImageAnalysisCacheDocument:
     """代表 ImageAnalysisCache 集合中的一个文档."""
+
     _key: str  # 图片内容的 SHA-256 哈希值
     analysis_result: dict[str, Any]
     timestamp: int = field(default_factory=lambda: int(time.time() * 1000))
@@ -140,6 +141,7 @@ class ImageAnalysisCacheDocument:
     def to_dict(self) -> dict[str, Any]:
         """将实例序列化为可存入DB的字典."""
         return asdict(self)
+
 
 # ==============================================================================
 # Phase 1.2: 定义 Details 强类型结构 (这部分是全新的，prpr)

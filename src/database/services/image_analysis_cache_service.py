@@ -37,10 +37,7 @@ class ImageAnalysisCacheService:
             return False
         try:
             collection = await self.conn_manager.get_collection(self.collection_name)
-            cache_doc = ImageAnalysisCacheDocument(
-                _key=image_hash,
-                analysis_result=analysis_result
-            )
+            cache_doc = ImageAnalysisCacheDocument(_key=image_hash, analysis_result=analysis_result)
             await collection.insert(cache_doc.to_dict(), overwrite_mode="replace")
             logger.info(f"新的图片分析结果已存入缓存。哈希: {image_hash[:10]}...")
             return True

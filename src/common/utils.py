@@ -29,6 +29,26 @@ def build_conversation_entity_uid(platform_id: str, conv_type: str, native_id: s
     return f"{platform_id}_{conv_type}_{native_id}"
 
 
+def parse_entity_uid(entity_uid: str) -> tuple[str, str, str] | None:
+    """将一个完整的实体UID解析为其组成部分（平台、类型、原生ID）.
+
+    这是 build_conversation_entity_uid 的逆向操作。
+
+    Args:
+        entity_uid: 完整的实体UID字符串 (e.g., 'qq_group_123456').
+
+    Returns:
+        一个包含 (平台, 类型, 原生ID) 的元组，如果格式无效则返回 None.
+    """
+    try:
+        # 使用 maxsplit=2 来确保只分割两次，允许原生ID本身包含下划线
+        platform, conv_type, native_id = entity_uid.split("_", 2)
+        return platform, conv_type, native_id
+    except ValueError:
+        logger.warning(f"尝试解析一个格式不正确的实体UID: '{entity_uid}'")
+        return None
+
+
 # --- 自定义YAML处理类 ---
 class ForceDoubleQuoteStr(str):
     """强制双引号输出的字符串包装类.

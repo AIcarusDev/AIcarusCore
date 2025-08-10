@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from src.action.components.pending_action_manager import PendingActionManager
 from src.common.custom_logging.logging_config import get_logger
-from src.common.utils import find_files, generate_file_tree
+from src.common.utils import find_files, generate_file_tree, parse_entity_uid
 from src.config import config
 from src.config.config_paths import PROJECT_ROOT
 from src.core_communication.action_sender import ActionSender
@@ -452,27 +452,59 @@ class ActionHandler:
             logger.error(f"聚合内容时出错 ({source_path_str}): {e}", exc_info=True)
             return f"错误：聚合内容时发生未知错误: {e}"
 
-    def _resolve_target_id(self, action_name: str, params: dict, platform_id: str) -> str | None:
+    def _get_id_from_params(self, action_name: str, params: dict) -> str | None:
+        """根据动作名称，从参数字典中提取目标ID字符串."""
         id_key = "user_id" if "friend" in action_name else "group_id"
-        target_id_str = params.get(id_key)
-        if not target_id_str:
-            if self.core_logic and (session := self.core_logic._get_current_session()):
-                try:
-                    return session.conversation_id.split("_")[-1]
-                except (IndexError, AttributeError):
-                    logger.error("无法从当前会话上下文中推断目标ID。")
-                    return None
+        return params.get(id_key)
+
+    def _get_id_from_session(self) -> str | None:
+        """如果在会话上下文中，则从中提取原生ID作为回退."""
+        if self.core_logic and (session := self.core_logic._get_current_session()):
+            if parsed_tuple := parse_entity_uid(session.conversation_id):
+                # parse_entity_uid 返回 (platform, type, native_id)
+                return parsed_tuple[2]
             else:
-                logger.error(f"动作 '{action_name}' 缺少必要的 '{id_key}' 且不在会话上下文中。")
+                logger.error(
+                    f"无法从当前会话的实体UID '{session.conversation_id}' 中解析出原生ID。"
+                )
                 return None
-        if f"{platform_id}_" in target_id_str:
-            try:
-                return target_id_str.split("_")[-1]
-            except IndexError:
-                logger.error(f"无法从格式不正确的实体UID '{target_id_str}' 中解析原始ID。")
+        return None
+
+    def _normalize_id_string(self, id_string: str, platform_id: str) -> str | None:
+        """将一个可能是完整UID的字符串规范化为平台原生ID."""
+        # 尝试将其作为完整的实体UID进行解析
+        if parsed_tuple := parse_entity_uid(id_string):
+            parsed_platform, _, native_id = parsed_tuple
+            if parsed_platform != platform_id:
+                logger.warning(
+                    f"解析出的实体UID平台 '{parsed_platform}' 与当前动作平台 '{platform_id}' "
+                    f"不匹配。将仍然使用其原生ID部分 '{native_id}'。"
+                )
+            return native_id
+        # 如果无法解析，则假定它已经是平台原生ID
+        return id_string
+
+    def _resolve_target_id(self, action_name: str, params: dict, platform_id: str) -> str | None:
+        """以清晰、可维护的方式解析出动作所需的目标原生ID.
+
+        它会依次尝试从动作参数和当前会话上下文中获取ID，然后进行规范化处理。
+        """
+        # 步骤 1: 尝试从动作参数中获取ID
+        raw_id = self._get_id_from_params(action_name, params)
+
+        # 步骤 2: 如果参数中没有，则尝试从当前会话上下文中获取
+        if not raw_id:
+            raw_id = self._get_id_from_session()
+            if not raw_id:
+                # 如果两种方式都失败了，则记录错误并返回None
+                id_key = "user_id" if "friend" in action_name else "group_id"
+                logger.error(
+                    f"动作 '{action_name}' 缺少必要的 '{id_key}' 且不在有效的会话上下文中。"
+                )
                 return None
-        else:
-            return target_id_str
+
+        # 步骤 3: 对获取到的ID字符串进行规范化处理，确保返回的是原生ID
+        return self._normalize_id_string(raw_id, platform_id)
 
     # ======================== [ 核心改造点 2 ] ========================
     # 方法签名改变，现在接收 ActionMetadata 领域模型
