@@ -123,10 +123,9 @@ class _ChatHistoryFormatter:
                 log_lines.append("--- 请关注以下未读的新消息---")
                 unread_section_started = True
 
-            log_line = self._format_single_log_entry(
-                stimulus, is_in_viewport, added_platform_message_ids
-            )
-            if log_line:
+            if log_line := (
+                self._format_single_log_entry(stimulus, is_in_viewport, added_platform_message_ids)
+            ):
                 log_lines.append(log_line)
 
         if not self.is_first_turn and not unread_section_started and log_lines:

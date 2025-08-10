@@ -305,6 +305,12 @@ class ActionHandler:
             logger.error(f"列出文件时出错 ({path_str}): {e}", exc_info=True)
             return f"错误：列出文件时发生未知错误: {e}"
 
+    def _validate_and_read_file_content(self, safe_path: Path, original_path: str) -> str:
+        """验证路径是否为文件并读取其内容。失败时抛出 FileNotFoundError."""
+        if not safe_path.is_file():
+            raise FileNotFoundError(f"错误：路径 '{original_path}' 不是一个文件或不存在。")
+        return safe_path.read_text(encoding="utf-8")
+
     def _execute_core_read_file(self, params: dict) -> str:
         path_str = params.get("path")
         if not path_str:
@@ -313,10 +319,10 @@ class ActionHandler:
         if not safe_path:
             return f"错误：路径 '{path_str}' 不安全或无效。"
         try:
-            if not safe_path.is_file():
-                return f"错误：路径 '{path_str}' 不是一个文件或不存在。"
-            content = safe_path.read_text(encoding="utf-8")
+            content = self._validate_and_read_file_content(safe_path, path_str)
             return f"文件 '{path_str}' 的内容如下：\n---\n{content}\n---"
+        except FileNotFoundError as e:
+            return str(e)
         except Exception as e:
             logger.error(f"读取文件时出错 ({path_str}): {e}", exc_info=True)
             return f"错误：读取文件时发生未知错误: {e}"
@@ -357,9 +363,7 @@ class ActionHandler:
         if not safe_path:
             return f"错误：路径 '{path_str}' 不安全或无效。"
         try:
-            if not safe_path.is_file():
-                return f"错误：路径 '{path_str}' 不是一个文件或不存在。"
-            original_content = safe_path.read_text(encoding="utf-8")
+            original_content = self._validate_and_read_file_content(safe_path, path_str)
             if search_pattern not in original_content:
                 return (
                     f"操作完成，但在文件 '{path_str}' 中未找到要替换的文本 '{search_pattern}'。\n"
@@ -376,6 +380,8 @@ class ActionHandler:
                 f"成功！已编辑文件 '{path_str}'，将所有 '{search_pattern}' "
                 f"替换为 '{replace_string}'。\n目前文件的内容为:\n---\n{final_content_preview}\n---"
             )
+        except FileNotFoundError as e:
+            return str(e)
         except Exception as e:
             logger.error(f"编辑文件时出错 ({path_str}): {e}", exc_info=True)
             return f"错误：编辑文件时发生未知错误: {e}"
@@ -496,15 +502,14 @@ class ActionHandler:
         # 步骤 2: 如果参数中没有，则尝试从当前会话上下文中获取
         if not raw_id:
             raw_id = self._get_id_from_session()
-            if not raw_id:
-                # 如果两种方式都失败了，则记录错误并返回None
-                id_key = "user_id" if "friend" in action_name else "group_id"
-                logger.error(
-                    f"动作 '{action_name}' 缺少必要的 '{id_key}' 且不在有效的会话上下文中。"
-                )
-                return None
 
-        # 步骤 3: 对获取到的ID字符串进行规范化处理，确保返回的是原生ID
+        # 步骤 3: 验证是否成功获取ID，如果两种方式都失败了，则记录错误并返回
+        if not raw_id:
+            id_key = "user_id" if "friend" in action_name else "group_id"
+            logger.error(f"动作 '{action_name}' 缺少必要的 '{id_key}' 且不在有效的会话上下文中。")
+            return None
+
+        # 步骤 4: 对获取到的ID字符串进行规范化处理，确保返回的是原生ID
         return self._normalize_id_string(raw_id, platform_id)
 
     async def _execute_platform_action_flow(
@@ -614,13 +619,12 @@ class ActionHandler:
             source_thought_id=None,
         )
 
-        action_result = await self._execute_platform_action(
+        return await self._execute_platform_action(
             action_to_send=action_event.to_dict(),
             thought_doc_key=None,
             original_action_description=description,
             metadata=metadata,
         )
-        return action_result
 
     async def _execute_platform_action(
         self,
@@ -677,15 +681,13 @@ class ActionHandler:
                 error_message=f"发送平台动作时发生意外异常: {e}",
             )
 
-        # add_and_wait_for_action 现在也返回 ActionResult
-        action_result = await self.pending_action_manager.add_and_wait_for_action(
+        return await self.pending_action_manager.add_and_wait_for_action(
             action_id=core_action_id,
             thought_doc_key=thought_doc_key,
             original_action_description=original_action_description,
             action_to_send=action_to_send,
             metadata=metadata,
         )
-        return action_result
 
     def _execute_local_scroll_action(self, platform_id: str, params: dict) -> str:
         params = params.get("params")

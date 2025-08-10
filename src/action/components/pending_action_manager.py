@@ -232,8 +232,7 @@ class PendingActionManager:
         """打包并执行所有与数据库更新相关的异步任务."""
         response_timestamp = int(time.time() * 1000)
         response_time_ms = response_timestamp - sent_dict.get("timestamp", response_timestamp)
-        tasks_to_gather = []
-        tasks_to_gather.append(
+        tasks_to_gather = [
             self.action_log_service.update_action_log_with_response(
                 action_id=action_result.action_id,
                 status=status,
@@ -242,7 +241,7 @@ class PendingActionManager:
                 error_info=action_result.error_message,
                 result_details=action_result.payload,
             )
-        )
+        ]
         if thought_doc_key:
             # 使用新的辅助函数
             result_message = self._create_final_result_message(description, action_result)
