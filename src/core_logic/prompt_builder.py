@@ -384,25 +384,38 @@ class ThoughtPromptBuilder:
             )
 
             result_list = json.loads(result_text)
-            if not isinstance(result_list, list):
-                logger.warning(f"get_list 结果不是一个列表，无法后处理。类型: {type(result_list)}")
+            if not isinstance(result_list, list) or not result_list:
+                logger.warning("get_list 结果不是一个列表或为空，无法后处理。")
                 return result_text
 
-            cleaned_list = []
-            keys_to_keep = {
-                "birthday_year",
-                "birthday_month",
-                "birthday_day",
-                "user_id",
-                "group_id",
-                "nickname",
-                "remark",
-                "group_name",
-                "sex",
-                "age",
-                "phone_num",
-            }
+            # 从第一个条目推断列表类型（'friend' 或 'group'）
+            first_item = result_list[0]
+            list_type = (
+                "friend"
+                if "user_id" in first_item
+                else "group"
+                if "group_id" in first_item
+                else "unknown"
+            )
 
+            # 动态地从平台构建器获取要保留的键
+            builder = platform_builder_registry.get_builder(platform_key)
+            if builder:
+                keys_to_keep = builder.get_list_keys_to_keep(list_type)
+            else:
+                logger.warning(
+                    f"无法为平台 '{platform_key}' 找到构建器。将使用默认键进行 get_list 后处理。"
+                )
+                # 回退到一个通用的默认键集合
+                keys_to_keep = {
+                    "user_id",
+                    "group_id",
+                    "nickname",
+                    "remark",
+                    "group_name",
+                }
+
+            cleaned_list = []
             for item in result_list:
                 if not isinstance(item, dict):
                     logger.debug(f"跳过 get_list 结果中的非字典项: {item}")
@@ -431,13 +444,16 @@ class ThoughtPromptBuilder:
                     logger.debug(f"在 get_list 结果中过滤掉 AI 自身 (ID: {item_id})。")
                     continue
 
+                # 使用从构建器获取的 keys_to_keep 集合进行过滤
                 cleaned_item = {k: v for k, v in item.items() if k in keys_to_keep}
 
                 entity_uid = build_conversation_entity_uid(platform_key, item_type, item_id)
                 if item_type == "private":
-                    cleaned_item["user_id"] = entity_uid
+                    if "user_id" in cleaned_item:
+                        cleaned_item["user_id"] = entity_uid
                 else:  # item_type == "group"
-                    cleaned_item["group_id"] = entity_uid
+                    if "group_id" in cleaned_item:
+                        cleaned_item["group_id"] = entity_uid
 
                 cleaned_list.append(cleaned_item)
 

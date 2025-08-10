@@ -38,6 +38,26 @@ class BasePlatformBuilder(ABC):
         """
         return False
 
+    def get_list_keys_to_keep(self, list_type: str) -> set[str]:
+        """返回在后处理 `get_list` 结果时应保留的键的集合.
+
+        这使得平台特定的数据能够被保留下来以供LLM使用.
+
+        Args:
+            list_type (str): 列表的类型，'friend' 或 'group'.
+
+        Returns:
+            一个包含应保留的字符串键的集合.
+        """
+        # 为不重写此方法的平台提供一个合理的默认值。
+        return {
+            "user_id",
+            "group_id",
+            "nickname",
+            "remark",
+            "group_name",
+        }
+
     @property
     @abstractmethod
     def platform_id(self) -> str:
