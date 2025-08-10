@@ -72,13 +72,13 @@ class InternalInfoBuilder:
             return "\n<!-- 内部信息构建失败 -->\n"
 
     def _format_thought_content(self, thought_doc: dict) -> list[str]:
-        """格式化思想内容（心情、想法、目标）."""
+        """格式化思想内容（心情、想法、意图）."""
         lines = [
             f"<mood>{self._escape_xml_text(thought_doc.get('mood', '平静'))}</mood>",
             f"<think>{self._escape_xml_text(thought_doc.get('think', '...'))}</think>",
         ]
-        if goal := thought_doc.get("goal"):
-            lines.append(f"<goal>{self._escape_xml_text(goal)}</goal>")
+        if intent := thought_doc.get("intent"):
+            lines.append(f"<intent>{self._escape_xml_text(intent)}</intent>")
         return lines
 
     def _format_payload_as_json_string(self, payload: dict | None) -> str:

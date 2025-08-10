@@ -236,9 +236,9 @@ class ThoughtPromptBuilder:
                     "properties": {
                         "mood": {"type": "string"},
                         "think": {"type": "string"},
-                        "goal": {"type": "string"},
+                        "intent": {"type": "string"},
                     },
-                    "required": ["mood", "think", "goal"],
+                    "required": ["mood", "think", "intent"],
                 },
                 "consciousness_control": consciousness_controls_schema,
                 "action": {
@@ -591,7 +591,7 @@ class ThoughtPromptBuilder:
         user_prompt = DELIBERATION_USER_PROMPT.format(
             mood=current_internal_state.get("mood", "未知"),
             think=current_internal_state.get("think", "未知"),
-            goal=current_internal_state.get("goal", "未知"),
+            intent=current_internal_state.get("intent", "未知"),
             motivation=pipeline_params.get("motivation", "无明确动机"),
             opinions_block=opinions_block,
         )

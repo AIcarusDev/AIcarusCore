@@ -262,7 +262,7 @@ class CoreLogic:
             timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
             mood=generated_thought_json.get("internal_state", {}).get("mood", "平静"),
             think=generated_thought_json.get("internal_state", {}).get("think", "无"),
-            goal=generated_thought_json.get("internal_state", {}).get("goal"),
+            intent=generated_thought_json.get("internal_state", {}).get("intent"),
             source_type="core_unified",
             source_id=focus_path_str,
             action_id=str(uuid.uuid4()) if action_payload else None,

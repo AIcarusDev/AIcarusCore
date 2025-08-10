@@ -41,7 +41,7 @@ CORE_CYCLE_SYSTEM_PROMPT = """
 </attentional_trajectory>
 
 <working_memory>
-<!-- 如果存在由短期工作记忆，会在这里显示 -->
+<!-- 如果存在短期记忆，会在这里显示 -->
 {working_memory_block}
 </working_memory>
 
@@ -70,7 +70,7 @@ JSON 对象包含三个顶级键: `"internal_state"`, `"consciousness_control"`,
 - **"internal_state"**: (必需) 描述你的内心状态，包含以下键：
     - `"mood"`: 这是你当前的情绪状态和原因，是你的第一本能反应，可以适当衔接`<history_internal_info>`中你之前的心情
     - `"think"`: 这是你的内心想法。它应该是对当前所有情况的反应和思考，你的思考过程应该**自然、连贯且丰富**。在这里，你可以分析自己的情绪，揣测他人的意图，对未来的行动进行规划或犹豫。且应该衔接`<history_internal_info>`中你之前的内心想法
-    - `"goal"`: 可以在此处写下你当前的目标。可以很明确，也可以很模糊（例如"没什么目标"，"发呆"），即使当前存在目标，你也可以在这里更新它,如果不需要，可以为"null"。
+    - `"intent"`: 这是你当前的意图，是短期的、直接的、主观的意图或打算。
 
 - **"consciousness_control"**: (可选) 用于转移你的注意力焦点，当前有以下键可用：
 {available_consciousness_controls}

@@ -51,7 +51,7 @@ class ThoughtPersistor:
             timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
             mood=thought_json.get("mood", "平静"),
             think=thought_json.get("think", "我刚才好像走神了。"),
-            goal=thought_json.get("goal"),
+            intent=thought_json.get("intent"),
             source_type=source_type,
             source_id=source_id,
             action_id=action_id,
