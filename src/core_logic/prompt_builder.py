@@ -176,11 +176,7 @@ class ThoughtPromptBuilder:
 
     # 接收 can_go_back 标志
     def _build_response_schema(
-        self,
-        level: str,
-        platform_id: str,
-        conv_id: str | None,
-        can_go_back: bool
+        self, level: str, platform_id: str, conv_id: str | None, can_go_back: bool
     ) -> dict[str, Any]:
         """构建 LLM 响应的 JSON Schema (重构后)."""
         builder = platform_builder_registry.get_builder(platform_id)
@@ -215,9 +211,10 @@ class ThoughtPromptBuilder:
                     shift_focus_schema = consciousness_controls_schema["properties"]["shift_focus"]
 
                     # 在 target_id 字段上添加 "not" 约束
-                    if "properties" in shift_focus_schema and "target_id" in shift_focus_schema[
-                        "properties"
-                    ]:
+                    if (
+                        "properties" in shift_focus_schema
+                        and "target_id" in shift_focus_schema["properties"]
+                    ):
                         shift_focus_schema["properties"]["target_id"]["not"] = {
                             "const": current_session_uid
                         }
@@ -236,15 +233,15 @@ class ThoughtPromptBuilder:
                     "properties": {
                         "mood": {
                             "type": "string",
-                            "description": "你当前的情绪状态和原因，是你的第一本能反应，可以适当衔接`<history_internal_info>`中你之前的心情"  # noqa: E501
+                            "description": "你当前的情绪状态和原因，是你的第一本能反应，可以适当衔接`<history_internal_info>`中你之前的心情",  # noqa: E501
                         },
                         "think": {
                             "type": "string",
-                            "description": "你当前的内心想法。它应该是对当前所有情况的反应和思考，你的思考过程应该**自然、连贯且丰富**。在这里，你可以分析自己的情绪，揣测他人的意图，对未来的行动进行规划或犹豫。且应该衔接`<history_internal_info>`中你之前的内心想法"  # noqa: E501
+                            "description": "你当前的内心想法。它应该是对当前所有情况的反应和思考，你的思考过程应该**自然、连贯且丰富**。在这里，你可以分析自己的情绪，揣测他人的意图，对未来的行动进行规划或犹豫。且应该衔接`<history_internal_info>`中你之前的内心想法",  # noqa: E501
                         },
                         "intent": {
                             "type": "string",
-                            "description": "你当前的意图，是短期的、直接的、主观的意图或打算。"
+                            "description": "你当前的意图，是短期的、直接的、主观的意图或打算。",
                         },
                     },
                     "required": ["mood", "think", "intent"],
@@ -372,9 +369,10 @@ class ThoughtPromptBuilder:
 
             # 规范化动作载荷
             known_platform_keys = platform_builder_registry.get_all_builders().keys()
-            if not any(
-                key in known_platform_keys for key in action_part
-                ) and "core" not in action_part:
+            if (
+                not any(key in known_platform_keys for key in action_part)
+                and "core" not in action_part
+            ):
                 action_part = {"core": action_part}
 
             platform_key = next(iter(action_part), None)
@@ -405,9 +403,9 @@ class ThoughtPromptBuilder:
         try:
             # 1. 获取AI自身在该平台的ID
             self_entity = await self.entity_service.get_self_entity_by_platform(platform_key)
-            self_platform_id = str(
-                self_entity.get("details", {}).get("platform_id")
-            ) if self_entity else None
+            self_platform_id = (
+                str(self_entity.get("details", {}).get("platform_id")) if self_entity else None
+            )
 
             # 2. 解析JSON
             result_list = json.loads(result_text)
@@ -427,7 +425,7 @@ class ThoughtPromptBuilder:
                 "group_name",
                 "sex",
                 "age",
-                "phone_num"
+                "phone_num",
             }
 
             for item in result_list:
@@ -456,7 +454,7 @@ class ThoughtPromptBuilder:
             return json.dumps(cleaned_list, indent=4, ensure_ascii=False)
         except (json.JSONDecodeError, TypeError) as e:
             logger.warning(f"后处理 get_list 动作结果时失败: {e}")
-            return result_text # 出错则返回原始文本
+            return result_text  # 出错则返回原始文本
 
     async def _build_action_response_desc(self, handover_result: dict | None) -> str:
         """[Orchestrator] 构建上一个动作的结果描述块 (重构后)."""
@@ -492,7 +490,6 @@ class ThoughtPromptBuilder:
             except json.JSONDecodeError:
                 # 如果解析失败，说明可能已经是被处理过的文本，直接使用
                 pass
-
 
         # 6. 格式化并返回最终的XML块
         return f"<action_response>\n{action_desc}\n{action_result_text}\n</action_response>"
@@ -853,7 +850,7 @@ class ThoughtPromptBuilder:
             # 如果当前摘要是新的(和上次展示的不一样)且不为空，就展示它。
             if current_unread_summary and current_unread_summary != last_shown_core_summary:
                 external_info = current_unread_summary
-                summary_to_show_this_turn = current_unread_summary # 记录我们这次展示了什么
+                summary_to_show_this_turn = current_unread_summary  # 记录我们这次展示了什么
                 logger.info("检测到新的未读消息，将在顶层Prompt中展示。")
             else:
                 # 如果是旧闻或者根本没消息，就不展示
@@ -944,7 +941,6 @@ class ThoughtPromptBuilder:
             )
             guidance_generator = BehavioralGuidanceGenerator(session)
             meta_info = guidance_generator.generate_guidance()
-
 
         last_shown_core_summary = summary_to_show_this_turn
         return (

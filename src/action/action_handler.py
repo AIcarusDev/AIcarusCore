@@ -38,6 +38,7 @@ MAX_AGGREGATE_SIZE = 65535
 # 当前只有get_list是实装的
 INFO_GATHERING_ACTIONS = {"get_list", "get_group_info", "get_bot_profile", "get_history"}
 
+
 class ActionHandler:
     """处理所有与动作相关的逻辑.
 
@@ -278,7 +279,6 @@ class ActionHandler:
                     f"(Action ID: {action_id})，立即触发新一轮思考。"
                 )
                 self.thought_trigger.set()
-
 
     async def _execute_core_action(self, action_name: str, params: dict) -> str:
         """核心动作的统一分发中心."""
@@ -576,7 +576,6 @@ class ActionHandler:
         else:
             # 假设是原始ID，直接返回
             return target_id_str
-
 
     async def _execute_platform_action_flow(
         self, platform_id: str, action_name: str, params: dict, doc_key_for_updates: str

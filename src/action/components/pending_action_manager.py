@@ -247,9 +247,7 @@ class PendingActionManager:
             left_conv_name = (
                 session_to_leave.conversation_name if session_to_leave else left_conv_entity_uid
             )
-            return_params = {
-                "motivation": f"已成功退出会话 '{left_conv_name}'，因此返回到平台。"
-            }
+            return_params = {"motivation": f"已成功退出会话 '{left_conv_name}'，因此返回到平台。"}
 
             # 5. 调用 FocusManager 执行 'return' 指令
             await csm.focus_manager.handle_focus_control(command="return", params=return_params)

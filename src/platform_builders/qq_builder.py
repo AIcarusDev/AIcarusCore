@@ -252,7 +252,10 @@ class QQBuilder(BasePlatformBuilder):
             "type": "object",
             "description": "【谨慎使用】删除一个好友。如果当前就在与该好友的私聊中，可以不提供user_id。",
             "properties": {
-                "user_id": {"type": "string", "description": "（可选）要删除的好友的ID（原始QQ号或实体UID）。"},
+                "user_id": {
+                    "type": "string",
+                    "description": "（可选）要删除的好友的ID（原始QQ号或实体UID）。",
+                },
                 "motivation": {"type": "string"},
             },
             "required": ["motivation"],
