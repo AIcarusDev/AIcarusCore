@@ -3,20 +3,18 @@ import time
 from typing import TYPE_CHECKING, Optional
 
 from aicarus_protocols import Event as ProtocolEvent
+from aicarus_protocols import UserInfo as ProtocolUserInfo
 from src.common.custom_logging.logging_config import get_logger
 from src.common.intelligent_interrupt_system.models import SemanticModel
 from src.common.interruption_broker import InterruptionEventBroker
+from src.config import config
 from src.database import (
     ActionLogStorageService,
     DBEventDocument,
     EntityGraphService,
 )
 from src.database.services.event_storage_service import EventStorageService
-
-# ======================== [ 新增导入 ] ========================
 from src.domain.models import Stimulus
-
-# =============================================================
 from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 from src.message_processing.image_analysis_service import ImageAnalysisService
 from websockets.server import WebSocketServerProtocol
@@ -38,7 +36,7 @@ class DefaultMessageProcessor:
         self,
         event_service: EventStorageService,
         entity_service: EntityGraphService,
-        action_log_service: ActionLogStorageService,  # 注入 ActionLog 服务
+        action_log_service: ActionLogStorageService,
         image_analysis_service: "ImageAnalysisService",
         semantic_model: "SemanticModel",
         interruption_broker: "InterruptionEventBroker",
@@ -47,9 +45,7 @@ class DefaultMessageProcessor:
     ) -> None:
         self.event_service: EventStorageService = event_service
         self.entity_service: EntityGraphService = entity_service
-        self.action_log_service: ActionLogStorageService = (
-            action_log_service  # 保存 ActionLog 服务实例
-        )
+        self.action_log_service: ActionLogStorageService = action_log_service
         self.semantic_model: SemanticModel = semantic_model
         self.interruption_broker = interruption_broker
         self.core_comm_layer: CoreWebsocketServer | None = core_websocket_server
@@ -84,18 +80,10 @@ class DefaultMessageProcessor:
         logger.debug(f"开始处理事件: {proto_event.event_type}, ID: {proto_event.event_id}")
 
         try:
-            # --- 步骤 1: 持久化并获取保存后的文档 ---
-            # _handle_event_persistence 内部逻辑不变，它依然负责处理原始协议数据与数据库的交互
             saved_event_doc = await self._handle_event_persistence(
                 proto_event, platform_id, needs_persistence
             )
-
-            # --- 步骤 2: 分发事件 ---
-            # ======================== [ 核心改造点 ] ========================
-            # 即使事件不需要持久化，我们也应该处理它（例如心跳、内部事件等）
-            # 并且，分发的是原始的 proto_event，而不是数据库文档
             await self._dispatch_event_action(proto_event, saved_event_doc)
-            # =============================================================
 
         except Exception as e:
             logger.error(
@@ -144,68 +132,79 @@ class DefaultMessageProcessor:
     async def _associate_person_and_update_membership(
         self, event: ProtocolEvent, platform_id: str
     ) -> tuple[str | None, str | None]:
-        """封装身份关联和成员信息更新的逻辑."""
-        if not (event.user_info and event.user_info.user_id):
+        """统一处理事件参与者与会话的关系，使用字典避免哈希问题."""
+        if not (sender_user_info := event.user_info) or not sender_user_info.user_id:
             return None, None
 
         (
-            profile_id,
-            account_entity_uid,
+            sender_profile_id,
+            sender_account_uid,
         ) = await self.entity_service.find_or_create_profile_and_account_entity(
-            user_info=event.user_info, platform=platform_id
+            user_info=sender_user_info, platform=platform_id
         )
 
-        if not account_entity_uid:
-            logger.error(
-                f"无法为事件 {event.event_id} 找到或创建 account_entity_uid，身份关联中止。"
-            )
-            return profile_id, None
+        if not sender_account_uid:
+            logger.error(f"无法为事件 {event.event_id} 的发送者找到或创建 account_entity_uid。")
+            return sender_profile_id, None
 
         if event.event_type.endswith("request.friend.add"):
             request_data = event.content[0].data if event.content else {}
-            flag = request_data.get("request_flag")
-            comment = request_data.get("comment")
             await self.entity_service.update_friend_request_status(
-                entity_uid=account_entity_uid,
-                flag=flag,
-                comment=comment,
+                entity_uid=sender_account_uid,
+                flag=request_data.get("request_flag"),
+                comment=request_data.get("comment"),
                 timestamp=event.time,
             )
-            logger.info(f"已将实体 '{account_entity_uid}' 的好友请求标记为待处理。")
 
-        entity_doc = await self.entity_service.get_entity_by_key(account_entity_uid)
+        entity_doc = await self.entity_service.get_entity_by_key(sender_account_uid)
         if entity_doc and (remark := entity_doc.details.friend_remark):
-            if not event.user_info.extra:
-                event.user_info.extra = {}
-            event.user_info.extra["friend_remark"] = remark
-            logger.debug(f"已为事件 '{event.event_id}' (来自 {account_entity_uid}) 注入好友备注。")
+            if not sender_user_info.extra:
+                sender_user_info.extra = {}
+            sender_user_info.extra["friend_remark"] = remark
 
-        if event.conversation_info and event.conversation_info.conversation_id:
-            conv_info = event.conversation_info
-            conversation_entity_uid = f"{platform_id}_{conv_info.type}_{conv_info.conversation_id}"
+        if not (conv_info := event.conversation_info) or not conv_info.conversation_id:
+            return sender_profile_id, sender_account_uid
+
+        conversation_entity_uid = f"{platform_id}_{conv_info.type}_{conv_info.conversation_id}"
+
+        # 使用字典来存储参与者，键是 account_uid (可哈希)，值是 UserInfo 对象 (不可哈希)
+        participants_to_update: dict[str, ProtocolUserInfo] = {}
+
+        # 参与者A: 发送者
+        participants_to_update[sender_account_uid] = sender_user_info
+
+        # 参与者B: 机器人自身 (如果它不是发送者)
+        if sender_user_info.user_id != event.bot_id:
+            bot_account_uid = f"{platform_id}_{event.bot_id}"
+            bot_user_info = ProtocolUserInfo(
+                user_id=event.bot_id, user_nickname=config.persona.bot_name
+            )
+            participants_to_update[bot_account_uid] = bot_user_info
+
+        # 遍历字典的 items()
+        for acc_uid, user_info_obj in participants_to_update.items():
+            conversation_name_for_this_update = conv_info.name
+            if conv_info.type == "private":
+                if acc_uid == sender_account_uid:
+                    conversation_name_for_this_update = config.persona.bot_name
+                else:
+                    conversation_name_for_this_update = sender_user_info.user_nickname
 
             await self.entity_service.update_presence_in_conversation(
-                account_entity_uid=account_entity_uid,
+                account_entity_uid=acc_uid,
                 conversation_entity_uid=conversation_entity_uid,
-                user_info=event.user_info,
-                conversation_name=event.conversation_info.name,
+                user_info=user_info_obj,
+                conversation_name=conversation_name_for_this_update,
             )
 
-        return profile_id, account_entity_uid
+        return sender_profile_id, sender_account_uid
 
     async def _dispatch_event_action(
         self, event: ProtocolEvent, saved_event_doc: dict | None
     ) -> None:
-        """专门负责根据事件类型和当前状态，决定后续动作.
-
-        这是领域模型转换和事件分发的关键点.
-        """
-        # ======================== [ 核心改造点 ] ========================
-        # 无论事件是什么类型，只要它可能影响核心逻辑，就应该被广播
-        # 我们在这里进行“翻译”，将协议对象转换为领域模型
+        """专门负责根据事件类型和当前状态，决定后续动作."""
         stimulus = Stimulus.from_protocol_event(event)
 
-        # 检查发言人并重置连续发言计数器 (此逻辑依赖会话状态，保持不变)
         if (
             event.event_type.startswith("message.")
             and self.qq_chat_session_manager
@@ -219,12 +218,9 @@ class DefaultMessageProcessor:
             if stimulus.sender_id and stimulus.sender_id != bot_platform_id:
                 session.reset_consecutive_bot_message_count()
 
-        # 向中断代理发布纯净的领域模型，而不是原始的数据库文档
         await self.interruption_broker.publish(stimulus)
         logger.debug(f"领域对象 Stimulus (源自事件 '{event.event_id}') 已发布到中断代理。")
-        # =============================================================
 
-        # 处理其他需要主动处理的特殊事件 (例如机器人档案更新)
         if event.event_type.endswith(".bot.profile_update"):
             await self._handle_bot_profile_update(event)
         else:
