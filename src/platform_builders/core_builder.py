@@ -15,6 +15,7 @@ class CoreBuilder(BasePlatformBuilder):
     # --- v2.0 全新指令集的 JSON Schema 定义 ---
     _CONSCIOUSNESS_CONTROLS_DEFINITIONS: ClassVar = {
         "focus": {
+            "title": "专注于某处",
             "type": "object",
             "description": "专注于指定的目标（平台或会话）。",
             "properties": {
@@ -27,12 +28,14 @@ class CoreBuilder(BasePlatformBuilder):
             "required": ["target_id", "motivation"],
         },
         "return": {
+            "title": "返回",
             "type": "object",
-            "description": "从当前注意力离开。例如从当前会话返回到会话所属的平台，或退出当前平台。",
+            "description": "从当前会话/平台离开。例如从当前会话返回到会话所属的平台，或退出当前平台。",
             "properties": {"motivation": {"type": "string"}},
             "required": ["motivation"],
         },
         "shift_focus": {
+            "title": "转移注意力",
             "type": "object",
             "description": "将你的注意力从当前会话切换到另一个会话, 需要完整ID，例如`qq_group_123456`。",
             "properties": {
@@ -68,13 +71,14 @@ class CoreBuilder(BasePlatformBuilder):
             "properties": {
                 "history_index": {
                     "type": "integer",
-                    "description": "`<attentional_trajectory>`中的时间索引 (例如 T-2 的索引是 -2)。",
+                    "description": "`<attentional_trajectory>`中的索引 (例如 T-2 的索引是 -2)。",
                 },
                 "motivation": {"type": "string"},
             },
             "required": ["history_index", "motivation"],
         },
         "deep_think": {
+            "title": "仔细想想",
             "type": "object",
             "description": "进行理性的深度思考，在遇到陌生、复杂、抽象问题，或高风险的决策时使用。",
             "properties": {
