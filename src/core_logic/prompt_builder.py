@@ -108,7 +108,10 @@ class ThoughtPromptBuilder:
 
         # 2. 构建响应 Schema
         response_schema = self._build_response_schema(
-            current_level, current_platform_id, can_go_back=can_go_back
+            current_level,
+            current_platform_id,
+            current_conv_id,
+            can_go_back=can_go_back,
         )
 
         # 3. 构建 System Prompt 的各个部分
@@ -173,7 +176,11 @@ class ThoughtPromptBuilder:
 
     # 接收 can_go_back 标志
     def _build_response_schema(
-        self, level: str, platform_id: str, can_go_back: bool
+        self,
+        level: str,
+        platform_id: str,
+        conv_id: str | None,
+        can_go_back: bool
     ) -> dict[str, Any]:
         """构建 LLM 响应的 JSON Schema (重构后)."""
         builder = platform_builder_registry.get_builder(platform_id)
@@ -194,6 +201,32 @@ class ThoughtPromptBuilder:
 
         if level == "cellular":
             consciousness_controls_schema["properties"].pop("focus", None)
+
+            # 如果在会话层，并且 shift_focus 可用，则添加动态约束
+            if "shift_focus" in consciousness_controls_schema["properties"] and conv_id:
+                try:
+                    # 从 conv_id (e.g., 'group.123456') 构建完整的实体 UID
+                    conv_type, actual_id = conv_id.split(".", 1)
+                    current_session_uid = build_conversation_entity_uid(
+                        platform_id, conv_type, actual_id
+                    )
+
+                    # 获取 shift_focus 的 schema 定义
+                    shift_focus_schema = consciousness_controls_schema["properties"]["shift_focus"]
+
+                    # 在 target_id 字段上添加 "not" 约束
+                    if "properties" in shift_focus_schema and "target_id" in shift_focus_schema[
+                        "properties"
+                    ]:
+                        shift_focus_schema["properties"]["target_id"]["not"] = {
+                            "const": current_session_uid
+                        }
+                        logger.info(
+                            f"已为 shift_focus 动态添加约束："
+                            f"禁止 target_id 为当前会话 '{current_session_uid}'。"
+                        )
+                except (ValueError, IndexError):
+                    logger.warning(f"在构建 shift_focus 约束时，无法解析 conv_id: '{conv_id}'")
 
         return {
             "type": "object",
@@ -746,7 +779,7 @@ class ThoughtPromptBuilder:
         if core_desc := core_builder.get_level_actions_descriptions(level):
             # 为核心动作描述添加命名空间前缀
             namespaced_core_desc = re.sub(r"(`)(\w+)", r"\1core.\2", core_desc)
-            descs.append(f"- 核心能力:\n{namespaced_core_desc}")
+            descs.append(f"- 基础能力:\n{namespaced_core_desc}")
 
         # 2. 如果在平台/细胞层，添加当前平台的动作描述
         if (

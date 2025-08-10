@@ -95,13 +95,20 @@ class FocusManager:
             self.trigger_thought_cycle_callback()
             return True, None
         else:
+            detailed_feedback = (
+                f"[ERROR] 你刚才的指令 '{command}' 执行失败 | "
+                f"错误信息: {feedback_message},"
+                f"参数: {params}。"
+            )
+
             current_session = await self._get_session_from_path(
                 self.current_focus_path.get("target_path")
             )
             if current_session:
-                current_session.last_command_feedback = feedback_message
+                current_session.last_command_feedback = detailed_feedback
 
             logger.warning(f"意识转向指令 '{command}' 执行失败: {feedback_message}")
+            # 注意：返回给上层的原始 feedback_message 保持不变，只修改注入到 Prompt 的内容
             return False, feedback_message
 
     async def _get_session_from_path(self, focus_path: str | None) -> Optional["ChatSession"]:

@@ -38,7 +38,7 @@ class CoreBuilder(BasePlatformBuilder):
             "properties": {
                 "target_id": {
                     "type": "string",
-                    "description": "要切换到的新会话ID。",
+                    "description": "要切换到的新会话ID，注意不能为当前会话ID。",
                 },
                 "motivation": {"type": "string"},
             },
@@ -64,11 +64,11 @@ class CoreBuilder(BasePlatformBuilder):
         },
         "jump_to_history": {
             "type": "object",
-            "description": "根据`<attentional_trajectory>`，直接跳转到由`history_index`指定的历史焦点。",
+            "description": "根据`<attentional_trajectory>`，直接回到由`history_index`指定的历史注意力焦点。",
             "properties": {
                 "history_index": {
                     "type": "integer",
-                    "description": "导航日志中的时间索引 (例如 T-2 的索引是 -2)。",
+                    "description": "`<attentional_trajectory>`中的时间索引 (例如 T-2 的索引是 -2)。",
                 },
                 "motivation": {"type": "string"},
             },
