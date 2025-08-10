@@ -30,10 +30,10 @@ FOCUS_BEHAVIOR_GUIDELINES = """
     每个操作步骤都由一个 `"command"` 和一个 `"params"` 组成。
 
     - **`command`**: 从可用指令中选择一个，如 `"reply"`, `"at"`, `"text"`, `"send_and_break"`。
-    - **`params`**: 一个字典，根据你选择的 `command`，在其中填写【唯一对应】的参数。
+    - **`params`**: 一个字典，根据你选择的 `command`，在其中填写唯一对应的参数。
 
   - **重要规则**
-    你必须**严格**地按照 Schema 的结构和规则来生成 JSON。在 `"params"` 对象中，你只能包含与当前 `"command"` 对应的**唯一一个**参数字段。
+    注意在 `"params"` 对象中，你只能包含与当前 `"command"` 对应的**唯一一个**参数字段。
 
     - **可用指令与对应参数**:
 

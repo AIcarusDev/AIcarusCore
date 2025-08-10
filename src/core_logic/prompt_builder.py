@@ -234,9 +234,18 @@ class ThoughtPromptBuilder:
                 "internal_state": {
                     "type": "object",
                     "properties": {
-                        "mood": {"type": "string"},
-                        "think": {"type": "string"},
-                        "intent": {"type": "string"},
+                        "mood": {
+                            "type": "string",
+                            "description": "你当前的情绪状态和原因，是你的第一本能反应，可以适当衔接`<history_internal_info>`中你之前的心情"  # noqa: E501
+                        },
+                        "think": {
+                            "type": "string",
+                            "description": "你当前的内心想法。它应该是对当前所有情况的反应和思考，你的思考过程应该**自然、连贯且丰富**。在这里，你可以分析自己的情绪，揣测他人的意图，对未来的行动进行规划或犹豫。且应该衔接`<history_internal_info>`中你之前的内心想法"  # noqa: E501
+                        },
+                        "intent": {
+                            "type": "string",
+                            "description": "你当前的意图，是短期的、直接的、主观的意图或打算。"
+                        },
                     },
                     "required": ["mood", "think", "intent"],
                 },
