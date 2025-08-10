@@ -70,7 +70,16 @@ class Stimulus:
     @classmethod
     def from_db_document(cls, doc: dict) -> "Stimulus":
         """从【历史】的数据库事件文档创建 Stimulus，包含更丰富的渲染信息."""
-        proto_event = ProtocolEvent.from_dict(doc)
+        # 创建一个可变副本以避免副作用
+        doc_for_protocol = doc.copy()
+
+        # 这里的逻辑是问题的关键：确保 ProtocolEvent.from_dict 能找到它期望的 'time' 键
+        # 我们检查 'time' 是否缺失，如果缺失，就从数据库文档中肯定存在的 'timestamp' 键复制一份过去
+        # 这就像一个“转接头”，完美解决了键名不匹配的问题
+        if "time" not in doc_for_protocol and "timestamp" in doc_for_protocol:
+            doc_for_protocol["time"] = doc_for_protocol["timestamp"]
+
+        proto_event = ProtocolEvent.from_dict(doc_for_protocol)
         stimulus = cls.from_protocol_event(proto_event)
 
         # 使用 object.__setattr__ 来修改 frozen dataclass 的字段
