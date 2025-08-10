@@ -2,6 +2,7 @@
 import asyncio
 import base64
 import contextlib
+import hashlib
 import io
 import threading
 from typing import Any
@@ -11,6 +12,7 @@ from sentence_transformers import SentenceTransformer
 from src.action.components.llm_client_factory import LLMClientFactory
 from src.common.custom_logging.logging_config import get_logger
 from src.database import ArangoDBConnectionManager, CoreDBCollections
+from src.database.services.image_analysis_cache_service import ImageAnalysisCacheService
 from src.llmrequest.llm_processor import Client as LLMProcessorClient
 from src.prompt_templates.image_analysis import IMAGE_ANALYSIS_PROMPT, STICKER_ANALYSIS_PROMPT
 
@@ -50,8 +52,13 @@ IMAGE_ANALYSIS_SCHEMA = {
 class ImageAnalysisService:
     """一个后台服务，负责异步地分析事件中的图片内容."""
 
-    def __init__(self, conn_manager: ArangoDBConnectionManager) -> None:
+    def __init__(
+        self,
+        conn_manager: ArangoDBConnectionManager,
+        cache_service: ImageAnalysisCacheService,
+    ) -> None:
         self.conn_manager = conn_manager
+        self.cache_service = cache_service # 存储缓存服务实例
         self.events_collection_name = CoreDBCollections.EVENTS
         self.task_queue: asyncio.Queue[dict] = asyncio.Queue()
         self._worker_task: asyncio.Task | None = None
@@ -84,6 +91,12 @@ class ImageAnalysisService:
     async def submit_event_for_analysis(self, event_doc: dict) -> None:
         """将一个已保存的事件文档提交到分析队列."""
         await self.task_queue.put(event_doc)
+
+    # 计算图片哈希值的辅助函数
+    def _calculate_image_hash(self, base64_data: str) -> str:
+        """根据 base64 数据计算图片的 SHA-256 哈希值."""
+        image_bytes = base64.b64decode(base64_data)
+        return hashlib.sha256(image_bytes).hexdigest()
 
     async def _calculate_embedding(self, event_id: str, base64_data: str) -> list[float] | None:
         """计算单个图片的 CLIP embedding."""
@@ -126,6 +139,7 @@ class ImageAnalysisService:
             logger.error(f"为事件 '{event_id}' 的一张图片生成描述失败: {e}")
             return {"description": "分析时发生异常"}
 
+    # 核心分析逻辑，集成缓存检查
     async def _analyze_single_image(
         self, event_id: str, image_segment: dict[str, Any]
     ) -> dict[str, Any] | None:
@@ -135,16 +149,34 @@ class ImageAnalysisService:
         if not base64_data:
             return None
 
+        # 步骤 1: 计算图片哈希值
+        image_hash = self._calculate_image_hash(base64_data)
+
+        # 步骤 2: 查询缓存
+        cached_result = await self.cache_service.get_analysis_by_hash(image_hash)
+        if cached_result:
+            return cached_result  # 缓存命中，直接返回结果
+
+        # 步骤 3: 缓存未命中，执行原始的分析流程
+        logger.info(f"图片分析缓存未命中 (哈希: {image_hash[:10]}...), 将执行实时分析。")
         image_type = "sticker" if seg_data.get("summary") == "sticker" else "image"
         mime_type = seg_data.get("mime_type", "image/jpeg")
 
         # 并发执行 Embedding 计算和 LLM 描述生成
         embedding_task = self._calculate_embedding(event_id, base64_data)
         description_task = self._generate_description(event_id, image_type, base64_data, mime_type)
-
         embedding_result, details_result = await asyncio.gather(embedding_task, description_task)
 
-        return {"type": image_type, "embedding": embedding_result, "details": details_result}
+        analysis_result = {
+            "type": image_type,
+            "embedding": embedding_result,
+            "details": details_result,
+        }
+
+        # 步骤 4: 将新结果存入缓存
+        await self.cache_service.save_analysis(image_hash, analysis_result)
+
+        return analysis_result
 
     async def _update_event_with_analysis_results(
         self, event_id: str, results: list[dict[str, Any]]
