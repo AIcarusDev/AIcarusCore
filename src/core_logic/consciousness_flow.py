@@ -83,6 +83,10 @@ class CoreLogic:
             return None
 
         focus_entry = self.chat_session_manager.current_focus_path
+
+        if not focus_entry:
+            return None
+
         focus_path_str = (
             focus_entry.get("target_path")
             if isinstance(focus_entry, dict)
