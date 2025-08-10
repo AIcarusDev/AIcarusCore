@@ -68,7 +68,7 @@ class MyDumper(yaml.SafeDumper):
     pass
 
 
-def force_double_quote_str_representer(
+def force_double_quote_str_representer( # TODO:疑似孤儿方法
     dumper: MyDumper, data: ForceDoubleQuoteStr
 ) -> yaml.ScalarNode:
     """强制双引号字符串表示器.
@@ -88,7 +88,7 @@ MyDumper.add_representer(ForceDoubleQuoteStr, force_double_quote_str_representer
 JsonValue = dict[str, "JsonValue"] | list["JsonValue"] | str | int | float | bool | None
 
 
-def wrap_string_values_for_yaml(data: JsonValue) -> JsonValue:
+def wrap_string_values_for_yaml(data: JsonValue) -> JsonValue:  # TODO:疑似孤儿方法
     """递归包装字符串值为双引号格式.
 
     Args:
@@ -106,7 +106,7 @@ def wrap_string_values_for_yaml(data: JsonValue) -> JsonValue:
     return data
 
 
-def is_valid_message(msg: str) -> bool:
+def is_valid_message(msg: str) -> bool:  # TODO:疑似孤儿方法
     """检查消息是否有效，过滤掉 null 和占位符。真麻烦."""
     if not msg or not isinstance(msg, str) or msg.strip().lower() == "null":
         return False
@@ -124,7 +124,7 @@ class MessageParser:
     """
 
     @staticmethod
-    def extract_text_content(
+    def extract_text_content(  # TODO:疑似孤儿方法
         content: list[dict],
         image_placeholder_key: str = "llm_image_placeholder",
         image_placeholder_value: str = "[IMAGE_HERE]",
@@ -215,6 +215,7 @@ class MessageParser:
 
 
 # --- 平台状态摘要格式化 ---
+# TODO:疑似孤儿方法
 def parse_system_event_details(event_dict: dict[str, Any]) -> dict[str, Any] | None:
     """从系统事件字典中严格解析出 adapter_id, display_name, status, reason.
 
@@ -284,7 +285,7 @@ def parse_system_event_details(event_dict: dict[str, Any]) -> dict[str, Any] | N
     return None
 
 
-def format_platform_status_summary(
+def format_platform_status_summary(  # TODO:疑似孤儿方法
     current_connected_adapters_info: dict[str, dict[str, Any]],
     recent_system_events: list[dict[str, Any]],
     status_timespan_minutes: int = 10,
@@ -406,7 +407,7 @@ def format_platform_status_summary(
 
 
 # --- 聊天记录格式化 ---
-def format_messages_for_llm_context(
+def format_messages_for_llm_context(  #TODO:疑似孤儿方法
     raw_messages_from_db: list[dict[str, Any]],
     style: str = "yaml",
     image_placeholder_key: str = "llm_image_placeholder",
@@ -744,7 +745,7 @@ def generate_file_tree(root_dir: str, file_paths: list, log_queue: queue.Queue) 
                 current_level = current_level[part]
             current_level[parts[-1]] = None
 
-    def format_tree(node: dict, prefix: str = "") -> list[str]:
+    def format_tree(node: dict, prefix: str = "") -> list[str]:  # TODO:疑似孤儿方法
         lines = []
         items = sorted(node.items(), key=lambda x: x[1] is not None)
         pointers = ["├─── "] * (len(items) - 1) + ["└─── "]
@@ -762,7 +763,7 @@ def generate_file_tree(root_dir: str, file_paths: list, log_queue: queue.Queue) 
     return "\n".join(tree_lines)
 
 
-def get_unique_filepath(
+def get_unique_filepath(  # TODO:疑似孤儿方法
     directory: str, filename: str, extension: str, log_queue: queue.Queue
 ) -> str:
     """检查文件路径是否存在，如果存在，则在文件名后添加 (n) 直到找到一个不重复的路径.
@@ -786,7 +787,7 @@ def get_unique_filepath(
         counter += 1
 
 
-def aggregate_code(
+def aggregate_code(  # TODO:疑似孤儿方法
     root_dir: str,
     file_paths: list,
     output_filename: str,
