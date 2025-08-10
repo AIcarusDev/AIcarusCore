@@ -186,11 +186,7 @@ class _ChatHistoryFormatter:
     ) -> tuple[str | None, bool]:
         """[辅助函数] 从消息段中提取 message_id 并检查是否重复."""
         msg_id = next(
-            (
-                seg.data.get("message_id")
-                for seg in content_segs
-                if seg.type == "message_metadata"
-            ),
+            (seg.data.get("message_id") for seg in content_segs if seg.type == "message_metadata"),
             None,
         )
         if msg_id:
@@ -212,9 +208,7 @@ class _ChatHistoryFormatter:
                 parsed.content_parts.append(seg_data.get("text", ""))
             elif seg_type == "image":
                 parsed.content_parts.append(
-                    self._format_image_segment(
-                        seg, is_in_viewport, stimulus, image_analysis_index
-                    )
+                    self._format_image_segment(seg, is_in_viewport, stimulus, image_analysis_index)
                 )
                 image_analysis_index += 1
             elif seg_type == "video":
@@ -396,8 +390,7 @@ async def _fetch_and_prepare_stimuli(
 
     final_events_asc = list(unique_events_desc.values())[::-1]
 
-    stimuli = [Stimulus.from_db_document(doc) for doc in final_events_asc]
-    return stimuli
+    return [Stimulus.from_db_document(doc) for doc in final_events_asc]
 
 
 async def format_chat_history_for_llm(
