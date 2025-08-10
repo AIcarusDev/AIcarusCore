@@ -122,15 +122,13 @@ class PendingActionManager:
 
         successful, status, error_msg, details = self._parse_response_content(response_event_data)
 
-        # ======================== [ 核心改造点 4 ] ========================
         # 在这里“铸造” ActionResult 领域模型
         action_result = ActionResult(
             action_id=original_action_id,
             is_success=successful,
             payload=details,
-            error_message=error_msg if not successful else None,
+            error_message=None if successful else error_msg,
         )
-        # =============================================================
 
         if not pending_future.done():
             pending_future.set_result(action_result)

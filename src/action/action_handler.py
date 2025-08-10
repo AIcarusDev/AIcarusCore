@@ -19,11 +19,7 @@ from src.database import (
     EventStorageService,
     ThoughtStorageService,
 )
-
-# ======================== [ 新增导入 ] ========================
 from src.domain.models import ActionMetadata, ActionResult
-
-# =============================================================
 from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.platform_builders.registry import platform_builder_registry
 from src.prompt_templates.url_context import URL_CONTEXT_SYSTEM_PROMPT, URL_CONTEXT_USER_PROMPT
@@ -45,7 +41,6 @@ INFO_GATHERING_ACTIONS = {"get_list", "get_group_info", "get_bot_profile", "get_
 class ActionHandler:
     """处理所有与动作相关的逻辑."""
 
-    # Registry of actions that require target ID normalization
     NORMALIZATION_ACTIONS: ClassVar[dict[str, str]] = {
         "delete_friend": "user_id",
         "leave_conversation": "group_id",
@@ -166,6 +161,47 @@ class ActionHandler:
         else:
             logger.error("PendingActionManager 未初始化，无法处理动作响应。")
 
+    async def _handle_do_nothing_action(self, action_json: dict, doc_key: str) -> None:
+        """处理 do_nothing 动作."""
+        motivation = action_json["core"]["do_nothing"].get("motivation", "决定保持沉默")
+        logger.info(f"AI 决定不行动，动机: {motivation}")
+        if self.core_logic and (session := self.core_logic._get_current_session()):
+            session.no_action_count += 1
+            logger.debug(
+                f"[{session.conversation_id}] 连续不发言计数器已递增至: {session.no_action_count}"
+            )
+        if self.thought_storage_service:
+            await self.thought_storage_service.save_action_result_to_thought(
+                thought_key=doc_key, result_text=f"决定不行动，原因：{motivation}"
+            )
+
+    async def _handle_local_action(
+        self, platform_id: str, action_name: str, params: dict, doc_key: str
+    ) -> None:
+        """处理本地执行的动作 (如 qq.scroll)."""
+        result_text = ""
+        if platform_id == "qq" and action_name == "scroll":
+            result_text = self._execute_local_scroll_action(platform_id, params)
+
+        if self.thought_storage_service:
+            await self.thought_storage_service.save_action_result_to_thought(
+                thought_key=doc_key, result_text=result_text
+            )
+        if self.thought_trigger:
+            logger.info(f"本地动作 '{platform_id}.{action_name}' 完成，立即触发新一轮思考。")
+            self.thought_trigger.set()
+
+    async def _handle_core_action_flow(self, action_name: str, params: dict, doc_key: str) -> None:
+        """处理 'core' 命名空间下的动作."""
+        result_text = await self._execute_core_action(action_name, params)
+        if self.thought_storage_service:
+            await self.thought_storage_service.save_action_result_to_thought(
+                thought_key=doc_key, result_text=result_text
+            )
+        if self.thought_trigger:
+            logger.info(f"核心动作 '{action_name}' 完成，立即触发新一轮思考。")
+            self.thought_trigger.set()
+
     async def process_action_flow(
         self,
         action_id: str,
@@ -173,76 +209,40 @@ class ActionHandler:
         action_json: dict[str, Any],
         metadata: ActionMetadata,
     ) -> None:
-        """统一的行动处理流程，现在接收 ActionMetadata."""
+        """统一的行动处理流程，负责分发任务到具体的处理器."""
         logger.info(f"[探灯B] ActionHandler 收到的 action_json: {action_json}")
         logger.info(
             f"-- [Action ID: {action_id}] 开始处理行动流程 (动机: {metadata.motivation[:50]}...) --"
         )
 
+        # Guard Clause 1: 处理 do_nothing
         if "do_nothing" in action_json.get("core", {}):
-            motivation = action_json["core"]["do_nothing"].get("motivation", "决定保持沉默")
-            logger.info(f"AI 决定不行动，动机: {motivation}")
-            if self.core_logic and (session := self.core_logic._get_current_session()):
-                session.no_action_count += 1
-                logger.debug(
-                    f"[{session.conversation_id}] "
-                    f"连续不发言计数器已递增至: {session.no_action_count}"
-                )
-            if self.thought_storage_service:
-                await self.thought_storage_service.save_action_result_to_thought(
-                    thought_key=doc_key_for_updates,
-                    result_text=f"决定不行动，原因：{motivation}",
-                )
+            await self._handle_do_nothing_action(action_json, doc_key_for_updates)
             return
 
+        # Guard Clause 2: 验证动作格式
         if not (platform_id := next(iter(action_json), None)) or not (
             actions_to_process := action_json.get(platform_id)
         ):
             logger.info("AI决策的动作对象为空或格式不正确，无需执行。")
             if self.core_logic and (session := self.core_logic._get_current_session()):
                 session.no_action_count += 1
-                logger.debug(
-                    f"[{session.conversation_id}] 因无动作，"
-                    f"连续不发言计数器已递增至: {session.no_action_count}"
-                )
             return
 
         action_name, params = next(iter(actions_to_process.items()))
 
+        # --- 调度逻辑 ---
         if platform_id == "qq" and action_name == "scroll":
-            result_text = self._execute_local_scroll_action(platform_id, params)
-            if self.thought_storage_service:
-                await self.thought_storage_service.save_action_result_to_thought(
-                    thought_key=doc_key_for_updates, result_text=result_text
-                )
-            if self.thought_trigger:
-                logger.info(
-                    f"本地平台动作 '{platform_id}.{action_name}' "
-                    f"完成 (Action ID: {action_id})，立即触发新一轮思考。"
-                )
-                self.thought_trigger.set()
-            return
-
-        if platform_id == "core":
-            result_text = await self._execute_core_action(action_name, params)
-            if self.thought_storage_service:
-                await self.thought_storage_service.save_action_result_to_thought(
-                    thought_key=doc_key_for_updates,
-                    result_text=result_text,
-                )
-            if self.thought_trigger:
-                logger.info(
-                    f"核心动作 '{action_name}' 完成 (Action ID: {action_id})，立即触发新一轮思考。"
-                )
-                self.thought_trigger.set()
+            await self._handle_local_action(platform_id, action_name, params, doc_key_for_updates)
+        elif platform_id == "core":
+            await self._handle_core_action_flow(action_name, params, doc_key_for_updates)
         else:
             await self._execute_platform_action_flow(
                 platform_id, action_name, params, doc_key_for_updates, metadata
             )
             if action_name in INFO_GATHERING_ACTIONS and self.thought_trigger:
                 logger.info(
-                    f"信息获取类平台动作 '{platform_id}.{action_name}' "
-                    f"完成 (Action ID: {action_id})，立即触发新一轮思考。"
+                    f"信息获取类平台动作 '{platform_id}.{action_name}' 完成，立即触发新一轮思考。"
                 )
                 self.thought_trigger.set()
 
@@ -532,7 +532,6 @@ class ActionHandler:
         if not self.entity_service:
             logger.error("EntityGraphService 未注入到 ActionHandler，无法获取祂的ID！")
             return
-
         if action_name in self.NORMALIZATION_ACTIONS:
             resolved_id = self._resolve_target_id(action_name, params, platform_id)
             if not resolved_id:
