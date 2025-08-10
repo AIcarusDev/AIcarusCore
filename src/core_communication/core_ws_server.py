@@ -197,11 +197,25 @@ class CoreWebsocketServer:
                 )
                 # 给一点点时间，确保连接完全稳定
                 await asyncio.sleep(0.5)
-                success, profile_data = await inspect_and_initialize_self_profile(
-                    entity_service=self.entity_service,
-                    action_handler=self.action_handler_instance,
-                    platform_id=adapter_id,
-                )
+
+                # [PROBE START] 添加探针，捕获特定解包错误
+                try:
+                    success, profile_data = await inspect_and_initialize_self_profile(
+                        entity_service=self.entity_service,
+                        action_handler=self.action_handler_instance,
+                        platform_id=adapter_id,
+                    )
+                except TypeError as e:
+                    # 这个探针专门捕获解包错误，提供更具体的上下文
+                    logger.critical(
+                        f"安检仪式在调用 inspect_and_initialize_self_profile 后"
+                        f"发生解包错误 (TypeError)。"
+                        f"这通常意味着函数返回值与预期不符。错误: {e}",
+                        exc_info=True,
+                    )
+                    # 将 success 和 profile_data 设置为失败状态，以便重试逻辑可以继续
+                    success, profile_data = False, None
+                # [PROBE END]
 
                 if success and profile_data:
                     logger.success(

@@ -17,7 +17,7 @@ DELIBERATION_SYSTEM_PROMPT = """
     - `<current_fast_thought>`："快思考"模式当前的状态等细节。
       - `<mood>`："快思考"模式当前的心情。
       - `<think>`："快思考"模式当前的想法。
-      - `<goal>`："快思考"模式当前短期的目标/意图。
+      - `<intent>`："快思考"模式当前短期的目标/意图。
     - `<deliberation_task>`：这里面包含了你此次的分析任务。
       - `<motivation>`：此次分析的原因。
       - `<opinions>`：不同观点/策略
@@ -56,7 +56,7 @@ DELIBERATION_USER_PROMPT = """
     <current_fast_thought>
         <mood>{mood}</mood>
         <think>{think}</think>
-        <goal>{goal}</goal>
+        <intent>{intent}</intent>
     </current_fast_thought>
 
     <deliberation_task>
@@ -101,12 +101,12 @@ DELIBERATION_RESPONSE_SCHEMA = {
                     "type": "string",
                     "description": "调整后的、更详细和更具逻辑性的内心思考，可以适当结合`<think>`块内的内容，避免过于割裂。并且需要明确包含行动步骤或决策。",  # noqa: E501
                 },
-                "final_goal": {
+                "final_intent": {
                     "type": "string",
                     "description": "调整后的、更清晰明确的当前意图。",
                 },
             },
-            "required": ["summary", "memory_duration", "final_mood", "final_think", "final_goal"],
+            "required": ["summary", "memory_duration", "final_mood", "final_think", "final_intent"],
         },
     },
     "required": ["deep_mind", "resolution"],

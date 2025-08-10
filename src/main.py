@@ -27,9 +27,6 @@ async def start_core_system() -> None:
         # 启动WS服务器，它会开始接受连接并进行安检
         ws_task = asyncio.create_task(container.core_comm_layer.start(), name="CoreWSServer")
 
-        # 启动主思考循环
-        logic_task = await container.core_logic.start_thinking_loop()
-
         # 启动图像分析服务 (如果启用)
         # 这会在后台异步运行，处理提交的图片分析任务
         if container.image_analysis_service:
@@ -49,6 +46,18 @@ async def start_core_system() -> None:
         background_tasks.add(dynamic_wiring_task)
         # 当任务自己完成后，就把它从集合里移除
         dynamic_wiring_task.add_done_callback(background_tasks.discard)
+
+        # 等待动态依赖连接完成
+        sleep_time = 10
+
+        logger.info("正在等待动态依赖连接完成...")
+        for i in range(sleep_time, 0, -1):
+            logger.info(f"还剩 {i} 秒...")
+            await asyncio.sleep(1)
+
+        # 最后，启动主思考循环
+        logger.info("正在尝试启动主思考循环...")
+        logic_task = await container.core_logic.start_thinking_loop()
 
         # 5. 等待核心任务结束
         # 核心任务是 ws_task 和 logic_task，它们决定了程序的生命周期

@@ -1,3 +1,5 @@
+# src/common/summarization_observation/summarization_service.py
+
 from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
@@ -161,12 +163,12 @@ class SummarizationService:
     async def consolidate_summary(
         self,
         previous_summary: str | None,
-        recent_events: list[dict[str, Any]],
+        recent_events: list[dict[str, Any]],  # 仍然接收原始字典
         bot_profile: dict[str, Any],
         conversation_info: dict[str, Any],
         event_storage: "EventStorageService",
-        shift_motivation: str | None = None,  # 新玩具
-        target_conversation_id: str | None = None,  # 新玩具
+        shift_motivation: str | None = None,
+        target_conversation_id: str | None = None,
     ) -> str:
         """对提供的最近事件列表进行总结，并将其整合进之前的摘要中."""
         logger.debug(
@@ -174,34 +176,30 @@ class SummarizationService:
             f"新事件数: {len(recent_events)}"
         )
 
-        # 这里检查一下，如果没新事件，但有“跳槽动机”，说明是“临别赠言”，也得生成一个最终总结
         if not recent_events and not shift_motivation:
             logger.info("没有新的事件，也没有转移意图，直接返回之前的摘要。")
             return previous_summary or "我刚才好像走神了，什么也没记住。"
 
+        # ======================== [ 核心改造点 ] ========================
+        # format_chat_history_for_llm 现在内部处理事件获取和转换
+        # 我们不再需要传递 raw_events_from_caller
         prompt_components, _ = await format_chat_history_for_llm(
             event_storage=event_storage,
             conversation_id=conversation_info.get("id"),
-            bot_id=bot_profile.get("user_id"),
-            platform=conversation_info.get("platform", "unknown"),
             bot_profile=bot_profile,
             conversation_type=conversation_info.get("type"),
             conversation_name=conversation_info.get("name"),
-            last_processed_timestamp=0,  # 总结时我们看的是所有'read'事件，所以起点是0
+            last_processed_timestamp=0,
             is_first_turn=True,
-            raw_events_from_caller=recent_events,
         )
-        # ==========================================================
+        # =============================================================
 
-        # 如果没有新事件，聊天记录就是空的，这没关系
         if not recent_events:
             prompt_components.chat_history_log_block = "（无新的聊天记录）"
 
         extended_conv_info = conversation_info.copy()
         extended_conv_info["bot_id"] = bot_profile.get("user_id")
         extended_conv_info["bot_card"] = bot_profile.get("card")
-
-        # 现在 prompt_components 是纯净的，可以安全访问了！
         extended_conv_info["name"] = prompt_components.conversation_name or conversation_info.get(
             "name"
         )

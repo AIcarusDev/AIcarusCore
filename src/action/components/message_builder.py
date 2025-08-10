@@ -131,7 +131,7 @@ class MessageBuilder:
     async def _send_current_message(self) -> bool:
         """将工作台上拼接好的所有消息段打包发送.
 
-        现在它会从返回结果中提取 action_id 并存入 session.
+        现在它会处理 ActionResult 并从中提取 action_id 存入 session.
         """
         if not self._current_segments:
             return False
@@ -156,7 +156,9 @@ class MessageBuilder:
             f"'{correct_bot_id}' 来执行 send_message 动作。"
         )
 
-        success, payload = await self.action_handler.execute_simple_action(
+        # ======================== [ 核心改造点 ] ========================
+        # execute_simple_action 现在返回 ActionResult 对象
+        action_result = await self.action_handler.execute_simple_action(
             platform_id=self.platform_id,
             action_name="send_message",
             params={
@@ -169,25 +171,24 @@ class MessageBuilder:
             motivation=self.motivation,
         )
 
-        if success:
-            logger.info(f"消息发送成功，回执: {payload}")
-            # 从返回的 payload 中提取 action_id
-            action_id = payload.get("action_id") if isinstance(payload, dict) else None
-            if action_id:
-                # 将 action_id 存入 session，供 decision_dispatcher 等待回声
-                self.session.sent_action_ids_this_turn.append(action_id)
+        if action_result.is_success:
+            logger.info(f"消息发送成功，回执: {action_result.payload}")
+            # 从 ActionResult 对象中获取 action_id
+            if action_result.action_id:
+                self.session.sent_action_ids_this_turn.append(action_result.action_id)
                 logger.debug(
-                    f"[{self.session.conversation_id}] 动作ID '{action_id}' 已记录，等待回声。"
+                    f"[{self.session.conversation_id}] 动作ID '{action_result.action_id}' 已记录."
                 )
             else:
                 logger.warning(
                     f"[{self.session.conversation_id}] 消息发送成功，"
-                    f"但未能从回执中获取到 action_id!"
+                    f"但未能从 ActionResult 中获取到 action_id!"
                 )
 
             self.session.consecutive_bot_messages_count += 1
             await asyncio.sleep(random.uniform(0.5, 1.5))
         else:
-            logger.error(f"消息发送失败，原因: {payload}")
+            logger.error(f"消息发送失败，原因: {action_result.error_message}")
 
-        return success
+        return action_result.is_success
+        # =============================================================

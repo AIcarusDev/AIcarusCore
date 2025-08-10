@@ -3,5 +3,6 @@
 from .action_log_storage_service import ActionLogStorageService
 from .entity_graph_service import EntityGraphService
 from .event_storage_service import EventStorageService
-from .summary_storage_service import SummaryStorageService  # <-- 新增的行
+from .image_analysis_cache_service import ImageAnalysisCacheService
+from .summary_storage_service import SummaryStorageService
 from .thought_storage_service import ThoughtStorageService

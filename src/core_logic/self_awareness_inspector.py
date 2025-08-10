@@ -49,7 +49,10 @@ async def _fetch_new_profile_from_adapter(
 ) -> dict[str, Any] | None:
     """通过适配器获取全新的自身档案."""
     logger.info(f"试图通过平台 '{platform_id}' 获取自身完整档案...")
-    success, profile_data = await action_handler.execute_simple_action(
+
+    # [FIX START]
+    # 不再尝试解包，而是接收完整的 ActionResult 对象
+    action_result = await action_handler.execute_simple_action(
         platform_id=platform_id,
         action_name="get_bot_profile",
         params={},
@@ -57,9 +60,14 @@ async def _fetch_new_profile_from_adapter(
         description="安检：获取祂自身的完整档案",
     )
 
+    # 从 ActionResult 对象的属性中获取成功状态和载荷数据
+    success = action_result.is_success
+    profile_data = action_result.payload
+
     if not success or not isinstance(profile_data, dict):
         logger.critical(f"检查失败！无法从平台 '{platform_id}' 获取档案。返回: {profile_data}")
         return None
+    # [FIX END]
 
     # --- [采纳] 使用命名表达式简化赋值和检查 ---
     if not (bot_platform_id := profile_data.get("user_id")) or not (
@@ -82,7 +90,7 @@ async def _persist_new_profile(
     bot_user_info = ProtocolUserInfo(
         user_id=str(profile_data["user_id"]), user_nickname=profile_data["nickname"]
     )
-    _, entity_uid = await entity_service._create_new_profile_with_account_entity(
+    _, entity_uid = await entity_service.create_new_profile_with_account_entity(
         user_info=bot_user_info, platform=platform_id, is_self=True
     )
     if not entity_uid:

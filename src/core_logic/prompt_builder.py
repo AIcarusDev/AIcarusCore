@@ -18,6 +18,7 @@ from src.config import config
 from src.core_logic.internal_info_builder import InternalInfoBuilder
 from src.database import EntityGraphService, ThoughtStorageService
 from src.database.models import ConversationDetails
+from src.domain.models import Stimulus
 from src.focus_chat_mode.behavioral_guidance_generator import BehavioralGuidanceGenerator
 from src.focus_chat_mode.components import PromptComponents
 from src.platform_builders.base_builder import BasePlatformBuilder
@@ -77,6 +78,7 @@ class ThoughtPromptBuilder:
         self.chat_session_manager = chat_session_manager
         self.core_ws_server = core_ws_server
         self.is_context_switch_flag: bool = False
+        self._last_shown_unread_summary: str | None = None
 
     async def build_prompts_components(
         self,
@@ -87,6 +89,12 @@ class ThoughtPromptBuilder:
     ) -> tuple[PromptComponents, list[Event] | None]:
         """编排构建系统和用户提示组件的过程."""
         current_level, current_platform_id, current_conv_id = parse_focus_path(focus_path)
+
+        # 在构建任何组件之前，先判断是否可以执行 back/jump 操作
+        can_go_back = False
+        if self.chat_session_manager and self.chat_session_manager.focus_manager:
+            # 历史记录大于1条，意味着除了 T-0 (当前) 之外，至少还有 T-1
+            can_go_back = len(self.chat_session_manager.focus_manager.focus_history) > 1
 
         # 1. 构建外部信息和元信息
         (
@@ -99,15 +107,22 @@ class ThoughtPromptBuilder:
         )
 
         # 2. 构建响应 Schema
-        response_schema = self._build_response_schema(current_level, current_platform_id)
+        response_schema = self._build_response_schema(
+            current_level,
+            current_platform_id,
+            current_conv_id,
+            can_go_back=can_go_back,
+        )
 
         # 3. 构建 System Prompt 的各个部分
+        # 传入 can_go_back 标志
         system_prompt_blocks = await self._build_system_prompt_blocks(
             level=current_level,
             platform_id=current_platform_id,
             conv_id=current_conv_id,
             session=session,
             user_map=history_components.user_map if history_components else None,
+            can_go_back=can_go_back,
         )
 
         # 4. 构建 User Prompt 的各个部分
@@ -159,10 +174,33 @@ class ThoughtPromptBuilder:
 
         return action_props
 
-    def _build_response_schema(self, level: str, platform_id: str) -> dict[str, Any]:
+    def _filter_navigation_controls(self, properties: dict[str, Any], can_go_back: bool) -> None:
+        """[Helper] 根据历史记录情况，过滤掉 'back' 和 'jump_to_history' 指令."""
+        if not can_go_back:
+            properties.pop("back", None)
+            properties.pop("jump_to_history", None)
+
+    # 接收 can_go_back 标志
+    def _build_response_schema(
+        self, level: str, platform_id: str, conv_id: str | None, can_go_back: bool
+    ) -> dict[str, Any]:
         """构建 LLM 响应的 JSON Schema (重构后)."""
         builder = platform_builder_registry.get_builder(platform_id)
         core_builder = platform_builder_registry.get_builder("core")
+
+        # 先获取完整的 controls schema
+        consciousness_controls_schema, _ = (
+            core_builder.get_level_consciousness_controls_definitions(level)
+        )
+        if builder:
+            plat_controls_schema, _ = builder.get_level_consciousness_controls_definitions(level)
+            consciousness_controls_schema["properties"].update(plat_controls_schema["properties"])
+
+        # 根据上下文动态过滤指令
+        self._filter_navigation_controls(consciousness_controls_schema["properties"], can_go_back)
+
+        if level == "cellular":
+            consciousness_controls_schema["properties"].pop("focus", None)
 
         return {
             "type": "object",
@@ -170,32 +208,24 @@ class ThoughtPromptBuilder:
                 "internal_state": {
                     "type": "object",
                     "properties": {
-                        "mood": {"type": "string"},
-                        "think": {"type": "string"},
-                        "goal": {"type": "string"},
+                        "mood": {
+                            "type": "string",
+                            "description": "你当前的情绪状态和原因，是你的第一本能反应，可以适当衔接`<history_internal_info>`中你之前的心情",  # noqa: E501
+                        },
+                        "think": {
+                            "type": "string",
+                            "description": "你当前的内心想法。它应该是对当前所有情况的反应和思考，你的思考过程应该**自然、连贯且丰富**。在这里，你可以分析自己的情绪，揣测他人的意图，对未来的行动进行规划或犹豫。且应该衔接`<history_internal_info>`中你之前的内心想法",  # noqa: E501
+                        },
+                        "intent": {
+                            "type": "string",
+                            "description": "你当前的意图，是短期的、直接的、主观的意图或打算。",
+                        },
                     },
-                    "required": ["mood", "think", "goal"],
+                    "required": ["mood", "think", "intent"],
                 },
-                "consciousness_control": {
-                    "type": "object",
-                    "properties": {
-                        # 合并声明与赋值，并就近使用
-                        **core_builder.get_level_consciousness_controls_definitions(level)[0].get(
-                            "properties", {}
-                        ),
-                        **(
-                            builder.get_level_consciousness_controls_definitions(level)[0].get(
-                                "properties", {}
-                            )
-                            if builder
-                            else {}
-                        ),
-                    },
-                    "maxProperties": 1,
-                },
+                "consciousness_control": consciousness_controls_schema,
                 "action": {
                     "type": "object",
-                    # 提取复杂逻辑到辅助函数，并就近调用
                     "properties": self._build_action_schema_properties(level, builder),
                 },
             },
@@ -209,6 +239,7 @@ class ThoughtPromptBuilder:
         conv_id: str | None,
         session: Optional["ChatSession"],
         user_map: dict | None,
+        can_go_back: bool,
     ) -> dict[str, Any]:
         """(提取出的新方法) 构建 System Prompt 的所有部分."""
         builder = platform_builder_registry.get_builder(platform_id)
@@ -245,7 +276,7 @@ class ThoughtPromptBuilder:
             "internal_info_block": internal_info_block,
             "input_XML_block_description": self._get_input_xml_block_description(level),
             "available_consciousness_controls": self._get_controls_descriptions(
-                level, builder, core_builder
+                level, builder, core_builder, can_go_back=can_go_back
             ),
             "available_actions": self._get_actions_descriptions(level, builder, core_builder),
             "self_prompt_block": await self._build_self_prompt_block(),
@@ -261,9 +292,16 @@ class ThoughtPromptBuilder:
         session: Optional["ChatSession"] = None,
     ) -> dict[str, Any]:
         """(提取出的新方法) 构建 User Prompt 的所有部分."""
-        command_feedback_block = ""
+        feedback_text = ""
         if session and session.last_command_feedback:
             feedback_text = session.last_command_feedback
+            session.last_command_feedback = None  # 清除会话层反馈
+        elif self.chat_session_manager and self.chat_session_manager.global_command_feedback:
+            feedback_text = self.chat_session_manager.global_command_feedback
+            self.chat_session_manager.global_command_feedback = None  # 清除全局反馈
+
+        command_feedback_block = ""
+        if feedback_text:
             command_feedback_block = f"<command_feedback>\n{feedback_text}\n</command_feedback>"
 
         action_response_block = await self._build_action_response_desc(handover_result)
@@ -308,7 +346,10 @@ class ThoughtPromptBuilder:
 
             # 规范化动作载荷
             known_platform_keys = platform_builder_registry.get_all_builders().keys()
-            if not any(key in known_platform_keys for key in action_part):
+            if (
+                all(key not in known_platform_keys for key in action_part)
+                and "core" not in action_part
+            ):
                 action_part = {"core": action_part}
 
             platform_key = next(iter(action_part), None)
@@ -333,22 +374,96 @@ class ThoughtPromptBuilder:
 
         return f"你刚才执行了动作 “{platform_key}.{action_name}”，得到了以下结果："
 
-    def _post_process_get_list_result(self, result_text: str, platform_key: str) -> str:
-        """[Helper] 对 get_list 动作的结果进行后处理，修复实体ID格式."""
+    async def _post_process_get_list_result(self, result_text: str, platform_key: str) -> str:
+        """对 get_list 动作的结果进行后处理，修复实体ID格式、过滤自身和无用字段."""
         try:
+            self_entity = await self.entity_service.get_self_entity_by_platform(platform_key)
+            self_platform_id = (
+                str(self_entity.get("details", {}).get("platform_id")) if self_entity else None
+            )
+
             result_list = json.loads(result_text)
-            if not isinstance(result_list, list):
+            if not isinstance(result_list, list) or not result_list:
+                logger.warning("get_list 结果不是一个列表或为空，无法后处理。")
                 return result_text
 
-            for item in result_list:
-                if "user_id" in item:
-                    item["user_id"] = f"{platform_key}_private_{item['user_id']}"
-                elif "group_id" in item:
-                    item["group_id"] = f"{platform_key}_group_{item['group_id']}"
+            # 从第一个条目推断列表类型（'friend' 或 'group'）
+            first_item = result_list[0]
+            list_type = (
+                "friend"
+                if "user_id" in first_item
+                else "group"
+                if "group_id" in first_item
+                else "unknown"
+            )
 
-            return json.dumps(result_list, indent=4, ensure_ascii=False)
+            # 动态地从平台构建器获取要保留的键
+            builder = platform_builder_registry.get_builder(platform_key)
+            if builder:
+                keys_to_keep = builder.get_list_keys_to_keep(list_type)
+            else:
+                logger.warning(
+                    f"无法为平台 '{platform_key}' 找到构建器。将使用默认键进行 get_list 后处理。"
+                )
+                # 回退到一个通用的默认键集合
+                keys_to_keep = {
+                    "user_id",
+                    "group_id",
+                    "nickname",
+                    "remark",
+                    "group_name",
+                }
+
+            cleaned_list = []
+            for item in result_list:
+                if not isinstance(item, dict):
+                    logger.debug(f"跳过 get_list 结果中的非字典项: {item}")
+                    continue
+
+                user_id = item.get("user_id")
+                group_id = item.get("group_id")
+
+                item_type = None
+                item_id = None
+                if user_id:
+                    item_type = "private"
+                    item_id = str(user_id)
+                elif group_id:
+                    item_type = "group"
+                    item_id = str(group_id)
+
+                if not item_id:
+                    logger.warning(
+                        f"跳过 get_list 结果中的一个项目，"
+                        f"因为它缺少 user_id 或 group_id: {str(item)[:100]}"
+                    )
+                    continue
+
+                if item_type == "private" and self_platform_id and item_id == self_platform_id:
+                    logger.debug(f"在 get_list 结果中过滤掉 AI 自身 (ID: {item_id})。")
+                    continue
+
+                # 使用从构建器获取的 keys_to_keep 集合进行过滤
+                cleaned_item = {k: v for k, v in item.items() if k in keys_to_keep}
+
+                entity_uid = build_conversation_entity_uid(platform_key, item_type, item_id)
+                if item_type == "private":
+                    if "user_id" in cleaned_item:
+                        cleaned_item["user_id"] = entity_uid
+                else:  # item_type == "group"
+                    if "group_id" in cleaned_item:
+                        cleaned_item["group_id"] = entity_uid
+
+                cleaned_list.append(cleaned_item)
+
+            return json.dumps(cleaned_list, indent=4, ensure_ascii=False)
         except (json.JSONDecodeError, TypeError) as e:
-            logger.warning(f"后处理 get_list 动作结果时失败: {e}")
+            logger.warning(
+                f"后处理 get_list 动作结果时失败: {e}. 原始文本: '{result_text[:200]}...'"
+            )
+            return result_text
+        except Exception as e:
+            logger.error(f"在 _post_process_get_list_result 中发生意外错误: {e}", exc_info=True)
             return result_text
 
     async def _build_action_response_desc(self, handover_result: dict | None) -> str:
@@ -359,7 +474,7 @@ class ThoughtPromptBuilder:
         )
 
         # 2. 守卫子句：如果没有有效结果，则提前返回
-        if not action_result_text or "决策中未包含任何行动指令" in action_result_text:
+        if not action_result_text or "决定不行动" in action_result_text:
             return ""
 
         # 3. 解析动作细节
@@ -374,9 +489,15 @@ class ThoughtPromptBuilder:
 
         # 5. 对特定动作结果进行后处理
         if action_name == "get_list" and platform_key:
-            action_result_text = self._post_process_get_list_result(
-                action_result_text, platform_key
-            )
+            try:
+                parsed_result = json.loads(action_result_text)
+                if isinstance(parsed_result, list):
+                    logger.debug("get_list 结果被识别为原始JSON列表，将进行后处理。")
+                    action_result_text = await self._post_process_get_list_result(
+                        action_result_text, platform_key
+                    )
+            except (json.JSONDecodeError, TypeError):
+                logger.debug("get_list 结果不是原始JSON列表，将按原样使用。")
 
         # 6. 格式化并返回最终的XML块
         return f"<action_response>\n{action_desc}\n{action_result_text}\n</action_response>"
@@ -491,7 +612,7 @@ class ThoughtPromptBuilder:
         user_prompt = DELIBERATION_USER_PROMPT.format(
             mood=current_internal_state.get("mood", "未知"),
             think=current_internal_state.get("think", "未知"),
-            goal=current_internal_state.get("goal", "未知"),
+            intent=current_internal_state.get("intent", "未知"),
             motivation=pipeline_params.get("motivation", "无明确动机"),
             opinions_block=opinions_block,
         )
@@ -637,16 +758,35 @@ class ThoughtPromptBuilder:
         return FOCUS_INPUT_XML_DESCRIPTION if level == "cellular" else ""
 
     def _get_controls_descriptions(
-        self, level: str, builder: BasePlatformBuilder, core_builder: CoreBuilder
+        self,
+        level: str,
+        builder: BasePlatformBuilder | None,
+        core_builder: CoreBuilder,
+        can_go_back: bool,
     ) -> str:
         """获取当前层级的意识控制描述."""
-        core_desc = core_builder.get_level_consciousness_controls_descriptions(level)
-        plat_desc = (
-            builder.get_level_consciousness_controls_descriptions(level)
-            if level != "core" and builder
-            else ""
-        )
-        return "\n".join(filter(None, [core_desc, plat_desc])) or "你当前没有可用的导航指令。"
+        # 先获取完整的 schema，再根据标志进行过滤
+        schema, _ = core_builder.get_level_consciousness_controls_definitions(level)
+        if builder:
+            plat_schema, _ = builder.get_level_consciousness_controls_definitions(level)
+            schema["properties"].update(plat_schema["properties"])
+
+        available_controls = schema.get("properties", {})
+
+        self._filter_navigation_controls(available_controls, can_go_back)
+
+        if level == "cellular":
+            available_controls.pop("focus", None)
+
+        descs = []
+        for name, definition in available_controls.items():
+            params_list = definition.get("required", [])
+            params_str = ", ".join(params_list)
+            description = definition.get("description", "（无可用描述）")
+            desc_line = f"      - `{name}({params_str})`: {description}"
+            descs.append(desc_line)
+
+        return "\n".join(sorted(descs)) or "你当前没有可用的导航指令。"
 
     def _get_actions_descriptions(
         self, level: str, builder: BasePlatformBuilder | None, core_builder: CoreBuilder
@@ -658,7 +798,7 @@ class ThoughtPromptBuilder:
         if core_desc := core_builder.get_level_actions_descriptions(level):
             # 为核心动作描述添加命名空间前缀
             namespaced_core_desc = re.sub(r"(`)(\w+)", r"\1core.\2", core_desc)
-            descs.append(f"- 核心能力:\n{namespaced_core_desc}")
+            descs.append(f"- 基础能力:\n{namespaced_core_desc}")
 
         # 2. 如果在平台/细胞层，添加当前平台的动作描述
         if (
@@ -699,13 +839,28 @@ class ThoughtPromptBuilder:
         platform_id: str,
         conv_id: str | None,
         session: Optional["ChatSession"] = None,
-    ) -> tuple[str, str, PromptComponents | None, list[Event] | None]:
-        """获取外部信息和元信息块."""
-        external_info, meta_info, history_components, processed_raw_events = "", "", None, None
+    ) -> tuple[str, str, PromptComponents | None, list[Stimulus] | None]:
+        """获取外部信息和元信息块。现在返回 Stimulus 列表."""
+        external_info, meta_info, history_components, processed_stimuli = "", "", None, None
+
         if not self.chat_session_manager:
             raise PromptBuilderError("会话管理器尚未准备就绪，无法构建外部信息块。")
+
         if level == "core":
-            external_info = await self.unread_info_service.get_platform_summary()
+            # 1. 获取当前最新的未读摘要
+            current_unread_summary = await self.unread_info_service.get_platform_summary()
+
+            # 2. 核心判断逻辑
+            if current_unread_summary and current_unread_summary != self._last_shown_unread_summary:
+                external_info = current_unread_summary
+                logger.info("检测到新的未读消息，将在顶层Prompt中展示。")
+            else:
+                external_info = "所有平台均无新的未读消息。"
+                logger.debug("顶层未读消息为旧闻或为空，本次不予展示。")
+
+            # 无论是否展示，都更新“上一次看到的摘要”状态，为下一次判断做准备
+            self._last_shown_unread_summary = current_unread_summary
+
         elif level == "platform":
             scroll_offset = (
                 self.chat_session_manager.platform_view_states.get(platform_id, {}).get(
@@ -746,7 +901,8 @@ class ThoughtPromptBuilder:
 
             # 获取会话的历史记录和元信息
             bot_profile = await session.get_bot_profile()
-            history_components, processed_raw_event_dicts = await format_chat_history_for_llm(
+            # 调用新的格式化函数，它现在返回 Stimulus 列表
+            history_components, processed_stimuli = await format_chat_history_for_llm(
                 event_storage=self.event_storage,
                 conversation_id=session.conversation_info.conversation_id,
                 bot_profile=bot_profile,
@@ -754,12 +910,6 @@ class ThoughtPromptBuilder:
                 conversation_name=session.conversation_name,
                 last_processed_timestamp=session.last_processed_timestamp,
                 is_first_turn=self.is_context_switch_flag,
-            )
-
-            processed_raw_events = (
-                [Event.from_dict(doc) for doc in processed_raw_event_dicts]
-                if processed_raw_event_dicts
-                else None
             )
 
             if history_components.conversation_name:
@@ -785,4 +935,10 @@ class ThoughtPromptBuilder:
             )
             guidance_generator = BehavioralGuidanceGenerator(session)
             meta_info = guidance_generator.generate_guidance()
-        return external_info, meta_info, history_components, processed_raw_events
+
+        return (
+            external_info,
+            meta_info,
+            history_components,
+            processed_stimuli,
+        )

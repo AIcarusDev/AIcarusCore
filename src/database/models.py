@@ -26,6 +26,7 @@ class CoreDBCollections:
     THOUGHT_CHAIN = "thought_chain"  # 这就是我们全新的“思想点”集合！
     SYSTEM_STATE = "system_state"  # 用来存放指针的小盒子
     INTRUSIVE_POOL_COLLECTION = "intrusive_thoughts_pool"  # 侵入性思维池
+    IMAGE_ANALYSIS_CACHE = "ImageAnalysisCache"  # 图片分析缓存集合
 
     # --- 边集合 (Edge Collections) ---
     REPRESENTS = "represents"  # _from: EntityProfiles, _to: Entities (特指 Account 类型的 Entity)
@@ -75,6 +76,9 @@ class CoreDBCollections:
             (["action_id"], True, True),
         ],
         SYSTEM_STATE: [],  # 这个集合只有一条记录，不需要索引
+        IMAGE_ANALYSIS_CACHE: [  # 为新集合添加索引定义
+            (["timestamp"], False, False),  # 可以用于未来清理旧缓存
+        ],
     }
 
     @classmethod
@@ -90,6 +94,7 @@ class CoreDBCollections:
             cls.SYSTEM_STATE,
             cls.INTRUSIVE_POOL_COLLECTION,
             cls.THOUGHTS_LEGACY,
+            cls.IMAGE_ANALYSIS_CACHE,  # <--- [新增]
             # Edges
             cls.REPRESENTS,
             cls.IS_PRESENT_IN,
@@ -123,6 +128,20 @@ class CoreDBCollections:
             cls.THOUGHT_CHAIN,
             cls.ACTION_LOGS,
         }
+
+
+@dataclass
+class ImageAnalysisCacheDocument:
+    """代表 ImageAnalysisCache 集合中的一个文档."""
+
+    _key: str  # 图片内容的 SHA-256 哈希值
+    analysis_result: dict[str, Any]
+    version: str  # 新增：用于标识分析逻辑的版本
+    timestamp: int = field(default_factory=lambda: int(time.time() * 1000))
+
+    def to_dict(self) -> dict[str, Any]:
+        """将实例序列化为可存入DB的字典."""
+        return asdict(self)
 
 
 # ==============================================================================
@@ -265,7 +284,7 @@ class ThoughtChainDocument:
     timestamp: str
     mood: str
     think: str
-    goal: str | None
+    intent: str | None
     source_type: str  # 'core' 或 'focus_chat'
     source_id: str | None = None  # 如果是 focus_chat，这里是 conversation_id
 

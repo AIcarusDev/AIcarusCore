@@ -5,11 +5,11 @@ import os
 import time
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from src.action.components.pending_action_manager import PendingActionManager
 from src.common.custom_logging.logging_config import get_logger
-from src.common.utils import find_files, generate_file_tree
+from src.common.utils import find_files, generate_file_tree, parse_entity_uid
 from src.config import config
 from src.config.config_paths import PROJECT_ROOT
 from src.core_communication.action_sender import ActionSender
@@ -19,6 +19,7 @@ from src.database import (
     EventStorageService,
     ThoughtStorageService,
 )
+from src.domain.models import ActionMetadata, ActionResult
 from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.platform_builders.registry import platform_builder_registry
 from src.prompt_templates.url_context import URL_CONTEXT_SYSTEM_PROMPT, URL_CONTEXT_USER_PROMPT
@@ -34,12 +35,16 @@ ACTION_RESPONSE_TIMEOUT_SECONDS = 30
 MAX_CONTENT_PREVIEW_SIZE = 32768
 MAX_AGGREGATE_SIZE = 65535
 
+INFO_GATHERING_ACTIONS = {"get_list", "get_group_info", "get_bot_profile", "get_history"}
+
 
 class ActionHandler:
-    """处理所有与动作相关的逻辑.
+    """处理所有与动作相关的逻辑."""
 
-    它现在是一个纯粹的动作执行器，不再负责触发思考循环.
-    """
+    NORMALIZATION_ACTIONS: ClassVar[dict[str, str]] = {
+        "delete_friend": "user_id",
+        "leave_conversation": "group_id",
+    }
 
     def __init__(self) -> None:
         self.web_search_agent_client: ProcessorClient | None = None
@@ -52,18 +57,12 @@ class ActionHandler:
         self.chat_session_manager: ChatSessionManager | None = None
         self.core_logic: CoreLogic | None = None
         self.entity_service: EntityGraphService | None = None
-        logger.info(f"{self.__class__.__name__} instance created.")
         self._workspace_root: Path | None = None
         logger.info(f"{self.__class__.__name__} instance created (等待依赖注入).")
 
     def _initialize_workspace(self) -> None:
-        """一个全新的、专门用来初始化工作区路径的私有方法.
-
-        它必须在所有依赖注入完成后被调用!
-        """
         if self._workspace_root is not None:
-            return  # 防止重复初始化
-
+            return
         workspace_path_from_config = config.runtime_environment.workspace_root
         sanitized_workspace_path = workspace_path_from_config.lstrip("/\\")
         if sanitized_workspace_path != workspace_path_from_config:
@@ -71,52 +70,32 @@ class ActionHandler:
                 f"检测到工作区路径 '{workspace_path_from_config}' 以斜杠开头，"
                 f"已自动修正为 '{sanitized_workspace_path}'。建议直接修改 config.toml。"
             )
-
         self._workspace_root = (PROJECT_ROOT / workspace_path_from_config).resolve()
         self._workspace_root.mkdir(parents=True, exist_ok=True)
         logger.info(f"文件操作沙箱已通过延迟初始化成功定位，根目录: {self._workspace_root}")
 
     def _get_safe_workspace_root(self) -> Path:
-        """一个安全的获取器，确保在使用 _workspace_root 之前它一定被初始化了."""
         if self._workspace_root is None:
-            # 这是第一次调用，必须初始化
             self._initialize_workspace()
         return self._workspace_root
 
     def _resolve_safe_path(self, user_path: str) -> Path | None:
-        """解析用户提供的相对路径，并确保它在安全的工作区内.
-
-        这是防止路径遍历攻击 (../) 和根目录解析问题的关键！
-        """
-        # 1. 通过安全的获取器
         workspace_root = self._get_safe_workspace_root()
-
         sanitized_path_str = user_path.strip().lstrip("/\\")
         candidate_path = workspace_root.joinpath(sanitized_path_str)
-
-        # 2. 严防死守！使用 os.path.commonpath 来进行最严格的检查。
-        #    这个函数会告诉我们两个路径的共同祖先是谁。
-        #    如果共同祖先不是我们的工作区根目录，那绝对有问题！
-        #    这能完美防御 "../" 这种越狱小花招。
         try:
-            # os.path.realpath 会解析所有符号链接，确保我们得到的是物理真实路径
             real_workspace_root = os.path.realpath(self._workspace_root)
             real_candidate_path = os.path.realpath(candidate_path)
-
             common_prefix = os.path.commonpath([real_workspace_root, real_candidate_path])
-
             if os.path.realpath(common_prefix) == real_workspace_root:
-                # 只有当共同前缀就是我们的工作区时，才证明这个路径是安全的
                 return Path(real_candidate_path)
             else:
-                # 如果共同前缀不是工作区，说明路径已经跑到外面去了！
                 logger.error(
                     f"路径遍历攻击尝试被阻止！目标路径 '{real_candidate_path}' "
                     f"超出工作区 '{real_workspace_root}'。"
                 )
                 return None
         except ValueError:
-            # 如果两个路径在不同盘符（比如 C: 和 D:），commonpath 会抛出 ValueError
             logger.error(f"路径 '{candidate_path}' 与工作区不在同一驱动器上，操作被拒绝。")
             return None
         except Exception as e:
@@ -133,19 +112,18 @@ class ActionHandler:
         chat_session_manager: "ChatSessionManager",
         core_logic: "CoreLogic",
     ) -> None:
-        """设置 ActionHandler 的依赖服务."""
+        """设置依赖服务."""
         self.thought_storage_service = thought_service
         self.action_log_service = action_log_service
         self.action_sender = action_sender
         self.entity_service = entity_service
         self.chat_session_manager = chat_session_manager
         self.core_logic = core_logic
-        # 关键：将 ActionHandler 自身的实例传递给 PendingActionManager
         self.pending_action_manager = PendingActionManager(
             action_log_service=action_log_service,
             thought_storage_service=thought_service,
             event_storage_service=event_service,
-            action_handler_instance=self,  # 把自己传进去
+            action_handler_instance=self,
         )
         self._initialize_workspace()
         logger.info("ActionHandler 的依赖已成功设置。")
@@ -157,7 +135,7 @@ class ActionHandler:
             logger.info("ActionHandler 的主思维触发器已成功设置。")
 
     async def initialize_llm_clients(self) -> None:
-        """按需初始化LLM客户端."""
+        """初始化 LLM 客户端."""
         if self.web_search_agent_client and self.url_context_agent_client:
             return
         from src.action.components.llm_client_factory import LLMClientFactory
@@ -177,97 +155,96 @@ class ActionHandler:
             raise
 
     async def handle_action_response(self, response_event_data: dict[str, Any]) -> None:
-        """处理来自适配器的动作响应."""
+        """处理动作响应."""
         if self.pending_action_manager:
             await self.pending_action_manager.handle_response(response_event_data)
         else:
             logger.error("PendingActionManager 未初始化，无法处理动作响应。")
+
+    async def _handle_do_nothing_action(self, action_json: dict, doc_key: str) -> None:
+        """处理 do_nothing 动作."""
+        motivation = action_json["core"]["do_nothing"].get("motivation", "决定保持沉默")
+        logger.info(f"AI 决定不行动，动机: {motivation}")
+        if self.core_logic and (session := self.core_logic._get_current_session()):
+            session.no_action_count += 1
+            logger.debug(
+                f"[{session.conversation_id}] 连续不发言计数器已递增至: {session.no_action_count}"
+            )
+        if self.thought_storage_service:
+            await self.thought_storage_service.save_action_result_to_thought(
+                thought_key=doc_key, result_text=f"决定不行动，原因：{motivation}"
+            )
+
+    async def _handle_local_action(
+        self, platform_id: str, action_name: str, params: dict, doc_key: str
+    ) -> None:
+        """处理本地执行的动作 (如 qq.scroll)."""
+        result_text = ""
+        if platform_id == "qq" and action_name == "scroll":
+            result_text = self._execute_local_scroll_action(platform_id, params)
+
+        if self.thought_storage_service:
+            await self.thought_storage_service.save_action_result_to_thought(
+                thought_key=doc_key, result_text=result_text
+            )
+        if self.thought_trigger:
+            logger.info(f"本地动作 '{platform_id}.{action_name}' 完成，立即触发新一轮思考。")
+            self.thought_trigger.set()
+
+    async def _handle_core_action_flow(self, action_name: str, params: dict, doc_key: str) -> None:
+        """处理 'core' 命名空间下的动作."""
+        result_text = await self._execute_core_action(action_name, params)
+        if self.thought_storage_service:
+            await self.thought_storage_service.save_action_result_to_thought(
+                thought_key=doc_key, result_text=result_text
+            )
+        if self.thought_trigger:
+            logger.info(f"核心动作 '{action_name}' 完成，立即触发新一轮思考。")
+            self.thought_trigger.set()
 
     async def process_action_flow(
         self,
         action_id: str,
         doc_key_for_updates: str,
         action_json: dict[str, Any],
+        metadata: ActionMetadata,
     ) -> None:
-        """统一的行动处理流程.
-
-        它现在不再触发思考，只负责执行动作并将结果写回思想点.
-        """
+        """统一的行动处理流程，负责分发任务到具体的处理器."""
         logger.info(f"[探灯B] ActionHandler 收到的 action_json: {action_json}")
-        logger.info(f"--- [Action ID: {action_id}] 开始处理行动流程 ---")
+        logger.info(
+            f"-- [Action ID: {action_id}] 开始处理行动流程 (动机: {metadata.motivation[:50]}...) --"
+        )
 
-        # 1. 检查是否为“不行动”决策
+        # Guard Clause 1: 处理 do_nothing
         if "do_nothing" in action_json.get("core", {}):
-            motivation = action_json["core"]["do_nothing"].get("motivation", "决定保持沉默")
-            logger.info(f"AI 决定不行动，动机: {motivation}")
-            # 如果层级为"cellular"，则递增计数器
-            if self.core_logic and (session := self.core_logic._get_current_session()):
-                session.no_action_count += 1
-                logger.debug(
-                    f"[{session.conversation_id}] 连续不发言计数器"
-                    f"已递增至: {session.no_action_count}"
-                )
-
-            if self.thought_storage_service:
-                await self.thought_storage_service.save_action_result_to_thought(
-                    thought_key=doc_key_for_updates,
-                    result_text=f"决定不行动，原因：{motivation}",
-                )
+            await self._handle_do_nothing_action(action_json, doc_key_for_updates)
             return
 
-        # 2. 从带有命名空间的动作字典中解析出平台ID和动作内容
+        # Guard Clause 2: 验证动作格式
         if not (platform_id := next(iter(action_json), None)) or not (
             actions_to_process := action_json.get(platform_id)
         ):
             logger.info("AI决策的动作对象为空或格式不正确，无需执行。")
             if self.core_logic and (session := self.core_logic._get_current_session()):
                 session.no_action_count += 1
-                logger.debug(
-                    f"[{session.conversation_id}] 因无动作，连续不发言计数器"
-                    f"已递增至: {session.no_action_count}"
-                )
             return
 
         action_name, params = next(iter(actions_to_process.items()))
 
+        # --- 调度逻辑 ---
         if platform_id == "qq" and action_name == "scroll":
-            result_text = self._execute_local_scroll_action(platform_id, params)
-
-            # 将结果写回思想点
-            if self.thought_storage_service:
-                await self.thought_storage_service.save_action_result_to_thought(
-                    thought_key=doc_key_for_updates, result_text=result_text
-                )
-
-            # 本地动作执行完，立即触发思考！
-            if self.thought_trigger:
-                logger.info(
-                    f"本地平台动作 '{platform_id}.{action_name}' 完成 "
-                    f"(Action ID: {action_id})，立即触发新一轮思考。"
-                )
-                self.thought_trigger.set()
-            return  # 任务完成，直接返回
-
-        if platform_id == "core":
-            result_text = await self._execute_core_action(action_name, params)
-
-            # 将结果写回思想点
-            if self.thought_storage_service:
-                await self.thought_storage_service.save_action_result_to_thought(
-                    thought_key=doc_key_for_updates,
-                    result_text=result_text,
-                )
-
-            # 核心动作执行完，立即触发思考！
-            if self.thought_trigger:
-                logger.info(
-                    f"核心动作 '{action_name}' 完成 (Action ID: {action_id})，立即触发新一轮思考。"
-                )
-                self.thought_trigger.set()
+            await self._handle_local_action(platform_id, action_name, params, doc_key_for_updates)
+        elif platform_id == "core":
+            await self._handle_core_action_flow(action_name, params, doc_key_for_updates)
         else:
             await self._execute_platform_action_flow(
-                platform_id, action_name, params, doc_key_for_updates
+                platform_id, action_name, params, doc_key_for_updates, metadata
             )
+            if action_name in INFO_GATHERING_ACTIONS and self.thought_trigger:
+                logger.info(
+                    f"信息获取类平台动作 '{platform_id}.{action_name}' 完成，立即触发新一轮思考。"
+                )
+                self.thought_trigger.set()
 
     async def _execute_core_action(self, action_name: str, params: dict) -> str:
         """核心动作的统一分发中心."""
@@ -284,27 +261,21 @@ class ActionHandler:
             "get_aggregated_content": self._execute_core_get_aggregated_content,
             "delete_workspace_file": self._execute_core_delete_workspace_file,
         }
-
         handler = file_op_handlers.get(action_name)
         if handler:
             logger.info(f"检测到核心文件操作 '{action_name}'，正在后台线程中执行...")
-            # 将同步的文件操作函数放到独立的线程中运行，防止阻塞主事件循环
             return await asyncio.to_thread(handler, params)
-
         logger.error(f"收到了一个未知的核心动作: '{action_name}'")
         return f"错误：未知核心动作 '{action_name}'。"
 
     async def _execute_core_web_search(self, params: dict) -> str:
-        """执行核心的网页搜索动作，并直接返回结果字符串."""
         await self.initialize_llm_clients()
         query = params.get("query")
         motivation = params.get("motivation", "没有明确动机")
-
         if not query or not self.web_search_agent_client:
             result_text = "动作执行失败：LLM想搜索但没提供关键词，或者搜索代理客户端未初始化。"
             logger.warning(result_text)
             return result_text
-
         logger.info(f"正在调用搜索代理LLM，查询: '{query}'")
         system_prompt = WEB_SEARCH_SYSTEM_PROMPT.format(bot_name=config.persona.bot_name)
         user_prompt = WEB_SEARCH_USER_PROMPT.format(query=query, motivation=motivation)
@@ -318,18 +289,15 @@ class ActionHandler:
         safe_path = self._resolve_safe_path(path_str)
         if not safe_path:
             return f"错误：路径 '{path_str}' 不安全或无效。"
-
         try:
             if not safe_path.exists():
                 return f"错误：路径 '{path_str}' 不存在。"
             if not safe_path.is_dir():
                 return f"错误：'{path_str}' 不是一个目录。"
-
-            items = []
-            for item in safe_path.iterdir():
-                item_type = "DIR" if item.is_dir() else "FILE"
-                items.append(f"[{item_type}] {item.name}")
-
+            items = [
+                f"[{'DIR' if item.is_dir() else 'FILE'}] {item.name}"
+                for item in safe_path.iterdir()
+            ]
             if not items:
                 return f"目录 '{path_str}' 是空的。"
             return f"目录 '{path_str}' 下的内容：\n" + "\n".join(items)
@@ -337,21 +305,24 @@ class ActionHandler:
             logger.error(f"列出文件时出错 ({path_str}): {e}", exc_info=True)
             return f"错误：列出文件时发生未知错误: {e}"
 
+    def _validate_and_read_file_content(self, safe_path: Path, original_path: str) -> str:
+        """验证路径是否为文件并读取其内容。失败时抛出 FileNotFoundError."""
+        if not safe_path.is_file():
+            raise FileNotFoundError(f"错误：路径 '{original_path}' 不是一个文件或不存在。")
+        return safe_path.read_text(encoding="utf-8")
+
     def _execute_core_read_file(self, params: dict) -> str:
         path_str = params.get("path")
         if not path_str:
             return "错误：未提供要读取的文件路径。"
-
         safe_path = self._resolve_safe_path(path_str)
         if not safe_path:
             return f"错误：路径 '{path_str}' 不安全或无效。"
-
         try:
-            if not safe_path.is_file():
-                return f"错误：路径 '{path_str}' 不是一个文件或不存在。"
-
-            content = safe_path.read_text(encoding="utf-8")
+            content = self._validate_and_read_file_content(safe_path, path_str)
             return f"文件 '{path_str}' 的内容如下：\n---\n{content}\n---"
+        except FileNotFoundError as e:
+            return str(e)
         except Exception as e:
             logger.error(f"读取文件时出错 ({path_str}): {e}", exc_info=True)
             return f"错误：读取文件时发生未知错误: {e}"
@@ -359,32 +330,23 @@ class ActionHandler:
     def _execute_core_write_file(self, params: dict) -> str:
         path_str = params.get("path")
         content = params.get("content")
-        append = params.get("append", True)  # 默认为追加模式
-
+        append = params.get("append", True)
         if not path_str or content is None:
             return "错误：未提供文件路径或写入内容。"
-
         safe_path = self._resolve_safe_path(path_str)
         if not safe_path:
             return f"错误：路径 '{path_str}' 不安全或无效。"
-
         try:
-            # 确保父目录存在
             safe_path.parent.mkdir(parents=True, exist_ok=True)
-
             mode = "a" if append else "w"
             with safe_path.open(mode, encoding="utf-8") as f:
                 f.write(content)
             final_content = safe_path.read_text(encoding="utf-8")
-
-            # 检查内容长度，如果太长就截断
             if len(final_content.encode("utf-8")) > MAX_CONTENT_PREVIEW_SIZE:
-                # 按字符截断，而不是字节，避免截断半个汉字
                 final_content = final_content[:MAX_CONTENT_PREVIEW_SIZE] + "\n... [内容已截断]"
-
-            action_desc = "追加内容到" if params.get("append", True) else "覆写"
+            action_desc = "追加内容到" if append else "覆写"
             return (
-                f"成功！已{action_desc}文件 '{params.get('path')}'。\n"
+                f"成功！已{action_desc}文件 '{path_str}'。\n"
                 f"目前文件的内容为:\n---\n{final_content}\n---"
             )
         except Exception as e:
@@ -395,41 +357,31 @@ class ActionHandler:
         path_str = params.get("path")
         search_pattern = params.get("search_pattern")
         replace_string = params.get("replace_string")
-
         if not all([path_str, search_pattern, replace_string is not None]):
             return "错误：缺少编辑文件所需的参数。"
-
         safe_path = self._resolve_safe_path(path_str)
         if not safe_path:
             return f"错误：路径 '{path_str}' 不安全或无效。"
-
         try:
-            if not safe_path.is_file():
-                return f"错误：路径 '{path_str}' 不是一个文件或不存在。"
-
-            original_content = safe_path.read_text(encoding="utf-8")
+            original_content = self._validate_and_read_file_content(safe_path, path_str)
             if search_pattern not in original_content:
                 return (
-                    f"操作完成，但在文件 '{params.get('path')}' "
-                    f"中未找到要替换的文本 '{search_pattern}'。\n"
+                    f"操作完成，但在文件 '{path_str}' 中未找到要替换的文本 '{search_pattern}'。\n"
                     f"目前文件内容未改变:\n---\n{original_content[:MAX_CONTENT_PREVIEW_SIZE]}\n---"
                 )
-
             new_content = original_content.replace(search_pattern, replace_string)
-
             safe_path.write_text(new_content, encoding="utf-8")
-
             final_content_preview = new_content
             if len(final_content_preview.encode("utf-8")) > MAX_CONTENT_PREVIEW_SIZE:
                 final_content_preview = (
                     final_content_preview[:MAX_CONTENT_PREVIEW_SIZE] + "\n... [内容已截断]"
                 )
-
             return (
-                f"成功！已编辑文件 '{path_str}'，"
-                f"将所有 '{search_pattern}' 替换为 '{replace_string}'。"
-                f"\n目前文件的内容为:\n---\n{final_content_preview}\n---"
+                f"成功！已编辑文件 '{path_str}'，将所有 '{search_pattern}' "
+                f"替换为 '{replace_string}'。\n目前文件的内容为:\n---\n{final_content_preview}\n---"
             )
+        except FileNotFoundError as e:
+            return str(e)
         except Exception as e:
             logger.error(f"编辑文件时出错 ({path_str}): {e}", exc_info=True)
             return f"错误：编辑文件时发生未知错误: {e}"
@@ -437,16 +389,12 @@ class ActionHandler:
     def _execute_core_get_aggregated_content(self, params: dict) -> str:
         if find_files is None or generate_file_tree is None:
             return "错误：代码聚合功能的核心模块未能加载，无法执行此操作。"
-
         source_path_str = params.get("source_path")
         if not source_path_str:
             return "错误：缺少源路径参数。"
-
         safe_source_path = self._resolve_safe_path(source_path_str)
         if not safe_source_path:
             return f"错误：源路径 '{source_path_str}' 不安全或无效。"
-
-        # 使用 io.StringIO 作为内存中的“日志队列”，避免打印到控制台
         log_buffer = io.StringIO()
 
         class FakeQueue:
@@ -454,9 +402,7 @@ class ActionHandler:
                 log_buffer.write(str(msg) + "\n")
 
         fake_log_queue = FakeQueue()
-
         try:
-            # 借用 CodeAggregatorAPI 的默认配置
             api_defaults = {
                 "extensions": [".py", ".md", ".txt", ".json", ".toml", ".yaml"],
                 "ignore_items": {
@@ -471,35 +417,22 @@ class ActionHandler:
                     "output",
                 },
             }
-
             extensions = params.get("extensions", api_defaults["extensions"])
             ignore_items = set(params.get("ignore_items", [])) | api_defaults["ignore_items"]
-
-            # 1. 查找文件
             found_files = find_files(
                 str(safe_source_path), extensions, ignore_items, fake_log_queue
             )
-
             if not found_files:
                 return f"在 '{source_path_str}' 路径下未找到符合条件的文件。"
-
-            # 2. 在内存中构建聚合内容
-            # 我们使用 StringIO 来模拟一个文件对象
             output_buffer = io.StringIO()
-
-            # --- 写入头部信息 ---
             output_buffer.write("=" * 80 + "\n")
             output_buffer.write(f"根目录: {safe_source_path}\n")
             output_buffer.write(f"共 {len(found_files)} 个文件\n")
             output_buffer.write("=" * 80 + "\n\n")
-
-            # --- 写入文件树 ---
             tree_structure = generate_file_tree(str(safe_source_path), found_files, fake_log_queue)
             output_buffer.write("文件结构树:\n")
             output_buffer.write(tree_structure)
             output_buffer.write("\n\n" + "=" * 80 + "\n\n")
-
-            # --- 写入每个文件的内容 ---
             for file_path in found_files:
                 output_buffer.write("-" * 80 + "\n")
                 output_buffer.write(f"文件路径: {file_path}\n")
@@ -513,38 +446,84 @@ class ActionHandler:
                         output_buffer.write("\n```\n\n")
                 except Exception as e:
                     output_buffer.write(f"!!! 读取文件时出错: {file_path} -> {e} !!!\n\n")
-
-            # 3. 从内存中获取最终的字符串
             final_content = output_buffer.getvalue()
-
-            # 对最终内容进行截断，防止撑爆LLM的上下文窗口
             if len(final_content.encode("utf-8")) > MAX_AGGREGATE_SIZE:
-                # 智能截断：从末尾开始找，找到一个文件分隔符，从那里截断
-                # 这样可以保证最后一个文件是完整的
                 safe_cut_pos = final_content.rfind("\n" + "-" * 80, 0, MAX_AGGREGATE_SIZE)
                 if safe_cut_pos != -1:
                     final_content = final_content[:safe_cut_pos]
-                else:  # 如果找不到，就硬截断
+                else:
                     final_content = final_content[:MAX_AGGREGATE_SIZE]
                 final_content += "\n... [聚合内容过长，已在末尾截断]"
-
             return f"成功聚合了 '{source_path_str}' 的内容：\n{final_content}"
-
         except Exception as e:
             logger.error(f"聚合内容时出错 ({source_path_str}): {e}", exc_info=True)
             return f"错误：聚合内容时发生未知错误: {e}"
 
+    def _get_id_from_params(self, action_name: str, params: dict) -> str | None:
+        """根据动作名称，从参数字典中提取目标ID字符串."""
+        id_key = "user_id" if "friend" in action_name else "group_id"
+        return params.get(id_key)
+
+    def _get_id_from_session(self) -> str | None:
+        """如果在会话上下文中，则从中提取原生ID作为回退."""
+        if self.core_logic and (session := self.core_logic._get_current_session()):
+            if parsed_tuple := parse_entity_uid(session.conversation_id):
+                # parse_entity_uid 返回 (platform, type, native_id)
+                return parsed_tuple[2]
+
+            logger.error(f"无法从当前会话的实体UID '{session.conversation_id}' 中解析出原生ID。")
+            return None
+
+    def _normalize_id_string(self, id_string: str, platform_id: str) -> str | None:
+        """将一个可能是完整UID的字符串规范化为平台原生ID."""
+        # 尝试将其作为完整的实体UID进行解析
+        if parsed_tuple := parse_entity_uid(id_string):
+            parsed_platform, _, native_id = parsed_tuple
+            if parsed_platform != platform_id:
+                logger.warning(
+                    f"解析出的实体UID平台 '{parsed_platform}' 与当前动作平台 '{platform_id}' "
+                    f"不匹配。将仍然使用其原生ID部分 '{native_id}'。"
+                )
+            return native_id
+        # 如果无法解析，则假定它已经是平台原生ID
+        return id_string
+
+    def _resolve_target_id(self, action_name: str, params: dict, platform_id: str) -> str | None:
+        """以清晰、可维护的方式解析出动作所需的目标原生ID.
+
+        它会依次尝试从动作参数和当前会话上下文中获取ID，然后进行规范化处理。
+        """
+        # 步骤 1: 尝试从动作参数中获取ID
+        raw_id = self._get_id_from_params(action_name, params)
+
+        # 步骤 2: 如果参数中没有，则尝试从当前会话上下文中获取
+        if not raw_id:
+            raw_id = self._get_id_from_session()
+
+        # 步骤 3: 验证是否成功获取ID，如果两种方式都失败了，则记录错误并返回
+        if not raw_id:
+            id_key = "user_id" if "friend" in action_name else "group_id"
+            logger.error(f"动作 '{action_name}' 缺少必要的 '{id_key}' 且不在有效的会话上下文中。")
+            return None
+
+        # 步骤 4: 对获取到的ID字符串进行规范化处理，确保返回的是原生ID
+        return self._normalize_id_string(raw_id, platform_id)
+
     async def _execute_platform_action_flow(
-        self, platform_id: str, action_name: str, params: dict, doc_key_for_updates: str
+        self,
+        platform_id: str,
+        action_name: str,
+        params: dict,
+        doc_key_for_updates: str,
+        metadata: ActionMetadata,
     ) -> None:
-        """执行一个平台动作的完整流程：构建->发送->等待响应."""
+        """执行一个平台动作的完整流程，并传递元数据."""
         if not self.action_sender or platform_id not in self.action_sender.connected_adapters:
             error_msg = f"动作执行失败：平台 '{platform_id}' 理论上存在，但当前未连接。"
             logger.error(error_msg)
             if self.thought_storage_service:
                 await self.thought_storage_service.save_action_result_to_thought(
-                    thought_key=doc_key_for_updates,
-                    result_text=error_msg,
+                    thought_key=doc_key_for_updates, result_text=error_msg
                 )
             return
 
@@ -552,14 +531,24 @@ class ActionHandler:
         if not builder:
             logger.error(f"找不到平台 '{platform_id}' 的翻译官。")
             return
-
         if not self.entity_service:
             logger.error("EntityGraphService 未注入到 ActionHandler，无法获取祂的ID！")
             return
+        if action_name in self.NORMALIZATION_ACTIONS:
+            resolved_id = self._resolve_target_id(action_name, params, platform_id)
+            if not resolved_id:
+                error_msg = f"动作 '{action_name}' 执行失败：无法确定目标ID。"
+                logger.error(error_msg)
+                if self.thought_storage_service:
+                    await self.thought_storage_service.save_action_result_to_thought(
+                        thought_key=doc_key_for_updates, result_text=error_msg
+                    )
+                return
+            id_key = self.NORMALIZATION_ACTIONS[action_name]
+            params[id_key] = resolved_id
+            logger.debug(f"已将动作 '{action_name}' 的目标ID归一化为: '{resolved_id}'")
 
-        # 1. 调用正确的方法获取所有自身实体
         all_self_entities = await self.entity_service.get_all_self_entities()
-        # 2. 从列表中筛选出当前平台的实体
         self_entity = next(
             (
                 entity
@@ -568,26 +557,27 @@ class ActionHandler:
             ),
             None,
         )
-
-        # 3. 修正后续代码对 platform_id 的获取路径
         if not self_entity or not self_entity.get("details", {}).get("platform_id"):
             logger.error(f"无法为平台 '{platform_id}' 获取已安检的祂的客观实体ID。动作无法执行。")
-            await self.thought_storage_service.save_action_result_to_thought(
-                thought_key=doc_key_for_updates,
-                result_text=f"动作执行失败：我找不到自己在这个平台({platform_id})上的身份信息。",
-            )
+            if self.thought_storage_service:
+                await self.thought_storage_service.save_action_result_to_thought(
+                    thought_key=doc_key_for_updates,
+                    result_text=f"动作执行失败：我找不到自己在这个平台({platform_id})上的身份信息。",
+                )
             return
 
-        correct_bot_id = self_entity["details"]["platform_id"]  # <--- 从 "details" 字段中获取ID
+        correct_bot_id = self_entity["details"]["platform_id"]
         action_event = builder.build_action_event(action_name, params, bot_id=correct_bot_id)
         if not action_event:
             logger.error(f"平台 '{platform_id}' 的翻译官不会翻译动作 '{action_name}'。")
             return
 
+        # 将 metadata 传递给底层执行器
         await self._execute_platform_action(
             action_to_send=action_event.to_dict(),
             thought_doc_key=doc_key_for_updates,
             original_action_description=f"{platform_id}.{action_name}",
+            metadata=metadata,
         )
 
     async def execute_simple_action(
@@ -598,45 +588,59 @@ class ActionHandler:
         bot_id: str,
         description: str,
         motivation: str | None = None,
-    ) -> tuple[bool, Any]:
+    ) -> ActionResult:
         """一个更简单的动作执行入口，供 MessageBuilder 等内部系统调用.
 
-        它会返回执行结果和包含 action_id 的 payload.
+        它现在返回一个 ActionResult 领域模型对象.
         """
         builder = platform_builder_registry.get_builder(platform_id)
         if not builder:
-            return False, {"error": f"找不到平台 '{platform_id}' 的翻译官。"}
+            return ActionResult(
+                action_id="",
+                is_success=False,
+                error_message=f"找不到平台 '{platform_id}' 的翻译官。",
+            )
 
         action_event = builder.build_action_event(action_name, params, bot_id=bot_id)
         if not action_event:
-            return False, {"error": f"平台 '{platform_id}' 的翻译官不会翻译动作 '{action_name}'。"}
+            return ActionResult(
+                action_id="",
+                is_success=False,
+                error_message=f"平台 '{platform_id}' 的翻译官不会翻译动作 '{action_name}'。",
+            )
 
-        success, message_payload = await self._execute_platform_action(
+        # 内部调用时，我们自己创建一个 ActionMetadata
+        metadata = ActionMetadata(
+            motivation=motivation or "由内部系统（如MessageBuilder）发起",
+            source_event_id=None,  # 内部调用通常没有直接的源事件
+            source_thought_id=None,
+        )
+
+        return await self._execute_platform_action(
             action_to_send=action_event.to_dict(),
             thought_doc_key=None,
             original_action_description=description,
-            motivation=motivation,
+            metadata=metadata,
         )
-
-        if isinstance(message_payload, dict):
-            message_payload["action_id"] = action_event.event_id
-
-        return success, message_payload
 
     async def _execute_platform_action(
         self,
         action_to_send: dict[str, Any],
         thought_doc_key: str | None,
         original_action_description: str,
-        motivation: str | None = None,
-    ) -> tuple[bool, Any]:
+        metadata: ActionMetadata,
+    ) -> ActionResult:
         """底层动作执行器：发送动作到适配器并等待响应."""
+        core_action_id = action_to_send.setdefault("event_id", str(uuid.uuid4()))
         if not self.action_sender or not self.action_log_service or not self.pending_action_manager:
-            return False, {"error": "内部错误：核心服务不可用。"}
+            return ActionResult(
+                action_id=core_action_id,
+                is_success=False,
+                error_message="内部错误：核心服务不可用。",
+            )
 
         event_type = action_to_send.get("event_type", "")
         platform = event_type.split(".")[1] if "." in event_type else "unknown"
-        core_action_id = action_to_send.setdefault("event_id", str(uuid.uuid4()))
         timestamp = int(time.time() * 1000)
         action_to_send["timestamp"] = timestamp
         bot_id_for_log = action_to_send.get("bot_id")
@@ -662,104 +666,80 @@ class ActionHandler:
                 platform, action_to_send
             )
             if not send_success:
-                return False, {"error": f"发送到适配器 '{platform}' 失败。"}
+                return ActionResult(
+                    action_id=core_action_id,
+                    is_success=False,
+                    error_message=f"发送到适配器 '{platform}' 失败。",
+                )
         except Exception as e:
-            return False, {"error": f"发送平台动作时发生意外异常: {e}"}
+            return ActionResult(
+                action_id=core_action_id,
+                is_success=False,
+                error_message=f"发送平台动作时发生意外异常: {e}",
+            )
 
-        success, result_payload = await self.pending_action_manager.add_and_wait_for_action(
+        return await self.pending_action_manager.add_and_wait_for_action(
             action_id=core_action_id,
             thought_doc_key=thought_doc_key,
             original_action_description=original_action_description,
             action_to_send=action_to_send,
-            motivation=motivation,
+            metadata=metadata,
         )
 
-        if isinstance(result_payload, dict):
-            result_payload["action_id"] = core_action_id
-
-        return success, result_payload
-
     def _execute_local_scroll_action(self, platform_id: str, params: dict) -> str:
-        """执行本地的 scroll 动作，直接修改 ChatSessionManager 的状态."""
         params = params.get("params")
         if not params or params not in ["up", "down"]:
             return f"错误：收到无效的滚动方向 '{params}'。"
-
         if not self.chat_session_manager:
             return "错误：会话管理器未就绪，无法执行滚动。"
-
-        # 从 ChatSessionManager 获取平台视图状态
         if platform_id not in self.chat_session_manager.platform_view_states:
-            # 这种情况理论上不应该发生，因为进入平台层时会初始化
             return f"错误：找不到平台 '{platform_id}' 的视图状态。"
-
         state = self.chat_session_manager.platform_view_states[platform_id]
         current_offset = state.get("scroll_offset", 0)
-        page_size = 10  # 与 unread_info_service 中的 page_size 保持一致
-
+        page_size = 10
         if params == "down":
             state["scroll_offset"] = current_offset + page_size
             action_desc = "向下"
         elif params == "up":
             state["scroll_offset"] = max(0, current_offset - page_size)
             action_desc = "向上"
-
         logger.info(f"平台 '{platform_id}' 视图已滚动, 新偏移量: {state['scroll_offset']}")
-
         return f"成功地将列表 {action_desc} 滚动了一页。"
 
     async def _execute_core_summarize_url(self, params: dict) -> str:
-        """执行核心的 URL 总结动作，并直接返回结果字符串."""
         await self.initialize_llm_clients()
         url = params.get("url")
         motivation = params.get("motivation", "没有明确动机")
-
         if not url or not self.url_context_agent_client:
             result_text = (
                 "动作执行失败：LLM想访问URL但没提供网址，或者URL上下文代理客户端未初始化。"
             )
             logger.warning(result_text)
             return result_text
-
         logger.info(f"正在调用 URL 上下文代理LLM，目标URL: '{url}'")
-
-        # 使用新的 prompt 模板
         system_prompt = URL_CONTEXT_SYSTEM_PROMPT
-        # 在用户 prompt 中直接嵌入 URL，Gemini 会自动识别并提取
         user_prompt = URL_CONTEXT_USER_PROMPT.format(url=url, motivation=motivation)
-
-        # 调用 LLM，并开启 use_url_context 功能
         response = await self.url_context_agent_client.make_llm_request(
             prompt=user_prompt,
             system_prompt=system_prompt,
             is_stream=False,
-            use_url_context=True,  # 关键！开启 URL 上下文功能
+            use_url_context=True,
         )
         return response.get("text", "访问URL失败或未返回任何信息。")
 
     def _execute_core_delete_workspace_file(self, params: dict) -> str:
-        """执行删除工作区文件的【危险】动作."""
         path_str = params.get("path")
         if not path_str:
             return "错误：未提供要删除的文件路径。"
-
-        # 解析并验证路径
         safe_path = self._resolve_safe_path(path_str)
-        # 关键的安全检查
         if not safe_path:
             return f"错误：路径 '{path_str}' 不安全或无效。"
-
-        # 进一步检查路径是否在允许的范围内
         try:
             if not safe_path.exists():
                 return f"操作完成：文件 '{path_str}' 本来就不存在。"
-
             if not safe_path.is_file():
                 return f"错误：路径 '{path_str}' 是一个目录，此功能只能删除文件。"
-
-            # 执行删除
             safe_path.unlink()
-
             return f"成功！已删除文件 '{path_str}'。"
         except Exception as e:
             logger.error(f"删除文件时出错 ({path_str}): {e}", exc_info=True)

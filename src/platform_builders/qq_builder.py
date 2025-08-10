@@ -80,6 +80,23 @@ class QQBuilder(BasePlatformBuilder):
         """返回平台ID，唯一标识一个平台，这个ID必须和Adapter的core_platform_id完全一致."""
         return "qq"
 
+    def get_list_keys_to_keep(self, list_type: str) -> set[str]:
+        """为QQ的好友和群组列表返回应保留的特定键集合."""
+        # 将之前在 prompt_builder 中硬编码的键集合移到这里
+        return {
+            "birthday_year",
+            "birthday_month",
+            "birthday_day",
+            "user_id",
+            "group_id",
+            "nickname",
+            "remark",
+            "group_name",
+            "sex",
+            "age",
+            "phone_num",
+        }
+
     def build_action_event(
         self, action_name: str, params: dict[str, Any], bot_id: str
     ) -> Event | None:
@@ -252,10 +269,13 @@ class QQBuilder(BasePlatformBuilder):
             "type": "object",
             "description": "【谨慎使用】删除一个好友。如果当前就在与该好友的私聊中，可以不提供user_id。",
             "properties": {
-                "user_id": {"type": "string", "description": "（可选）要删除的好友的QQ号。"},
+                "user_id": {
+                    "type": "string",
+                    "description": "（可选）要删除的好友的ID（原始QQ号或实体UID）。",
+                },
                 "motivation": {"type": "string"},
             },
-            "required": ["motivation"],  # motivation 仍然是必须的
+            "required": ["motivation"],
         }
         cellular_leave_conversation_schema = {
             "type": "object",
@@ -264,7 +284,7 @@ class QQBuilder(BasePlatformBuilder):
                 "group_id": {"type": "string", "description": "（可选）要退出的群的群号。"},
                 "motivation": {"type": "string"},
             },
-            "required": ["motivation"],  # motivation 仍然是必须的
+            "required": ["motivation"],
         }
 
         handle_friend_request_schema = {

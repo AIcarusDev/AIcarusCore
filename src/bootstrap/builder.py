@@ -36,6 +36,9 @@ from src.database import (
     SummaryStorageService,
     ThoughtStorageService,
 )
+from src.database.services.image_analysis_cache_service import (
+    ImageAnalysisCacheService,
+)
 from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.message_processing.default_message_processor import DefaultMessageProcessor
 from src.message_processing.image_analysis_service import ImageAnalysisService
@@ -61,7 +64,12 @@ class ServiceBuilder:
         platform_builder_registry.discover_and_register_builders(platform_builders)
         llm_clients = self._initialize_llm_clients()
         db_services = await self._initialize_database_and_services()
-        image_analysis_service = ImageAnalysisService(db_services["conn_manager"])
+
+        # 初始化图像分析服务
+        image_analysis_service = ImageAnalysisService(
+            db_services["conn_manager"],
+            db_services["image_analysis_cache_service"],  # 将缓存服务传递进去
+        )
         interrupt_model = await self._initialize_interrupt_model(
             db_services["event_storage_service"]
         )
@@ -306,6 +314,7 @@ class ServiceBuilder:
             "action_log_service": ActionLogStorageService,
             "entity_graph_service": EntityGraphService,
             "summary_storage_service": SummaryStorageService,
+            "image_analysis_cache_service": ImageAnalysisCacheService,
         }
 
         initialized_services = {"conn_manager": conn_manager}

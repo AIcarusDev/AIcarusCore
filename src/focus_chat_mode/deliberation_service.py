@@ -38,11 +38,11 @@ class DeliberationService:
 
         Args:
             pipeline_params (dict): LLM返回的 'deep_think' 指令的参数。
-            current_internal_state (dict): 当前的核心内部状态 (mood, think, goal)。
+            current_internal_state (dict): 当前的核心内部状态 (mood, think, intent)。
             session (ChatSession | None): 当前的会话实例，用于更新工作记忆。
 
         Returns:
-            dict | None: 一个包含新内部状态 (mood, think, goal) 的字典，如果成功。
+            dict | None: 一个包含新内部状态 (mood, think, intent) 的字典，如果成功。
                         否则返回 None。
         """
         try:
@@ -75,7 +75,7 @@ class DeliberationService:
                 fast_thought_person_block=persona_block,
                 mood=current_internal_state.get("mood", "未知"),
                 think=current_internal_state.get("think", "未知"),
-                goal=current_internal_state.get("goal", "未知"),
+                intent=current_internal_state.get("intent", "未知"),
                 motivation=pipeline_params.get("motivation", "无明确动机"),
                 opinions_block=opinions_block,
             )
@@ -113,12 +113,11 @@ class DeliberationService:
                     f"摘要将在接下来的 {session.working_memory['remaining_turns']} 轮思考中保持。"
                 )
 
-            new_internal_state = {
+            return {
                 "mood": resolution.get("final_mood"),
                 "think": resolution.get("final_think"),
-                "goal": resolution.get("final_goal"),
+                "intent": resolution.get("final_intent"),
             }
-            return new_internal_state
 
         except Exception as e:
             logger.error(f"执行“慢思考”决策管线时发生严重错误: {e}", exc_info=True)

@@ -2,7 +2,6 @@
 import json
 from typing import TYPE_CHECKING, Optional
 
-from aicarus_protocols import Event
 from src.common.custom_logging.logging_config import get_logger
 from src.database.services.thought_storage_service import ThoughtStorageService
 
@@ -72,13 +71,13 @@ class InternalInfoBuilder:
             return "\n<!-- 内部信息构建失败 -->\n"
 
     def _format_thought_content(self, thought_doc: dict) -> list[str]:
-        """格式化思想内容（心情、想法、目标）."""
+        """格式化思想内容（心情、想法、意图）."""
         lines = [
             f"<mood>{self._escape_xml_text(thought_doc.get('mood', '平静'))}</mood>",
             f"<think>{self._escape_xml_text(thought_doc.get('think', '...'))}</think>",
         ]
-        if goal := thought_doc.get("goal"):
-            lines.append(f"<goal>{self._escape_xml_text(goal)}</goal>")
+        if intent := thought_doc.get("intent"):
+            lines.append(f"<intent>{self._escape_xml_text(intent)}</intent>")
         return lines
 
     def _format_payload_as_json_string(self, payload: dict | None) -> str:
@@ -99,11 +98,11 @@ class InternalInfoBuilder:
             formatted_payload = json.dumps(payload, ensure_ascii=False)
 
             # 使用 CDATA 块包裹，这是处理 XML 中大段文本的最佳实践
-            return f"<![CDATA[\n{formatted_payload}\n]]>"
+            return f"<![CDATA[{formatted_payload}]]>"
         except Exception as e:
             logger.error(f"格式化 payload 为 JSON CDATA 时出错: {e}")
             # 返回通用错误消息，避免暴露敏感数据
-            return "<![CDATA[\n[格式化错误]\n]]>"
+            return "<![CDATA[[格式化错误]]]>"
 
     def _format_completed_action(self, action_payload: dict) -> str:
         """从完整的 payload 中提取 'action' 部分并格式化."""
@@ -122,17 +121,19 @@ class InternalInfoBuilder:
     async def _format_interruption(self, session: "ChatSession", user_map: dict | None) -> str:
         """格式化中断信息."""
         context = session.interruption_context
-        event_doc = context.get("interrupting_event_doc", {})
-        if not event_doc:
+        # ======================== [ 核心改造点 ] ========================
+        # 从上下文中获取 Stimulus 对象
+        stimulus = context.get("interrupting_stimulus")
+        if not stimulus:
             return "<interruption>未知</interruption>"
-        # 解析事件文档，提取必要信息
-        event = Event.from_dict(event_doc)
-        text = self._escape_xml_text(event.get_text_content() or "[非文本消息]")
-        sender_id = event.user_info.user_id if event.user_info else "未知"
+
+        # 直接从 Stimulus 对象获取信息
+        text = self._escape_xml_text(stimulus.text_content or "[非文本消息]")
+        sender_id = stimulus.sender_id or "未知"
+        # =============================================================
 
         sender_uid = f"未知用户({sender_id[:4]})"
         if user_map and sender_id != "未知":
-            # 遍历 user_map 找到对应的 uid_str
             for p_id, data in user_map.items():
                 if str(p_id) == str(sender_id):
                     sender_uid = data.get("uid_str", sender_uid)

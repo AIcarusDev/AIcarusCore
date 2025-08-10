@@ -64,6 +64,7 @@ class ChatSessionManager:
         self.sessions: dict[str, ChatSession] = {}
         self.lock = asyncio.Lock()
         self.platform_view_states: dict[str, dict[str, Any]] = {}
+        self.global_command_feedback: str | None = None
 
         # 初始化新的服务
         self.focus_manager = FocusManager(
@@ -204,6 +205,9 @@ class ChatSessionManager:
         if session:
             session.last_command_feedback = None
 
+        # 清除全局反馈
+        self.global_command_feedback = None
+
         # 验证：检查是否违反了“最多一个指令”的规则
         if len(control_json) > 1:
             error_message = "错误：同时发出了多个意识控制指令，每轮只能执行一个。"
@@ -213,6 +217,8 @@ class ChatSessionManager:
             )
             if session:
                 session.last_command_feedback = error_message
+            else:
+                self.global_command_feedback = error_message
             return None
 
         if not (command := next(iter(control_json), None)) or not (
@@ -236,6 +242,8 @@ class ChatSessionManager:
             logger.error(f"收到未知的意识控制指令: '{command}'，无法处理。")
             if session:
                 session.last_command_feedback = error_message
+            else:
+                self.global_command_feedback = error_message
             return None
 
         # 如果是“慢思考”指令，则进入深度思考流程

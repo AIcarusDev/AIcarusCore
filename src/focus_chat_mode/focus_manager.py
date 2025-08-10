@@ -95,13 +95,23 @@ class FocusManager:
             self.trigger_thought_cycle_callback()
             return True, None
         else:
+            detailed_feedback = (
+                f"[ERROR] 你刚才的指令 '{command}' 执行失败 | "
+                f"错误信息: {feedback_message},"
+                f"参数: {params}。"
+            )
+
             current_session = await self._get_session_from_path(
                 self.current_focus_path.get("target_path")
             )
             if current_session:
-                current_session.last_command_feedback = feedback_message
+                current_session.last_command_feedback = detailed_feedback
+            else:
+                # 如果不在任何会话中（即在 core 或 platform 层），则使用全局反馈槽
+                self.chat_session_manager.global_command_feedback = detailed_feedback
 
             logger.warning(f"意识转向指令 '{command}' 执行失败: {feedback_message}")
+            # 注意：返回给上层的原始 feedback_message 保持不变，只修改注入到 Prompt 的内容
             return False, feedback_message
 
     async def _get_session_from_path(self, focus_path: str | None) -> Optional["ChatSession"]:
@@ -348,12 +358,11 @@ class FocusManager:
         try:
             history_index = int(params.get("history_index", 0))
             history_len = len(self.focus_history)
-            deque_index = -history_index
-            if not (1 <= history_index < history_len):
-                error_message = f"历史索引 T-{history_index} 超出范围 [T-1, T-{history_len - 1}]。"
+            if not (-history_len <= history_index <= -1):
+                error_message = f"历史索引 T{history_index} 超出范围 [T-1, T-{history_len - 1}]。"
                 logger.error(error_message)
                 return False, error_message
-            target_entry = self.focus_history[deque_index]
+            target_entry = self.focus_history[history_index]
             target_path = target_entry.get("target_path", "core")
             return await self._switch_focus(target_path, history_entry_base)
         except (IndexError, TypeError, ValueError) as e:
