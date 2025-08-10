@@ -348,12 +348,11 @@ class FocusManager:
         try:
             history_index = int(params.get("history_index", 0))
             history_len = len(self.focus_history)
-            deque_index = -history_index
-            if not (1 <= history_index < history_len):
-                error_message = f"历史索引 T-{history_index} 超出范围 [T-1, T-{history_len - 1}]。"
+            if not (-history_len <= history_index <= -1):
+                error_message = f"历史索引 T{history_index} 超出范围 [T-1, T-{history_len - 1}]。"
                 logger.error(error_message)
                 return False, error_message
-            target_entry = self.focus_history[deque_index]
+            target_entry = self.focus_history[history_index]
             target_path = target_entry.get("target_path", "core")
             return await self._switch_focus(target_path, history_entry_base)
         except (IndexError, TypeError, ValueError) as e:
