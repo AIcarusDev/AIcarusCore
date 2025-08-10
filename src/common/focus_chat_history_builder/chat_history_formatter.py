@@ -93,6 +93,14 @@ class _ChatHistoryFormatter:
             lines.append(line)
         return "\n".join(lines)
 
+    def _is_in_viewport(self, index: int, total_stimuli: int) -> bool:
+        """检查给定的索引是否在“可视窗口”内."""
+        return (total_stimuli - 1 - index) < VISUAL_VIEWPORT_SIZE
+
+    def _is_unread(self, stimulus: Stimulus) -> bool:
+        """检查一个刺激物是否应被视为“未读”."""
+        return not self.is_first_turn and stimulus.timestamp > self.last_processed_timestamp
+
     def format_chat_log_block(self) -> str:
         """核心逻辑：格式化完整的聊天记录文本块."""
         log_lines: list[str] = []
@@ -101,13 +109,9 @@ class _ChatHistoryFormatter:
         total_stimuli = len(self.stimuli)
 
         for i, stimulus in enumerate(self.stimuli):
-            is_in_viewport = (total_stimuli - 1 - i) < VISUAL_VIEWPORT_SIZE
+            is_in_viewport = self._is_in_viewport(i, total_stimuli)
 
-            if (
-                not self.is_first_turn
-                and stimulus.timestamp > self.last_processed_timestamp
-                and not unread_section_started
-            ):
+            if self._is_unread(stimulus) and not unread_section_started:
                 if log_lines:
                     read_marker_time = datetime.fromtimestamp(
                         self.last_processed_timestamp / 1000.0
