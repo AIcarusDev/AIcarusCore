@@ -265,7 +265,7 @@ class ThoughtChainDocument:
     timestamp: str
     mood: str
     think: str
-    goal: str | None
+    intent: str | None
     source_type: str  # 'core' 或 'focus_chat'
     source_id: str | None = None  # 如果是 focus_chat，这里是 conversation_id
 

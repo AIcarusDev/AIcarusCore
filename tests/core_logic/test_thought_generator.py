@@ -21,7 +21,7 @@ async def test_generate_thought_success(mocker: MockerFixture) -> None:
             "internal_state": {
                 "mood": "好奇",
                 "think": "看起来一切正常，我应该做什么呢？",
-                "goal": "检查系统状态"
+                "intent": "检查系统状态"
             },
             "action": {
                 "core": {

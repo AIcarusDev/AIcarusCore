@@ -82,8 +82,10 @@ async def _persist_new_profile(
     bot_user_info = ProtocolUserInfo(
         user_id=str(profile_data["user_id"]), user_nickname=profile_data["nickname"]
     )
-    _, entity_uid = await entity_service._create_new_profile_with_account_entity(
-        user_info=bot_user_info, platform=platform_id, is_self=True
+    _, entity_uid = await entity_service.create_new_profile_with_account_entity(
+        user_info=bot_user_info,
+        platform=platform_id,
+        is_self=True
     )
     if not entity_uid:
         logger.critical("检查失败！在数据库中创建自身 Profile 或 Entity 节点时失败。")

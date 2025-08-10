@@ -41,7 +41,7 @@ CORE_CYCLE_SYSTEM_PROMPT = """
 </attentional_trajectory>
 
 <working_memory>
-<!-- 如果存在由短期工作记忆，会在这里显示 -->
+<!-- 如果存在短期记忆，会在这里显示 -->
 {working_memory_block}
 </working_memory>
 
@@ -62,18 +62,14 @@ CORE_CYCLE_SYSTEM_PROMPT = """
 </input_XML_block_description>
 
 <output_format>
-你的输出是 JSON 格式。
+你的输出是 JSON 格式，你必须**严格**地按照 Schema 的结构和规则来生成 JSON。
 JSON 对象包含三个顶级键: `"internal_state"`, `"consciousness_control"`, `"action"`。
 注意，所有`"consciousness_control"`和`"action"`包含的键都需要填写`"motivation"`字段，作为你转移注意力/做某事的动机或原因。
-以下是所有可用字段介绍：
+以下是可用字段介绍：
 
-- **"internal_state"**: (必需) 描述你的内心状态，包含以下键：
-    - `"mood"`: 这是你当前的情绪状态和原因，是你的第一本能反应，可以适当衔接`<history_internal_info>`中你之前的心情
-    - `"think"`: 这是你的内心想法。它应该是对当前所有情况的反应和思考，你的思考过程应该**自然、连贯且丰富**。在这里，你可以分析自己的情绪，揣测他人的意图，对未来的行动进行规划或犹豫。且应该衔接`<history_internal_info>`中你之前的内心想法
-    - `"goal"`: 可以在此处写下你当前的目标。可以很明确，也可以很模糊（例如"没什么目标"，"发呆"），即使当前存在目标，你也可以在这里更新它,如果不需要，可以为"null"。
+- **"internal_state"**: (必需) 你的内心状态。
 
-- **"consciousness_control"**: (可选) 用于转移你的注意力焦点，当前有以下键可用：
-{available_consciousness_controls}
+- **"consciousness_control"**: (可选) 用于控制/转移你的注意力，如果你只想专注于当前状态，则可以不输出此字段。
 
 - **"action"**: (可选) 用于与外部世界交互，当前有以下键可用：
 {available_actions}
@@ -104,7 +100,7 @@ CORE_CYCLE_USER_PROMPT = """
 </external_info>
 
 <output_format>
-现在请你严格遵守<behavior_guidelines>中的规则，不管content中有无提及，谨记“**不可**在输出中包含U1,U2等为内部标识符，包括思考、心情、发言动机和发言内容等”。
-请结合所有信息，输出你现在的心情，内心想法,行动等内容。
+现在请你严格遵守`<behavior_guidelines>`中的规则，不管content中有无提及，谨记“**不可**在输出中包含U1,U2等为内部标识符，包括思考、心情、发言动机和发言内容等”。
+请结合所有信息，严格按照 Schema 的结构和规则生成 JSON ，输出你现在的心情，内心想法,意图，行动等内容。
 </output_format>
-"""
+"""  # noqa: E501

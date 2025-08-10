@@ -26,7 +26,7 @@ class AIStateManager:
     INITIAL_STATE: ClassVar[dict[str, Any]] = {
         "mood_block": "你刚才的心情是：平静。",
         "think_block": "你刚才的内心想法是：这是你的第一次思考，请开始吧。",
-        "goal_block": "你当前没有什么特定的目标或任务。",
+        "intent_block": "你当前没有什么特定的目标或任务。",
         # // 注意，这几个字段现在只在初始状态下或者思想链断裂时使用
         "action_request_block": "你上一轮没有试图执行任何动作。",
         "action_response_block": "因此也没有任何行动结果。",
@@ -55,11 +55,11 @@ class AIStateManager:
                 f"你刚才的内心想法是：{latest_thought.get('think', '我好像忘了刚才在想啥')}"
             )
 
-            goal_db = latest_thought.get("goal")
-            if goal_db and goal_db.strip().lower() != "null":
-                state_blocks["goal_block"] = f"你当前的目标是：【{goal_db}】"
+            intent_db = latest_thought.get("intent")
+            if intent_db and intent_db.strip().lower() != "null":
+                state_blocks["intent_block"] = f"你当前的目标是：【{intent_db}】"
             else:
-                state_blocks["goal_block"] = self.INITIAL_STATE["goal_block"]
+                state_blocks["intent_block"] = self.INITIAL_STATE["intent_block"]
 
             # 先看看有没有“发货单号”（action_id）
             if _action_id := latest_thought.get("action_id"):

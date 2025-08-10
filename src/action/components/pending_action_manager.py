@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from aicarus_protocols import find_seg_by_type
 from src.common.custom_logging.logging_config import get_logger
+from src.common.utils import build_conversation_entity_uid, parse_focus_path
 from src.database import (
     ActionLogStorageService,
     ThoughtStorageService,
@@ -42,7 +43,7 @@ class PendingActionManager:
         ] = {}
         self.action_log_service = action_log_service
         self.thought_storage_service = thought_storage_service
-        self.event_storage_service = event_storage_service  # <-- 我明明存的是这个名字...
+        self.event_storage_service = event_storage_service
         self.action_handler = action_handler_instance
         logger.info(f"{self.__class__.__name__} instance created.")
 
@@ -164,7 +165,7 @@ class PendingActionManager:
         if original_action_type.endswith(".get_list"):
             await self._proactively_create_conversation_docs_from_list(details, sent_dict)
 
-        # 2. [修改] handle_friend_request 的后续处理
+        # 2. handle_friend_request 的后续处理
         if original_action_type.endswith(".handle_friend_request"):
             params_seg = find_seg_by_type(sent_dict.get("content", []), "action_params")
 
@@ -182,11 +183,77 @@ class PendingActionManager:
             approved = params.get("approve", False)
             remark = params.get("remark") if approved else None
 
-            # [修改] 调用 EntityGraphService 的新公共方法
+            # 调用 EntityGraphService 的新公共方法
             await self.action_handler.entity_service.finalize_friend_request(
                 entity_uid=entity_uid, approved=approved, remark=remark
             )
             logger.info(f"好友请求处理完毕，已通过服务更新实体 '{entity_uid}' 的数据库状态。")
+
+        # 处理退群后的强制返回
+        if original_action_type.endswith(".leave_conversation"):
+            await self._handle_post_leave_conversation(sent_dict)
+
+    async def _handle_post_leave_conversation(self, sent_dict: dict[str, Any]) -> None:
+        """在 leave_conversation 成功后，检查是否需要强制返回上一层焦点."""
+        csm = self.action_handler.chat_session_manager
+        if not (csm and csm.current_focus_path):
+            return
+
+        # 1. 从发送的动作中解析出已离开的群聊ID
+        params_seg = find_seg_by_type(sent_dict.get("content", []), "action_params")
+        if not (params_seg and isinstance(params_seg.data, dict)):
+            return
+
+        params = params_seg.data
+        left_group_id = params.get("group_id")
+        platform_id = sent_dict.get("platform")
+
+        if not (left_group_id and platform_id):
+            logger.error(
+                "leave_conversation 成功但无法从 sent_dict 中提取 platform_id 或 group_id。"
+            )
+            return
+
+        left_conv_entity_uid = build_conversation_entity_uid(
+            platform_id, "group", str(left_group_id)
+        )
+
+        # 2. 获取当前的焦点路径并解析
+        current_focus_path_str = csm.current_focus_path.get("target_path")
+        level, focus_platform, focus_conv_part = parse_focus_path(current_focus_path_str)
+
+        # 如果当前不在会话层，则无需任何操作
+        if level != "cellular":
+            return
+
+        # 3. 构建当前焦点的实体UID
+        try:
+            focus_conv_type, focus_actual_id = focus_conv_part.split(".", 1)
+            current_focus_entity_uid = build_conversation_entity_uid(
+                focus_platform, focus_conv_type, focus_actual_id
+            )
+        except (ValueError, IndexError):
+            return  # 当前焦点路径格式不正确，直接返回
+
+        # 4. 关键检查：如果离开的群聊就是当前专注的群聊
+        if left_conv_entity_uid == current_focus_entity_uid:
+            logger.warning(
+                f"检测到 AI 已成功离开当前所在的会话 '{left_conv_entity_uid}'。"
+                f"将强制执行 'return' 操作。"
+            )
+
+            # 构造一个详细的动机
+            session_to_leave = csm.sessions.get(left_conv_entity_uid)
+            left_conv_name = (
+                session_to_leave.conversation_name if session_to_leave else left_conv_entity_uid
+            )
+            return_params = {
+                "motivation": f"已成功退出会话 '{left_conv_name}'，因此返回到平台。"
+            }
+
+            # 5. 调用 FocusManager 执行 'return' 指令
+            await csm.focus_manager.handle_focus_control(command="return", params=return_params)
+            logger.info(f"已成功触发对 '{left_conv_entity_uid}' 的强制 'return' 操作。")
 
     async def _gather_and_execute_db_updates(
         self,

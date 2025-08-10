@@ -382,7 +382,7 @@ def perform_config_update_check(
     )
 
     if io_handler.backup_runtime_config(prefix="pre_update_"):
-        # 创建一个新配置的基础，它是当前模板的一个“深喉”副本
+        # 创建一个新配置的基础，它是模板的深拷贝
         # 我们将在这个副本上操作，然后用它覆盖运行时文件
         # 使用 tomlkit.dumps 和 tomlkit.parse 来实现深拷贝，确保所有 tomlkit 特性被保留
         new_config_base_doc = tomlkit.parse(tomlkit.dumps(template_config_doc))
