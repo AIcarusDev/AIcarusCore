@@ -302,7 +302,10 @@ class _ChatHistoryFormatter:
         notice_data = content_segs[0].data if content_segs else {}
         notice_subtype = event.get("event_type", "").split(".")[-1]
 
-        operator_id = notice_data.get("operator_user_info", {}).get("user_id")
+        # 1. 安全地获取 operator_user_info 字典，如果不存在或为 None，则视为空字典
+        operator_info = notice_data.get("operator_user_info") or {}
+        # 2. 从这个安全的字典中获取 operator_id
+        operator_id = operator_info.get("user_id")
         operator_uid = (
             self.platform_id_to_uid_str.get(str(operator_id), "系统") if operator_id else "系统"
         )
@@ -320,9 +323,11 @@ class _ChatHistoryFormatter:
             else:
                 content = f"{target_uid} 加入了群聊。"
         elif notice_subtype == "member_decrease":
+            # 当 operator_id 不存在时（主动退群），operator_uid 会是 "系统"
+            # 此时应该将操作者视为 target_uid 本人
             if notice_data.get("leave_type") == "kick":
                 content = f"{operator_uid} 将 {target_uid} 移出了群聊。"
-            else:
+            else:  # 主动退群
                 content = f"{target_uid} 退出了群聊。"
         elif notice_subtype == "recalled":
             content = f"{operator_uid} 撤回了一条消息。"

@@ -156,7 +156,7 @@ class CoreLogic:
                 logger.error(f"统一意识流主循环发生严重错误: {e}")
                 # 使用 logger.exception 会自动记录堆栈信息，同时我们手动打印以确保在控制台可见
                 logger.exception("核心思考循环中发生未处理的异常。")
-                traceback.print_exc() # 这会强制将完整的错误堆栈打印到控制台
+                traceback.print_exc()  # 这会强制将完整的错误堆栈打印到控制台
                 await asyncio.sleep(10)
 
         logger.info(f"--- {config.persona.bot_name} 的统一意识流已停止 ---")
