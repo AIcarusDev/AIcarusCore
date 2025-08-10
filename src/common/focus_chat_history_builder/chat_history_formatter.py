@@ -118,6 +118,9 @@ class _ChatHistoryFormatter:
         added_platform_message_ids: set[str] = set()
         total_stimuli = len(self.stimuli)
 
+        # 引入状态变量来追踪上一个显示的机器人动机
+        last_displayed_bot_motive: str | None = None
+
         for i, stimulus in enumerate(self.stimuli):
             is_in_viewport = self._is_in_viewport(i, total_stimuli)
 
@@ -133,10 +136,24 @@ class _ChatHistoryFormatter:
                 log_lines.append("--- 请关注以下未读的新消息---")
                 unread_section_started = True
 
-            if log_line := (
-                self._format_single_log_entry(stimulus, is_in_viewport, added_platform_message_ids)
+            # 将动机的格式化逻辑移出 _format_single_log_entry，在此处集中处理
+            if log_line := self._format_single_log_entry(
+                stimulus, is_in_viewport, added_platform_message_ids
             ):
                 log_lines.append(log_line)
+
+                sender_uid = self.platform_id_to_uid_str.get(stimulus.sender_id, "SYS")
+
+                # 如果是机器人发言 (U0) 且有动机
+                if sender_uid == "U0" and stimulus.motivation:
+                    # 只有当动机与上一个不同时才显示
+                    if stimulus.motivation != last_displayed_bot_motive:
+                        log_lines.append(f"    - [MOTIVE]: {stimulus.motivation}")
+                    # 无论是否显示，都更新“上一个动机”的状态
+                    last_displayed_bot_motive = stimulus.motivation
+                else:
+                    # 如果发言者不是机器人，则重置追踪器，确保下次机器人的动机一定会被显示
+                    last_displayed_bot_motive = None
 
         if not self.is_first_turn and not unread_section_started and log_lines:
             last_event_time = (
@@ -172,14 +189,10 @@ class _ChatHistoryFormatter:
             return f"[{time_str}] {sender_uid} [MOTIVE]: {stimulus.text_content}"
 
         event_type_display = event_type.split(".")[-1].upper()
-        # [FIX] 修复了 f-string 拼接问题
         return (
             f"[{time_str}] {sender_uid} [{event_type_display}]: {stimulus.text_content[:30]}... "
             f"(id:{stimulus.event_id})"
         )
-
-    # ======================== [ Refactor Start ] ========================
-    # `_format_message_entry` 已被重构为以下几个辅助函数和一个协调者
 
     def _get_message_id_and_check_duplicate(
         self, content_segs: list[Seg], added_ids: set[str]
@@ -244,10 +257,6 @@ class _ChatHistoryFormatter:
         log_line = (
             f"[{time_str}] {sender_uid} [{display_tag}]: {main_content} (id:{event_identifier})"
         )
-
-        if sender_uid == "U0" and stimulus.motivation:
-            log_line += f"\n    - [MOTIVE]: {stimulus.motivation}"
-
         return log_line
 
     def _format_message_entry(
