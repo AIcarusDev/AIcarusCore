@@ -198,33 +198,6 @@ class ThoughtPromptBuilder:
         if level == "cellular":
             consciousness_controls_schema["properties"].pop("focus", None)
 
-            # 如果在会话层，并且 shift_focus 可用，则添加动态约束
-            if "shift_focus" in consciousness_controls_schema["properties"] and conv_id:
-                try:
-                    # 从 conv_id (e.g., 'group.123456') 构建完整的实体 UID
-                    conv_type, actual_id = conv_id.split(".", 1)
-                    current_session_uid = build_conversation_entity_uid(
-                        platform_id, conv_type, actual_id
-                    )
-
-                    # 获取 shift_focus 的 schema 定义
-                    shift_focus_schema = consciousness_controls_schema["properties"]["shift_focus"]
-
-                    # 在 target_id 字段上添加 "not" 约束
-                    if (
-                        "properties" in shift_focus_schema
-                        and "target_id" in shift_focus_schema["properties"]
-                    ):
-                        shift_focus_schema["properties"]["target_id"]["not"] = {
-                            "const": current_session_uid
-                        }
-                        logger.info(
-                            f"已为 shift_focus 动态添加约束："
-                            f"禁止 target_id 为当前会话 '{current_session_uid}'。"
-                        )
-                except (ValueError, IndexError):
-                    logger.warning(f"在构建 shift_focus 约束时，无法解析 conv_id: '{conv_id}'")
-
         return {
             "type": "object",
             "properties": {

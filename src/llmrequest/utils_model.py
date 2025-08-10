@@ -1142,11 +1142,11 @@ class LLMClient:
                         f"请求无效或参数错误 (400) - Key {key_info}. "
                         f"Response: {response_text[:500]}"
                     )
-                    raise PermissionDeniedError(
+                    # 抛出 APIResponseError，这样就不会触发外层逻辑将密钥禁用。
+                    raise APIResponseError(
                         f"请求无效或参数错误 (400) - Key {key_info}",
                         status_code,
                         response_text,
-                        key_identifier=api_key,
                     )
                 if status_code == 401:
                     raise PermissionDeniedError(
