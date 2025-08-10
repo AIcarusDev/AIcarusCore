@@ -113,12 +113,11 @@ class DeliberationService:
                     f"摘要将在接下来的 {session.working_memory['remaining_turns']} 轮思考中保持。"
                 )
 
-            new_internal_state = {
+            return {
                 "mood": resolution.get("final_mood"),
                 "think": resolution.get("final_think"),
                 "intent": resolution.get("final_intent"),
             }
-            return new_internal_state
 
         except Exception as e:
             logger.error(f"执行“慢思考”决策管线时发生严重错误: {e}", exc_info=True)

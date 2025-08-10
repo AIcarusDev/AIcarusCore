@@ -348,7 +348,7 @@ class ThoughtPromptBuilder:
             # 规范化动作载荷
             known_platform_keys = platform_builder_registry.get_all_builders().keys()
             if (
-                not any(key in known_platform_keys for key in action_part)
+                all(key not in known_platform_keys for key in action_part)
                 and "core" not in action_part
             ):
                 action_part = {"core": action_part}
@@ -483,7 +483,6 @@ class ThoughtPromptBuilder:
                     )
             except (json.JSONDecodeError, TypeError):
                 logger.debug("get_list 结果不是原始JSON列表，将按原样使用。")
-                pass
 
         # 6. 格式化并返回最终的XML块
         return f"<action_response>\n{action_desc}\n{action_result_text}\n</action_response>"
