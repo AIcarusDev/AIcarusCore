@@ -246,11 +246,22 @@ class _ChatHistoryFormatter:
         is_sticker = seg.data.get("summary") == "sticker"
         placeholder = f"[{'动画表情' if is_sticker else '图片'}_{self.image_ref_counter}]"
 
-        # 只要是图片，就提取它的数据，确保占位符和数据列表一致
-        if base64_data := seg.data.get("base64"):
+        # 1. 明确地、安全地获取 base64 数据
+        base64_data = seg.data.get("base64")
+
+        # 2. [探针] 打印出我们到底拿到了什么，这是关键的调试信息
+        logger.debug(
+            f"正在处理图片 segment。获取到的 base64 类型: {type(base64_data)}, "
+            f"是否为非空字符串: {isinstance(base64_data, str) and bool(base64_data.strip())}"
+        )
+
+        # 3. 优先使用 base64 数据（如果它是有效的、非空的字符串）
+        if isinstance(base64_data, str) and base64_data.strip():
             mime_type = seg.data.get("mime_type", "image/jpeg")
             self.image_references_for_llm.append(f"data:{mime_type};base64,{base64_data}")
+        # 4. 只有在 base64 不可用时，才尝试使用 URL 作为备用方案
         elif url := seg.data.get("url"):
+            logger.warning(f"图片 segment 缺少有效的 base64 数据，将回退使用 URL: {url}")
             self.image_references_for_llm.append(url)
 
         # 对于不在可视范围内的旧图片，如果已经有分析结果，则使用分析结果作为文本提示
