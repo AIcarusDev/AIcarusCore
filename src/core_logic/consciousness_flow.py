@@ -70,7 +70,6 @@ class CoreLogic:
         self.intrusive_generator_instance = intrusive_generator_instance
         self.thinking_loop_task: asyncio.Task | None = None
         self._last_interrupt_context_text: str | None = None
-        self._last_shown_unread_summary: str | None = None
         logger.info(f"{self.__class__.__name__} 已创建 (最终完美版 V1.3)")
 
     def trigger_immediate_thought_cycle(self) -> None:
@@ -297,21 +296,15 @@ class CoreLogic:
             else "core"
         )
         try:
-            # ======================== [ 核心改造点 ] ========================
-            # processed_raw_events 现在是 processed_stimuli
             (
                 prompt_components,
                 processed_stimuli,
-                summary_actually_shown,
             ) = await self.prompt_builder.build_prompts_components(
                 level=parse_focus_path(focus_path_str)[0],
                 focus_path=focus_path_str,
                 session=session,
                 handover_result=session.pending_handover_result if session else None,
-                last_shown_core_summary=self._last_shown_unread_summary,
             )
-            # =============================================================
-            self._last_shown_unread_summary = summary_actually_shown
         except PromptBuilderError as e:
             logger.error(f"构建Prompt失败，中止本轮思考循环: {e}")
             return None

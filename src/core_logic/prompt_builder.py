@@ -78,6 +78,7 @@ class ThoughtPromptBuilder:
         self.chat_session_manager = chat_session_manager
         self.core_ws_server = core_ws_server
         self.is_context_switch_flag: bool = False
+        self._last_shown_unread_summary: str | None = None
 
     async def build_prompts_components(
         self,
@@ -85,8 +86,7 @@ class ThoughtPromptBuilder:
         focus_path: str | None,
         session: Optional["ChatSession"] = None,
         handover_result: dict | None = None,
-        last_shown_core_summary: str | None = None,
-    ) -> tuple[PromptComponents, list[Event] | None, str | None]:
+    ) -> tuple[PromptComponents, list[Event] | None]:
         """编排构建系统和用户提示组件的过程."""
         current_level, current_platform_id, current_conv_id = parse_focus_path(focus_path)
 
@@ -102,9 +102,8 @@ class ThoughtPromptBuilder:
             meta_info_block,
             history_components,
             processed_raw_events,
-            summary_to_show,
         ) = await self._get_external_and_meta_info_blocks(
-            current_level, current_platform_id, current_conv_id, session, last_shown_core_summary
+            current_level, current_platform_id, current_conv_id, session
         )
 
         # 2. 构建响应 Schema
@@ -147,7 +146,7 @@ class ThoughtPromptBuilder:
             image_references=history_components.image_references if history_components else [],
         )
 
-        return prompt_components_obj, processed_raw_events, summary_to_show
+        return prompt_components_obj, processed_raw_events
 
     def _build_action_schema_properties(
         self, level: str, builder: BasePlatformBuilder | None
@@ -840,11 +839,9 @@ class ThoughtPromptBuilder:
         platform_id: str,
         conv_id: str | None,
         session: Optional["ChatSession"] = None,
-        last_shown_core_summary: str | None = None,
-    ) -> tuple[str, str, PromptComponents | None, list[Stimulus] | None, str | None]:
+    ) -> tuple[str, str, PromptComponents | None, list[Stimulus] | None]:
         """获取外部信息和元信息块。现在返回 Stimulus 列表."""
         external_info, meta_info, history_components, processed_stimuli = "", "", None, None
-        summary_to_show_this_turn: str | None = None
 
         if not self.chat_session_manager:
             raise PromptBuilderError("会话管理器尚未准备就绪，无法构建外部信息块。")
@@ -854,20 +851,15 @@ class ThoughtPromptBuilder:
             current_unread_summary = await self.unread_info_service.get_platform_summary()
 
             # 2. 核心判断逻辑
-            # 如果当前摘要是新的(和上次展示的不一样)且不为空，就展示它。
-            if current_unread_summary and current_unread_summary != last_shown_core_summary:
+            if current_unread_summary and current_unread_summary != self._last_shown_unread_summary:
                 external_info = current_unread_summary
-                summary_to_show_this_turn = current_unread_summary  # 记录我们这次展示了什么
                 logger.info("检测到新的未读消息，将在顶层Prompt中展示。")
             else:
-                # 如果是旧闻或者根本没消息，就不展示
                 external_info = "所有平台均无新的未读消息。"
-                # 如果当前没消息了，也要重置“记忆”，这样下次来新消息时才能正确显示
-                if not current_unread_summary:
-                    summary_to_show_this_turn = None
-                else:
-                    summary_to_show_this_turn = current_unread_summary
                 logger.debug("顶层未读消息为旧闻或为空，本次不予展示。")
+
+            # 无论是否展示，都更新“上一次看到的摘要”状态，为下一次判断做准备
+            self._last_shown_unread_summary = current_unread_summary
 
         elif level == "platform":
             scroll_offset = (
@@ -944,11 +936,9 @@ class ThoughtPromptBuilder:
             guidance_generator = BehavioralGuidanceGenerator(session)
             meta_info = guidance_generator.generate_guidance()
 
-        last_shown_core_summary = summary_to_show_this_turn
         return (
             external_info,
             meta_info,
             history_components,
-            processed_stimuli,  # <-- 返回的是 processed_stimuli
-            summary_to_show_this_turn,
+            processed_stimuli,
         )
