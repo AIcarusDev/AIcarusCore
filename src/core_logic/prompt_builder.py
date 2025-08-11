@@ -276,7 +276,7 @@ class ThoughtPromptBuilder:
 
             # 加上你想要的固定文件名提示
             sticker_collection_block = f"""
-<sticker_collection_preview filename="stickers_collection_preview.jpg">
+<sticker_collection_preview filename="qq_stickers_preview.jpg">
 <!-- 这是你当前收藏的表情包列表，编号与预览图一一对应 -->
 {sticker_collection_block}
 </sticker_collection_preview>
