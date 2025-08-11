@@ -285,18 +285,16 @@ class _ChatHistoryFormatter:
         # 步骤 3: 组装最终的日志行
         return self._assemble_log_line(parsed, stimulus, sender_uid, time_str, msg_id)
 
-    # ========================= [ Refactor End ] =========================
-
     def _format_image_segment(
         self, seg: Seg, is_in_viewport: bool, stimulus: Stimulus, analysis_index: int
     ) -> str:
-        self.image_ref_counter += 1
-        is_sticker = seg.data.get("summary") == "sticker"
-        # 检查Seg中是否有哈希值，如果有，就附加到占位符上
-        image_hash = seg.data.get("hash")
-        hash_str = f" (hash: {image_hash})" if image_hash else ""
-        placeholder = f"[{'动画表情' if is_sticker else '图片'}_{self.image_ref_counter}{hash_str}]"
+        """格式化图片消息段.
 
+        - 无论何时，都准备好多模态数据。
+        - 如果在可视窗口内，返回一个特殊的、带编号的占位符，并附上哈希值文本。
+        - 如果在可视窗口外，返回已分析的文本描述，否则回退到带哈希的占位符。
+        """
+        # 步骤 1: 准备多模态数据和哈希文本
         base64_data = seg.data.get("base64")
         if isinstance(base64_data, str) and base64_data.strip():
             mime_type = seg.data.get("mime_type", "image/jpeg")
@@ -304,26 +302,53 @@ class _ChatHistoryFormatter:
         elif url := seg.data.get("url"):
             self.image_references_for_llm.append(url)
 
-        if (
-            not is_in_viewport
-            and stimulus.image_analysis
-            and analysis_index < len(stimulus.image_analysis)
-        ):
-            analysis_item = stimulus.image_analysis[analysis_index]
-            desc_text = analysis_item.get("details", {}).get("description", "图片")
-            prefix = "表情包" if analysis_item.get("type") == "sticker" else "图片"
-            return f"[{prefix}: {desc_text}]"
+        self.image_ref_counter += 1
+        is_sticker = seg.data.get("summary") == "sticker"
+        image_hash = seg.data.get("hash")
+        hash_str = f" (hash: {image_hash})" if image_hash else ""
 
-        return placeholder
+        # 这个占位符文本是给 llmrequest 模块的 interleaver 识别并替换用的
+        # 它本身不包含哈希，以确保正则表达式能精确匹配
+        placeholder_for_injection = (
+            f"[{'动画表情' if is_sticker else '图片'}_{self.image_ref_counter}]"
+            )
+
+        # 步骤 2: 根据是否在可视窗口内决定最终返回的字符串
+        if is_in_viewport:
+            # 在可视窗口内：返回“注入占位符” + “哈希文本”
+            # LLM会看到图片，同时也能读到旁边的哈希值
+            return f"{placeholder_for_injection}{hash_str}"
+        else:
+            # 在可视窗口外：优先使用已分析的文本描述
+            if (
+                stimulus.image_analysis
+                and analysis_index < len(stimulus.image_analysis)
+            ):
+                analysis_item = stimulus.image_analysis[analysis_index]
+                desc_text = analysis_item.get("details", {}).get("description", "图片")
+                prefix = "表情包" if analysis_item.get("type") == "sticker" else "图片"
+                # 注意：对于旧图片，我们只返回描述，不附加哈希，因为AI无法“看到”它来决定收藏
+                return f"[{prefix}: {desc_text}]"
+            else:
+                # 如果没有分析结果，作为回退，仍然显示带哈希的占位符
+                return f"{placeholder_for_injection}{hash_str}"
 
     def _format_video_segment(self, seg: Seg, is_in_viewport: bool) -> str:
+        """格式化视频(动图)消息段."""
+        # 步骤 1: 准备多模态数据
+        if base64_data := seg.data.get("base64"):
+            mime_type = seg.data.get("mime_type", "video/mp4")
+            self.image_references_for_llm.append(f"data:{mime_type};base64,{base64_data}")
+
+        # 步骤 2: 根据是否在可视窗口内决定返回的文本
         if is_in_viewport:
+            # 在可视窗口内：返回一个特殊的占位符，让llmrequest注入视频
+            # 注意：视频/动图没有哈希的概念，所以直接返回占位符即可
             self.image_ref_counter += 1
-            if base64_data := seg.data.get("base64"):
-                mime_type = seg.data.get("mime_type", "video/mp4")
-                self.image_references_for_llm.append(f"data:{mime_type};base64,{base64_data}")
             return f"[GIF_{self.image_ref_counter}]"
-        return "[GIF]"
+        else:
+            # 在可视窗口外：返回通用文本占位符
+            return "[GIF]"
 
     def _format_quote_segment(self, seg: Seg) -> str:
         msg_id = seg.data.get("message_id", "unknown")
