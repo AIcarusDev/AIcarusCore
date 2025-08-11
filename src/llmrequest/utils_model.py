@@ -656,7 +656,7 @@ class LLMClient:
                 with open(image_path_or_url_or_data_uri, "rb") as image_file:
                     base64_image_data = base64.b64encode(image_file.read()).decode("utf-8")
             else:
-                logger.error(f"Img not found: {image_path_or_url_or_data_uri}")
+                logger.error(f"Img not found: {image_path_or_url_or_data_uri[100:]}...")
                 return None
 
             if not base64_image_data:
