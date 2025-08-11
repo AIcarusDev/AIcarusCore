@@ -1,6 +1,8 @@
-# 文件: src/common/create_grid.py
+# src/common/create_grid.py
 import math
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from PIL import Image, ImageDraw, ImageFont
 from src.common.custom_logging.logging_config import get_logger
@@ -8,109 +10,152 @@ from src.common.custom_logging.logging_config import get_logger
 logger = get_logger(__name__)
 
 
-# --- [修改] 将核心逻辑封装成一个更通用的函数 ---
-def create_sticker_grid(
-    stickers_dir: Path, metadata_list: list[dict], output_path: Path, config: dict
-) -> bool:
-    """根据表情包元数据，将指定目录中的图片生成带数字标签的网格缩略图."""
-    # --- 1. 从元数据中筛选出实际存在的图片文件 ---
-    image_files_to_process = []
+@dataclass
+class GridConfig:
+    """用于存储网格生成配置的数据类."""
+
+    thumbnail_size: tuple[int, int]
+    columns: int
+    spacing: int
+    margin: int
+    background_color: str
+    font_path: str
+    font_size: int
+    label_color: str
+    label_spacing: int
+
+    @classmethod
+    def from_dict(cls, config: dict[str, Any]) -> "GridConfig":
+        """从原始配置字典创建 GridConfig 实例."""
+        return cls(
+            thumbnail_size=config.get("thumbnail_size", (150, 150)),
+            columns=config.get("columns", 5),
+            spacing=config.get("spacing", 20),
+            margin=config.get("margin", 40),
+            background_color=config.get("background_color", "white"),
+            font_path=config.get("font_path"),
+            font_size=config.get("font_size", 24),
+            label_color=config.get("label_color", "black"),
+            label_spacing=config.get("label_spacing", 10),
+        )
+
+
+def _filter_valid_sticker_files(
+    metadata_list: list[dict], stickers_dir: Path
+) -> list[tuple[str, Path]]:
+    """从元数据中筛选出实际存在的表情包文件."""
+    valid_files = []
     for item in metadata_list:
         sticker_path = stickers_dir / item["filename"]
         if sticker_path.exists():
-            image_files_to_process.append((item["sticker_id"], sticker_path))
+            valid_files.append((item["sticker_id"], sticker_path))
         else:
             logger.warning(f"元数据中引用的表情包文件不存在，已跳过: {sticker_path}")
+    return valid_files
 
+
+def _calculate_grid_dimensions(num_images: int, config: GridConfig) -> tuple[int, int, int]:
+    """根据图片数量和配置计算最终网格图片的尺寸."""
+    num_rows = math.ceil(num_images / config.columns)
+    cell_height = config.thumbnail_size[1] + config.label_spacing + config.font_size
+    total_width = (
+        (config.margin * 2)
+        + (config.columns * config.thumbnail_size[0])
+        + ((config.columns - 1) * config.spacing)
+    )
+    total_height = (
+        (config.margin * 2) + (num_rows * cell_height) + ((num_rows - 1) * config.spacing)
+    )
+    return total_width, total_height, cell_height
+
+
+def _initialize_canvas_and_font(
+    width: int, height: int, config: GridConfig
+) -> tuple[Image.Image, ImageDraw.ImageDraw, ImageFont.FreeTypeFont]:
+    """创建并返回画布、绘图对象和字体对象."""
+    grid_image = Image.new("RGB", (width, height), color=config.background_color)
+    draw = ImageDraw.Draw(grid_image)
+    font = ImageFont.load_default()
+    if config.font_path and Path(config.font_path).exists():
+        try:
+            font = ImageFont.truetype(str(config.font_path), config.font_size)
+        except OSError:
+            logger.warning(f"无法加载字体 '{config.font_path}'，使用默认字体。")
+    return grid_image, draw, font
+
+
+def _draw_single_sticker(
+    grid_image: Image.Image,
+    draw: ImageDraw.ImageDraw,
+    font: ImageFont.FreeTypeFont,
+    config: GridConfig,
+    sticker_id: str,
+    path: Path,
+    index: int,
+    cell_height: int,
+) -> None:
+    """在画布上绘制单个表情包缩略图及其标签."""
+    row = index // config.columns
+    col = index % config.columns
+    x = config.margin + col * (config.thumbnail_size[0] + config.spacing)
+    y = config.margin + row * (cell_height + config.spacing)
+
+    # 绘制缩略图
+    try:
+        with Image.open(path) as img:
+            if hasattr(img, "seek"):
+                img.seek(0)
+            img = img.convert("RGBA")
+            img.thumbnail(config.thumbnail_size, Image.Resampling.LANCZOS)
+
+            thumb_canvas = Image.new("RGBA", config.thumbnail_size, (0, 0, 0, 0))
+            paste_pos = (
+                (config.thumbnail_size[0] - img.width) // 2,
+                (config.thumbnail_size[1] - img.height) // 2,
+            )
+            thumb_canvas.paste(img, paste_pos, img)
+            grid_image.paste(thumb_canvas, (x, y), thumb_canvas)
+    except Exception as e:
+        logger.error(f"处理图片 {path} 失败: {e}")
+        return
+
+    # 绘制标签
+    label_text = str(sticker_id)
+    bbox = draw.textbbox((0, 0), label_text, font=font)
+    text_width = bbox[2] - bbox[0]
+    text_x = x + (config.thumbnail_size[0] - text_width) / 2
+    text_y = y + config.thumbnail_size[1] + config.label_spacing
+    draw.text((text_x, text_y), label_text, fill=config.label_color, font=font)
+
+
+def create_sticker_grid(
+    stickers_dir: Path, metadata_list: list[dict], output_path: Path, config: dict
+) -> bool:
+    """协调者函数：根据表情包元数据生成带标签的网格缩略图."""
+    image_files_to_process = _filter_valid_sticker_files(metadata_list, stickers_dir)
+
+    # 守卫子句：如果没有有效的图片，则提前返回
     if not image_files_to_process:
         logger.info("没有找到任何有效的表情包图片来生成缩略图。")
-        # 如果输出文件存在，删除它，以反映空状态
         if output_path.exists():
             output_path.unlink()
-        return True  # 任务成功，只是没东西可画
+        return True
 
-    # --- 2. 加载配置 ---
-    thumb_size = config.get("thumbnail_size", (150, 150))
-    cols = config.get("columns", 5)
-    spacing = config.get("spacing", 20)
-    margin = config.get("margin", 40)
-    bg_color = config.get("background_color", "white")
-    font_path = config.get("font_path")
-    font_size = config.get("font_size", 24)
-    label_color = config.get("label_color", "black")
-    label_spacing = config.get("label_spacing", 10)
-
-    # --- 3. 计算最终图片的尺寸 ---
-    num_images = len(image_files_to_process)
-    num_rows = math.ceil(num_images / cols)
-
-    cell_height = thumb_size[1] + label_spacing + font_size
-    total_width = (margin * 2) + (cols * thumb_size[0]) + ((cols - 1) * spacing)
-    total_height = (margin * 2) + (num_rows * cell_height) + ((num_rows - 1) * spacing)
-
-    # --- 4. 创建画布和绘图工具 ---
     try:
-        grid_image = Image.new("RGB", (total_width, total_height), color=bg_color)
-        draw = ImageDraw.Draw(grid_image)
+        grid_config = GridConfig.from_dict(config)
+        total_width, total_height, cell_height = _calculate_grid_dimensions(
+            len(image_files_to_process), grid_config
+        )
+        grid_image, draw, font = _initialize_canvas_and_font(total_width, total_height, grid_config)
 
-        font = None
-        if font_path and Path(font_path).exists():
-            try:
-                font = ImageFont.truetype(str(font_path), font_size)
-            except OSError:
-                logger.warning(f"无法加载字体 '{font_path}'，使用默认字体。")
-                font = ImageFont.load_default()
-        else:
-            font = ImageFont.load_default()
-    except Exception as e:
-        logger.error(f"创建缩略图画布失败: {e}")
-        return False
+        for i, (sticker_id, path) in enumerate(image_files_to_process):
+            _draw_single_sticker(
+                grid_image, draw, font, grid_config, sticker_id, path, i, cell_height
+            )
 
-    # --- 5. 遍历图片、创建缩略图并粘贴 ---
-    for i, (sticker_id, path) in enumerate(image_files_to_process):
-        row = i // cols
-        col = i % cols
-        x = margin + col * (thumb_size[0] + spacing)
-        y = margin + row * (cell_height + spacing)
-
-        try:
-            with Image.open(path) as img:
-                # 对于GIF，seek到第一帧来创建缩略图
-                if hasattr(img, "seek"):
-                    img.seek(0)
-
-                # 统一转换为 RGBA 模式以正确处理所有图像的透明度
-                img = img.convert("RGBA")
-                img.thumbnail(thumb_size, Image.Resampling.LANCZOS)
-
-                # 创建一个临时的、完全透明的画布来居中放置缩略图
-                thumb_img = Image.new("RGBA", thumb_size, (0, 0, 0, 0))
-                paste_pos = ((thumb_size[0] - img.width) // 2, (thumb_size[1] - img.height) // 2)
-
-                # 将缩略图（img）粘贴到临时画布（thumb_img）上，使用img自身的alpha通道作为遮罩
-                thumb_img.paste(img, paste_pos, img)
-
-                # 将包含居中图像的临时画布（thumb_img）粘贴到最终的网格图（grid_image）上，
-                # 同样使用thumb_img的alpha通道作为遮罩，以保留透明效果
-                grid_image.paste(thumb_img, (x, y), thumb_img)
-        except Exception as e:
-            logger.error(f"处理图片 {path} 失败: {e}")
-            continue  # 跳过这张有问题的图片
-
-        # --- 6. 添加数字标签 ---
-        label_text = str(sticker_id)
-        # 使用 textbbox 获取文本尺寸来精确定位
-        bbox = draw.textbbox((0, 0), label_text, font=font)
-        text_width = bbox[2] - bbox[0]
-        text_x = x + (thumb_size[0] - text_width) / 2
-        text_y = y + thumb_size[1] + label_spacing
-        draw.text((text_x, text_y), label_text, fill=label_color, font=font)
-
-    # --- 7. 保存最终的图片 ---
-    try:
         grid_image.save(output_path)
         logger.info(f"表情包网格缩略图已更新并保存到: {output_path}")
         return True
     except Exception as e:
-        logger.error(f"保存网格图片失败: {e}")
+        logger.error(f"生成或保存网格图片时发生未知错误: {e}", exc_info=True)
         return False
