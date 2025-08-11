@@ -1,3 +1,4 @@
+# src/config/aicarus_configs.py
 from dataclasses import dataclass, field
 
 # 导入 ConfigBase
@@ -250,6 +251,17 @@ class InterruptModelConfig(ConfigBase):
 
 
 @dataclass
+class StickerSettings(ConfigBase):
+    """表情包相关设置."""
+
+    p_hash_tolerance: int = 5
+    """
+    感知哈希 (pHash) 的相似度容忍度。汉明距离小于等于此值被认为是相似图片。
+    默认值 5 是一个比较常用的阈值。
+    """
+
+
+@dataclass
 class RuntimeEnvironmentSettings(ConfigBase):
     """运行时环境设置，包括临时文件目录等.
 
@@ -293,3 +305,4 @@ class AlcarusRootConfig(ConfigBase):
     runtime_environment: RuntimeEnvironmentSettings = field(
         default_factory=RuntimeEnvironmentSettings
     )
+    sticker_settings: StickerSettings = field(default_factory=StickerSettings)

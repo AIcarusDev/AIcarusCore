@@ -131,8 +131,11 @@ class StickerService:
             if not perceptual_hash:
                 return "错误：无法计算图片的感知哈希，无法添加。"
 
+            # +++ 修改点：从全局配置读取容忍度 +++
+            similarity_tolerance = config.sticker_settings.p_hash_tolerance
+            logger.debug(f"正在使用 pHash 容忍度 {similarity_tolerance} 检查相似表情包...")
             similar_sticker = await self.sticker_storage_service.find_similar_sticker_by_phash(
-                platform_id, perceptual_hash
+                platform_id, perceptual_hash, tolerance=similarity_tolerance
             )
             if similar_sticker:
                 return (
