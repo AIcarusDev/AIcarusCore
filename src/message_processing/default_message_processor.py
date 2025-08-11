@@ -1,4 +1,5 @@
 # src/message_processing/default_message_processor.py
+import hashlib
 import time
 from typing import TYPE_CHECKING, Optional
 
@@ -90,6 +91,26 @@ class DefaultMessageProcessor:
                 f"处理事件 (ID: {proto_event.event_id}) 的核心逻辑中发生错误: {e}", exc_info=True
             )
 
+    def _calculate_and_inject_hashes(self, event_doc: DBEventDocument) -> None:
+        """遍历事件内容，为图片Seg计算并注入哈希值."""
+        if not event_doc.content:
+            return
+
+        for seg in event_doc.content:
+            if (
+                seg.get("type") == "image"
+                and (data := seg.get("data"))
+                and (b64 := data.get("base64"))
+            ):
+                try:
+                    # 我们只需要一个简短的、用于引用的ID，前8位足够了
+                    full_hash = hashlib.sha256(b64.encode("utf-8")).hexdigest()
+                    short_hash = full_hash[:8]
+                    data["hash"] = short_hash
+                    logger.debug(f"为事件 {event_doc.event_id} 中的图片注入哈希: {short_hash}")
+                except Exception as e:
+                    logger.error(f"为事件 {event_doc.event_id} 的图片计算哈希时出错: {e}")
+
     async def _handle_event_persistence(
         self, event: ProtocolEvent, platform_id: str, needs_persistence: bool
     ) -> dict | None:
@@ -100,6 +121,7 @@ class DefaultMessageProcessor:
         if needs_persistence:
             db_event_doc = DBEventDocument.from_protocol(event)
             db_event_doc.person_id_associated = person_id
+            self._calculate_and_inject_hashes(db_event_doc)
 
             if (
                 event.event_type.startswith("message.")

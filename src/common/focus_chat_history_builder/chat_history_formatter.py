@@ -118,6 +118,9 @@ class _ChatHistoryFormatter:
         added_platform_message_ids: set[str] = set()
         total_stimuli = len(self.stimuli)
 
+        # 引入状态变量来追踪上一个显示的机器人动机
+        last_displayed_bot_motive: str | None = None
+
         for i, stimulus in enumerate(self.stimuli):
             is_in_viewport = self._is_in_viewport(i, total_stimuli)
 
@@ -133,10 +136,24 @@ class _ChatHistoryFormatter:
                 log_lines.append("--- 请关注以下未读的新消息---")
                 unread_section_started = True
 
-            if log_line := (
-                self._format_single_log_entry(stimulus, is_in_viewport, added_platform_message_ids)
+            # 将动机的格式化逻辑移出 _format_single_log_entry，在此处集中处理
+            if log_line := self._format_single_log_entry(
+                stimulus, is_in_viewport, added_platform_message_ids
             ):
                 log_lines.append(log_line)
+
+                sender_uid = self.platform_id_to_uid_str.get(stimulus.sender_id, "SYS")
+
+                # 如果是机器人发言 (U0) 且有动机
+                if sender_uid == "U0" and stimulus.motivation:
+                    # 只有当动机与上一个不同时才显示
+                    if stimulus.motivation != last_displayed_bot_motive:
+                        log_lines.append(f"    - [MOTIVE]: {stimulus.motivation}")
+                    # 无论是否显示，都更新“上一个动机”的状态
+                    last_displayed_bot_motive = stimulus.motivation
+                else:
+                    # 如果发言者不是机器人，则重置追踪器，确保下次机器人的动机一定会被显示
+                    last_displayed_bot_motive = None
 
         if not self.is_first_turn and not unread_section_started and log_lines:
             last_event_time = (
@@ -172,14 +189,10 @@ class _ChatHistoryFormatter:
             return f"[{time_str}] {sender_uid} [MOTIVE]: {stimulus.text_content}"
 
         event_type_display = event_type.split(".")[-1].upper()
-        # [FIX] 修复了 f-string 拼接问题
         return (
             f"[{time_str}] {sender_uid} [{event_type_display}]: {stimulus.text_content[:30]}... "
             f"(id:{stimulus.event_id})"
         )
-
-    # ======================== [ Refactor Start ] ========================
-    # `_format_message_entry` 已被重构为以下几个辅助函数和一个协调者
 
     def _get_message_id_and_check_duplicate(
         self, content_segs: list[Seg], added_ids: set[str]
@@ -244,10 +257,6 @@ class _ChatHistoryFormatter:
         log_line = (
             f"[{time_str}] {sender_uid} [{display_tag}]: {main_content} (id:{event_identifier})"
         )
-
-        if sender_uid == "U0" and stimulus.motivation:
-            log_line += f"\n    - [MOTIVE]: {stimulus.motivation}"
-
         return log_line
 
     def _format_message_entry(
@@ -276,42 +285,78 @@ class _ChatHistoryFormatter:
         # 步骤 3: 组装最终的日志行
         return self._assemble_log_line(parsed, stimulus, sender_uid, time_str, msg_id)
 
-    # ========================= [ Refactor End ] =========================
-
     def _format_image_segment(
         self, seg: Seg, is_in_viewport: bool, stimulus: Stimulus, analysis_index: int
     ) -> str:
-        self.image_ref_counter += 1
-        is_sticker = seg.data.get("summary") == "sticker"
-        placeholder = f"[{'动画表情' if is_sticker else '图片'}_{self.image_ref_counter}]"
+        """格式化图片消息段.
 
+        - 无论何时，都准备好多模态数据。
+        - 如果在可视窗口内，返回一个特殊的、带编号的占位符，并附上哈希值文本。
+        - 如果在可视窗口外，返回已分析的文本描述，否则回退到带哈希的占位符。
+        """
+        # 步骤 1: 验证图片数据源的有效性
         base64_data = seg.data.get("base64")
+        url = seg.data.get("url")
+
+        has_valid_data = (isinstance(base64_data, str) and base64_data.strip()) or url
+        if not has_valid_data:
+            logger.warning(
+                f"事件 '{stimulus.event_id}' 中的一个图片消息段缺少有效的 base64 或 url 数据，"
+                f"已跳过。"
+            )
+            return "[图片数据无效或丢失]"
+
+        # 步骤 2: 仅在数据有效时，才添加引用并递增计数器
         if isinstance(base64_data, str) and base64_data.strip():
             mime_type = seg.data.get("mime_type", "image/jpeg")
             self.image_references_for_llm.append(f"data:{mime_type};base64,{base64_data}")
-        elif url := seg.data.get("url"):
+        elif url:
             self.image_references_for_llm.append(url)
 
-        if (
-            not is_in_viewport
-            and stimulus.image_analysis
-            and analysis_index < len(stimulus.image_analysis)
-        ):
+        self.image_ref_counter += 1
+
+        is_sticker = seg.data.get("summary") == "sticker"
+        image_hash = seg.data.get("hash")
+        hash_str = f" (hash: {image_hash})" if image_hash else ""
+
+        # 这个占位符文本是给 llmrequest 模块的 interleaver 识别并替换用的
+        # 它本身不包含哈希，以确保正则表达式能精确匹配
+        placeholder_for_injection = (
+            f"[{'动画表情' if is_sticker else '图片'}_{self.image_ref_counter}]"
+        )
+
+        # 步骤 3: 根据是否在可视窗口内决定最终返回的字符串 (此逻辑保持不变)
+        if is_in_viewport:
+            # 在可视窗口内：返回“注入占位符” + “哈希文本”
+            # LLM会看到图片，同时也能读到旁边的哈希值
+            return f"{placeholder_for_injection}{hash_str}"
+
+        # 在可视窗口外：优先使用已分析的文本描述
+        if stimulus.image_analysis and analysis_index < len(stimulus.image_analysis):
             analysis_item = stimulus.image_analysis[analysis_index]
             desc_text = analysis_item.get("details", {}).get("description", "图片")
             prefix = "表情包" if analysis_item.get("type") == "sticker" else "图片"
+            # 注意：对于旧图片，我们只返回描述，不附加哈希，因为AI无法“看到”它来决定收藏
             return f"[{prefix}: {desc_text}]"
 
-        return placeholder
+        return f"[{'动画表情' if is_sticker else '图片'}: (无法获取描述)]{hash_str}"
 
     def _format_video_segment(self, seg: Seg, is_in_viewport: bool) -> str:
+        """格式化视频(动图)消息段."""
+        # 步骤 1: 准备多模态数据
+        if base64_data := seg.data.get("base64"):
+            mime_type = seg.data.get("mime_type", "video/mp4")
+            self.image_references_for_llm.append(f"data:{mime_type};base64,{base64_data}")
+
+        # 步骤 2: 根据是否在可视窗口内决定返回的文本
         if is_in_viewport:
+            # 在可视窗口内：返回一个特殊的占位符，让llmrequest注入视频
+            # 注意：视频/动图没有哈希的概念，所以直接返回占位符即可
             self.image_ref_counter += 1
-            if base64_data := seg.data.get("base64"):
-                mime_type = seg.data.get("mime_type", "video/mp4")
-                self.image_references_for_llm.append(f"data:{mime_type};base64,{base64_data}")
             return f"[GIF_{self.image_ref_counter}]"
-        return "[GIF]"
+        else:
+            # 在可视窗口外：返回通用文本占位符
+            return "[GIF]"
 
     def _format_quote_segment(self, seg: Seg) -> str:
         msg_id = seg.data.get("message_id", "unknown")

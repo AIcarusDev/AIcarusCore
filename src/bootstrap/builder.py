@@ -39,6 +39,7 @@ from src.database import (
 from src.database.services.image_analysis_cache_service import (
     ImageAnalysisCacheService,
 )
+from src.database.services.sticker_storage_service import StickerStorageService
 from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.message_processing.default_message_processor import DefaultMessageProcessor
 from src.message_processing.image_analysis_service import ImageAnalysisService
@@ -194,6 +195,7 @@ class ServiceBuilder:
             unread_info_service=unread_info_service,
             core_comm_layer=core_comm_layer,
             core_logic=core_logic,
+            sticker_storage_service=db_services["sticker_storage_service"],
             chat_session_manager=None,
         )
 
@@ -315,6 +317,7 @@ class ServiceBuilder:
             "entity_graph_service": EntityGraphService,
             "summary_storage_service": SummaryStorageService,
             "image_analysis_cache_service": ImageAnalysisCacheService,
+            "sticker_storage_service": StickerStorageService,
         }
 
         initialized_services = {"conn_manager": conn_manager}

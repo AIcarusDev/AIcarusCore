@@ -88,6 +88,34 @@ class EventStorageService:
             logger.error(f"保存事件文档 '{event_id}' 失败: {e}", exc_info=True)
             return False
 
+    async def find_event_by_image_hash(self, image_hash: str) -> dict[str, Any] | None:
+        """根据图片内容的哈希值查找包含该图片的最新事件."""
+        if not image_hash:
+            return None
+
+        query = """
+            FOR doc IN @@collection
+                FILTER @image_hash IN doc.content[*].data.hash
+                SORT doc.timestamp DESC
+                LIMIT 1
+                RETURN doc
+        """
+        bind_vars = {
+            "@collection": self.COLLECTION_NAME,
+            "image_hash": image_hash,
+        }
+
+        try:
+            results = await self.conn_manager.execute_query(query, bind_vars)
+            if results:
+                logger.debug(f"通过图片哈希 '{image_hash}' 成功找到事件 '{results[0]['_key']}'。")
+                return results[0]
+            logger.warning(f"未能通过图片哈希 '{image_hash}' 找到任何事件。")
+            return None
+        except Exception as e:
+            logger.error(f"通过图片哈希 '{image_hash}' 查找事件时失败: {e}", exc_info=True)
+            return None
+
     # 获取按会话分组的消息事件文档流
     async def stream_messages_grouped_by_conversation(
         self,

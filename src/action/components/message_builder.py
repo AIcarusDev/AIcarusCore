@@ -1,6 +1,8 @@
-# 文件: src/action/components/message_builder.py (竞速模式适配版 V1.0)
+# src/action/components/message_builder.py
 import asyncio
+import base64
 import random
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from aicarus_protocols import ConversationInfo, Seg, SegBuilder
@@ -53,6 +55,8 @@ class MessageBuilder:
                 self._add_at(params.get("user_id"))
             elif command == "reply":
                 self._add_reply(params.get("message_id"))
+            elif command == "sticker":
+                await self._add_sticker(params.get("sticker_id"))
 
             # 遇到“发送并换行”指令，或者这是最后一步了, 且工作台上有内容
             if (command == "send_and_break" or (i == len(steps) - 1)) and self._current_segments:
@@ -128,6 +132,65 @@ class MessageBuilder:
         logger.debug("清空当前消息段列表。")
         self._current_segments = []
 
+    async def _add_sticker(self, sticker_id: str | None) -> None:
+        """根据表情包ID，查找文件，将其编码为Base64，并构建一个标准的image消息段."""
+        if not sticker_id:
+            logger.warning("MessageBuilder: sticker 指令缺少 sticker_id 参数。")
+            return
+
+        if not self.action_handler or not self.action_handler.sticker_storage_service:
+            logger.error("MessageBuilder: StickerStorageService 未初始化，无法发送表情包。")
+            return
+
+        sticker_doc = await self.action_handler.sticker_storage_service.get_sticker_by_id(
+            platform=self.platform_id, sticker_id=sticker_id
+        )
+
+        if not sticker_doc:
+            logger.error(f"MessageBuilder: 找不到编号为 '{sticker_id}' 的表情包。")
+            self._add_text(f"[系统提示：我想发送表情包'{sticker_id}'，但我好像没有这个表情包]")
+            return
+
+        stickers_dir = getattr(self.action_handler, "_stickers_dir", None)
+        if not stickers_dir or not isinstance(stickers_dir, Path):
+            logger.error("ActionHandler 中的 _stickers_dir 未正确初始化！")
+            return
+
+        filename = sticker_doc.get("filename")
+        if not filename:
+            logger.error(f"MessageBuilder: 表情包 '{sticker_id}' 在数据库中缺少文件名。")
+            return
+
+        filepath = stickers_dir / filename
+
+        try:
+            if not filepath.exists():
+                raise FileNotFoundError
+
+            logger.debug(f"添加表情包: {sticker_id} (路径: {filepath})。")
+
+            # 1. 读取文件内容
+            with open(filepath, "rb") as f:
+                image_bytes = f.read()
+
+            # 2. Base64 编码
+            base64_data = base64.b64encode(image_bytes).decode("utf-8")
+
+            # 3. 创建一个标准的 'image' 消息段，而不是自定义的 'sticker' 段
+            #    我们用 'summary' 字段来告诉 Adapter 这是一个表情包
+            image_seg_data = {
+                "base64": base64_data,
+                "summary": "sticker",  # 关键标记！
+            }
+            self._current_segments.append(Seg(type="image", data=image_seg_data))
+
+        except FileNotFoundError:
+            logger.error(f"MessageBuilder: 表情包文件 '{filepath}' 不存在！")
+            self._add_text(f"[系统提示：我想发送表情包'{sticker_id}'，但它的文件好像丢了]")
+        except Exception as e:
+            logger.error(f"MessageBuilder: 准备表情包 '{filepath}' 时出错: {e}", exc_info=True)
+            self._add_text(f"[系统提示：发送表情包'{sticker_id}'时遇到了技术问题]")
+
     async def _send_current_message(self) -> bool:
         """将工作台上拼接好的所有消息段打包发送.
 
@@ -136,15 +199,18 @@ class MessageBuilder:
         if not self._current_segments:
             return False
 
-        if text_to_send := "".join(
-            seg.data.get("text", "") for seg in self._current_segments if seg.type == "text"
-        ).strip():
-            typing_delay = self._calculate_typing_delay(text_to_send)
-            logger.debug(
-                f"[{self.conversation_info.conversation_id}] 模拟打字: '{text_to_send[:20]}...'，"
-                f"预计耗时 {typing_delay:.2f} 秒..."
-            )
-            await asyncio.sleep(typing_delay)
+        if any(seg.type == "text" for seg in self._current_segments):
+            text_to_send = "".join(
+                seg.data.get("text", "") for seg in self._current_segments if seg.type == "text"
+            ).strip()
+            if text_to_send:
+                typing_delay = self._calculate_typing_delay(text_to_send)
+                logger.debug(
+                    f"[{self.conversation_info.conversation_id}] 模拟打字: "
+                    f"'{text_to_send[:20]}...'，"
+                    f"预计耗时 {typing_delay:.2f} 秒..."
+                )
+                await asyncio.sleep(typing_delay)
 
         logger.info(f"准备发送拼接好的消息，包含 {len(self._current_segments)} 个消息段。")
 
@@ -156,7 +222,6 @@ class MessageBuilder:
             f"'{correct_bot_id}' 来执行 send_message 动作。"
         )
 
-        # ======================== [ 核心改造点 ] ========================
         # execute_simple_action 现在返回 ActionResult 对象
         action_result = await self.action_handler.execute_simple_action(
             platform_id=self.platform_id,
@@ -188,7 +253,6 @@ class MessageBuilder:
             self.session.consecutive_bot_messages_count += 1
             await asyncio.sleep(random.uniform(0.5, 1.5))
         else:
-            logger.error(f"消息发送失败，原因: {action_result.error_message}")
+            logger.error(f"消息发送失败，原因: {action_result.error_message[:100]}...")
 
         return action_result.is_success
-        # =============================================================

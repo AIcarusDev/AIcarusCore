@@ -254,6 +254,60 @@ class QQBuilder(BasePlatformBuilder):
             },
             "required": ["user_id", "motivation"],
         }
+        manage_stickers_schema = {
+            "type": "object",
+            "description": "管理你在QQ平台的表情包收藏。你可以执行添加、移除或编辑印象描述的操作。",
+            "properties": {
+                "add": {
+                    "type": "object",
+                    "description": "从聊天记录中添加一张图片到你的表情包收藏。",
+                    "properties": {
+                        "image_hash": {
+                            "type": "string",
+                            "description": "要添加为表情包的图片的哈希ID (从聊天记录的 `(hash:...)` 中获取)。",
+                        },
+                        "impression": {
+                            "type": "string",
+                            "description": "你对这张表情包的主观印象/描述。",
+                        },
+                    },
+                    "required": ["image_hash", "impression"],
+                },
+                "remove": {
+                    "type": "object",
+                    "description": "从你的表情包收藏中移除一个已有的表情包。",
+                    "properties": {
+                        "sticker_id": {
+                            "type": "string",
+                            "description": "要移除的表情包的唯一编号 (例如 '001')。",
+                        }
+                    },
+                    "required": ["sticker_id"],
+                },
+                "edit_impression": {
+                    "type": "object",
+                    "description": "编辑一个已有的表情包的印象/描述。",
+                    "properties": {
+                        "sticker_id": {
+                            "type": "string",
+                            "description": "要编辑印象/描述的表情包的编号。",
+                        },
+                        "new_impression": {
+                            "type": "string",
+                            "description": "新的印象/描述，将覆盖之前的印象/描述。",
+                        },
+                    },
+                    "required": ["sticker_id", "new_impression"],
+                },
+                "motivation": {"type": "string"},
+            },
+            "required": ["motivation"],
+            "oneOf": [
+                {"required": ["add"]},
+                {"required": ["remove"]},
+                {"required": ["edit_impression"]},
+            ],
+        }
         platform_leave_conversation_schema = {
             "type": "object",
             "description": "【谨慎使用】退出一个群聊（将你自己从某个群聊移出）。",
@@ -349,7 +403,13 @@ class QQBuilder(BasePlatformBuilder):
                                     "command": {
                                         "type": "string",
                                         "description": "要执行的指令名称。",
-                                        "enum": ["reply", "at", "text", "send_and_break"],
+                                        "enum": [
+                                            "reply",
+                                            "at",
+                                            "text",
+                                            "sticker",
+                                            "send_and_break",
+                                        ],
                                     },
                                     "params": {
                                         "type": "object",
@@ -369,6 +429,10 @@ class QQBuilder(BasePlatformBuilder):
                                             "content": {
                                                 "type": "string",
                                                 "description": "要发送的文本内容。",
+                                            },
+                                            "sticker_id": {
+                                                "type": "string",
+                                                "description": "要发送的表情包的编号 (例如 '001')。",
                                             },
                                         },
                                     },
@@ -399,6 +463,7 @@ class QQBuilder(BasePlatformBuilder):
                 "delete_friend": cellular_delete_friend_schema,
                 "leave_conversation": cellular_leave_conversation_schema,
                 "handle_friend_request": handle_friend_request_schema,
+                "manage_stickers": manage_stickers_schema,
             },
         }
 
@@ -423,6 +488,7 @@ class QQBuilder(BasePlatformBuilder):
                 "    - `delete_friend(user_id, motivation)`: 【谨慎使用】删除指定ID的好友（如果想删除的好友就是对方，可省略user_id）。",
                 "    - `leave_conversation(group_id, motivation)`: 【谨慎使用】退出一个群聊（将你自己从某个群聊移出）。如果当前就在该群聊中，可以不提供group_id。",
                 "    - `handle_friend_request(user_id, flag, approve, remark, motivation)`: 处理好友请求。",
+                "    - `manage_stickers`: 管理你的QQ表情包收藏（添加、删除、编辑）。",
             ],
         }
 

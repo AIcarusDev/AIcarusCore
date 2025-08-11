@@ -42,6 +42,7 @@ FOCUS_BEHAVIOR_GUIDELINES = """
       | `reply`          | `{"message_id": "要引用/回复的消息ID"}` | 引用/回复指定消息                  |
       | `at`             | `{"user_id": "对方的用户ID"}`           | @指定用户 (ID 从`<user_logs>`获取) |
       | `text`           | `{"content": "你想说的内容"}`           | 发送文本内容                       |
+      | `sticker`        | `{"sticker_id": "表情包的编号"}`        | 发送收藏中的表情包 (编号从`<sticker_collection_preview>`获取) |
       | `send_and_break` | `{}`                                    | 发送当前内容并换行（开启新消息）   |
 
   - **构建消息示例**:

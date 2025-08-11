@@ -12,7 +12,25 @@ from src.common.custom_logging.logging_config import get_logger
 logger = get_logger(__name__)
 
 
-# --- 核心改造点：定义新的集合和图 ---
+# 表情包文档
+@dataclass
+class StickerDocument:
+    """代表 StickerCollection 集合中的一个表情包元数据文档."""
+
+    _key: str  # 表情包的唯一编号, e.g., "001"
+    sticker_id: str  # 同 _key, 方便查询
+    platform: str
+    filename: str  # 在 stickers 目录下的实际文件名, e.g., "sticker_uuid.gif"
+    impression: str  # AI对这个表情包的主观印象描述
+    source_image_hash: str  # 添加时所引用的原图的哈希值
+    added_at: int = field(default_factory=lambda: int(time.time() * 1000))
+
+    def to_dict(self) -> dict[str, Any]:
+        """将实例序列化为可存入DB的字典."""
+        return asdict(self)
+
+
+# 核心数据库集合的名字和类型定义
 class CoreDBCollections:
     """一个中央管家，负责记下所有核心集合的名字和它们的类型."""
 
@@ -27,6 +45,7 @@ class CoreDBCollections:
     SYSTEM_STATE = "system_state"  # 用来存放指针的小盒子
     INTRUSIVE_POOL_COLLECTION = "intrusive_thoughts_pool"  # 侵入性思维池
     IMAGE_ANALYSIS_CACHE = "ImageAnalysisCache"  # 图片分析缓存集合
+    STICKER_COLLECTION = "StickerCollection"  # 表情包集合
 
     # --- 边集合 (Edge Collections) ---
     REPRESENTS = "represents"  # _from: EntityProfiles, _to: Entities (特指 Account 类型的 Entity)
@@ -46,6 +65,7 @@ class CoreDBCollections:
             (["conversation_id_extracted", "timestamp"], False, True),
             (["user_id_extracted", "timestamp"], False, True),
             (["timestamp"], False, False),
+            (["content.data.hash"], False, True),  # 为图片哈希创建稀疏索引
         ],
         ENTITY_PROFILES: [
             (["profile_id"], True, False),  # 原 person_id
@@ -79,6 +99,10 @@ class CoreDBCollections:
         IMAGE_ANALYSIS_CACHE: [  # 为新集合添加索引定义
             (["timestamp"], False, False),  # 可以用于未来清理旧缓存
         ],
+        STICKER_COLLECTION: [
+            (["platform", "sticker_id"], True, False),
+            (["added_at"], False, False),
+        ],
     }
 
     @classmethod
@@ -94,7 +118,8 @@ class CoreDBCollections:
             cls.SYSTEM_STATE,
             cls.INTRUSIVE_POOL_COLLECTION,
             cls.THOUGHTS_LEGACY,
-            cls.IMAGE_ANALYSIS_CACHE,  # <--- [新增]
+            cls.IMAGE_ANALYSIS_CACHE,
+            cls.STICKER_COLLECTION,
             # Edges
             cls.REPRESENTS,
             cls.IS_PRESENT_IN,
