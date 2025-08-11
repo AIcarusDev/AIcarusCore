@@ -1,5 +1,6 @@
-# 文件: src/action/components/message_builder.py
+# src/action/components/message_builder.py
 import asyncio
+import base64
 import random
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -147,11 +148,9 @@ class MessageBuilder:
 
         if not sticker_doc:
             logger.error(f"MessageBuilder: 找不到编号为 '{sticker_id}' 的表情包。")
-            # 也可以选择发送一段错误文本，让AI知道出错了
             self._add_text(f"[系统提示：我想发送表情包'{sticker_id}'，但我好像没有这个表情包]")
             return
 
-        # 确保 action_handler._stickers_dir 已经被初始化
         stickers_dir = getattr(self.action_handler, "_stickers_dir", None)
         if not stickers_dir or not isinstance(stickers_dir, Path):
             logger.error("ActionHandler 中的 _stickers_dir 未正确初始化！")
@@ -164,26 +163,33 @@ class MessageBuilder:
 
         filepath = stickers_dir / filename
 
-        # 读取文件内容并进行Base64编码
         try:
             if not filepath.exists():
                 raise FileNotFoundError
 
             logger.debug(f"添加表情包: {sticker_id} (路径: {filepath})。")
 
-            # 【核心修复】: 创建一个专属的 'sticker' 消息段，携带文件路径
-            # 适配器端将根据这个类型和路径来处理
-            self._current_segments.append(Seg(type="sticker", data={"filepath": str(filepath)}))
+            # 1. 读取文件内容
+            with open(filepath, "rb") as f:
+                image_bytes = f.read()
+
+            # 2. Base64 编码
+            base64_data = base64.b64encode(image_bytes).decode("utf-8")
+
+            # 3. 创建一个标准的 'image' 消息段，而不是自定义的 'sticker' 段
+            #    我们用 'summary' 字段来告诉 Adapter 这是一个表情包
+            image_seg_data = {
+                "base64": base64_data,
+                "summary": "sticker",  # 关键标记！
+            }
+            self._current_segments.append(Seg(type="image", data=image_seg_data))
 
         except FileNotFoundError:
             logger.error(f"MessageBuilder: 表情包文件 '{filepath}' 不存在！")
             self._add_text(f"[系统提示：我想发送表情包'{sticker_id}'，但它的文件好像丢了]")
         except Exception as e:
-            logger.error(
-                f"MessageBuilder: 准备表情包 '{filepath}' 时出错: {e}", exc_info=True
-            )
+            logger.error(f"MessageBuilder: 准备表情包 '{filepath}' 时出错: {e}", exc_info=True)
             self._add_text(f"[系统提示：发送表情包'{sticker_id}'时遇到了技术问题]")
-
 
     async def _send_current_message(self) -> bool:
         """将工作台上拼接好的所有消息段打包发送.
