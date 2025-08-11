@@ -1,6 +1,5 @@
 # 文件: src/action/components/message_builder.py
 import asyncio
-import base64
 import random
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -167,23 +166,21 @@ class MessageBuilder:
 
         # 读取文件内容并进行Base64编码
         try:
-            with open(filepath, "rb") as image_file:
-                image_bytes = image_file.read()
+            if not filepath.exists():
+                raise FileNotFoundError
 
-            base64_string = base64.b64encode(image_bytes).decode('utf-8')
+            logger.debug(f"添加表情包: {sticker_id} (路径: {filepath})。")
 
-            logger.debug(f"添加表情包: {sticker_id} (路径: {filepath}), 已编码为Base64。")
-
-            # 使用标准的 image 消息段类型，并通过 summary 字段标注其为 sticker
-            # 这是更健壮的做法，因为所有适配器都应该能处理 image 类型
-            self._current_segments.append(SegBuilder.image(base64=base64_string, summary="sticker"))
+            # 【核心修复】: 创建一个专属的 'sticker' 消息段，携带文件路径
+            # 适配器端将根据这个类型和路径来处理
+            self._current_segments.append(Seg(type="sticker", data={"filepath": str(filepath)}))
 
         except FileNotFoundError:
             logger.error(f"MessageBuilder: 表情包文件 '{filepath}' 不存在！")
             self._add_text(f"[系统提示：我想发送表情包'{sticker_id}'，但它的文件好像丢了]")
         except Exception as e:
             logger.error(
-                f"MessageBuilder: 读取或编码表情包 '{filepath}' 时出错: {e}", exc_info=True
+                f"MessageBuilder: 准备表情包 '{filepath}' 时出错: {e}", exc_info=True
             )
             self._add_text(f"[系统提示：发送表情包'{sticker_id}'时遇到了技术问题]")
 
