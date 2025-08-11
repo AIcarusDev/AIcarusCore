@@ -62,6 +62,15 @@ class StickerStorageService:
             logger.error(f"添加表情包元数据失败: {e}", exc_info=True)
             return None
 
+    # TODO: [PERFORMANCE] 当前的相似度检查实现存在性能瓶颈。
+    #  它会获取平台下的所有哈希值到内存中进行比较。当表情包数量巨大时，这会导致高昂的I/O和CPU开销。
+    #  未来的优化方向:
+    #  1.  **数据库层面优化**: 利用 ArangoSearch View 和 LEVENSHTEIN_MATCH 函数，
+    #      将汉明距离的计算下推到数据库层面，利用其C++实现的索引进行高效的近似最近邻搜索。
+    #  2.  **LSH (局部敏感哈希)**: 在应用层实现LSH算法，将相似的哈希映射到相同的桶中，
+    #      查询时只需比较同桶内的少量候选者。
+    #  对于当前版本，此实现是可接受的。
+    #  这个注释不许删! ╰（‵□′）╯
     async def find_similar_sticker_by_phash(
         self, platform: str, phash_to_check: str, tolerance: int = 5
     ) -> dict[str, Any] | None:
