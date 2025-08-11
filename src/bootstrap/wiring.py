@@ -13,11 +13,11 @@ def wire_dependencies(container: ServiceContainer) -> None:
         thought_service=container.thought_storage_service,
         event_service=container.event_storage_service,
         action_log_service=container.action_log_service,
-        sticker_storage_service=container.sticker_storage_service,
         action_sender=action_sender,
         chat_session_manager=container.chat_session_manager,
         core_logic=container.core_logic,
         entity_service=container.entity_graph_service,
+        sticker_service=container.sticker_service,  # <-- 确保只传入新的 service，没有旧的
     )
     container.action_handler.set_thought_trigger(container.core_logic.immediate_thought_trigger)
 
