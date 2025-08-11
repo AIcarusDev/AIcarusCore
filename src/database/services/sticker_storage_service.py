@@ -3,6 +3,7 @@ import time
 from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
+from src.common.image_utils import compare_phashes
 from src.database import ArangoDBConnectionManager, CoreDBCollections
 from src.database.models import StickerDocument
 
@@ -33,7 +34,12 @@ class StickerStorageService:
         return f"{next_id_num:03d}"
 
     async def add_sticker(
-        self, platform: str, filename: str, impression: str, source_image_hash: str
+        self,
+        platform: str,
+        filename: str,
+        impression: str,
+        source_image_hash: str,
+        perceptual_hash: str,
     ) -> StickerDocument | None:
         """添加一个新的表情包元数据记录."""
         try:
@@ -45,6 +51,7 @@ class StickerStorageService:
                 filename=filename,
                 impression=impression,
                 source_image_hash=source_image_hash,
+                perceptual_hash=perceptual_hash,
                 added_at=int(time.time() * 1000),
             )
             collection = await self.conn_manager.get_collection(self.collection_name)
@@ -54,6 +61,35 @@ class StickerStorageService:
         except Exception as e:
             logger.error(f"添加表情包元数据失败: {e}", exc_info=True)
             return None
+
+    async def find_similar_sticker_by_phash(
+        self, platform: str, phash_to_check: str, tolerance: int = 5
+    ) -> dict[str, Any] | None:
+        """根据感知哈希查找视觉上相似的表情包."""
+        # AQL 不直接支持汉明距离计算，我们在 Python 中完成。
+        # 我们先查询所有可能的候选者，然后在应用层比较。
+        # 由于我们为 perceptual_hash 创建了索引，这个查询会很快。
+        query = """
+            FOR s IN @@collection
+                FILTER s.platform == @platform
+                AND s.perceptual_hash != null
+                RETURN { sticker_id: s.sticker_id, phash: s.perceptual_hash }
+        """
+        bind_vars = {"@collection": self.collection_name, "platform": platform}
+
+        candidates = await self.conn_manager.execute_query(query, bind_vars)
+        if not candidates:
+            return None
+
+        for candidate in candidates:
+            if compare_phashes(phash_to_check, candidate["phash"], tolerance):
+                logger.info(
+                    f"发现视觉相似的表情包: ID {candidate['sticker_id']} "
+                    f"(pHash 距离 <= {tolerance})"
+                )
+                return candidate  # 返回第一个找到的相似项
+
+        return None
 
     async def remove_sticker(self, platform: str, sticker_id: str) -> bool:
         """根据ID移除一个表情包元数据记录."""
