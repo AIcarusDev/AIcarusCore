@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 # 避免在类型提示时出现循环导入问题
 if TYPE_CHECKING:
     from src.action.action_handler import ActionHandler
+    from src.action.services.sticker_service import StickerService
     from src.common.intelligent_interrupt_system.intelligent_interrupter import (
         IntelligentInterrupter,
     )
@@ -61,6 +62,7 @@ class ServiceContainer:
 
     # 业务逻辑与功能模块
     action_handler: ActionHandler
+    sticker_service: StickerService
     intelligent_interrupter: IntelligentInterrupter
     internal_info_builder: InternalInfoBuilder
     intrusive_generator: IntrusiveThoughtsGenerator | None

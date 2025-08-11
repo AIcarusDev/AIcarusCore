@@ -7,6 +7,7 @@ from typing import Protocol, runtime_checkable
 
 from src import platform_builders
 from src.action.action_handler import ActionHandler
+from src.action.services.sticker_service import StickerService
 from src.bootstrap.container import ServiceContainer
 from src.common.custom_logging.logging_config import get_logger
 from src.common.intelligent_interrupt_system.iis_main import IISBuilder
@@ -65,6 +66,12 @@ class ServiceBuilder:
         platform_builder_registry.discover_and_register_builders(platform_builders)
         llm_clients = self._initialize_llm_clients()
         db_services = await self._initialize_database_and_services()
+
+        # 在数据库服务初始化后，创建 StickerService
+        sticker_service = StickerService(
+            sticker_storage_service=db_services["sticker_storage_service"],
+            event_storage_service=db_services["event_storage_service"],
+        )
 
         # 初始化图像分析服务
         image_analysis_service = ImageAnalysisService(
@@ -196,6 +203,7 @@ class ServiceBuilder:
             core_comm_layer=core_comm_layer,
             core_logic=core_logic,
             sticker_storage_service=db_services["sticker_storage_service"],
+            sticker_service=sticker_service,
             chat_session_manager=None,
         )
 
