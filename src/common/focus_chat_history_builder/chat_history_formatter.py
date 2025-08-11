@@ -52,6 +52,9 @@ class _ChatHistoryFormatter:
         self.last_valid_text_message: str | None = None
         self.image_ref_counter = 0
 
+        # 追踪上一个显示的机器人动机
+        self.last_displayed_bot_motive: str | None = None
+
         self._build_user_maps()
 
     def _build_user_maps(self) -> None:
@@ -111,15 +114,39 @@ class _ChatHistoryFormatter:
         """检查一个刺激物是否应被视为“未读”."""
         return not self.is_first_turn and stimulus.timestamp > self.last_processed_timestamp
 
+    def _format_and_track_motivation(self, stimulus: Stimulus, sender_uid: str) -> str | None:
+        """根据当前刺激物和发送者，格式化动机(Motivation)文本，并处理去重逻辑.
+
+        此函数有副作用：会更新 self.last_displayed_bot_motive.
+
+        Args:
+            stimulus: 当前处理的刺激物对象.
+            sender_uid: 发送者的内部UID字符串 (e.g., "U0", "U1").
+
+        Returns:
+            如果需要显示动机，则返回格式化后的字符串，否则返回 None.
+        """
+        # 如果是机器人发言 (U0) 且有动机
+        if sender_uid == "U0" and stimulus.motivation:
+            # 无论如何都更新“上一个动机”的状态
+            current_motive = self.last_displayed_bot_motive
+            self.last_displayed_bot_motive = stimulus.motivation
+            # 只有当动机与上一个不同时才显示
+            if stimulus.motivation != current_motive:
+                return f"    - [MOTIVE]: {stimulus.motivation}"
+            # 如果动机相同，则不返回任何内容（抑制重复显示）
+            return None
+        else:
+            # 如果发言者不是机器人，或机器人发言但无动机，则重置追踪器
+            self.last_displayed_bot_motive = None
+            return None
+
     def format_chat_log_block(self) -> str:
         """核心逻辑：格式化完整的聊天记录文本块."""
         log_lines: list[str] = []
         unread_section_started = False
         added_platform_message_ids: set[str] = set()
         total_stimuli = len(self.stimuli)
-
-        # 引入状态变量来追踪上一个显示的机器人动机
-        last_displayed_bot_motive: str | None = None
 
         for i, stimulus in enumerate(self.stimuli):
             is_in_viewport = self._is_in_viewport(i, total_stimuli)
@@ -136,24 +163,16 @@ class _ChatHistoryFormatter:
                 log_lines.append("--- 请关注以下未读的新消息---")
                 unread_section_started = True
 
-            # 将动机的格式化逻辑移出 _format_single_log_entry，在此处集中处理
+            # 1. 格式化主日志条目
             if log_line := self._format_single_log_entry(
                 stimulus, is_in_viewport, added_platform_message_ids
             ):
                 log_lines.append(log_line)
 
+                # 2. 调用新的辅助函数来处理动机
                 sender_uid = self.platform_id_to_uid_str.get(stimulus.sender_id, "SYS")
-
-                # 如果是机器人发言 (U0) 且有动机
-                if sender_uid == "U0" and stimulus.motivation:
-                    # 只有当动机与上一个不同时才显示
-                    if stimulus.motivation != last_displayed_bot_motive:
-                        log_lines.append(f"    - [MOTIVE]: {stimulus.motivation}")
-                    # 无论是否显示，都更新“上一个动机”的状态
-                    last_displayed_bot_motive = stimulus.motivation
-                else:
-                    # 如果发言者不是机器人，则重置追踪器，确保下次机器人的动机一定会被显示
-                    last_displayed_bot_motive = None
+                if motivation_line := self._format_and_track_motivation(stimulus, sender_uid):
+                    log_lines.append(motivation_line)
 
         if not self.is_first_turn and not unread_section_started and log_lines:
             last_event_time = (
@@ -493,4 +512,5 @@ async def format_chat_history_for_llm(
         conversation_name=final_conversation_name,
         last_valid_text_message=formatter.last_valid_text_message,
     )
+    return components, processed_stimuli
     return components, processed_stimuli
