@@ -23,6 +23,7 @@ class StickerDocument:
     filename: str  # 在 stickers 目录下的实际文件名, e.g., "sticker_uuid.gif"
     impression: str  # AI对这个表情包的主观印象描述
     source_image_hash: str  # 添加时所引用的原图的哈希值
+    perceptual_hash: str  # 感知哈希以解决图片相似问题
     added_at: int = field(default_factory=lambda: int(time.time() * 1000))
 
     def to_dict(self) -> dict[str, Any]:
@@ -102,6 +103,7 @@ class CoreDBCollections:
         STICKER_COLLECTION: [
             (["platform", "sticker_id"], True, False),
             (["added_at"], False, False),
+            (["platform", "perceptual_hash"], False, True),
         ],
     }
 

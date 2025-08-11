@@ -2,7 +2,6 @@
 import asyncio
 import base64
 import random
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from aicarus_protocols import ConversationInfo, Seg, SegBuilder
@@ -138,30 +137,21 @@ class MessageBuilder:
             logger.warning("MessageBuilder: sticker 指令缺少 sticker_id 参数。")
             return
 
-        if not self.action_handler or not self.action_handler.sticker_storage_service:
-            logger.error("MessageBuilder: StickerStorageService 未初始化，无法发送表情包。")
+        # --- vvv 重构后的核心逻辑 vvv ---
+        if not self.action_handler or not self.action_handler.sticker_service:
+            logger.error("MessageBuilder: StickerService 未初始化，无法发送表情包。")
+            self._add_text("[系统提示：表情包系统出现故障]")
             return
 
-        sticker_doc = await self.action_handler.sticker_storage_service.get_sticker_by_id(
-            platform=self.platform_id, sticker_id=sticker_id
+        filepath = await self.action_handler.sticker_service.get_sticker_file_path(
+            platform_id=self.platform_id, sticker_id=sticker_id
         )
+        # --- ^^^ 重构后的核心逻辑 ^^^ ---
 
-        if not sticker_doc:
-            logger.error(f"MessageBuilder: 找不到编号为 '{sticker_id}' 的表情包。")
+        if not filepath:
+            # get_sticker_file_path 内部已经记录了详细错误，这里只做回退
             self._add_text(f"[系统提示：我想发送表情包'{sticker_id}'，但我好像没有这个表情包]")
             return
-
-        stickers_dir = getattr(self.action_handler, "_stickers_dir", None)
-        if not stickers_dir or not isinstance(stickers_dir, Path):
-            logger.error("ActionHandler 中的 _stickers_dir 未正确初始化！")
-            return
-
-        filename = sticker_doc.get("filename")
-        if not filename:
-            logger.error(f"MessageBuilder: 表情包 '{sticker_id}' 在数据库中缺少文件名。")
-            return
-
-        filepath = stickers_dir / filename
 
         try:
             if not filepath.exists():
@@ -180,7 +170,7 @@ class MessageBuilder:
             #    我们用 'summary' 字段来告诉 Adapter 这是一个表情包
             image_seg_data = {
                 "base64": base64_data,
-                "summary": "sticker",  # 关键标记！
+                "summary": "sticker",
             }
             self._current_segments.append(Seg(type="image", data=image_seg_data))
 
