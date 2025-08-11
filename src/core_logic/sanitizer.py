@@ -6,6 +6,7 @@ from src.common.custom_logging.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+
 class LLMOutputSanitizer:
     """一个路径感知的智能修正器.
 
@@ -13,9 +14,7 @@ class LLMOutputSanitizer:
     """
 
     def __init__(
-        self,
-        user_map: dict[str, dict[str, Any]],
-        uid_str_to_platform_id_map: dict[str, str]
+        self, user_map: dict[str, dict[str, Any]], uid_str_to_platform_id_map: dict[str, str]
     ) -> None:
         """初始化修正器所需的上下文信息.
 
@@ -25,7 +24,7 @@ class LLMOutputSanitizer:
         """
         self._uid_to_name_map = {}
         self._uid_to_platform_id_map = {}
-        self._uid_pattern = re.compile(r'\bU\d+\b')
+        self._uid_pattern = re.compile(r"\bU\d+\b")
 
         # 1. 构建 UID -> 显示名 的映射 (用于自然语言字段)
         for uid_str, platform_id in uid_str_to_platform_id_map.items():
@@ -70,9 +69,11 @@ class LLMOutputSanitizer:
             # 这是决策点：根据当前路径决定使用哪个替换规则
             # 规则1: 如果路径是指令中的 user_id 字段，使用ID替换
             # 我们检查路径的最后两部分是否是 ('at', 'user_id') 或 ('reply', 'user_id') 等
-            if len(current_path) >= 2 and \
-                current_path[-2] == 'at' and \
-                current_path[-1] == 'user_id':
+            if (
+                len(current_path) >= 2
+                and current_path[-2] == "at"
+                and current_path[-1] == "user_id"
+            ):
                 logger.debug(f"ID Rule triggered for path: {current_path}")
                 return self._uid_pattern.sub(self._get_id_replacer, node)
 

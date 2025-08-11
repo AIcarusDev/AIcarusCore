@@ -56,51 +56,36 @@ class ActionHandler:
         self.web_search_agent_client: ProcessorClient | None = None
         self.url_context_agent_client: ProcessorClient | None = None
         self.action_sender: ActionSender | None = None
+        self.pending_action_manager: PendingActionManager | None = None
         self.thought_storage_service: ThoughtStorageService | None = None
         self.action_log_service: ActionLogStorageService | None = None
-        self.event_storage_service: EventStorageService | None = None
         self.sticker_storage_service: StickerStorageService | None = None
-        self.thought_trigger: asyncio.Event | None = None
-        self.pending_action_manager: PendingActionManager | None = None
+        self.event_storage_service: EventStorageService | None = None
+        self.entity_service: EntityGraphService | None = None
         self.chat_session_manager: ChatSessionManager | None = None
         self.core_logic: CoreLogic | None = None
-        self.entity_service: EntityGraphService | None = None
-        self._workspace_root: Path | None = None
-        self._stickers_dir: Path | None = None
-        self._sticker_preview_path: Path | None = None
-        self._sticker_grid_config: dict = {
-            "thumbnail_size": (150, 150),
-            "columns": 6,
-            "spacing": 20,
-            "margin": 30,
-            "background_color": "#282c34",
-            "font_path": None,
-            "font_size": 24,
-            "label_color": "#abb2bf",
-            "label_spacing": 10,
-        }
+        self.immediate_thought_trigger: asyncio.Event | None = None
+
+        # 从配置中初始化路径
+        self._workspace_root = Path(config.runtime_environment.workspace_root)
+        self._stickers_dir = Path(config.runtime_environment.stickers_dir)
+        self._initialize_directories()
+
         logger.info(f"{self.__class__.__name__} instance created (等待依赖注入).")
 
-    def _initialize_workspace(self) -> None:
-        if self._workspace_root is not None:
-            return
-        workspace_path_from_config = config.runtime_environment.workspace_root
-        sanitized_workspace_path = workspace_path_from_config.lstrip("/\\")
-        if sanitized_workspace_path != workspace_path_from_config:
-            logger.warning(
-                f"检测到工作区路径 '{workspace_path_from_config}' 以斜杠开头，"
-                f"已自动修正为 '{sanitized_workspace_path}'。建议直接修改 config.toml。"
-            )
-        self._workspace_root = (PROJECT_ROOT / workspace_path_from_config).resolve()
-        self._workspace_root.mkdir(parents=True, exist_ok=True)
-        self._stickers_dir = self._workspace_root / "stickers"
-        self._stickers_dir.mkdir(parents=True, exist_ok=True)
-        self._sticker_preview_path = self._workspace_root / "stickers_collection_preview.jpg"
-        logger.info(f"文件操作沙箱已通过延迟初始化成功定位，根目录: {self._workspace_root}")
+    def _initialize_directories(self) -> None:
+        """初始化所有需要的目录."""
+        if self._workspace_root:
+            self._workspace_root.mkdir(parents=True, exist_ok=True)
+            logger.info(f"文件操作沙箱根目录已确认: {self._workspace_root}")
+        if self._stickers_dir:
+            self._stickers_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"表情包目录已确认: {self._stickers_dir}")
 
     def _get_safe_workspace_root(self) -> Path:
         if self._workspace_root is None:
-            self._initialize_workspace()
+            # 如果在初始化时失败，这里再次尝试获取
+            self._initialize_directories()
         return self._workspace_root
 
     def _resolve_safe_path(self, user_path: str) -> Path | None:
@@ -152,12 +137,12 @@ class ActionHandler:
             event_storage_service=event_service,
             action_handler_instance=self,
         )
-        self._initialize_workspace()
+        self._initialize_directories()
         logger.info("ActionHandler 的依赖已成功设置。")
 
     def set_thought_trigger(self, trigger_event: asyncio.Event | None) -> None:
         """设置主思维触发器."""
-        self.thought_trigger = trigger_event
+        self.immediate_thought_trigger = trigger_event
         if trigger_event:
             logger.info("ActionHandler 的主思维触发器已成功设置。")
 
@@ -214,9 +199,9 @@ class ActionHandler:
             await self.thought_storage_service.save_action_result_to_thought(
                 thought_key=doc_key, result_text=result_text
             )
-        if self.thought_trigger:
+        if self.immediate_thought_trigger:
             logger.info(f"本地动作 '{platform_id}.{action_name}' 完成，立即触发新一轮思考。")
-            self.thought_trigger.set()
+            self.immediate_thought_trigger.set()
 
     async def _handle_core_action_flow(self, action_name: str, params: dict, doc_key: str) -> None:
         """处理 'core' 命名空间下的动作."""
@@ -225,9 +210,9 @@ class ActionHandler:
             await self.thought_storage_service.save_action_result_to_thought(
                 thought_key=doc_key, result_text=result_text
             )
-        if self.thought_trigger:
+        if self.immediate_thought_trigger:
             logger.info(f"核心动作 '{action_name}' 完成，立即触发新一轮思考。")
-            self.thought_trigger.set()
+            self.immediate_thought_trigger.set()
 
     async def process_action_flow(
         self,
@@ -267,11 +252,11 @@ class ActionHandler:
             await self._execute_platform_action_flow(
                 platform_id, action_name, params, doc_key_for_updates, metadata
             )
-            if action_name in INFO_GATHERING_ACTIONS and self.thought_trigger:
+            if action_name in INFO_GATHERING_ACTIONS and self.immediate_thought_trigger:
                 logger.info(
                     f"信息获取类平台动作 '{platform_id}.{action_name}' 完成，立即触发新一轮思考。"
                 )
-                self.thought_trigger.set()
+                self.immediate_thought_trigger.set()
 
     async def _execute_core_action(self, action_name: str, params: dict) -> str:
         """核心动作的统一分发中心."""
@@ -579,11 +564,11 @@ class ActionHandler:
                 await self.thought_storage_service.save_action_result_to_thought(
                     thought_key=doc_key_for_updates, result_text=result_text
                 )
-            if self.thought_trigger:
+            if self.immediate_thought_trigger:
                 logger.info(
                     f"表情包管理动作 '{platform_id}.{action_name}' 完成，立即触发新一轮思考。"
                 )
-                self.thought_trigger.set()
+                self.immediate_thought_trigger.set()
             return
 
         if not self.action_sender or platform_id not in self.action_sender.connected_adapters:
@@ -781,19 +766,36 @@ class ActionHandler:
         if not self.sticker_storage_service:
             return
 
-        logger.info("正在触发表情包缩略图重新生成...")
+        logger.info(f"正在为平台 '{platform_id}' 触发表情包缩略图重新生成...")
         try:
             all_stickers_meta = await self.sticker_storage_service.get_all_stickers(platform_id)
-            # 使用 to_thread 在后台线程中运行阻塞的IO和CPU密集型任务
+            if not all_stickers_meta:
+                logger.info(f"平台 '{platform_id}' 没有任何表情包，无需生成缩略图。")
+                # 如果没有表情包，可以考虑删除旧的预览图
+                preview_path = self._stickers_dir / f"{platform_id}_stickers_preview.jpg"
+                preview_path.unlink(missing_ok=True)
+                return
+
+            output_path = self._stickers_dir / f"{platform_id}_stickers_preview.jpg"
+            config_dict = {
+                "thumbnail_size": (150, 150),
+                "columns": 5,
+                "spacing": 20,
+                "margin": 40,
+                "background_color": "#FFFFFF",
+                "font_path": str(PROJECT_ROOT / "asset/font/MAPLEMONO-NF-CN-SEMIBOLD.TTF"),
+                "font_size": 24,
+                "label_color": "#333333",
+                "label_spacing": 10,
+            }
+            # 使用 to_thread 在后台线程中执行CPU密集型任务
             await asyncio.to_thread(
-                create_sticker_grid,
-                self._stickers_dir,
-                all_stickers_meta,
-                self._sticker_preview_path,
-                self._sticker_grid_config,
+                create_sticker_grid, self._stickers_dir, all_stickers_meta, output_path, config_dict
             )
         except Exception as e:
-            logger.error(f"重新生成表情包缩略图时发生严重错误: {e}", exc_info=True)
+            logger.error(
+                f"为平台 '{platform_id}' 重新生成表情包缩略图时发生严重错误: {e}", exc_info=True
+            )
 
     async def execute_simple_action(
         self,

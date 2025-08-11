@@ -262,6 +262,12 @@ class RuntimeEnvironmentSettings(ConfigBase):
     workspace_root: str = "data/workspace"
     """定义工作区根目录."""
 
+    data_root: str = "data"
+    """定义数据根目录."""
+
+    stickers_dir: str = "data/stickers"
+    """定义表情包目录。"""
+
 
 @dataclass
 class AlcarusRootConfig(ConfigBase):

@@ -270,7 +270,7 @@ class CoreLogic:
         # 1. 实例化修正器，传入本轮思考所需的所有上下文
         sanitizer = LLMOutputSanitizer(
             user_map=prompt_components.user_map,
-            uid_str_to_platform_id_map=prompt_components.uid_str_to_platform_id_map
+            uid_str_to_platform_id_map=prompt_components.uid_str_to_platform_id_map,
         )
 
         # 2. 执行修正
