@@ -217,7 +217,7 @@ class LLMClient:
         rate_limit_disable_duration_seconds: int = DEFAULT_RATE_LIMIT_DISABLE_SECONDS,
         **kwargs: Unpack[GenerationParams],
     ) -> None:
-        self.image_placeholder_pattern_regex = re.compile(r"\[(图片|动画表情)_(\d+)]")
+        self.image_placeholder_pattern_regex = re.compile(r"\[(图片|动画表情|GIF)_(\d+)]")
         self.default_generation_config: GenerationParams = kwargs
         logger.debug(
             f"LLMClient __init__ received model: {model}, "
