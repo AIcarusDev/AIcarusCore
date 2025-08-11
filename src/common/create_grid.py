@@ -78,11 +78,21 @@ def create_sticker_grid(
                 # 对于GIF，seek到第一帧来创建缩略图
                 if hasattr(img, "seek"):
                     img.seek(0)
+
+                # 统一转换为 RGBA 模式以正确处理所有图像的透明度
+                img = img.convert("RGBA")
                 img.thumbnail(thumb_size, Image.Resampling.LANCZOS)
-                thumb_img = Image.new("RGB", thumb_size, bg_color)
+
+                # 创建一个临时的、完全透明的画布来居中放置缩略图
+                thumb_img = Image.new("RGBA", thumb_size, (0, 0, 0, 0))
                 paste_pos = ((thumb_size[0] - img.width) // 2, (thumb_size[1] - img.height) // 2)
-                thumb_img.paste(img, paste_pos, img if img.mode == "RGBA" else None)
-                grid_image.paste(thumb_img, (x, y))
+
+                # 将缩略图（img）粘贴到临时画布（thumb_img）上，使用img自身的alpha通道作为遮罩
+                thumb_img.paste(img, paste_pos, img)
+
+                # 将包含居中图像的临时画布（thumb_img）粘贴到最终的网格图（grid_image）上，
+                # 同样使用thumb_img的alpha通道作为遮罩，以保留透明效果
+                grid_image.paste(thumb_img, (x, y), thumb_img)
         except Exception as e:
             logger.error(f"处理图片 {path} 失败: {e}")
             continue  # 跳过这张有问题的图片
