@@ -266,10 +266,8 @@ class ThoughtPromptBuilder:
 
         sticker_collection_block = ""
         # 只有当AI的焦点在qq平台或其下的会话时，才去加载和显示表情包信息
-        if platform_id == "qq" and self.action_handler.sticker_storage_service:
-            stickers = await self.action_handler.sticker_storage_service.get_all_stickers(
-                platform="qq"
-            )
+        if platform_id == "qq" and self.action_handler.sticker_service:
+            stickers = await self.action_handler.sticker_service.get_all_stickers(platform_id="qq")
             if stickers:
                 sticker_lines = [f"{s['sticker_id']}: {s['impression']}" for s in stickers]
                 sticker_collection_block = "\n".join(sticker_lines)
@@ -278,7 +276,7 @@ class ThoughtPromptBuilder:
 
             # 加上你想要的固定文件名提示
             sticker_collection_block = f"""
-<sticker_collection_preview filename="stickers_collection_preview.jpg">
+<sticker_collection_preview filename="qq_stickers_preview.jpg">
 <!-- 这是你当前收藏的表情包列表，编号与预览图一一对应 -->
 {sticker_collection_block}
 </sticker_collection_preview>

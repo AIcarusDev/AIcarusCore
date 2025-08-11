@@ -3,6 +3,7 @@ import time
 from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
+from src.common.image_utils import compare_phashes
 from src.database import ArangoDBConnectionManager, CoreDBCollections
 from src.database.models import StickerDocument
 
@@ -33,7 +34,12 @@ class StickerStorageService:
         return f"{next_id_num:03d}"
 
     async def add_sticker(
-        self, platform: str, filename: str, impression: str, source_image_hash: str
+        self,
+        platform: str,
+        filename: str,
+        impression: str,
+        source_image_hash: str,
+        perceptual_hash: str,
     ) -> StickerDocument | None:
         """添加一个新的表情包元数据记录."""
         try:
@@ -45,6 +51,7 @@ class StickerStorageService:
                 filename=filename,
                 impression=impression,
                 source_image_hash=source_image_hash,
+                perceptual_hash=perceptual_hash,
                 added_at=int(time.time() * 1000),
             )
             collection = await self.conn_manager.get_collection(self.collection_name)
@@ -54,6 +61,44 @@ class StickerStorageService:
         except Exception as e:
             logger.error(f"添加表情包元数据失败: {e}", exc_info=True)
             return None
+
+    # TODO: [PERFORMANCE] 当前的相似度检查实现存在性能瓶颈。
+    #  它会获取平台下的所有哈希值到内存中进行比较。当表情包数量巨大时，这会导致高昂的I/O和CPU开销。
+    #  未来的优化方向:
+    #  1.  **数据库层面优化**: 利用 ArangoSearch View 和 LEVENSHTEIN_MATCH 函数，
+    #      将汉明距离的计算下推到数据库层面，利用其C++实现的索引进行高效的近似最近邻搜索。
+    #  2.  **LSH (局部敏感哈希)**: 在应用层实现LSH算法，将相似的哈希映射到相同的桶中，
+    #      查询时只需比较同桶内的少量候选者。
+    #  对于当前版本，此实现是可接受的。
+    #  这个注释不许删! ╰（‵□′）╯
+    async def find_similar_sticker_by_phash(
+        self, platform: str, phash_to_check: str, tolerance: int = 5
+    ) -> dict[str, Any] | None:
+        """根据感知哈希查找视觉上相似的表情包."""
+        # AQL 不直接支持汉明距离计算，我们在 Python 中完成。
+        # 我们先查询所有可能的候选者，然后在应用层比较。
+        # 由于我们为 perceptual_hash 创建了索引，这个查询会很快。
+        query = """
+            FOR s IN @@collection
+                FILTER s.platform == @platform
+                AND s.perceptual_hash != null
+                RETURN { sticker_id: s.sticker_id, phash: s.perceptual_hash }
+        """
+        bind_vars = {"@collection": self.collection_name, "platform": platform}
+
+        candidates = await self.conn_manager.execute_query(query, bind_vars)
+        if not candidates:
+            return None
+
+        for candidate in candidates:
+            if compare_phashes(phash_to_check, candidate["phash"], tolerance):
+                logger.info(
+                    f"发现视觉相似的表情包: ID {candidate['sticker_id']} "
+                    f"(pHash 距离 <= {tolerance})"
+                )
+                return candidate  # 返回第一个找到的相似项
+
+        return None
 
     async def remove_sticker(self, platform: str, sticker_id: str) -> bool:
         """根据ID移除一个表情包元数据记录."""
@@ -99,3 +144,13 @@ class StickerStorageService:
         except Exception as e:
             logger.error(f"获取表情包 '{sticker_id}' 失败: {e}", exc_info=True)
             return None
+
+    async def get_distinct_platforms(self) -> list[str]:
+        """从表情包集合中查询出所有不重复的平台ID."""
+        query = """
+            FOR s IN @@collection
+                RETURN DISTINCT s.platform
+        """
+        bind_vars = {"@collection": self.collection_name}
+        results = await self.conn_manager.execute_query(query, bind_vars)
+        return results if results is not None else []

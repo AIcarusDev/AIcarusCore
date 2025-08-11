@@ -19,6 +19,10 @@ async def start_core_system() -> None:
         container = await builder.build_container()
         logger.info("所有服务实例已成功创建。")
 
+        # 在连接依赖前，执行一次表情包垃圾回收
+        if container.sticker_service:
+            await container.sticker_service.run_garbage_collection()
+
         # 2. 连接静态依赖
         wire_dependencies(container)
         logger.info("核心服务依赖已成功连接。")
