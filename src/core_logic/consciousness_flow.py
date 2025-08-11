@@ -17,6 +17,7 @@ from src.core_communication.core_ws_server import CoreWebsocketServer
 from src.core_logic.decision_dispatcher import process_llm_decision
 from src.core_logic.intrusive_thoughts import IntrusiveThoughtsGenerator
 from src.core_logic.prompt_builder import PromptBuilderError, ThoughtPromptBuilder
+from src.core_logic.sanitizer import LLMOutputSanitizer
 from src.core_logic.state_manager import AIStateManager
 from src.core_logic.thought_generator import ThoughtGenerator
 from src.core_logic.thought_persistor import ThoughtPersistor
@@ -210,15 +211,14 @@ class CoreLogic:
         if not session:
             return
 
-        # ======================== [ 核心改造点 ] ========================
-        # sentry_task 现在返回的是 Stimulus 对象
+        # sentry_task 返回的是 Stimulus 对象
         interrupting_stimulus = await sentry_task
         if not interrupting_stimulus:
             return
 
         logger.warning(f"[{session.conversation_id}] 中断哨兵获胜！思考-行动主任务被中断。")
 
-        # 上下文现在存储的是 Stimulus 对象，而不是原始的 event_doc
+        # 上下文存储的是 Stimulus 对象，而不是原始的 event_doc
         session.interruption_context = {
             "was_interrupted": True,
             "interrupting_stimulus": interrupting_stimulus,
@@ -228,7 +228,6 @@ class CoreLogic:
         if interrupting_stimulus.timestamp:
             session.last_processed_timestamp = interrupting_stimulus.timestamp
         self._last_interrupt_context_text = interrupting_stimulus.text_content
-        # =============================================================
 
         self.trigger_immediate_thought_cycle()
 
@@ -268,6 +267,21 @@ class CoreLogic:
         if not generated_thought_json:
             raise ThoughtGenerationError("LLM未能生成有效的思考JSON。")
 
+        # 1. 实例化修正器，传入本轮思考所需的所有上下文
+        sanitizer = LLMOutputSanitizer(
+            user_map=prompt_components.user_map,
+            uid_str_to_platform_id_map=prompt_components.uid_str_to_platform_id_map
+        )
+
+        # 2. 执行修正
+        sanitized_thought_json = sanitizer.sanitize(generated_thought_json)
+
+        # 3. 记录修正前后的对比，便于调试
+        if generated_thought_json != sanitized_thought_json:
+            logger.warning("LLM输出被拦截且修正")
+            logger.debug(f"修正前: {generated_thought_json}")
+            logger.debug(f"修正后: {sanitized_thought_json}")
+
         action_payload = generated_thought_json.get("action") or generated_thought_json.get(
             "consciousness_control"
         )
@@ -280,7 +294,7 @@ class CoreLogic:
             source_type="core_unified",
             source_id=focus_path_str,
             action_id=str(uuid.uuid4()) if action_payload else None,
-            action_payload=generated_thought_json,
+            action_payload=sanitized_thought_json,
         )
         saved_key = await self.thought_storage_service.save_thought_and_link(new_thought_pearl)
         if not saved_key:
@@ -320,7 +334,6 @@ class CoreLogic:
             logger.error(f"核心思考过程失败，中止本轮循环: {e}")
             return None
 
-        # ======================== [ 核心改造点 ] ========================
         # 传递 processed_stimuli
         await process_llm_decision(
             decision_json=new_thought_pearl.action_payload,
@@ -333,7 +346,6 @@ class CoreLogic:
             session=session,
             processed_events_this_turn=processed_stimuli,
         )
-        # =============================================================
 
         if processed_stimuli:
             return max(s.timestamp for s in processed_stimuli)
@@ -351,7 +363,6 @@ class CoreLogic:
             current_bot_id = str(bot_profile.get("user_id") or session.bot_id)
 
             while True:
-                # ======================== [ 核心改造点 ] ========================
                 # 从队列中获取的是 Stimulus 对象
                 new_stimulus = await subscription_queue.get()
                 if new_stimulus.timestamp <= start_timestamp:
@@ -363,7 +374,7 @@ class CoreLogic:
                 )
                 if interrupting_stimulus:
                     return interrupting_stimulus  # 返回 Stimulus 对象
-                # =============================================================
+
                 if new_context:
                     context_text = new_context
         except asyncio.CancelledError:
@@ -383,7 +394,6 @@ class CoreLogic:
         session: "ChatSession",
     ) -> tuple[Stimulus | None, str | None]:
         """对单个刺激物进行中断评估的辅助函数."""
-        # ======================== [ 核心改造点 ] ========================
         # 方法签名和内部逻辑都基于 Stimulus 对象
         if stimulus.sender_id and stimulus.sender_id == current_bot_id:
             return None, None
