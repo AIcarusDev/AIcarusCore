@@ -33,23 +33,26 @@ class StickerService:
         self.event_storage_service = event_storage_service
         self._stickers_dir = Path(config.runtime_environment.stickers_dir)
         self._initialize_directories()
-        logger.info("StickerService 已初始化。")
+        logger.info("StickerService 已初始化 (文件夹分平台管理版)。")
 
     def _initialize_directories(self) -> None:
         """初始化所有需要的目录."""
         self._stickers_dir.mkdir(parents=True, exist_ok=True)
-        logger.info(f"表情包目录已确认: {self._stickers_dir}")
+        logger.info(f"表情包根目录已确认: {self._stickers_dir}")
 
-    # +++ 新增的公共方法，供 PromptBuilder 调用 +++
+    # 获取平台专属的表情包目录
+    def _get_platform_sticker_dir(self, platform_id: str) -> Path:
+        """获取并确保指定平台的表情包子目录存在."""
+        platform_dir = self._stickers_dir / platform_id
+        platform_dir.mkdir(parents=True, exist_ok=True)
+        return platform_dir
+
     async def get_all_stickers(self, platform_id: str) -> list[dict[str, Any]]:
         """一个公共接口，用于获取指定平台的所有表情包元数据."""
         return await self.sticker_storage_service.get_all_stickers(platform_id)
 
     async def get_sticker_file_path(self, platform_id: str, sticker_id: str) -> Path | None:
-        """根据平台和表情包ID，获取其在文件系统中的完整路径.
-
-        这是提供给 MessageBuilder 等外部模块使用的安全接口.
-        """
+        """根据平台和表情包ID，获取其在文件系统中的完整路径."""
         sticker_doc = await self.sticker_storage_service.get_sticker_by_id(platform_id, sticker_id)
         if not sticker_doc:
             logger.error(
@@ -62,13 +65,12 @@ class StickerService:
             logger.error(f"StickerService: 表情包 '{sticker_id}' 在数据库中缺少文件名。")
             return None
 
-        return self._stickers_dir / filename
+        # 从平台子目录中构建路径
+        platform_dir = self._get_platform_sticker_dir(platform_id)
+        return platform_dir / filename
 
     async def manage_stickers(self, platform_id: str, params: dict) -> str:
-        """表情包管理动作的总入口和分发器.
-
-        这是从 ActionHandler 委托过来的主方法.
-        """
+        """表情包管理动作的总入口和分发器."""
         sub_command = next(
             (cmd for cmd in ["add", "remove", "edit_impression"] if cmd in params), None
         )
@@ -131,7 +133,6 @@ class StickerService:
             if not perceptual_hash:
                 return "错误：无法计算图片的感知哈希，无法添加。"
 
-            # +++ 修改点：从全局配置读取容忍度 +++
             similarity_tolerance = config.sticker_settings.p_hash_tolerance
             logger.debug(f"正在使用 pHash 容忍度 {similarity_tolerance} 检查相似表情包...")
             similar_sticker = await self.sticker_storage_service.find_similar_sticker_by_phash(
@@ -149,7 +150,10 @@ class StickerService:
                 extension = ".jpg"
 
             new_filename = f"sticker_{uuid.uuid4().hex}{extension}"
-            save_path = self._stickers_dir / new_filename
+
+            # 在平台子目录中保存文件
+            platform_dir = self._get_platform_sticker_dir(platform_id)
+            save_path = platform_dir / new_filename
             with open(save_path, "wb") as f:
                 f.write(image_bytes)
 
@@ -178,7 +182,9 @@ class StickerService:
         if not sticker_doc:
             return f"操作完成，但表情包 '{sticker_id}' 本来就不在你的收藏中。"
 
-        filepath = self._stickers_dir / sticker_doc["filename"]
+        # 从正确的平台子目录中删除文件
+        platform_dir = self._get_platform_sticker_dir(platform_id)
+        filepath = platform_dir / sticker_doc["filename"]
         filepath.unlink(missing_ok=True)
 
         if await self.sticker_storage_service.remove_sticker(platform_id, sticker_id):
@@ -207,10 +213,12 @@ class StickerService:
             all_stickers_meta = await self.sticker_storage_service.get_all_stickers(platform_id)
             if not all_stickers_meta:
                 logger.info(f"平台 '{platform_id}' 没有任何表情包，无需生成缩略图。")
+                # 预览图保存在根目录，方便访问
                 preview_path = self._stickers_dir / f"{platform_id}_stickers_preview.jpg"
                 preview_path.unlink(missing_ok=True)
                 return
 
+            # 预览图输出路径仍在根目录
             output_path = self._stickers_dir / f"{platform_id}_stickers_preview.jpg"
             config_dict = {
                 "thumbnail_size": (150, 150),
@@ -223,8 +231,14 @@ class StickerService:
                 "label_color": "#333333",
                 "label_spacing": 10,
             }
+            # 传入平台专属的表情包目录作为图片源
+            platform_stickers_dir = self._get_platform_sticker_dir(platform_id)
             await asyncio.to_thread(
-                create_sticker_grid, self._stickers_dir, all_stickers_meta, output_path, config_dict
+                create_sticker_grid,
+                platform_stickers_dir,
+                all_stickers_meta,
+                output_path,
+                config_dict,
             )
         except Exception as e:
             logger.error(
@@ -232,40 +246,52 @@ class StickerService:
             )
 
     async def run_garbage_collection(self) -> dict[str, int]:
-        """执行表情包垃圾回收，清理文件系统中存在但数据库中无记录的孤儿文件."""
-        logger.info("开始执行表情包目录的垃圾回收...")
+        """执行表情包垃圾回收，清理所有平台子目录中，文件系统中存在但数据库中无记录的孤儿文件."""
+        logger.info("开始执行表情包目录的全平台垃圾回收...")
+        total_scanned = 0
+        total_deleted = 0
+
         try:
-            all_db_stickers = await self.sticker_storage_service.get_all_stickers(platform="qq")
+            # 1. 获取所有平台的表情包记录
+            platforms = await self.sticker_storage_service.get_distinct_platforms()
+            if not platforms:
+                logger.info("数据库中没有任何平台的表情包记录，无需进行垃圾回收。")
+                return {"scanned": 0, "deleted": 0}
+
+            all_db_stickers = []
+            for platform_id in platforms:
+                all_db_stickers.extend(
+                    await self.sticker_storage_service.get_all_stickers(platform=platform_id)
+                )
             registered_filenames = {sticker["filename"] for sticker in all_db_stickers}
 
             if not self._stickers_dir.exists():
-                logger.warning("表情包目录不存在，无需进行垃圾回收。")
+                logger.warning("表情包根目录不存在，无法进行垃圾回收。")
                 return {"scanned": 0, "deleted": 0}
 
-            disk_files = {
-                f.name
-                for f in self._stickers_dir.iterdir()
-                if f.is_file() and f.name.startswith("sticker_")
-            }
+            # 2. 遍历文件系统中的所有平台子目录
+            for platform_dir in self._stickers_dir.iterdir():
+                if not platform_dir.is_dir():
+                    continue  # 只关心文件夹
 
-            orphan_files = disk_files - registered_filenames
+                logger.debug(f"正在扫描平台目录: {platform_dir.name}")
+                for sticker_file in platform_dir.iterdir():
+                    if sticker_file.is_file() and sticker_file.name.startswith("sticker_"):
+                        total_scanned += 1
+                        # 3. 检查文件是否在已注册的名单中
+                        if sticker_file.name not in registered_filenames:
+                            try:
+                                sticker_file.unlink()
+                                logger.info(
+                                    f"  - 已删除孤儿文件: {platform_dir.name}/{sticker_file.name}"
+                                )
+                                total_deleted += 1
+                            except OSError as e:
+                                logger.error(f"  - 删除文件 {sticker_file.name} 失败: {e}")
 
-            deleted_count = 0
-            if not orphan_files:
-                logger.info("文件系统与数据库记录一致，没有发现孤儿表情包文件。")
-            else:
-                logger.warning(f"发现 {len(orphan_files)} 个孤儿表情包文件，准备清理...")
-                for filename in orphan_files:
-                    try:
-                        (self._stickers_dir / filename).unlink()
-                        logger.info(f"  - 已删除孤儿文件: {filename}")
-                        deleted_count += 1
-                    except OSError as e:
-                        logger.error(f"  - 删除文件 {filename} 失败: {e}")
-
-            summary = {"scanned": len(disk_files), "deleted": deleted_count}
+            summary = {"scanned": total_scanned, "deleted": total_deleted}
             logger.info(
-                f"表情包垃圾回收完成。扫描文件: {summary['scanned']}, "
+                f"表情包垃圾回收完成。共扫描文件: {summary['scanned']}, "
                 f"删除孤儿文件: {summary['deleted']}."
             )
             return summary

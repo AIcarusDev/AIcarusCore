@@ -135,3 +135,13 @@ class StickerStorageService:
         except Exception as e:
             logger.error(f"获取表情包 '{sticker_id}' 失败: {e}", exc_info=True)
             return None
+
+    async def get_distinct_platforms(self) -> list[str]:
+        """从表情包集合中查询出所有不重复的平台ID."""
+        query = """
+            FOR s IN @@collection
+                RETURN DISTINCT s.platform
+        """
+        bind_vars = {"@collection": self.collection_name}
+        results = await self.conn_manager.execute_query(query, bind_vars)
+        return results if results is not None else []
