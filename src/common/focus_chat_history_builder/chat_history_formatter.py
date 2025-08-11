@@ -294,15 +294,27 @@ class _ChatHistoryFormatter:
         - 如果在可视窗口内，返回一个特殊的、带编号的占位符，并附上哈希值文本。
         - 如果在可视窗口外，返回已分析的文本描述，否则回退到带哈希的占位符。
         """
-        # 步骤 1: 准备多模态数据和哈希文本
+        # 步骤 1: 验证图片数据源的有效性
         base64_data = seg.data.get("base64")
+        url = seg.data.get("url")
+
+        has_valid_data = (isinstance(base64_data, str) and base64_data.strip()) or url
+        if not has_valid_data:
+            logger.warning(
+                f"事件 '{stimulus.event_id}' 中的一个图片消息段缺少有效的 base64 或 url 数据，"
+                f"已跳过。"
+            )
+            return "[图片数据无效或丢失]"
+
+        # 步骤 2: 仅在数据有效时，才添加引用并递增计数器
         if isinstance(base64_data, str) and base64_data.strip():
             mime_type = seg.data.get("mime_type", "image/jpeg")
             self.image_references_for_llm.append(f"data:{mime_type};base64,{base64_data}")
-        elif url := seg.data.get("url"):
+        elif url:
             self.image_references_for_llm.append(url)
 
         self.image_ref_counter += 1
+
         is_sticker = seg.data.get("summary") == "sticker"
         image_hash = seg.data.get("hash")
         hash_str = f" (hash: {image_hash})" if image_hash else ""
@@ -313,7 +325,7 @@ class _ChatHistoryFormatter:
             f"[{'动画表情' if is_sticker else '图片'}_{self.image_ref_counter}]"
         )
 
-        # 步骤 2: 根据是否在可视窗口内决定最终返回的字符串
+        # 步骤 3: 根据是否在可视窗口内决定最终返回的字符串 (此逻辑保持不变)
         if is_in_viewport:
             # 在可视窗口内：返回“注入占位符” + “哈希文本”
             # LLM会看到图片，同时也能读到旁边的哈希值
@@ -328,7 +340,8 @@ class _ChatHistoryFormatter:
                 return f"[{prefix}: {desc_text}]"
             else:
                 # 如果没有分析结果，作为回退，仍然显示带哈希的占位符
-                return f"{placeholder_for_injection}{hash_str}"
+                # [修正] 此处逻辑也应返回 placeholder_for_injection，因为即使在窗口外，
+                return f"[{'动画表情' if is_sticker else '图片'}: (无法获取描述)]{hash_str}"
 
     def _format_video_segment(self, seg: Seg, is_in_viewport: bool) -> str:
         """格式化视频(动图)消息段."""
