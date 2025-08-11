@@ -613,84 +613,92 @@ class LLMClient:
             logger.error(f"图像处理过程中失败，痛痛...呜呜呜: {e}", exc_info=True)
             return base64_data, original_mime_type
 
-    async def _process_single_image(
+    async def _process_single_media_input(
         self,
-        image_path_or_url_or_data_uri: str,
+        media_path_or_url_or_data_uri: str,
         session: aiohttp.ClientSession,
         mime_type_override: str | None,
-        proxy_url_for_image: str | None,
+        proxy_url_for_media: str | None,
     ) -> dict[str, str] | None:
-        base64_image_data = None
+        base64_media_data = None
         determined_mime_type = mime_type_override
         try:
-            if image_path_or_url_or_data_uri.startswith("data:image"):
-                # logger.info("检测到 Data URI，直接处理。")
-                header, encoded_data = image_path_or_url_or_data_uri.split(",", 1)
+            # 将 "data:image" 泛化为 "data:"，以同时支持图片和视频
+            if media_path_or_url_or_data_uri.startswith("data:"):
+                header, encoded_data = media_path_or_url_or_data_uri.split(",", 1)
+                # 从 header 中解析出真实的 MIME 类型
                 determined_mime_type = header.split(";")[0].split(":")[1]
-                base64_image_data = encoded_data
-            elif image_path_or_url_or_data_uri.startswith(("http://", "https://")):
-                headers = {"User-Agent": "Mozilla/5.0", "Referer": image_path_or_url_or_data_uri}
+                base64_media_data = encoded_data
+                # [探针] 添加日志探针，明确打印出解析到的媒体类型
+                logger.debug(f"已从 Data URI 中解析到媒体，类型: {determined_mime_type}")
+
+            elif media_path_or_url_or_data_uri.startswith(("http://", "https://")):
+                headers = {"User-Agent": "Mozilla/5.0", "Referer": media_path_or_url_or_data_uri}
                 async with session.get(
-                    image_path_or_url_or_data_uri,
+                    media_path_or_url_or_data_uri,
                     timeout=30,
-                    proxy=proxy_url_for_image,
+                    proxy=proxy_url_for_media,
                     headers=headers,
                 ) as response:
                     if response.status == 200:
-                        image_bytes = await response.read()
-                        base64_image_data = base64.b64encode(image_bytes).decode("utf-8")
+                        media_bytes = await response.read()
+                        base64_media_data = base64.b64encode(media_bytes).decode("utf-8")
                         if not determined_mime_type:
                             determined_mime_type = (
                                 response.headers.get("Content-Type", "").split(";")[0].strip()
                             )
                     else:
                         logger.error(
-                            f"Img fetch failed {image_path_or_url_or_data_uri}, "
-                            f"status: {response.status}"
+                            f"媒体文件获取失败 {media_path_or_url_or_data_uri}, "
+                            f"状态码: {response.status}"
                         )
                         return None
-            elif os.path.exists(image_path_or_url_or_data_uri):
+            elif os.path.exists(media_path_or_url_or_data_uri):
                 if not determined_mime_type:
-                    guessed_mime, _ = mimetypes.guess_type(image_path_or_url_or_data_uri)
+                    guessed_mime, _ = mimetypes.guess_type(media_path_or_url_or_data_uri)
                     determined_mime_type = guessed_mime
-                with open(image_path_or_url_or_data_uri, "rb") as image_file:
-                    base64_image_data = base64.b64encode(image_file.read()).decode("utf-8")
+                with open(media_path_or_url_or_data_uri, "rb") as media_file:
+                    base64_media_data = base64.b64encode(media_file.read()).decode("utf-8")
             else:
-                logger.error(f"Img not found: {image_path_or_url_or_data_uri[100:]}...")
+                # 优化日志信息
+                logger.error(f"媒体源未找到或无效: {media_path_or_url_or_data_uri[100:]}...")
                 return None
 
-            if not base64_image_data:
+            if not base64_media_data:
                 return None
 
-            determined_mime_type = determined_mime_type or "image/jpeg"
-            if not determined_mime_type.startswith("image/"):
-                logger.warning(f"无效的MIME类型 '{determined_mime_type}'，将回退到 image/jpeg。")
-                determined_mime_type = "image/jpeg"
+            # 统一处理MIME类型，确保其有效性
+            determined_mime_type = determined_mime_type or "application/octet-stream"
+            if "/" not in determined_mime_type:
+                logger.warning(
+                    f"无效的MIME类型 '{determined_mime_type}'，将回退到 application/octet-stream。"
+                )
+                determined_mime_type = "application/octet-stream"
 
-            if self.enable_image_compression:
-                base64_image_data, determined_mime_type = await self._compress_base64_image(
-                    base64_image_data, determined_mime_type
+            # 图片压缩逻辑只对图片生效
+            if self.enable_image_compression and determined_mime_type.startswith("image/"):
+                base64_media_data, determined_mime_type = await self._compress_base64_image(
+                    base64_media_data, determined_mime_type
                 )
 
-            return {"b64_data": base64_image_data, "mime_type": determined_mime_type}
+            return {"b64_data": base64_media_data, "mime_type": determined_mime_type}
         except Exception as e:
-            logger.exception(f"Img processing error {image_path_or_url_or_data_uri}: {e}")
+            logger.exception(f"媒体处理过程中出错 {media_path_or_url_or_data_uri}: {e}")
             return None
 
-    async def _process_images_input(
+    async def _process_media_inputs(
         self,
-        image_sources: list[str] | None,
+        media_sources: list[str] | None,
         mime_type_override: str | None,
     ) -> list[dict[str, str]]:
-        if not image_sources:
+        if not media_sources:
             return []
         session = await self._get_session()
         tasks = [
-            self._process_single_image(src, session, mime_type_override, self.proxy_url)
-            for src in image_sources
+            self._process_single_media_input(src, session, mime_type_override, self.proxy_url)
+            for src in media_sources
         ]
         results = await asyncio.gather(*tasks)
-        # 使用列表推导式替换 for-append 循环
         return [result for result in results if result]
 
     def _get_endpoint_path(self, request_type: str, is_streaming: bool) -> str:
