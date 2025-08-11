@@ -26,6 +26,9 @@ def calculate_perceptual_hash(image_bytes: bytes) -> str | None:
 def compare_phashes(hash1: str, hash2: str, tolerance: int = 5) -> bool:
     """比较两个感知哈希字符串的汉明距离.
 
+    此函数现在会验证输入，确保两个哈希值都是长度相等的有效十六进制字符串。
+    如果验证失败，将返回 False。
+
     Args:
         hash1 (str): 第一个哈希值.
         hash2 (str): 第二个哈希值.
@@ -33,16 +36,26 @@ def compare_phashes(hash1: str, hash2: str, tolerance: int = 5) -> bool:
                          默认值 5 是一个比较常用的阈值.
 
     Returns:
-        bool: 如果图片相似则返回 True.
+        bool: 如果图片相似则返回 True, 否则返回 False.
     """
+    # 1. 验证长度是否相等
     if len(hash1) != len(hash2):
+        logger.warning(f"pHash 比较失败：哈希长度不相等 ({len(hash1)} vs {len(hash2)})。")
         return False
 
-    # 将十六进制字符串转换为整数进行汉明距离计算
-    h1 = int(hash1, 16)
-    h2 = int(hash2, 16)
+    try:
+        # 2. 验证是否为有效的十六进制字符串，并将其转换为整数
+        h1 = int(hash1, 16)
+        h2 = int(hash2, 16)
+    except (ValueError, TypeError):
+        # 如果转换失败，说明至少有一个不是有效的十六进制字符串
+        logger.warning(
+            f"pHash 比较失败：一个或两个输入不是有效的十六进制字符串。 "
+            f"hash1='{hash1}', hash2='{hash2}'。"
+        )
+        return False
 
-    # 计算汉明距离
+    # 3. 计算汉明距离
     distance = bin(h1 ^ h2).count("1")
 
     return distance <= tolerance
