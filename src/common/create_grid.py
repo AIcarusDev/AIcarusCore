@@ -7,12 +7,10 @@ from src.common.custom_logging.logging_config import get_logger
 
 logger = get_logger(__name__)
 
+
 # --- [修改] 将核心逻辑封装成一个更通用的函数 ---
 def create_sticker_grid(
-    stickers_dir: Path,
-    metadata_list: list[dict],
-    output_path: Path,
-    config: dict
+    stickers_dir: Path, metadata_list: list[dict], output_path: Path, config: dict
 ) -> bool:
     """根据表情包元数据，将指定目录中的图片生成带数字标签的网格缩略图."""
     # --- 1. 从元数据中筛选出实际存在的图片文件 ---
@@ -29,7 +27,7 @@ def create_sticker_grid(
         # 如果输出文件存在，删除它，以反映空状态
         if output_path.exists():
             output_path.unlink()
-        return True # 任务成功，只是没东西可画
+        return True  # 任务成功，只是没东西可画
 
     # --- 2. 加载配置 ---
     thumb_size = config.get("thumbnail_size", (150, 150))
@@ -78,7 +76,7 @@ def create_sticker_grid(
         try:
             with Image.open(path) as img:
                 # 对于GIF，seek到第一帧来创建缩略图
-                if hasattr(img, 'seek'):
+                if hasattr(img, "seek"):
                     img.seek(0)
                 img.thumbnail(thumb_size, Image.Resampling.LANCZOS)
                 thumb_img = Image.new("RGB", thumb_size, bg_color)
@@ -87,7 +85,7 @@ def create_sticker_grid(
                 grid_image.paste(thumb_img, (x, y))
         except Exception as e:
             logger.error(f"处理图片 {path} 失败: {e}")
-            continue # 跳过这张有问题的图片
+            continue  # 跳过这张有问题的图片
 
         # --- 6. 添加数字标签 ---
         label_text = str(sticker_id)
@@ -107,10 +105,12 @@ def create_sticker_grid(
         logger.error(f"保存网格图片失败: {e}")
         return False
 
+
 # --- 保留 __main__ 块用于独立测试 ---
 if __name__ == "__main__":
     # 这是一个示例，实际调用时会从 ActionHandler 传入参数
     from src.common.custom_logging.logging_config import get_logger
+
     logger = get_logger(__name__)
 
     # 模拟 ActionHandler 的调用
@@ -126,8 +126,8 @@ if __name__ == "__main__":
     ]
 
     # 模拟创建一些图片文件
-    Image.new('RGB', (100, 100), color = 'red').save(STICKERS_DIR / 'test1.jpg')
-    Image.new('RGB', (100, 100), color = 'green').save(STICKERS_DIR / 'test2.png')
+    Image.new("RGB", (100, 100), color="red").save(STICKERS_DIR / "test1.jpg")
+    Image.new("RGB", (100, 100), color="green").save(STICKERS_DIR / "test2.png")
 
     CONFIG = {
         "thumbnail_size": (150, 150),
@@ -135,7 +135,7 @@ if __name__ == "__main__":
         "spacing": 20,
         "margin": 40,
         "background_color": "#FFFFFF",
-        "font_path": None, # 使用默认字体
+        "font_path": None,  # 使用默认字体
         "font_size": 24,
         "label_color": "#333333",
         "label_spacing": 10,

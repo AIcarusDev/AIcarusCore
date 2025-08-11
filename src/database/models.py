@@ -30,7 +30,6 @@ class StickerDocument:
         return asdict(self)
 
 
-
 # 核心数据库集合的名字和类型定义
 class CoreDBCollections:
     """一个中央管家，负责记下所有核心集合的名字和它们的类型."""

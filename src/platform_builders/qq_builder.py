@@ -264,14 +264,14 @@ class QQBuilder(BasePlatformBuilder):
                     "properties": {
                         "image_hash": {
                             "type": "string",
-                            "description": "要添加为表情包的图片的哈希ID (从聊天记录的 `(hash:...)` 中获取)。"
+                            "description": "要添加为表情包的图片的哈希ID (从聊天记录的 `(hash:...)` 中获取)。",
                         },
                         "impression": {
                             "type": "string",
-                            "description": "你对这张表情包的主观印象/描述。"
-                        }
+                            "description": "你对这张表情包的主观印象/描述。",
+                        },
                     },
-                    "required": ["image_hash", "impression"]
+                    "required": ["image_hash", "impression"],
                 },
                 "remove": {
                     "type": "object",
@@ -279,10 +279,10 @@ class QQBuilder(BasePlatformBuilder):
                     "properties": {
                         "sticker_id": {
                             "type": "string",
-                            "description": "要移除的表情包的唯一编号 (例如 '001')。"
+                            "description": "要移除的表情包的唯一编号 (例如 '001')。",
                         }
                     },
-                    "required": ["sticker_id"]
+                    "required": ["sticker_id"],
                 },
                 "edit_impression": {
                     "type": "object",
@@ -290,23 +290,23 @@ class QQBuilder(BasePlatformBuilder):
                     "properties": {
                         "sticker_id": {
                             "type": "string",
-                            "description": "要编辑印象/描述的表情包的编号。"
+                            "description": "要编辑印象/描述的表情包的编号。",
                         },
                         "new_impression": {
                             "type": "string",
-                            "description": "新的印象/描述，将覆盖之前的印象/描述。"
-                        }
+                            "description": "新的印象/描述，将覆盖之前的印象/描述。",
+                        },
                     },
-                    "required": ["sticker_id", "new_impression"]
+                    "required": ["sticker_id", "new_impression"],
                 },
-                "motivation": {"type": "string"}
+                "motivation": {"type": "string"},
             },
             "required": ["motivation"],
             "oneOf": [
-                { "required": ["add"] },
-                { "required": ["remove"] },
-                { "required": ["edit_impression"] }
-            ]
+                {"required": ["add"]},
+                {"required": ["remove"]},
+                {"required": ["edit_impression"]},
+            ],
         }
         platform_leave_conversation_schema = {
             "type": "object",
@@ -403,7 +403,13 @@ class QQBuilder(BasePlatformBuilder):
                                     "command": {
                                         "type": "string",
                                         "description": "要执行的指令名称。",
-                                        "enum": ["reply", "at", "text", "sticker", "send_and_break"],
+                                        "enum": [
+                                            "reply",
+                                            "at",
+                                            "text",
+                                            "sticker",
+                                            "send_and_break",
+                                        ],
                                     },
                                     "params": {
                                         "type": "object",
@@ -426,8 +432,8 @@ class QQBuilder(BasePlatformBuilder):
                                             },
                                             "sticker_id": {
                                                 "type": "string",
-                                                "description": "要发送的表情包的编号 (例如 '001')。"
-                                            }
+                                                "description": "要发送的表情包的编号 (例如 '001')。",
+                                            },
                                         },
                                     },
                                 },
@@ -482,7 +488,7 @@ class QQBuilder(BasePlatformBuilder):
                 "    - `delete_friend(user_id, motivation)`: 【谨慎使用】删除指定ID的好友（如果想删除的好友就是对方，可省略user_id）。",
                 "    - `leave_conversation(group_id, motivation)`: 【谨慎使用】退出一个群聊（将你自己从某个群聊移出）。如果当前就在该群聊中，可以不提供group_id。",
                 "    - `handle_friend_request(user_id, flag, approve, remark, motivation)`: 处理好友请求。",
-                "    - `manage_stickers`: 管理你的QQ表情包收藏（添加、删除、编辑）。"
+                "    - `manage_stickers`: 管理你的QQ表情包收藏（添加、删除、编辑）。",
             ],
         }
 

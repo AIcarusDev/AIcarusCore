@@ -152,7 +152,7 @@ class MessageBuilder:
             return
 
         # 确保 action_handler._stickers_dir 已经被初始化
-        stickers_dir = getattr(self.action_handler, '_stickers_dir', None)
+        stickers_dir = getattr(self.action_handler, "_stickers_dir", None)
         if not stickers_dir or not isinstance(stickers_dir, Path):
             logger.error("ActionHandler 中的 _stickers_dir 未正确初始化！")
             return

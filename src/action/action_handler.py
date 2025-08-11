@@ -69,9 +69,15 @@ class ActionHandler:
         self._stickers_dir: Path | None = None
         self._sticker_preview_path: Path | None = None
         self._sticker_grid_config: dict = {
-            "thumbnail_size": (150, 150), "columns": 6, "spacing": 20, "margin": 30,
-            "background_color": "#282c34", "font_path": None, "font_size": 24,
-            "label_color": "#abb2bf", "label_spacing": 10,
+            "thumbnail_size": (150, 150),
+            "columns": 6,
+            "spacing": 20,
+            "margin": 30,
+            "background_color": "#282c34",
+            "font_path": None,
+            "font_size": 24,
+            "label_color": "#abb2bf",
+            "label_spacing": 10,
         }
         logger.info(f"{self.__class__.__name__} instance created (等待依赖注入).")
 
@@ -312,7 +318,7 @@ class ActionHandler:
 
         sub_command = next(
             (cmd for cmd in ["add", "remove", "edit_impression"] if cmd in params), None
-            )
+        )
         if not sub_command:
             return "错误：manage_stickers 指令缺少有效的子命令 (add/remove/edit_impression)。"
 
@@ -661,8 +667,7 @@ class ActionHandler:
                 result_message = await self._handle_remove_sticker(platform_id, params["remove"])
             elif sub_command == "edit_impression":
                 result_message = await self._handle_edit_impression(
-                    platform_id,
-                    params["edit_impression"]
+                    platform_id, params["edit_impression"]
                 )
         except Exception as e:
             logger.error(f"处理 manage_stickers.{sub_command} 时发生意外错误: {e}", exc_info=True)
@@ -684,14 +689,11 @@ class ActionHandler:
 
         image_seg = next(
             (
-                seg for seg in event_doc.get(
-                    "content",
-                    []
-                    ) if seg.get(
-                        "data",
-                        {}
-                        ).get("hash") == image_hash
-            ), None
+                seg
+                for seg in event_doc.get("content", [])
+                if seg.get("data", {}).get("hash") == image_hash
+            ),
+            None,
         )
         if not image_seg:
             return f"错误：在事件 '{event_doc['_key']}' 中无法定位哈希为 '{image_hash}' 的图片段。"
@@ -706,7 +708,7 @@ class ActionHandler:
         try:
             if img_b64:
                 image_bytes = base64.b64decode(img_b64)
-            else: # img_url must exist
+            else:  # img_url must exist
                 async with aiohttp.ClientSession() as session, session.get(img_url) as response:
                     response.raise_for_status()
                     image_bytes = await response.read()
@@ -725,13 +727,10 @@ class ActionHandler:
 
             # 更新数据库
             sticker_doc = await self.sticker_storage_service.add_sticker(
-                platform_id,
-                new_filename,
-                impression,
-                image_hash
+                platform_id, new_filename, impression, image_hash
             )
             if not sticker_doc:
-                save_path.unlink(missing_ok=True) # 如果数据库失败，删除已保存的文件
+                save_path.unlink(missing_ok=True)  # 如果数据库失败，删除已保存的文件
                 return "错误：将表情包元数据存入数据库时失败。"
 
             return (
@@ -771,10 +770,8 @@ class ActionHandler:
             return "错误：编辑印象缺少 sticker_id 或 new_impression。"
 
         if await self.sticker_storage_service.edit_impression(
-            platform_id,
-            sticker_id,
-            new_impression
-            ):
+            platform_id, sticker_id, new_impression
+        ):
             return f"成功！表情包 '{sticker_id}' 的印象已更新为：“{new_impression}”。"
         else:
             return f"错误：更新表情包 '{sticker_id}' 的印象时失败，可能该表情包不存在。"
@@ -793,7 +790,7 @@ class ActionHandler:
                 self._stickers_dir,
                 all_stickers_meta,
                 self._sticker_preview_path,
-                self._sticker_grid_config
+                self._sticker_grid_config,
             )
         except Exception as e:
             logger.error(f"重新生成表情包缩略图时发生严重错误: {e}", exc_info=True)

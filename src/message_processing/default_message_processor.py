@@ -97,18 +97,19 @@ class DefaultMessageProcessor:
             return
 
         for seg in event_doc.content:
-            if seg.get("type") == "image" and (data := seg.get("data")) and (
-                b64 := data.get("base64")
-                ):
+            if (
+                seg.get("type") == "image"
+                and (data := seg.get("data"))
+                and (b64 := data.get("base64"))
+            ):
                 try:
                     # 我们只需要一个简短的、用于引用的ID，前8位足够了
-                    full_hash = hashlib.sha256(b64.encode('utf-8')).hexdigest()
+                    full_hash = hashlib.sha256(b64.encode("utf-8")).hexdigest()
                     short_hash = full_hash[:8]
                     data["hash"] = short_hash
                     logger.debug(f"为事件 {event_doc.event_id} 中的图片注入哈希: {short_hash}")
                 except Exception as e:
                     logger.error(f"为事件 {event_doc.event_id} 的图片计算哈希时出错: {e}")
-
 
     async def _handle_event_persistence(
         self, event: ProtocolEvent, platform_id: str, needs_persistence: bool

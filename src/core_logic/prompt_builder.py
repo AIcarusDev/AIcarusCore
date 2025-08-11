@@ -271,9 +271,7 @@ class ThoughtPromptBuilder:
                 platform="qq"
             )
             if stickers:
-                sticker_lines = [
-                    f'{s["sticker_id"]}: {s["impression"]}' for s in stickers
-                ]
+                sticker_lines = [f"{s['sticker_id']}: {s['impression']}" for s in stickers]
                 sticker_collection_block = "\n".join(sticker_lines)
             else:
                 sticker_collection_block = "你还没有收藏任何表情包。"
