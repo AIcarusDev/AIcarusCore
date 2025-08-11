@@ -267,7 +267,7 @@ class ThoughtPromptBuilder:
         sticker_collection_block = ""
         # 只有当AI的焦点在qq平台或其下的会话时，才去加载和显示表情包信息
         if platform_id == "qq" and self.action_handler.sticker_service:
-            stickers = await self.action_handler.sticker_service.get_all_stickers(platform="qq")
+            stickers = await self.action_handler.sticker_service.get_all_stickers(platform_id="qq")
             if stickers:
                 sticker_lines = [f"{s['sticker_id']}: {s['impression']}" for s in stickers]
                 sticker_collection_block = "\n".join(sticker_lines)
