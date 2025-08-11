@@ -296,34 +296,6 @@ class ActionHandler:
         )
         return response.get("text", "搜索失败或未返回任何信息。")
 
-    async def _execute_core_manage_stickers(self, params: dict) -> str:
-        """执行表情包管理动作，并同步更新缩略图."""
-        if not self.sticker_storage_service or not self.event_storage_service:
-            return "错误：表情包管理服务未初始化。"
-
-        sub_command = next(
-            (cmd for cmd in ["add", "remove", "edit_impression"] if cmd in params), None
-        )
-        if not sub_command:
-            return "错误：manage_stickers 指令缺少有效的子命令 (add/remove/edit_impression)。"
-
-        result_message = ""
-        try:
-            if sub_command == "add":
-                result_message = await self._handle_add_sticker(params["add"])
-            elif sub_command == "remove":
-                result_message = await self._handle_remove_sticker(params["remove"])
-            elif sub_command == "edit_impression":
-                result_message = await self._handle_edit_impression(params["edit_impression"])
-        except Exception as e:
-            logger.error(f"处理 manage_stickers.{sub_command} 时发生意外错误: {e}", exc_info=True)
-            result_message = f"错误：执行 {sub_command} 操作时发生内部错误。"
-
-        # 无论成功与否，都尝试重新生成缩略图以反映最新状态
-        await self._regenerate_sticker_grid()
-
-        return result_message
-
     def _execute_core_list_files(self, params: dict) -> str:
         path_str = params.get("path", ".")
         safe_path = self._resolve_safe_path(path_str)
