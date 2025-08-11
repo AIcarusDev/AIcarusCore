@@ -125,7 +125,8 @@ class ImageAnalysisService:
                 else (IMAGE_ANALYSIS_PROMPT, IMAGE_ANALYSIS_SCHEMA)
             )
             data_uri = f"data:{mime_type};base64,{base64_data}"
-            user_prompt_for_vision = "请分析这张图片。"
+            # 手动添加占位符，以确保图文混排逻辑能正确找到并替换图片
+            user_prompt_for_vision = "请分析这张图片。\n[图片_1]"
 
             # [探针-C1] 记录发送给 Vision LLM 的请求详情
             logger.info(
