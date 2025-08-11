@@ -292,7 +292,10 @@ class _ChatHistoryFormatter:
     ) -> str:
         self.image_ref_counter += 1
         is_sticker = seg.data.get("summary") == "sticker"
-        placeholder = f"[{'动画表情' if is_sticker else '图片'}_{self.image_ref_counter}]"
+        # 检查Seg中是否有哈希值，如果有，就附加到占位符上
+        image_hash = seg.data.get("hash")
+        hash_str = f" (hash: {image_hash})" if image_hash else ""
+        placeholder = f"[{'动画表情' if is_sticker else '图片'}_{self.image_ref_counter}{hash_str}]"
 
         base64_data = seg.data.get("base64")
         if isinstance(base64_data, str) and base64_data.strip():

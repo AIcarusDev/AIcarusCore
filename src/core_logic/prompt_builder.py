@@ -241,7 +241,7 @@ class ThoughtPromptBuilder:
         user_map: dict | None,
         can_go_back: bool,
     ) -> dict[str, Any]:
-        """(提取出的新方法) 构建 System Prompt 的所有部分."""
+        """构建 System Prompt 的所有部分."""
         builder = platform_builder_registry.get_builder(platform_id)
         core_builder = platform_builder_registry.get_builder("core")
 
@@ -264,10 +264,33 @@ class ThoughtPromptBuilder:
             else:
                 session.working_memory.clear()
 
+        sticker_collection_block = ""
+        # 只有当AI的焦点在qq平台或其下的会话时，才去加载和显示表情包信息
+        if platform_id == "qq" and self.action_handler.sticker_storage_service:
+            stickers = await self.action_handler.sticker_storage_service.get_all_stickers(
+                platform="qq"
+            )
+            if stickers:
+                sticker_lines = [
+                    f'{s["sticker_id"]}: {s["impression"]}' for s in stickers
+                ]
+                sticker_collection_block = "\n".join(sticker_lines)
+            else:
+                sticker_collection_block = "你还没有收藏任何表情包。"
+
+            # 加上你想要的固定文件名提示
+            sticker_collection_block = f"""
+<sticker_collection_preview filename="stickers_collection_preview.jpg">
+<!-- 这是你当前收藏的表情包列表，编号与预览图一一对应 -->
+{sticker_collection_block}
+</sticker_collection_preview>
+"""
+
         return {
             "aicarus_rule_block": AICARUS_RULE,
             "current_time": get_formatted_time_for_llm(),
             "persona_block": self._get_persona_block(),
+            "sticker_collection_block": sticker_collection_block,
             "available_platforms_block": await self._get_available_platforms_block(),
             "current_state_block": await self._get_current_state_block(level, platform_id, conv_id),
             "attentional_trajectory_block": await self._build_attentional_trajectory_block(),

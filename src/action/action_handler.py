@@ -1,13 +1,17 @@
 # src/action/action_handler.py
 import asyncio
+import base64
 import io
+import mimetypes
 import os
 import time
 import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
+import aiohttp
 from src.action.components.pending_action_manager import PendingActionManager
+from src.common.create_grid import create_sticker_grid
 from src.common.custom_logging.logging_config import get_logger
 from src.common.utils import find_files, generate_file_tree, parse_entity_uid
 from src.config import config
@@ -19,6 +23,7 @@ from src.database import (
     EventStorageService,
     ThoughtStorageService,
 )
+from src.database.services.sticker_storage_service import StickerStorageService
 from src.domain.models import ActionMetadata, ActionResult
 from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.platform_builders.registry import platform_builder_registry
@@ -27,6 +32,7 @@ from src.prompt_templates.web_search import WEB_SEARCH_SYSTEM_PROMPT, WEB_SEARCH
 
 if TYPE_CHECKING:
     from src.core_logic.consciousness_flow import CoreLogic
+    from src.database.services.sticker_storage_service import StickerStorageService
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 
 logger = get_logger(__name__)
@@ -52,12 +58,21 @@ class ActionHandler:
         self.action_sender: ActionSender | None = None
         self.thought_storage_service: ThoughtStorageService | None = None
         self.action_log_service: ActionLogStorageService | None = None
+        self.event_storage_service: EventStorageService | None = None
+        self.sticker_storage_service: StickerStorageService | None = None
         self.thought_trigger: asyncio.Event | None = None
         self.pending_action_manager: PendingActionManager | None = None
         self.chat_session_manager: ChatSessionManager | None = None
         self.core_logic: CoreLogic | None = None
         self.entity_service: EntityGraphService | None = None
         self._workspace_root: Path | None = None
+        self._stickers_dir: Path | None = None
+        self._sticker_preview_path: Path | None = None
+        self._sticker_grid_config: dict = {
+            "thumbnail_size": (150, 150), "columns": 6, "spacing": 20, "margin": 30,
+            "background_color": "#282c34", "font_path": None, "font_size": 24,
+            "label_color": "#abb2bf", "label_spacing": 10,
+        }
         logger.info(f"{self.__class__.__name__} instance created (等待依赖注入).")
 
     def _initialize_workspace(self) -> None:
@@ -72,6 +87,9 @@ class ActionHandler:
             )
         self._workspace_root = (PROJECT_ROOT / workspace_path_from_config).resolve()
         self._workspace_root.mkdir(parents=True, exist_ok=True)
+        self._stickers_dir = self._workspace_root / "stickers"
+        self._stickers_dir.mkdir(parents=True, exist_ok=True)
+        self._sticker_preview_path = self._workspace_root / "stickers_collection_preview.jpg"
         logger.info(f"文件操作沙箱已通过延迟初始化成功定位，根目录: {self._workspace_root}")
 
     def _get_safe_workspace_root(self) -> Path:
@@ -107,6 +125,7 @@ class ActionHandler:
         thought_service: ThoughtStorageService,
         event_service: EventStorageService,
         action_log_service: ActionLogStorageService,
+        sticker_storage_service: "StickerStorageService",
         action_sender: ActionSender,
         entity_service: EntityGraphService,
         chat_session_manager: "ChatSessionManager",
@@ -114,7 +133,9 @@ class ActionHandler:
     ) -> None:
         """设置依赖服务."""
         self.thought_storage_service = thought_service
+        self.event_storage_service = event_service
         self.action_log_service = action_log_service
+        self.sticker_storage_service = sticker_storage_service
         self.action_sender = action_sender
         self.entity_service = entity_service
         self.chat_session_manager = chat_session_manager
@@ -283,6 +304,34 @@ class ActionHandler:
             prompt=user_prompt, system_prompt=system_prompt, is_stream=False, use_google_search=True
         )
         return response.get("text", "搜索失败或未返回任何信息。")
+
+    async def _execute_core_manage_stickers(self, params: dict) -> str:
+        """执行表情包管理动作，并同步更新缩略图."""
+        if not self.sticker_storage_service or not self.event_storage_service:
+            return "错误：表情包管理服务未初始化。"
+
+        sub_command = next(
+            (cmd for cmd in ["add", "remove", "edit_impression"] if cmd in params), None
+            )
+        if not sub_command:
+            return "错误：manage_stickers 指令缺少有效的子命令 (add/remove/edit_impression)。"
+
+        result_message = ""
+        try:
+            if sub_command == "add":
+                result_message = await self._handle_add_sticker(params["add"])
+            elif sub_command == "remove":
+                result_message = await self._handle_remove_sticker(params["remove"])
+            elif sub_command == "edit_impression":
+                result_message = await self._handle_edit_impression(params["edit_impression"])
+        except Exception as e:
+            logger.error(f"处理 manage_stickers.{sub_command} 时发生意外错误: {e}", exc_info=True)
+            result_message = f"错误：执行 {sub_command} 操作时发生内部错误。"
+
+        # 无论成功与否，都尝试重新生成缩略图以反映最新状态
+        await self._regenerate_sticker_grid()
+
+        return result_message
 
     def _execute_core_list_files(self, params: dict) -> str:
         path_str = params.get("path", ".")
@@ -518,6 +567,19 @@ class ActionHandler:
         metadata: ActionMetadata,
     ) -> None:
         """执行一个平台动作的完整流程，并传递元数据."""
+        if action_name == "manage_stickers":
+            result_text = await self._execute_platform_manage_stickers(platform_id, params)
+            if self.thought_storage_service:
+                await self.thought_storage_service.save_action_result_to_thought(
+                    thought_key=doc_key_for_updates, result_text=result_text
+                )
+            if self.thought_trigger:
+                logger.info(
+                    f"表情包管理动作 '{platform_id}.{action_name}' 完成，立即触发新一轮思考。"
+                )
+                self.thought_trigger.set()
+            return
+
         if not self.action_sender or platform_id not in self.action_sender.connected_adapters:
             error_msg = f"动作执行失败：平台 '{platform_id}' 理论上存在，但当前未连接。"
             logger.error(error_msg)
@@ -579,6 +641,162 @@ class ActionHandler:
             original_action_description=f"{platform_id}.{action_name}",
             metadata=metadata,
         )
+
+    async def _execute_platform_manage_stickers(self, platform_id: str, params: dict) -> str:
+        """执行特定平台的表情包管理动作."""
+        if not self.sticker_storage_service or not self.event_storage_service:
+            return "错误：表情包管理服务未初始化。"
+
+        sub_command = next(
+            (cmd for cmd in ["add", "remove", "edit_impression"] if cmd in params), None
+        )
+        if not sub_command:
+            return "错误：manage_stickers 指令缺少有效的子命令 (add/remove/edit_impression)。"
+
+        result_message = ""
+        try:
+            if sub_command == "add":
+                result_message = await self._handle_add_sticker(platform_id, params["add"])
+            elif sub_command == "remove":
+                result_message = await self._handle_remove_sticker(platform_id, params["remove"])
+            elif sub_command == "edit_impression":
+                result_message = await self._handle_edit_impression(
+                    platform_id,
+                    params["edit_impression"]
+                )
+        except Exception as e:
+            logger.error(f"处理 manage_stickers.{sub_command} 时发生意外错误: {e}", exc_info=True)
+            result_message = f"错误：执行 {sub_command} 操作时发生内部错误。"
+
+        await self._regenerate_sticker_grid(platform_id)
+        return result_message
+
+    async def _handle_add_sticker(self, platform_id: str, params: dict) -> str:
+        """处理添加表情包的逻辑."""
+        image_hash = params.get("image_hash")
+        impression = params.get("impression")
+        if not image_hash or not impression:
+            return "错误：添加表情包缺少 image_hash 或 impression。"
+
+        event_doc = await self.event_storage_service.find_event_by_image_hash(image_hash)
+        if not event_doc:
+            return f"错误：找不到哈希值为 '{image_hash}' 的图片来源。"
+
+        image_seg = next(
+            (
+                seg for seg in event_doc.get(
+                    "content",
+                    []
+                    ) if seg.get(
+                        "data",
+                        {}
+                        ).get("hash") == image_hash
+            ), None
+        )
+        if not image_seg:
+            return f"错误：在事件 '{event_doc['_key']}' 中无法定位哈希为 '{image_hash}' 的图片段。"
+
+        img_data = image_seg.get("data", {})
+        img_url = img_data.get("url")
+        img_b64 = img_data.get("base64")
+
+        if not img_url and not img_b64:
+            return "错误：图片来源中既没有URL也没有Base64数据。"
+
+        try:
+            if img_b64:
+                image_bytes = base64.b64decode(img_b64)
+            else: # img_url must exist
+                async with aiohttp.ClientSession() as session, session.get(img_url) as response:
+                    response.raise_for_status()
+                    image_bytes = await response.read()
+
+            # 确定文件扩展名
+            mime_type = img_data.get("mime_type", "image/jpeg")
+            extension = mimetypes.guess_extension(mime_type) or ".jpg"
+            if extension == ".jpe":
+                extension = ".jpg"
+
+            # 保存文件
+            new_filename = f"sticker_{uuid.uuid4().hex}{extension}"
+            save_path = self._stickers_dir / new_filename
+            with open(save_path, "wb") as f:
+                f.write(image_bytes)
+
+            # 更新数据库
+            sticker_doc = await self.sticker_storage_service.add_sticker(
+                platform_id,
+                new_filename,
+                impression,
+                image_hash
+            )
+            if not sticker_doc:
+                save_path.unlink(missing_ok=True) # 如果数据库失败，删除已保存的文件
+                return "错误：将表情包元数据存入数据库时失败。"
+
+            return (
+                f"成功！表情包 '{sticker_doc.sticker_id}' 已添加到你的收藏，"
+                f"印象是：“{impression}”。"
+            )
+
+        except Exception as e:
+            logger.error(f"添加表情包 (hash: {image_hash}) 过程出错: {e}", exc_info=True)
+            return "错误：处理图片数据或保存文件时发生错误。"
+
+    async def _handle_remove_sticker(self, platform_id: str, params: dict) -> str:
+        """处理移除表情包的逻辑."""
+        sticker_id = params.get("sticker_id")
+        if not sticker_id:
+            return "错误：移除表情包缺少 sticker_id。"
+
+        sticker_doc = await self.sticker_storage_service.get_sticker_by_id(platform_id, sticker_id)
+        if not sticker_doc:
+            return f"操作完成，但表情包 '{sticker_id}' 本来就不在你的收藏中。"
+
+        # 删除文件
+        filepath = self._stickers_dir / sticker_doc["filename"]
+        filepath.unlink(missing_ok=True)
+
+        # 从数据库删除记录
+        if await self.sticker_storage_service.remove_sticker(platform_id, sticker_id):
+            return f"成功！已从你的收藏中移除表情包 '{sticker_id}'。"
+        else:
+            return f"错误：从数据库移除表情包 '{sticker_id}' 时失败。"
+
+    async def _handle_edit_impression(self, platform_id: str, params: dict) -> str:
+        """处理编辑表情包印象的逻辑."""
+        sticker_id = params.get("sticker_id")
+        new_impression = params.get("new_impression")
+        if not sticker_id or not new_impression:
+            return "错误：编辑印象缺少 sticker_id 或 new_impression。"
+
+        if await self.sticker_storage_service.edit_impression(
+            platform_id,
+            sticker_id,
+            new_impression
+            ):
+            return f"成功！表情包 '{sticker_id}' 的印象已更新为：“{new_impression}”。"
+        else:
+            return f"错误：更新表情包 '{sticker_id}' 的印象时失败，可能该表情包不存在。"
+
+    async def _regenerate_sticker_grid(self, platform_id: str) -> None:
+        """获取最新的表情包元数据，并调用缩略图生成函数."""
+        if not self.sticker_storage_service:
+            return
+
+        logger.info("正在触发表情包缩略图重新生成...")
+        try:
+            all_stickers_meta = await self.sticker_storage_service.get_all_stickers(platform_id)
+            # 使用 to_thread 在后台线程中运行阻塞的IO和CPU密集型任务
+            await asyncio.to_thread(
+                create_sticker_grid,
+                self._stickers_dir,
+                all_stickers_meta,
+                self._sticker_preview_path,
+                self._sticker_grid_config
+            )
+        except Exception as e:
+            logger.error(f"重新生成表情包缩略图时发生严重错误: {e}", exc_info=True)
 
     async def execute_simple_action(
         self,

@@ -53,6 +53,8 @@ CORE_CYCLE_SYSTEM_PROMPT = """
 {available_platforms_block}
 </available_platforms>
 
+{sticker_collection_block}
+
 <behavior_guidelines>
 {behavior_guidelines_block}
 </behavior_guidelines>

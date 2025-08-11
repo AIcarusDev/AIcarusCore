@@ -29,6 +29,7 @@ if TYPE_CHECKING:
         SummaryStorageService,
         ThoughtStorageService,
     )
+    from src.database.services.sticker_storage_service import StickerStorageService
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
     from src.llmrequest.llm_processor import Client as ProcessorClient
     from src.message_processing.default_message_processor import DefaultMessageProcessor
@@ -52,6 +53,7 @@ class ServiceContainer:
     # 核心数据存储服务
     conn_manager: ArangoDBConnectionManager
     event_storage_service: EventStorageService
+    sticker_storage_service: StickerStorageService
     thought_storage_service: ThoughtStorageService
     action_log_service: ActionLogStorageService
     summary_storage_service: SummaryStorageService
