@@ -11,6 +11,7 @@ from PIL import Image
 from sentence_transformers import SentenceTransformer
 from src.action.components.llm_client_factory import LLMClientFactory
 from src.common.custom_logging.logging_config import get_logger
+from src.common.json_parser.json_parser import parse_llm_json_response
 from src.database import ArangoDBConnectionManager, CoreDBCollections
 from src.database.services.image_analysis_cache_service import ImageAnalysisCacheService
 from src.llmrequest.llm_processor import Client as LLMProcessorClient
@@ -126,13 +127,6 @@ class ImageAnalysisService:
             data_uri = f"data:{mime_type};base64,{base64_data}"
             user_prompt_for_vision = "请分析这张图片。"
 
-            # [探针-C1] 记录发送给 Vision LLM 的请求详情
-            logger.info(
-                f"[探针-C1] 准备为事件 '{event_id}' 的图片生成描述。 "
-                f"Prompt: '{system_prompt[:50]}...', "
-                f"Data URI (前50字符): '{data_uri[:50]}...'"
-            )
-
             response = await self._get_vision_llm_client().make_llm_request(
                 prompt=user_prompt_for_vision,
                 system_prompt=system_prompt,
@@ -142,14 +136,16 @@ class ImageAnalysisService:
                 response_schema=schema,
             )
 
-            # [探针-C2] 记录从 Vision LLM 收到的原始响应
-            logger.info(f"[探针-C2] 收到事件 '{event_id}' 图片分析的LLM原始响应: {response}")
+            # 使用 parse_llm_json_response 解析 text 字段中的 JSON 字符串
+            raw_text = response.get("text") if response else None
+            if raw_text and isinstance(raw_text, str):
+                parsed_json = parse_llm_json_response(raw_text)
+                if isinstance(parsed_json, dict):
+                    return parsed_json
 
-            return (
-                response.get("text")
-                if response and isinstance(response.get("text"), dict)
-                else {"description": "分析失败或无返回"}
-            )
+            # 如果解析失败或原始响应无效，则返回默认错误信息
+            return {"description": "分析失败或无返回"}
+
         except Exception as e:
             logger.error(f"为事件 '{event_id}' 的一张图片生成描述失败: {e}")
             return {"description": "分析时发生异常"}
@@ -174,11 +170,6 @@ class ImageAnalysisService:
         if cached_result:
             return cached_result  # 缓存命中，直接返回结果
 
-        # [探针-B] 确认缓存未命中，开始执行分析
-        logger.info(
-            f"[探针-B] 图片分析缓存未命中 (哈希: {image_hash[:10]}...), "
-            f"将为事件 '{event_id}' 执行实时分析。"
-        )
         image_type = "sticker" if seg_data.get("summary") == "sticker" else "image"
         mime_type = seg_data.get("mime_type", "image/jpeg")
 
@@ -192,9 +183,6 @@ class ImageAnalysisService:
             "embedding": embedding_result,
             "details": details_result,
         }
-
-        # [探针-D] 记录最终生成的分析结果，准备写入缓存和数据库
-        logger.info(f"[探针-D] 事件 '{event_id}' 图片分析完成，最终结果: {analysis_result}")
 
         # 步骤 4: 将新结果（包含版本）存入缓存
         await self.cache_service.save_analysis(
@@ -224,9 +212,6 @@ class ImageAnalysisService:
                 event_id = event_doc.get("_key")
                 if not event_id:
                     continue
-
-                # [探针-A] 确认Worker已从队列中取出任务
-                logger.info(f"[探针-A] Worker已接收到分析任务，事件ID: '{event_id}'")
 
                 logger.info(f"开始分析事件 '{event_id}' 中的图片...")
 
