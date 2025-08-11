@@ -128,14 +128,13 @@ class _ChatHistoryFormatter:
         """
         # 如果是机器人发言 (U0) 且有动机
         if sender_uid == "U0" and stimulus.motivation:
+            # 无论如何都更新“上一个动机”的状态
+            current_motive = self.last_displayed_bot_motive
+            self.last_displayed_bot_motive = stimulus.motivation
             # 只有当动机与上一个不同时才显示
-            if stimulus.motivation != self.last_displayed_bot_motive:
-                # 无论是否显示，都更新“上一个动机”的状态
-                self.last_displayed_bot_motive = stimulus.motivation
+            if stimulus.motivation != current_motive:
                 return f"    - [MOTIVE]: {stimulus.motivation}"
             # 如果动机相同，则不返回任何内容（抑制重复显示）
-            # 但仍然需要更新状态，以防下一个动机也相同
-            self.last_displayed_bot_motive = stimulus.motivation
             return None
         else:
             # 如果发言者不是机器人，或机器人发言但无动机，则重置追踪器
@@ -513,4 +512,5 @@ async def format_chat_history_for_llm(
         conversation_name=final_conversation_name,
         last_valid_text_message=formatter.last_valid_text_message,
     )
+    return components, processed_stimuli
     return components, processed_stimuli
