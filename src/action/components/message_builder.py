@@ -199,9 +199,7 @@ class MessageBuilder:
         if not self._current_segments:
             return False
 
-        has_text = any(seg.type == "text" for seg in self._current_segments)
-
-        if has_text:
+        if any(seg.type == "text" for seg in self._current_segments):
             text_to_send = "".join(
                 seg.data.get("text", "") for seg in self._current_segments if seg.type == "text"
             ).strip()

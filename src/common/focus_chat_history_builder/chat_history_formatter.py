@@ -330,18 +330,16 @@ class _ChatHistoryFormatter:
             # 在可视窗口内：返回“注入占位符” + “哈希文本”
             # LLM会看到图片，同时也能读到旁边的哈希值
             return f"{placeholder_for_injection}{hash_str}"
-        else:
-            # 在可视窗口外：优先使用已分析的文本描述
-            if stimulus.image_analysis and analysis_index < len(stimulus.image_analysis):
-                analysis_item = stimulus.image_analysis[analysis_index]
-                desc_text = analysis_item.get("details", {}).get("description", "图片")
-                prefix = "表情包" if analysis_item.get("type") == "sticker" else "图片"
-                # 注意：对于旧图片，我们只返回描述，不附加哈希，因为AI无法“看到”它来决定收藏
-                return f"[{prefix}: {desc_text}]"
-            else:
-                # 如果没有分析结果，作为回退，仍然显示带哈希的占位符
-                # [修正] 此处逻辑也应返回 placeholder_for_injection，因为即使在窗口外，
-                return f"[{'动画表情' if is_sticker else '图片'}: (无法获取描述)]{hash_str}"
+
+        # 在可视窗口外：优先使用已分析的文本描述
+        if stimulus.image_analysis and analysis_index < len(stimulus.image_analysis):
+            analysis_item = stimulus.image_analysis[analysis_index]
+            desc_text = analysis_item.get("details", {}).get("description", "图片")
+            prefix = "表情包" if analysis_item.get("type") == "sticker" else "图片"
+            # 注意：对于旧图片，我们只返回描述，不附加哈希，因为AI无法“看到”它来决定收藏
+            return f"[{prefix}: {desc_text}]"
+
+        return f"[{'动画表情' if is_sticker else '图片'}: (无法获取描述)]{hash_str}"
 
     def _format_video_segment(self, seg: Seg, is_in_viewport: bool) -> str:
         """格式化视频(动图)消息段."""

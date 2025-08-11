@@ -28,11 +28,10 @@ class LLMOutputSanitizer:
 
         # 1. 构建 UID -> 显示名 的映射 (用于自然语言字段)
         for uid_str, platform_id in uid_str_to_platform_id_map.items():
-            user_data = user_map.get(platform_id)
-            if user_data:
-                display_name = user_data.get("card") or user_data.get("nick")
-                if display_name:
-                    self._uid_to_name_map[uid_str] = display_name
+            if (user_data := user_map.get(platform_id)) and (
+                display_name := user_data.get("card") or user_data.get("nick")
+            ):
+                self._uid_to_name_map[uid_str] = display_name
         self._uid_to_name_map["U0"] = "我"
 
         # 2. 构建 UID -> 平台原生ID 的映射 (用于指令参数字段)
@@ -44,12 +43,12 @@ class LLMOutputSanitizer:
 
     def _get_name_replacer(self, match: re.Match) -> str:
         """替换为显示名."""
-        uid = match.group(0)
+        uid = match[0]
         return self._uid_to_name_map.get(uid, "某人")
 
     def _get_id_replacer(self, match: re.Match) -> str:
         """替换为平台原生ID."""
-        uid = match.group(0)
+        uid = match[0]
         # 如果在ID映射表中找不到，这是一个严重错误，但我们仍然提供一个回退
         # 绝不能让 "U1" 这样的字符串污染指令
         return self._uid_to_platform_id_map.get(uid, "INVALID_UID_REFERENCE")
