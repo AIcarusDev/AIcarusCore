@@ -311,7 +311,7 @@ class _ChatHistoryFormatter:
         # 它本身不包含哈希，以确保正则表达式能精确匹配
         placeholder_for_injection = (
             f"[{'动画表情' if is_sticker else '图片'}_{self.image_ref_counter}]"
-            )
+        )
 
         # 步骤 2: 根据是否在可视窗口内决定最终返回的字符串
         if is_in_viewport:
@@ -320,10 +320,7 @@ class _ChatHistoryFormatter:
             return f"{placeholder_for_injection}{hash_str}"
         else:
             # 在可视窗口外：优先使用已分析的文本描述
-            if (
-                stimulus.image_analysis
-                and analysis_index < len(stimulus.image_analysis)
-            ):
+            if stimulus.image_analysis and analysis_index < len(stimulus.image_analysis):
                 analysis_item = stimulus.image_analysis[analysis_index]
                 desc_text = analysis_item.get("details", {}).get("description", "图片")
                 prefix = "表情包" if analysis_item.get("type") == "sticker" else "图片"
