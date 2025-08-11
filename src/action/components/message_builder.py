@@ -249,6 +249,6 @@ class MessageBuilder:
             self.session.consecutive_bot_messages_count += 1
             await asyncio.sleep(random.uniform(0.5, 1.5))
         else:
-            logger.error(f"消息发送失败，原因: {action_result.error_message}")
+            logger.error(f"消息发送失败，原因: {action_result.error_message[:100]}...")
 
         return action_result.is_success
