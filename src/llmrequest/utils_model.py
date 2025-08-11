@@ -1242,7 +1242,7 @@ class LLMClient:
             if (
                 request_type == "vision" or (request_type == "tool_call" and enable_multimodal)
             ) and image_inputs:
-                current_processed_images = await self._process_images_input(
+                current_processed_images = await self._process_media_inputs(
                     image_inputs, image_mime_type_override
                 )
 
