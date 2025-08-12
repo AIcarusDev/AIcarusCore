@@ -236,7 +236,8 @@ async def process_llm_decision(
             current_internal_state
         )
 
-    if "manage_goals" in control_payload:
+    # 在尝试访问 control_payload 之前，必须检查它是否为 None
+    if control_payload and "manage_goals" in control_payload:
         await _handle_goal_management(control_payload, core_logic)
 
     # 3. 处理外部动作
