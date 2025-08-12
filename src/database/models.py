@@ -30,6 +30,20 @@ class StickerDocument:
         """将实例序列化为可存入DB的字典."""
         return asdict(self)
 
+@dataclass
+class GoalDocument:
+    """代表 AIGoals 集合中的一个目标文档."""
+
+    _key: str  # 目标的唯一ID, e.g., "G1"
+    goal: str
+    reason: str
+    status: str = "active"  # 目标状态，例如 'active', 'completed', 'abandoned'
+    created_at: int = field(default_factory=lambda: int(time.time() * 1000))
+    updated_at: int = field(default_factory=lambda: int(time.time() * 1000))
+
+    def to_dict(self) -> dict[str, Any]:
+        """将实例序列化为可存入DB的字典."""
+        return asdict(self)
 
 # 核心数据库集合的名字和类型定义
 class CoreDBCollections:
@@ -41,12 +55,13 @@ class CoreDBCollections:
     EVENTS = "events"
     ACTION_LOGS = "action_logs"
     CONVERSATION_SUMMARIES = "conversation_summaries"
-    THOUGHTS_LEGACY = "thoughts_collection"  # 旧的思考先留着，免得出错
-    THOUGHT_CHAIN = "thought_chain"  # 这就是我们全新的“思想点”集合！
+    THOUGHTS_LEGACY = "thoughts_collection"  # 旧的思考先留着 TODO:评估这个是否真的需要留着
+    THOUGHT_CHAIN = "thought_chain"
     SYSTEM_STATE = "system_state"  # 用来存放指针的小盒子
     INTRUSIVE_POOL_COLLECTION = "intrusive_thoughts_pool"  # 侵入性思维池
     IMAGE_ANALYSIS_CACHE = "ImageAnalysisCache"  # 图片分析缓存集合
     STICKER_COLLECTION = "StickerCollection"  # 表情包集合
+    GOALS = "Goals"
 
     # --- 边集合 (Edge Collections) ---
     REPRESENTS = "represents"  # _from: EntityProfiles, _to: Entities (特指 Account 类型的 Entity)
@@ -56,7 +71,7 @@ class CoreDBCollections:
     LEADS_TO_ACTION = "leads_to_action"  # 这个也最好有
 
     # --- 图 (Graphs) ---
-    MAIN_GRAPH_NAME = "entity_cognition_graph"  # (原 person_relation_graph)
+    MAIN_GRAPH_NAME = "entity_cognition_graph"  # 主图，连接所有实体和它们的关系
     THOUGHT_GRAPH_NAME = "consciousness_graph"  # 给思想和行动也建个图
 
     INDEX_DEFINITIONS: ClassVar[dict[str, list[tuple[list[str], bool, bool]]]] = {
@@ -105,6 +120,9 @@ class CoreDBCollections:
             (["added_at"], False, False),
             (["platform", "perceptual_hash"], False, True),
         ],
+        GOALS: [
+            (["status", "created_at"], False, False), # 为状态和创建时间创建复合索引，便于查询
+        ],
     }
 
     @classmethod
@@ -122,6 +140,7 @@ class CoreDBCollections:
             cls.THOUGHTS_LEGACY,
             cls.IMAGE_ANALYSIS_CACHE,
             cls.STICKER_COLLECTION,
+            cls.GOALS,
             # Edges
             cls.REPRESENTS,
             cls.IS_PRESENT_IN,
@@ -172,7 +191,7 @@ class ImageAnalysisCacheDocument:
 
 
 # ==============================================================================
-# Phase 1.2: 定义 Details 强类型结构 (这部分是全新的，prpr)
+# Phase 1.2: 定义 Details 强类型结构
 # ==============================================================================
 
 
@@ -209,8 +228,7 @@ class ConversationDetails(BaseEntityDetails):
     name: str | None = None
     parent_id: str | None = None
     avatar: str | None = None
-    # 这个 extra 就是我们的“神之手”，用来装平台特有的、非通用的垃圾！(￣▽￣)"
-    extra: dict[str, Any] = field(default_factory=dict)
+    extra: dict[str, Any] = field(default_factory=dict) # 存放平台特有的、非通用的额外信息
 
 
 @dataclass

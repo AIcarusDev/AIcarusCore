@@ -37,6 +37,7 @@ from src.database import (
     SummaryStorageService,
     ThoughtStorageService,
 )
+from src.database.services.goal_storage_service import GoalStorageService
 from src.database.services.image_analysis_cache_service import (
     ImageAnalysisCacheService,
 )
@@ -84,8 +85,12 @@ class ServiceBuilder:
 
         action_handler = ActionHandler()
         state_manager = AIStateManager(
-            db_services["thought_storage_service"], db_services["action_log_service"]
+            db_services["thought_storage_service"],
+            db_services["action_log_service"],
+            db_services["goal_storage_service"],
         )
+
+        await state_manager.initialize()
 
         unread_info_service = UnreadInfoService(
             db_services["event_storage_service"], db_services["entity_graph_service"]
@@ -326,6 +331,7 @@ class ServiceBuilder:
             "summary_storage_service": SummaryStorageService,
             "image_analysis_cache_service": ImageAnalysisCacheService,
             "sticker_storage_service": StickerStorageService,
+            "goal_storage_service": GoalStorageService,
         }
 
         initialized_services = {"conn_manager": conn_manager}
