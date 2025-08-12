@@ -30,6 +30,7 @@ class StickerDocument:
         """将实例序列化为可存入DB的字典."""
         return asdict(self)
 
+
 @dataclass
 class GoalDocument:
     """代表 AIGoals 集合中的一个目标文档."""
@@ -44,6 +45,7 @@ class GoalDocument:
     def to_dict(self) -> dict[str, Any]:
         """将实例序列化为可存入DB的字典."""
         return asdict(self)
+
 
 # 核心数据库集合的名字和类型定义
 class CoreDBCollections:
@@ -121,7 +123,7 @@ class CoreDBCollections:
             (["platform", "perceptual_hash"], False, True),
         ],
         GOALS: [
-            (["status", "created_at"], False, False), # 为状态和创建时间创建复合索引，便于查询
+            (["status", "created_at"], False, False),  # 为状态和创建时间创建复合索引，便于查询
         ],
     }
 
@@ -228,7 +230,7 @@ class ConversationDetails(BaseEntityDetails):
     name: str | None = None
     parent_id: str | None = None
     avatar: str | None = None
-    extra: dict[str, Any] = field(default_factory=dict) # 存放平台特有的、非通用的额外信息
+    extra: dict[str, Any] = field(default_factory=dict)  # 存放平台特有的、非通用的额外信息
 
 
 @dataclass

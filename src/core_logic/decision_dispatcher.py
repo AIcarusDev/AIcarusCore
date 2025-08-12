@@ -184,9 +184,7 @@ async def _handle_consciousness_control(
     await focus_manager.handle_consciousness_control(control_payload, current_internal_state)
 
 
-async def _handle_goal_management(
-    control_payload: dict, core_logic: "CoreLogic"
-) -> None:
+async def _handle_goal_management(control_payload: dict, core_logic: "CoreLogic") -> None:
     """[辅助函数] 专门处理 'manage_goals' 指令."""
     goal_params = control_payload.get("manage_goals", {})
     goal_manager = core_logic.state_manager.goal_manager
@@ -231,9 +229,7 @@ async def process_llm_decision(
     # 2. 优先处理“慢思考”
     if control_payload and "deep_think" in control_payload:
         current_internal_state, control_payload = await _handle_deep_think(
-            control_payload,
-            focus_manager,
-            current_internal_state
+            control_payload, focus_manager, current_internal_state
         )
 
     # 在尝试访问 control_payload 之前，必须检查它是否为 None
