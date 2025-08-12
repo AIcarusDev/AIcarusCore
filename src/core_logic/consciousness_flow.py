@@ -68,7 +68,7 @@ class CoreLogic:
         self.immediate_thought_trigger = immediate_thought_trigger
         self.intrusive_generator_instance = intrusive_generator_instance
         self.thinking_loop_task: asyncio.Task | None = None
-        self._last_interrupt_context_text: str | None = None
+        self._last_interrupt_context_stimulus: Stimulus | None = None
         logger.info(f"{self.__class__.__name__} 已创建 (最终完美版 V1.3)")
 
     def trigger_immediate_thought_cycle(self) -> None:
@@ -124,7 +124,6 @@ class CoreLogic:
 
     async def _core_thinking_loop(self) -> None:
         """核心思考循环. 只负责维持循环和处理顶层异常."""
-        # --- [采纳] 使用三元表达式简化赋值 ---
         is_continuous = config.core_logic_settings.enable_continuous_thinking
         active_interval = (
             config.core_logic_settings.continuous_thinking_interval_seconds
@@ -171,9 +170,7 @@ class CoreLogic:
 
             if session:
                 sentry_task = asyncio.create_task(
-                    self._listen_for_interruptions(
-                        session, self._last_interrupt_context_text, race_start_timestamp
-                    )
+                    self._listen_for_interruptions(session, race_start_timestamp)
                 )
                 tasks_to_race.add(sentry_task)
             done, pending = await asyncio.wait(tasks_to_race, return_when=asyncio.FIRST_COMPLETED)
@@ -225,7 +222,7 @@ class CoreLogic:
         # 从 Stimulus 对象获取时间戳和文本内容
         if interrupting_stimulus.timestamp:
             session.last_processed_timestamp = interrupting_stimulus.timestamp
-        self._last_interrupt_context_text = interrupting_stimulus.text_content
+        self._last_interrupt_context_stimulus = interrupting_stimulus
 
         self.trigger_immediate_thought_cycle()
 
@@ -242,7 +239,7 @@ class CoreLogic:
             session.last_processed_timestamp = last_processed_ts_from_task
         if session:
             session.interruption_context = None
-        self._last_interrupt_context_text = None
+        self._last_interrupt_context_stimulus = None
 
     async def _generate_and_persist_thought(
         self,
@@ -342,31 +339,29 @@ class CoreLogic:
         return session.last_processed_timestamp if session else None
 
     async def _listen_for_interruptions(
-        self, session: "ChatSession", initial_context_text: str | None, start_timestamp: float
-    ) -> Stimulus | None:  # <-- 返回类型变为 Stimulus
+        self, session: "ChatSession", start_timestamp: float
+    ) -> Stimulus | None:
         """纯粹的中断监听器（哨兵），现在通过订阅事件代理来工作."""
         subscription_queue = None
         try:
             subscription_queue = await self.interruption_broker.subscribe(session)
-            context_text = initial_context_text
+            context_stimulus = self._last_interrupt_context_stimulus
             bot_profile = await session.get_bot_profile()
             current_bot_id = str(bot_profile.get("user_id") or session.bot_id)
 
             while True:
-                # 从队列中获取的是 Stimulus 对象
                 new_stimulus = await subscription_queue.get()
                 if new_stimulus.timestamp <= start_timestamp:
                     continue
 
-                # 传递 Stimulus 对象进行评估
-                interrupting_stimulus, new_context = self._evaluate_interrupt(
-                    new_stimulus, context_text, current_bot_id, session
+                interrupting_stimulus, new_context_stimulus = self._evaluate_interrupt(
+                    new_stimulus, context_stimulus, current_bot_id, session
                 )
                 if interrupting_stimulus:
-                    return interrupting_stimulus  # 返回 Stimulus 对象
+                    return interrupting_stimulus
 
-                if new_context:
-                    context_text = new_context
+                if new_context_stimulus:
+                    context_stimulus = new_context_stimulus
         except asyncio.CancelledError:
             return None
         except Exception as e:
@@ -378,28 +373,26 @@ class CoreLogic:
 
     def _evaluate_interrupt(
         self,
-        stimulus: Stimulus,
-        context_text: str | None,
+        new_stimulus: Stimulus,
+        context_stimulus: Stimulus | None,
         current_bot_id: str,
         session: "ChatSession",
-    ) -> tuple[Stimulus | None, str | None]:
+    ) -> tuple[Stimulus | None, Stimulus | None]:
         """对单个刺激物进行中断评估的辅助函数."""
-        # 方法签名和内部逻辑都基于 Stimulus 对象
-        if stimulus.sender_id and stimulus.sender_id == current_bot_id:
+        if new_stimulus.sender_id and new_stimulus.sender_id == current_bot_id:
             return None, None
 
-        if not stimulus.text_content:
-            return None, None
+        if not new_stimulus.text_content and not new_stimulus.image_urls:
+            return None, new_stimulus
 
-        message_to_check = {"speaker_id": stimulus.sender_id, "text": stimulus.text_content}
         if session.intelligent_interrupter.should_interrupt(
-            new_message=message_to_check, context_message_text=context_text
+            new_stimulus=new_stimulus, context_stimulus=context_stimulus
         ):
             logger.info(
-                f"[{session.conversation_id}] IIS决策：中断！元凶事件ID: {stimulus.event_id}"
+                f"[{session.conversation_id}] IIS决策：中断！元凶事件ID: {new_stimulus.event_id}"
             )
-            return stimulus, stimulus.text_content
-        return None, stimulus.text_content
+            return new_stimulus, new_stimulus
+        return None, new_stimulus
 
     async def _wait_for_next_cycle(self, interval: float) -> None:
         """等待下一个思考周期，可以被 immediate_thought_trigger 立即中断."""

@@ -509,9 +509,10 @@ class DBEventDocument:
     conversation_id_extracted: str | None = None
     person_id_associated: str | None = None
     motivation: str | None = None
-    embedding: list[float] | None = field(default=None, repr=False)
     image_analysis: list[dict[str, Any]] | None = None
     status: str = "unread"
+    narrative_sentence: str | None = None
+    embedding: list[float] | None = field(default=None, repr=False)
 
     @classmethod
     def from_protocol(cls, proto_event: ProtocolEvent) -> "DBEventDocument":

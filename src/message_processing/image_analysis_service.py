@@ -53,9 +53,8 @@ IMAGE_ANALYSIS_SCHEMA = {
 class ImageAnalysisService:
     """一个后台服务，负责异步地分析事件中的图片内容."""
 
-    # 定义缓存版本和TTL（生存时间）
-    CACHE_VERSION = "v1.0"  # 当分析逻辑（如Prompt或模型）发生变化时，应递增此版本号
-    CACHE_TTL_SECONDS = 7 * 24 * 3600  # 缓存有效期设置为7天
+    CACHE_VERSION = "v1.0"
+    CACHE_TTL_SECONDS = 7 * 24 * 3600
 
     def __init__(
         self,
@@ -63,16 +62,78 @@ class ImageAnalysisService:
         cache_service: ImageAnalysisCacheService,
     ) -> None:
         self.conn_manager = conn_manager
-        self.cache_service = cache_service  # 存储缓存服务实例
+        self.cache_service = cache_service
         self.events_collection_name = CoreDBCollections.EVENTS
         self.task_queue: asyncio.Queue[dict] = asyncio.Queue()
         self._worker_task: asyncio.Task | None = None
         self._start_lock = threading.Lock()
 
-        # 延迟加载模型，避免启动时阻塞
+        # 等待机制的核心
+        self._pending_analysis: dict[str, asyncio.Future[dict[str, Any]]] = {}
+        self._pending_analysis_lock = asyncio.Lock()
+
+        # 后台任务管理
+        self._background_tasks: set[asyncio.Task] = set()
+
         self._clip_model: SentenceTransformer | None = None
         self._vision_llm_client: LLMProcessorClient | None = None
-        logger.info("ImageAnalysisService 已初始化，等待启动。")
+        logger.info("ImageAnalysisService 已初始化 (混合模式升级版)。")
+
+    # 公共接口：获取分析结果（带等待机制）
+    async def get_analysis_result(
+        self, image_hash: str, base64_data: str, seg_data: dict
+    ) -> dict[str, Any] | None:
+        """获取单张图片的分析结果.
+
+        此方法会优先检查缓存，如果未命中，则会检查是否有正在进行的分析任务.
+        如果没有，则会启动一个新的分析任务并等待其完成.
+        """
+        # 1. 检查数据库缓存
+        cached_result = await self.cache_service.get_analysis_by_hash(
+            image_hash, version=self.CACHE_VERSION, ttl_seconds=self.CACHE_TTL_SECONDS
+        )
+        if cached_result:
+            return cached_result
+
+        # 2. 缓存未命中，进入等待或执行流程
+        async with self._pending_analysis_lock:
+            if image_hash in self._pending_analysis:
+                # 如果已经有其他任务在分析这张图，就一起等结果
+                logger.debug(f"图片 {image_hash[:10]}... 已有分析任务，加入等待队列。")
+                future = self._pending_analysis[image_hash]
+            else:
+                # 如果是第一个来的，就创建 Future，启动分析任务
+                logger.debug(f"图片 {image_hash[:10]}... 无分析任务，创建新的 Future 并启动分析。")
+                future = asyncio.Future()
+                self._pending_analysis[image_hash] = future
+                # 创建一个独立的任务去执行真正的分析，避免阻塞当前协程
+                task = asyncio.create_task(
+                    self._execute_analysis_and_set_future(image_hash, base64_data, seg_data, future)
+                )
+                self._background_tasks.add(task)
+                task.add_done_callback(self._background_tasks.discard)
+
+        try:
+            # 等待 Future 被设置结果
+            return await future
+        except Exception as e:
+            logger.error(f"等待图片 {image_hash[:10]}... 分析结果时发生错误: {e}")
+            return None
+
+    async def _execute_analysis_and_set_future(
+        self, image_hash: str, base64_data: str, seg_data: dict, future: asyncio.Future
+    ) -> None:
+        """一个包装器，执行实际的分析，并将结果或异常设置到 Future 上，最后清理等待室."""
+        try:
+            # 执行耗时的分析工作
+            result = await self._analyze_single_image_core(base64_data, seg_data)
+            future.set_result(result)
+        except Exception as e:
+            future.set_exception(e)
+        finally:
+            # 无论成功失败，都从等待室中移除
+            async with self._pending_analysis_lock:
+                self._pending_analysis.pop(image_hash, None)
 
     def _get_clip_model(self) -> SentenceTransformer:
         if self._clip_model is None:
@@ -94,30 +155,26 @@ class ImageAnalysisService:
         return self._vision_llm_client
 
     async def submit_event_for_analysis(self, event_doc: dict) -> None:
-        """将一个已保存的事件文档提交到分析队列."""
+        """将一个已保存的事件文档提交到分析队列 (纯后台处理)."""
         await self.task_queue.put(event_doc)
 
-    # 计算图片哈希值的辅助函数
     def _calculate_image_hash(self, base64_data: str) -> str:
-        """根据 base64 数据计算图片的 SHA-256 哈希值."""
         image_bytes = base64.b64decode(base64_data)
         return hashlib.sha256(image_bytes).hexdigest()
 
-    async def _calculate_embedding(self, event_id: str, base64_data: str) -> list[float] | None:
-        """计算单个图片的 CLIP embedding."""
+    async def _calculate_embedding(self, base64_data: str) -> list[float] | None:
         try:
             image_bytes = base64.b64decode(base64_data)
             image = Image.open(io.BytesIO(image_bytes))
             embedding = await asyncio.to_thread(self._get_clip_model().encode, image)
             return embedding.tolist()
         except Exception as e:
-            logger.error(f"为事件 '{event_id}' 的一张图片计算 embedding 失败: {e}")
+            logger.error(f"计算图片 embedding 失败: {e}")
             return None
 
     async def _generate_description(
-        self, event_id: str, image_type: str, base64_data: str, mime_type: str
+        self, image_type: str, base64_data: str, mime_type: str
     ) -> dict[str, Any]:
-        """为单个图片生成文本描述."""
         try:
             system_prompt, schema = (
                 (STICKER_ANALYSIS_PROMPT, STICKER_ANALYSIS_SCHEMA)
@@ -125,15 +182,7 @@ class ImageAnalysisService:
                 else (IMAGE_ANALYSIS_PROMPT, IMAGE_ANALYSIS_SCHEMA)
             )
             data_uri = f"data:{mime_type};base64,{base64_data}"
-            # 手动添加占位符，以确保图文混排逻辑能正确找到并替换图片
             user_prompt_for_vision = "请分析这张图片。\n[图片_1]"
-
-            # [探针-C1] 记录发送给 Vision LLM 的请求详情
-            logger.info(
-                f"[探针-C1] 准备为事件 '{event_id}' 的图片生成描述。 "
-                f"Prompt: '{system_prompt[:50]}...', "
-                f"Data URI (前50字符): '{data_uri[:50]}...'"
-            )
 
             response = await self._get_vision_llm_client().make_llm_request(
                 prompt=user_prompt_for_vision,
@@ -144,54 +193,23 @@ class ImageAnalysisService:
                 response_schema=schema,
             )
 
-            # [探针-C2] 记录从 Vision LLM 收到的原始响应
-            logger.info(f"[探针-C2] 收到事件 '{event_id}' 图片分析的LLM原始响应: {response}")
-
-            # [修复] 使用 parse_llm_json_response 解析 text 字段中的 JSON 字符串
             raw_text = response.get("text") if response else None
             if raw_text and isinstance(raw_text, str):
                 parsed_json = parse_llm_json_response(raw_text)
                 if isinstance(parsed_json, dict):
                     return parsed_json
-
-            # 如果解析失败或原始响应无效，则返回默认错误信息
             return {"description": "分析失败或无返回"}
-
         except Exception as e:
-            logger.error(f"为事件 '{event_id}' 的一张图片生成描述失败: {e}")
+            logger.error(f"生成图片描述失败: {e}")
             return {"description": "分析时发生异常"}
 
-    # 核心分析逻辑，集成缓存检查
-    async def _analyze_single_image(
-        self, event_id: str, image_segment: dict[str, Any]
-    ) -> dict[str, Any] | None:
-        """完整分析单个图片段（segment），包括计算 embedding 和生成描述."""
-        seg_data = image_segment.get("data", {})
-        base64_data = seg_data.get("base64")
-        if not base64_data:
-            return None
-
-        # 步骤 1: 计算图片哈希值
-        image_hash = self._calculate_image_hash(base64_data)
-
-        # 步骤 2: 查询缓存（带版本和TTL）
-        cached_result = await self.cache_service.get_analysis_by_hash(
-            image_hash, version=self.CACHE_VERSION, ttl_seconds=self.CACHE_TTL_SECONDS
-        )
-        if cached_result:
-            return cached_result  # 缓存命中，直接返回结果
-
-        # [探针-B] 确认缓存未命中，开始执行分析
-        logger.info(
-            f"[探针-B] 图片分析缓存未命中 (哈希: {image_hash[:10]}...), "
-            f"将为事件 '{event_id}' 执行实时分析。"
-        )
+    async def _analyze_single_image_core(self, base64_data: str, seg_data: dict) -> dict[str, Any]:
+        """实际执行分析的核心逻辑，不再关心缓存."""
         image_type = "sticker" if seg_data.get("summary") == "sticker" else "image"
         mime_type = seg_data.get("mime_type", "image/jpeg")
 
-        # 并发执行 Embedding 计算和 LLM 描述生成
-        embedding_task = self._calculate_embedding(event_id, base64_data)
-        description_task = self._generate_description(event_id, image_type, base64_data, mime_type)
+        embedding_task = self._calculate_embedding(base64_data)
+        description_task = self._generate_description(image_type, base64_data, mime_type)
         embedding_result, details_result = await asyncio.gather(embedding_task, description_task)
 
         analysis_result = {
@@ -200,10 +218,8 @@ class ImageAnalysisService:
             "details": details_result,
         }
 
-        # [探针-D] 记录最终生成的分析结果，准备写入缓存和数据库
-        logger.info(f"[探针-D] 事件 '{event_id}' 图片分析完成，最终结果: {analysis_result}")
-
-        # 步骤 4: 将新结果（包含版本）存入缓存
+        # 分析完成后，将结果存入缓存
+        image_hash = self._calculate_image_hash(base64_data)
         await self.cache_service.save_analysis(
             image_hash, analysis_result, version=self.CACHE_VERSION
         )
@@ -213,7 +229,6 @@ class ImageAnalysisService:
     async def _update_event_with_analysis_results(
         self, event_id: str, results: list[dict[str, Any]]
     ) -> None:
-        """将分析结果一次性更新回数据库中的事件文档."""
         try:
             collection = await self.conn_manager.get_collection(self.events_collection_name)
             await collection.update({"_key": event_id, "image_analysis": results})
@@ -222,7 +237,7 @@ class ImageAnalysisService:
             logger.error(f"更新事件 '{event_id}' 的分析结果时失败: {e}", exc_info=True)
 
     async def _worker(self) -> None:
-        """后台工作协程，从队列中取出事件并并发分析其中的所有图片."""
+        """后台工作协程，处理纯后台的分析任务."""
         logger.info("图像分析后台 Worker 已启动，等待任务...")
         while True:
             event_doc = None
@@ -232,27 +247,31 @@ class ImageAnalysisService:
                 if not event_id:
                     continue
 
-                # [探针-A] 确认Worker已从队列中取出任务
-                logger.info(f"[探针-A] Worker已接收到分析任务，事件ID: '{event_id}'")
-
-                logger.info(f"开始分析事件 '{event_id}' 中的图片...")
+                logger.info(f"后台 Worker 开始分析事件 '{event_id}' 中的图片...")
 
                 image_segments = [
                     seg
                     for seg in event_doc.get("content", [])
-                    if isinstance(seg, dict) and seg.get("type") == "image"
+                    if isinstance(seg, dict)
+                    and seg.get("type") == "image"
+                    and seg.get("data", {}).get("base64")
                 ]
 
                 if not image_segments:
                     continue
 
-                # 为事件中的所有图片创建并发分析任务
-                analysis_tasks = [
-                    self._analyze_single_image(event_id, seg) for seg in image_segments
-                ]
+                analysis_tasks = []
+                for seg in image_segments:
+                    seg_data = seg.get("data", {})
+                    base64_data = seg_data.get("base64")
+                    image_hash = self._calculate_image_hash(base64_data)
+                    # 调用新的 get_analysis_result，它会自动处理缓存和并发
+                    analysis_tasks.append(
+                        self.get_analysis_result(image_hash, base64_data, seg_data)
+                    )
+
                 results = await asyncio.gather(*analysis_tasks)
 
-                # 过滤掉失败的结果 (返回 None 的)
                 if valid_results := [res for res in results if res is not None]:
                     await self._update_event_with_analysis_results(event_id, valid_results)
 

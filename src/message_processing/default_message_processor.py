@@ -8,6 +8,7 @@ from aicarus_protocols import UserInfo as ProtocolUserInfo
 from src.common.custom_logging.logging_config import get_logger
 from src.common.intelligent_interrupt_system.models import SemanticModel
 from src.common.interruption_broker import InterruptionEventBroker
+from src.common.narrative_vectorizer.narrative_vectorizer import NarrativeVectorizer
 from src.config import config
 from src.database import (
     ActionLogStorageService,
@@ -28,10 +29,7 @@ logger = get_logger(__name__)
 
 
 class DefaultMessageProcessor:
-    """默认消息处理器.
-
-    它现在拥有了识别“回声”事件并将其正确路由到 ChatSession 的关键能力.
-    """
+    """默认消息处理器."""
 
     def __init__(
         self,
@@ -41,6 +39,7 @@ class DefaultMessageProcessor:
         image_analysis_service: "ImageAnalysisService",
         semantic_model: "SemanticModel",
         interruption_broker: "InterruptionEventBroker",
+        narrative_vectorizer: "NarrativeVectorizer",
         core_websocket_server: Optional["CoreWebsocketServer"] = None,
         qq_chat_session_manager: Optional["ChatSessionManager"] = None,
     ) -> None:
@@ -49,11 +48,12 @@ class DefaultMessageProcessor:
         self.action_log_service: ActionLogStorageService = action_log_service
         self.semantic_model: SemanticModel = semantic_model
         self.interruption_broker = interruption_broker
+        self.narrative_vectorizer = narrative_vectorizer
         self.core_comm_layer: CoreWebsocketServer | None = core_websocket_server
         self.qq_chat_session_manager = qq_chat_session_manager
         self.core_logic: CoreLogicFlow | None = None
         self.image_analysis_service: ImageAnalysisService | None = image_analysis_service
-        logger.info("DefaultMessageProcessor 初始化完成 (领域驱动改造版)。")
+        logger.info("DefaultMessageProcessor 初始化完成 (奇美拉升级版)。")
 
     async def process_event(
         self,
@@ -123,13 +123,22 @@ class DefaultMessageProcessor:
             db_event_doc.person_id_associated = person_id
             self._calculate_and_inject_hashes(db_event_doc)
 
-            if (
-                event.event_type.startswith("message.")
-                and self.semantic_model
-                and (text_content := event.get_text_content())
-            ):
-                embedding_vector = self.semantic_model.encode([text_content])[0]
-                db_event_doc.embedding = embedding_vector.tolist()
+            if self.narrative_vectorizer and event.event_type.startswith("message."):
+                logger.debug(f"事件 {event.event_id} 正在进入叙事化向量流程...")
+                sentence, vector = await self.narrative_vectorizer.build_and_vectorize(event)
+                if sentence and vector:
+                    db_event_doc.narrative_sentence = sentence
+                    db_event_doc.embedding = vector  # 复用 embedding 字段
+                    logger.info(f"事件 {event.event_id} 成功升维为叙事向量。")
+                else:
+                    logger.warning(
+                        f"事件 {event.event_id} 叙事化向量失败，将使用纯文本向量作为后备。"
+                    )
+                    # 后备逻辑：如果升维失败，仍然使用旧的纯文本向量化
+                    if text_content := event.get_text_content():
+                        logger.warning(f"事件 {event.event_id} 正在进行纯文本向量化...")
+                        embedding_vector = self.semantic_model.encode([text_content])[0]
+                        db_event_doc.embedding = embedding_vector.tolist()
 
             saved_doc_dict = db_event_doc.to_dict()
             if await self.event_service.save_event_document(saved_doc_dict):

@@ -14,6 +14,7 @@ from src.common.intelligent_interrupt_system.iis_main import IISBuilder
 from src.common.intelligent_interrupt_system.intelligent_interrupter import IntelligentInterrupter
 from src.common.intelligent_interrupt_system.models import SemanticModel
 from src.common.interruption_broker import InterruptionEventBroker
+from src.common.narrative_vectorizer.narrative_vectorizer import NarrativeVectorizer
 from src.common.summarization_observation.summarization_service import SummarizationService
 from src.common.unread_info_service.unread_info_service import UnreadInfoService
 from src.config import config
@@ -67,16 +68,14 @@ class ServiceBuilder:
         llm_clients = self._initialize_llm_clients()
         db_services = await self._initialize_database_and_services()
 
-        # 在数据库服务初始化后，创建 StickerService
         sticker_service = StickerService(
             sticker_storage_service=db_services["sticker_storage_service"],
             event_storage_service=db_services["event_storage_service"],
         )
 
-        # 初始化图像分析服务
         image_analysis_service = ImageAnalysisService(
             db_services["conn_manager"],
-            db_services["image_analysis_cache_service"],  # 将缓存服务传递进去
+            db_services["image_analysis_cache_service"],
         )
         interrupt_model = await self._initialize_interrupt_model(
             db_services["event_storage_service"]
@@ -112,6 +111,12 @@ class ServiceBuilder:
         summarization_service = SummarizationService(summary_llm)
         semantic_model = await self._get_semantic_model(db_services["event_storage_service"])
 
+        narrative_vectorizer = NarrativeVectorizer(
+            entity_service=db_services["entity_graph_service"],
+            image_analysis_service=image_analysis_service,
+            semantic_model=semantic_model,
+        )
+
         interruption_broker = InterruptionEventBroker()
         await interruption_broker.start()
 
@@ -122,7 +127,8 @@ class ServiceBuilder:
             image_analysis_service=image_analysis_service,
             semantic_model=semantic_model,
             interruption_broker=interruption_broker,
-            qq_chat_session_manager=None,  # 将在 wiring 阶段被注入
+            narrative_vectorizer=narrative_vectorizer,
+            qq_chat_session_manager=None,
         )
 
         action_sender = ActionSender()
@@ -163,7 +169,7 @@ class ServiceBuilder:
             core_comm_layer=core_comm_layer,
             action_handler_instance=action_handler,
             state_manager=state_manager,
-            chat_session_manager=None,  # 将在 wiring 阶段被注入
+            chat_session_manager=None,
             thought_storage_service=db_services["thought_storage_service"],
             thought_generator=thought_generator,
             thought_persistor=thought_persistor,
@@ -181,7 +187,7 @@ class ServiceBuilder:
             focused_chat_llm_client=llm_clients["focused_chat_llm_client"],
             web_search_agent_client=llm_clients["web_search_agent_client"],
             url_context_agent_client=llm_clients["url_context_agent_client"],
-            deliberation_llm_client=llm_clients["deliberation_llm_client"],  # <-- 存入容器
+            deliberation_llm_client=llm_clients["deliberation_llm_client"],
             conn_manager=db_services["conn_manager"],
             event_storage_service=db_services["event_storage_service"],
             thought_storage_service=db_services["thought_storage_service"],
@@ -205,6 +211,7 @@ class ServiceBuilder:
             core_logic=core_logic,
             sticker_storage_service=db_services["sticker_storage_service"],
             sticker_service=sticker_service,
+            narrative_vectorizer=narrative_vectorizer,
             chat_session_manager=None,
         )
 
