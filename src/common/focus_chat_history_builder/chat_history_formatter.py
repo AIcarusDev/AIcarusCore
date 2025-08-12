@@ -378,14 +378,25 @@ class _ChatHistoryFormatter:
             return "[GIF]"
 
     def _format_quote_segment(self, seg: Seg) -> str:
+        """格式化引用/回复消息段，使其更健壮."""
         msg_id = seg.data.get("message_id", "unknown")
         user_id = seg.data.get("user_id")
-        user_uid = (
-            self.platform_id_to_uid_str.get(str(user_id), f"未知({str(user_id)[:4]})")
-            if user_id
-            else "未知用户"
-        )
-        return f"引用/回复 {user_uid}(id:{msg_id})"
+
+        if not user_id:
+            return f"引用/回复 未知用户(id:{msg_id})"
+
+        # 优先使用 user_map (这是单一事实来源) 来查找 Uid 字符串
+        # 这比依赖 platform_id_to_uid_str 更可靠
+        user_data = self.user_map.get(str(user_id))
+        if user_data and (uid_str := user_data.get("uid_str")):
+            # 找到了用户，使用其内部ID (U1, U2...)
+            user_display = uid_str
+        else:
+            # 如果在当前上下文的 user_map 中找不到 (可能是引用了很早之前的消息)
+            # 我们提供一个明确的回退，而不是显示 "未知用户"
+            user_display = f"历史用户({str(user_id)[:6]}...)"
+
+        return f"引用/回复 {user_display}(id:{msg_id})"
 
     def _format_at_segment(self, seg: Seg) -> str:
         at_user_id = seg.data.get("user_id")
