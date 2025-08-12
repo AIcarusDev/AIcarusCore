@@ -1,5 +1,6 @@
 # src/core_logic/intrusive_thoughts.py
-
+# 侵入性思维生成器
+# 该功能现在暂时属于搁置状态，没有任何作用，等待处理
 import asyncio
 import threading
 

@@ -1,11 +1,9 @@
 # src/core_logic/consciousness_flow.py
 import asyncio
 import contextlib
-import datetime
 import threading
 import time
 import traceback
-import uuid
 from typing import TYPE_CHECKING, Optional
 
 from src.action.action_handler import ActionHandler
@@ -282,22 +280,14 @@ class CoreLogic:
             logger.debug(f"修正前: {generated_thought_json}")
             logger.debug(f"修正后: {sanitized_thought_json}")
 
-        action_payload = generated_thought_json.get("action") or generated_thought_json.get(
-            "consciousness_control"
-        )
-        new_thought_pearl = ThoughtChainDocument(
-            _key=str(uuid.uuid4()),
-            timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
-            mood=generated_thought_json.get("internal_state", {}).get("mood", "平静"),
-            think=generated_thought_json.get("internal_state", {}).get("think", "无"),
-            intent=generated_thought_json.get("internal_state", {}).get("intent"),
+        # 委托 ThoughtPersistor 来处理打包和存储
+        saved_key, new_thought_pearl = await self.thought_persistor.store_thought(
+            thought_json=sanitized_thought_json,
             source_type="core_unified",
             source_id=focus_path_str,
-            action_id=str(uuid.uuid4()) if action_payload else None,
-            action_payload=sanitized_thought_json,
         )
-        saved_key = await self.thought_storage_service.save_thought_and_link(new_thought_pearl)
-        if not saved_key:
+
+        if not saved_key or not new_thought_pearl:
             raise ThoughtGenerationError("未能将新的思考持久化到数据库。")
 
         return new_thought_pearl, saved_key
