@@ -193,12 +193,12 @@ async def _handle_goal_management(
 
     if add_params := goal_params.get("add"):
         goals_to_add = add_params.get("goals", [])
-        goal_manager.add_goals(goals_to_add)
+        await goal_manager.add_goals(goals_to_add)
         logger.info(f"已添加 {len(goals_to_add)} 个新目标。")
 
     if remove_params := goal_params.get("remove"):
         ids_to_remove = remove_params.get("goal_ids", [])
-        goal_manager.remove_goals(ids_to_remove)
+        await goal_manager.remove_goals(ids_to_remove)
         logger.info(f"已移除 {len(ids_to_remove)} 个目标。")
 
     # 从 payload 中移除已处理的 manage_goals
