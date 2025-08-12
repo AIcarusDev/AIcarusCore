@@ -45,10 +45,7 @@ class GoalStorageService:
         """更新数据库中一个目标的状态."""
         try:
             collection = await self.conn_manager.get_collection(self.collection_name)
-            patch = {
-                "status": status,
-                "updated_at": int(time.time() * 1000)
-            }
+            patch = {"status": status, "updated_at": int(time.time() * 1000)}
             await collection.update({"_key": goal_id, **patch})
             logger.info(f"目标 '{goal_id}' 的状态已在数据库中更新为 '{status}'。")
             return True

@@ -49,4 +49,3 @@ class AIStateManager:
     async def initialize(self) -> None:
         """执行所有需要异步初始化的状态组件."""
         await self.goal_manager.initialize()
-

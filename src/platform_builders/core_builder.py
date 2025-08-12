@@ -121,14 +121,17 @@ class CoreBuilder(BasePlatformBuilder):
                                 "type": "object",
                                 "properties": {
                                     "goal": {"type": "string", "description": "目标本身的描述。"},
-                                    "reason": {"type": "string", "description": "此目标的背景/原因。"}
+                                    "reason": {
+                                        "type": "string",
+                                        "description": "此目标的背景/原因。",
+                                    },
                                 },
-                                "required": ["goal", "reason"]
-                            }
+                                "required": ["goal", "reason"],
+                            },
                         },
-                        "motivation": {"type": "string"}
+                        "motivation": {"type": "string"},
                     },
-                    "required": ["goals", "motivation"]
+                    "required": ["goals", "motivation"],
                 },
                 "remove": {
                     "type": "object",
@@ -137,17 +140,14 @@ class CoreBuilder(BasePlatformBuilder):
                         "goal_ids": {
                             "type": "array",
                             "description": "要移除的目标ID列表 (例如 ['G1', 'G3'])。",
-                            "items": {"type": "string"}
+                            "items": {"type": "string"},
                         },
-                        "motivation": {"type": "string"}
+                        "motivation": {"type": "string"},
                     },
-                    "required": ["goal_ids", "motivation"]
-                }
+                    "required": ["goal_ids", "motivation"],
+                },
             },
-            "oneOf": [
-                {"required": ["add"]},
-                {"required": ["remove"]}
-            ]
+            "oneOf": [{"required": ["add"]}, {"required": ["remove"]}],
         },
     }
 
