@@ -9,11 +9,10 @@ from src.core_logic.consciousness_flow import CoreLogic
 from src.domain.models import Stimulus
 
 
-# --- 辅助函数和Fixture (修正后) ---
 def create_real_stimulus(
     event_id: str, text: str, sender_id: str, embedding: list[float] | None
 ) -> Stimulus:
-    """创建一个真实的 Stimulus 对象用于测试。"""
+    """创建一个真实的 Stimulus 对象用于测试."""
     return Stimulus(
         event_id=event_id,
         timestamp=int(asyncio.get_event_loop().time() * 1000),
@@ -29,7 +28,7 @@ def create_real_stimulus(
 
 @pytest.fixture
 def mock_session(mocker: MockerFixture) -> MagicMock:
-    """创建一个模拟的 ChatSession。"""
+    """创建一个模拟的 ChatSession."""
     session = mocker.MagicMock()
     session.conversation_id = "test_conv_123"
     session.intelligent_interrupter = mocker.MagicMock()
@@ -41,24 +40,28 @@ def mock_session(mocker: MockerFixture) -> MagicMock:
 # 创建一个 fixture，它只负责提供一个单一的、共享的队列实例
 @pytest.fixture
 def shared_interrupt_queue() -> asyncio.Queue:
-    """提供一个在测试作用域内共享的 asyncio.Queue 实例。"""
+    """提供一个在测试作用域内共享的 asyncio.Queue 实例."""
     return asyncio.Queue()
 
 
 @pytest.fixture
-def mock_interruption_broker(mocker: MockerFixture, shared_interrupt_queue: asyncio.Queue) -> MagicMock:
-    """创建一个模拟的 InterruptionBroker，它总是返回同一个共享队列。"""
+def mock_interruption_broker(
+    mocker: MockerFixture, shared_interrupt_queue: asyncio.Queue
+) -> MagicMock:
+    """创建一个模拟的 InterruptionBroker，它总是返回同一个共享队列."""
     broker = mocker.MagicMock()
     # 关键：配置 subscribe 的 AsyncMock，使其 return_value 固定为我们注入的共享队列
     broker.subscribe = mocker.AsyncMock(return_value=shared_interrupt_queue)
     broker.unsubscribe = mocker.AsyncMock()
     return broker
+
+
 # --- [修复结束] ---
 
 
 @pytest.fixture
 def core_logic(mocker: MockerFixture, mock_interruption_broker: MagicMock) -> CoreLogic:
-    """创建一个带有模拟依赖的 CoreLogic 实例。"""
+    """创建一个带有模拟依赖的 CoreLogic 实例."""
     logic = CoreLogic(
         core_comm_layer=mocker.MagicMock(),
         action_handler_instance=mocker.MagicMock(),
@@ -75,17 +78,13 @@ def core_logic(mocker: MockerFixture, mock_interruption_broker: MagicMock) -> Co
     return logic
 
 
-# --- 测试用例 (现在应该可以正常工作) ---
-
 @pytest.mark.asyncio
 async def test_sentry_returns_stimulus_on_interrupt(
     core_logic: CoreLogic,
     mock_session: MagicMock,
-    # --- [核心修复 2] ---
-    # 将共享队列 fixture 注入到测试函数中
     shared_interrupt_queue: asyncio.Queue,
-):
-    """测试当 should_interrupt 返回 True 时，哨兵能正确返回 Stimulus。"""
+) -> None:
+    """测试当 should_interrupt 返回 True 时，哨兵能正确返回 Stimulus."""
     # 不再需要调用 broker.subscribe()，因为我们直接操作注入的队列
     interrupting_stimulus = create_real_stimulus("interrupt-001", "紧急！", "user_1", [0.1])
     mock_session.intelligent_interrupter.should_interrupt.return_value = True
@@ -107,10 +106,9 @@ async def test_sentry_returns_stimulus_on_interrupt(
 async def test_sentry_continues_on_no_interrupt(
     core_logic: CoreLogic,
     mock_session: MagicMock,
-    # --- [核心修复 2] ---
     shared_interrupt_queue: asyncio.Queue,
-):
-    """测试当 should_interrupt 返回 False 时，哨兵会继续等待。"""
+) -> None:
+    """测试当 should_interrupt 返回 False 时，哨兵会继续等待."""
     non_interrupting_stimulus = create_real_stimulus("normal-001", "没事", "user_2", [0.2])
     interrupting_stimulus = create_real_stimulus("interrupt-002", "紧急！", "user_1", [0.1])
 
@@ -138,10 +136,9 @@ async def test_sentry_continues_on_no_interrupt(
 async def test_sentry_handles_stimulus_without_embedding(
     core_logic: CoreLogic,
     mock_session: MagicMock,
-    # --- [核心修复 2] ---
     shared_interrupt_queue: asyncio.Queue,
-):
-    """测试当收到“贫血”Stimulus 时，哨兵不会崩溃并能正确更新上下文。"""
+) -> None:
+    """测试当收到“贫血”Stimulus 时，哨兵不会崩溃并能正确更新上下文."""
     stimulus_no_embedding = create_real_stimulus("bad-001", "没向量", "user_3", None)
     interrupting_stimulus = create_real_stimulus("good-002", "有向量", "user_1", [0.3])
 

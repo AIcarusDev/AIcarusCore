@@ -1,4 +1,5 @@
 # src/message_processing/default_message_processor.py
+import dataclasses
 import hashlib
 import time
 from typing import TYPE_CHECKING, Optional
@@ -20,7 +21,6 @@ from src.domain.models import Stimulus
 from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 from src.message_processing.image_analysis_service import ImageAnalysisService
 from websockets.server import WebSocketServerProtocol
-import dataclasses
 
 if TYPE_CHECKING:
     from src.core_communication.core_ws_server import CoreWebsocketServer
@@ -234,12 +234,10 @@ class DefaultMessageProcessor:
         if saved_event_doc:
             embedding_vector = saved_event_doc.get("embedding")
             narrative = saved_event_doc.get("narrative_sentence")
-            
+
             # 使用 dataclasses.replace 安全地创建新的、不可变的实例
             stimulus = dataclasses.replace(
-                stimulus,
-                embedding=embedding_vector,
-                narrative_sentence=narrative
+                stimulus, embedding=embedding_vector, narrative_sentence=narrative
             )
 
         # 3. 发布经过“输血”的、信息完整的 Stimulus 对象

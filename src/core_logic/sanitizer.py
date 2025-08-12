@@ -57,7 +57,7 @@ class LLMOutputSanitizer:
         """递归核心，根据路径应用不同规则."""
         # 定义需要进行平台原生ID替换的字段名集合
         # 这是一个更健壮、更易于扩展的解决方案
-        ID_FIELD_NAMES = {
+        id_field_names = {
             "user_id",
             "target_user_id",
             "group_id",
@@ -76,7 +76,7 @@ class LLMOutputSanitizer:
         elif isinstance(node, str):
             # 这是决策点：根据当前路径决定使用哪个替换规则
             # 规则1: 如果当前字段的 'key' 是一个ID字段，使用ID替换
-            if current_path and current_path[-1] in ID_FIELD_NAMES:
+            if current_path and current_path[-1] in id_field_names:
                 logger.debug(f"ID Rule triggered for path: {current_path}")
                 return self._uid_pattern.sub(self._get_id_replacer, node)
 

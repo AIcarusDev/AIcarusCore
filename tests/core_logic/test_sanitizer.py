@@ -20,7 +20,9 @@ def sanitizer_instance() -> LLMOutputSanitizer:
     }
     return LLMOutputSanitizer(user_map, uid_str_to_platform_id_map)
 
+
 # === 测试用例 ===
+
 
 def test_sanitize_natural_language_fields(sanitizer_instance: LLMOutputSanitizer) -> None:
     """测试: 自然语言字段 (mood, think, intent, text content) 中的 Uid 应被替换为显示名."""
@@ -28,18 +30,19 @@ def test_sanitize_natural_language_fields(sanitizer_instance: LLMOutputSanitizer
         "internal_state": {
             "mood": "我对 U1 感到好奇。",
             "think": "我认为 U2 说的有道理，而 U0 应该回应。",
-            "intent": "向 U1 问好"
+            "intent": "向 U1 问好",
         }
     }
     expected_output = {
         "internal_state": {
             "mood": "我对 测试用户A 感到好奇。",
             "think": "我认为 测试用户B 说的有道理，而 我 应该回应。",
-            "intent": "向 测试用户A 问好"
+            "intent": "向 测试用户A 问好",
         }
     }
     result = sanitizer_instance.sanitize(input_json)
     assert result == expected_output
+
 
 def test_sanitize_at_and_text_in_send_message(sanitizer_instance: LLMOutputSanitizer) -> None:
     """测试: send_message 动作中，'at' 指令的 user_id 应被替换为平台ID，'text' 内容应被替换为显示名."""  # noqa: E501
@@ -49,7 +52,7 @@ def test_sanitize_at_and_text_in_send_message(sanitizer_instance: LLMOutputSanit
                 "send_message": {
                     "steps": [
                         {"command": "at", "params": {"user_id": "U1"}},
-                        {"command": "text", "params": {"content": " U2 找你！"}}
+                        {"command": "text", "params": {"content": " U2 找你！"}},
                     ]
                 }
             }
@@ -61,7 +64,7 @@ def test_sanitize_at_and_text_in_send_message(sanitizer_instance: LLMOutputSanit
                 "send_message": {
                     "steps": [
                         {"command": "at", "params": {"user_id": "10001"}},
-                        {"command": "text", "params": {"content": " 测试用户B 找你！"}}
+                        {"command": "text", "params": {"content": " 测试用户B 找你！"}},
                     ]
                 }
             }
@@ -69,6 +72,7 @@ def test_sanitize_at_and_text_in_send_message(sanitizer_instance: LLMOutputSanit
     }
     result = sanitizer_instance.sanitize(input_json)
     assert result == expected_output
+
 
 def test_sanitize_reply_command_user_id(sanitizer_instance: LLMOutputSanitizer) -> None:
     """[关键修复验证].
@@ -84,7 +88,7 @@ def test_sanitize_reply_command_user_id(sanitizer_instance: LLMOutputSanitizer) 
                     "steps": [
                         # 模拟一个未来可能出现的、包含user_id的reply指令
                         {"command": "reply", "params": {"message_id": "msg123", "user_id": "U2"}},
-                        {"command": "text", "params": {"content": "同意 U2 的看法。"}}
+                        {"command": "text", "params": {"content": "同意 U2 的看法。"}},
                     ]
                 }
             }
@@ -95,12 +99,11 @@ def test_sanitize_reply_command_user_id(sanitizer_instance: LLMOutputSanitizer) 
             "qq": {
                 "send_message": {
                     "steps": [
-                        {"command": "reply", "params": {
-                            "message_id": "msg123",
-                            "user_id": "10002"
-                            }
+                        {
+                            "command": "reply",
+                            "params": {"message_id": "msg123", "user_id": "10002"},
                         },
-                        {"command": "text", "params": {"content": "同意 测试用户B 的看法。"}}
+                        {"command": "text", "params": {"content": "同意 测试用户B 的看法。"}},
                     ]
                 }
             }
@@ -116,24 +119,10 @@ def test_sanitize_other_actions_with_user_id(sanitizer_instance: LLMOutputSaniti
     测试: 其他需要 user_id 的动作（如 poke_user, delete_friend）也能被正确替换。.
     """
     input_json = {
-        "action": {
-            "qq": {
-                "poke_user": {
-                    "target_user_id": "U1",
-                    "motivation": "提醒 U1"
-                }
-            }
-        }
+        "action": {"qq": {"poke_user": {"target_user_id": "U1", "motivation": "提醒 U1"}}}
     }
     expected_output = {
-        "action": {
-            "qq": {
-                "poke_user": {
-                    "target_user_id": "10001",
-                    "motivation": "提醒 测试用户A"
-                }
-            }
-        }
+        "action": {"qq": {"poke_user": {"target_user_id": "10001", "motivation": "提醒 测试用户A"}}}
     }
     result = sanitizer_instance.sanitize(input_json)
     assert result == expected_output

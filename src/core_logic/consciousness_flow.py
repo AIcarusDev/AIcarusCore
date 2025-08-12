@@ -341,7 +341,7 @@ class CoreLogic:
     async def _listen_for_interruptions(
         self, session: "ChatSession", start_timestamp: float
     ) -> Stimulus | None:
-        """纯粹的中断监听器（哨兵），现在通过订阅事件代理来工作。"""
+        """纯粹的中断监听器（哨兵），现在通过订阅事件代理来工作."""
         subscription_queue = None
         try:
             subscription_queue = await self.interruption_broker.subscribe(session)
