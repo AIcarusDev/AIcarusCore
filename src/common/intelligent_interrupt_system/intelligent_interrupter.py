@@ -1,5 +1,5 @@
 # src/common/intelligent_interrupt_system/intelligent_interrupter.py
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
@@ -87,7 +87,7 @@ class IntelligentInterrupter:
         return weight
 
     def should_interrupt(
-        self, new_stimulus: "Stimulus", context_stimulus: "Stimulus" | None
+        self, new_stimulus: "Stimulus", context_stimulus: Optional["Stimulus"]
     ) -> bool:
         """判断是否需要中断。现在接收完整的 Stimulus 领域模型对象."""
         message_text = new_stimulus.text_content
