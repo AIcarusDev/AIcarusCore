@@ -184,6 +184,27 @@ async def _handle_consciousness_control(
     await focus_manager.handle_consciousness_control(control_payload, current_internal_state)
 
 
+async def _handle_goal_management(
+    control_payload: dict, core_logic: "CoreLogic"
+) -> None:
+    """[辅助函数] 专门处理 'manage_goals' 指令."""
+    goal_params = control_payload.get("manage_goals", {})
+    goal_manager = core_logic.state_manager.goal_manager
+
+    if add_params := goal_params.get("add"):
+        goals_to_add = add_params.get("goals", [])
+        goal_manager.add_goals(goals_to_add)
+        logger.info(f"已添加 {len(goals_to_add)} 个新目标。")
+
+    if remove_params := goal_params.get("remove"):
+        ids_to_remove = remove_params.get("goal_ids", [])
+        goal_manager.remove_goals(ids_to_remove)
+        logger.info(f"已移除 {len(ids_to_remove)} 个目标。")
+
+    # 从 payload 中移除已处理的 manage_goals
+    del control_payload["manage_goals"]
+
+
 async def process_llm_decision(
     decision_json: dict,
     focus_manager: "ChatSessionManager",
@@ -210,8 +231,13 @@ async def process_llm_decision(
     # 2. 优先处理“慢思考”
     if control_payload and "deep_think" in control_payload:
         current_internal_state, control_payload = await _handle_deep_think(
-            control_payload, focus_manager, current_internal_state
+            control_payload,
+            focus_manager,
+            current_internal_state
         )
+
+    if "manage_goals" in control_payload:
+        await _handle_goal_management(control_payload, core_logic)
 
     # 3. 处理外部动作
     if action_payload:

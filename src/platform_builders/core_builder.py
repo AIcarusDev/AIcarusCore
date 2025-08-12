@@ -105,6 +105,50 @@ class CoreBuilder(BasePlatformBuilder):
             },
             "required": ["motivation", "opinions"],
         },
+        "manage_goals": {
+            "title": "目标管理",
+            "type": "object",
+            "description": "管理你的短期目标，对应你的`<current_goals>`块。",
+            "properties": {
+                "add": {
+                    "type": "object",
+                    "description": "添加一个或多个新目标。",
+                    "properties": {
+                        "goals": {
+                            "type": "array",
+                            "description": "包含新增目标的列表。",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "goal": {"type": "string", "description": "目标本身的描述。"},
+                                    "reason": {"type": "string", "description": "此目标的背景/原因。"}
+                                },
+                                "required": ["goal", "reason"]
+                            }
+                        },
+                        "motivation": {"type": "string"}
+                    },
+                    "required": ["goals", "motivation"]
+                },
+                "remove": {
+                    "type": "object",
+                    "description": "移除一个或多个已完成/作废/过期的目标。",
+                    "properties": {
+                        "goal_ids": {
+                            "type": "array",
+                            "description": "要移除的目标ID列表 (例如 ['G1', 'G3'])。",
+                            "items": {"type": "string"}
+                        },
+                        "motivation": {"type": "string"}
+                    },
+                    "required": ["goal_ids", "motivation"]
+                }
+            },
+            "oneOf": [
+                {"required": ["add"]},
+                {"required": ["remove"]}
+            ]
+        },
     }
 
     # --- 核心动作定义保持不变 ---
@@ -265,6 +309,9 @@ class CoreBuilder(BasePlatformBuilder):
 
         # 慢思考作为一种基础认知能力，在所有层级都应该可用
         props["deep_think"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["deep_think"]
+
+        # 目标管理也应该是全局可用的
+        props["manage_goals"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["manage_goals"]
 
         schema = {"type": "object", "properties": props, "maxProperties": 1}
         return schema, {}

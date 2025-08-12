@@ -3,6 +3,7 @@ import datetime
 from typing import Any, ClassVar
 
 from src.common.custom_logging.logging_config import get_logger
+from src.core_logic.goal_manager import GoalManager
 from src.database import ActionLogStorageService, ThoughtStorageService
 
 logger = get_logger(__name__)
@@ -39,6 +40,7 @@ class AIStateManager:
         """初始化需要 thought_storage_service 和 action_log_service 才能干活，哼."""
         self.thought_service = thought_service
         self.action_log_service = action_log_service
+        self.goal_manager = GoalManager()
         logger.info("AIStateManager (思想链版) 初始化完毕。")
 
     async def get_current_state_for_prompt(self) -> dict[str, str]:  # TODO：该方法可能废弃，待处理

@@ -281,6 +281,11 @@ class ThoughtPromptBuilder:
 {sticker_collection_block}
 </sticker_collection_preview>
 """
+        current_goals_block = ""
+        if self.action_handler.chat_session_manager:  # action_handler 持有 chat_session_manager
+            # chat_session_manager 持有 core_logic, core_logic 持有 state_manager
+            state_manager = self.action_handler.chat_session_manager.core_logic.state_manager
+            current_goals_block = state_manager.goal_manager.get_formatted_goals()
 
         return {
             "aicarus_rule_block": AICARUS_RULE,
@@ -291,6 +296,7 @@ class ThoughtPromptBuilder:
             "current_state_block": await self._get_current_state_block(level, platform_id, conv_id),
             "attentional_trajectory_block": await self._build_attentional_trajectory_block(),
             "working_memory_block": working_memory_block,
+            "current_goals_block": current_goals_block,
             "behavior_guidelines_block": self._get_behavior_guidelines_block(level),
             "internal_info_block": internal_info_block,
             "input_XML_block_description": self._get_input_xml_block_description(level),
