@@ -55,6 +55,15 @@ class LLMOutputSanitizer:
 
     def _recursive_sanitize(self, node: Any, current_path: tuple[str, ...]) -> Any:
         """递归核心，根据路径应用不同规则."""
+        # 定义需要进行平台原生ID替换的字段名集合
+        # 这是一个更健壮、更易于扩展的解决方案
+        ID_FIELD_NAMES = {
+            "user_id",
+            "target_user_id",
+            "group_id",
+            "conversation_id",
+        }
+
         if isinstance(node, dict):
             return {
                 key: self._recursive_sanitize(value, (*current_path, key))
@@ -66,13 +75,8 @@ class LLMOutputSanitizer:
             return [self._recursive_sanitize(item, current_path) for item in node]
         elif isinstance(node, str):
             # 这是决策点：根据当前路径决定使用哪个替换规则
-            # 规则1: 如果路径是指令中的 user_id 字段，使用ID替换
-            # 我们检查路径的最后两部分是否是 ('at', 'user_id') 或 ('reply', 'user_id') 等
-            if (
-                len(current_path) >= 2
-                and current_path[-2] == "at"
-                and current_path[-1] == "user_id"
-            ):
+            # 规则1: 如果当前字段的 'key' 是一个ID字段，使用ID替换
+            if current_path and current_path[-1] in ID_FIELD_NAMES:
                 logger.debug(f"ID Rule triggered for path: {current_path}")
                 return self._uid_pattern.sub(self._get_id_replacer, node)
 
