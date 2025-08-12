@@ -44,9 +44,7 @@ class ThoughtPersistor:
         # 提取 'action' 或 'consciousness_control' 作为有效载荷
         action_payload = thought_json.get("action") or thought_json.get("consciousness_control")
         action_id = (
-            str(uuid.uuid4())
-            if action_payload and isinstance(action_payload, dict)
-            else None
+            str(uuid.uuid4()) if action_payload and isinstance(action_payload, dict) else None
         )
 
         # 1. 把思考结果打包成一颗新的“思想点”
@@ -59,7 +57,7 @@ class ThoughtPersistor:
             source_type=source_type,
             source_id=source_id,
             action_id=action_id,
-            action_payload=thought_json, # 存储完整的、修正后的JSON
+            action_payload=thought_json,  # 存储完整的、修正后的JSON
         )
 
         # 2. 把点交给存储服务去串起来
