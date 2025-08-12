@@ -90,6 +90,17 @@ class IntelligentInterrupter:
         self, new_stimulus: "Stimulus", context_stimulus: Optional["Stimulus"]
     ) -> bool:
         """判断是否需要中断。现在接收完整的 Stimulus 领域模型对象."""
+        if new_stimulus.embedding is None:
+            logger.warning(
+                f"事件 {new_stimulus.event_id} 缺少向量，无法进行上下文意外度评估。跳过中断判断。"
+            )
+            return False
+            
+        if context_stimulus and context_stimulus.embedding is None:
+            logger.warning(
+                f"上下文事件 {context_stimulus.event_id} 缺少向量，将作为无上下文处理。"
+            )
+            context_stimulus = None
         message_text = new_stimulus.text_content
         speaker_id = new_stimulus.sender_id
 

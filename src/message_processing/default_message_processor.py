@@ -20,6 +20,7 @@ from src.domain.models import Stimulus
 from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 from src.message_processing.image_analysis_service import ImageAnalysisService
 from websockets.server import WebSocketServerProtocol
+import dataclasses
 
 if TYPE_CHECKING:
     from src.core_communication.core_ws_server import CoreWebsocketServer
@@ -53,7 +54,7 @@ class DefaultMessageProcessor:
         self.qq_chat_session_manager = qq_chat_session_manager
         self.core_logic: CoreLogicFlow | None = None
         self.image_analysis_service: ImageAnalysisService | None = image_analysis_service
-        logger.info("DefaultMessageProcessor 初始化完成 (奇美拉升级版)。")
+        logger.info("DefaultMessageProcessor 初始化完成。")
 
     async def process_event(
         self,
@@ -81,9 +82,11 @@ class DefaultMessageProcessor:
         logger.debug(f"开始处理事件: {proto_event.event_type}, ID: {proto_event.event_id}")
 
         try:
+            # _handle_event_persistence 现在会返回包含了向量信息的文档
             saved_event_doc = await self._handle_event_persistence(
                 proto_event, platform_id, needs_persistence
             )
+            # 将包含了向量信息的文档传递给 _dispatch_event_action
             await self._dispatch_event_action(proto_event, saved_event_doc)
 
         except Exception as e:
@@ -117,48 +120,38 @@ class DefaultMessageProcessor:
         """专门负责事件的身份关联、持久化和会话档案更新."""
         person_id, _ = await self._associate_person_and_update_membership(event, platform_id)
 
-        saved_doc = None
-        if needs_persistence:
-            db_event_doc = DBEventDocument.from_protocol(event)
-            db_event_doc.person_id_associated = person_id
-            self._calculate_and_inject_hashes(db_event_doc)
+        if not needs_persistence:
+            return None
 
-            if self.narrative_vectorizer and event.event_type.startswith("message."):
-                logger.debug(f"事件 {event.event_id} 正在进入叙事化向量流程...")
-                sentence, vector = await self.narrative_vectorizer.build_and_vectorize(event)
-                if sentence and vector:
-                    db_event_doc.narrative_sentence = sentence
-                    db_event_doc.embedding = vector  # 复用 embedding 字段
-                    logger.info(f"事件 {event.event_id} 成功升维为叙事向量。")
-                else:
-                    logger.warning(
-                        f"事件 {event.event_id} 叙事化向量失败，将使用纯文本向量作为后备。"
-                    )
-                    # 后备逻辑：如果升维失败，仍然使用旧的纯文本向量化
-                    if text_content := event.get_text_content():
-                        logger.warning(f"事件 {event.event_id} 正在进行纯文本向量化...")
-                        embedding_vector = self.semantic_model.encode([text_content])[0]
-                        db_event_doc.embedding = embedding_vector.tolist()
+        db_event_doc = DBEventDocument.from_protocol(event)
+        db_event_doc.person_id_associated = person_id
+        self._calculate_and_inject_hashes(db_event_doc)
 
-            saved_doc_dict = db_event_doc.to_dict()
-            if await self.event_service.save_event_document(saved_doc_dict):
-                logger.debug(f"事件文档 '{event.event_id}' 已保存。")
-                saved_doc = saved_doc_dict
+        if self.narrative_vectorizer and event.event_type.startswith("message."):
+            logger.debug(f"事件 {event.event_id} 正在进入叙事化向量流程...")
+            sentence, vector = await self.narrative_vectorizer.build_and_vectorize(event)
+            if sentence and vector:
+                db_event_doc.narrative_sentence = sentence
+                db_event_doc.embedding = vector
+                logger.info(f"事件 {event.event_id} 成功升维为叙事向量。")
+            else:
+                logger.warning(f"事件 {event.event_id} 叙事化向量失败，将使用纯文本向量作为后备。")
+                if text_content := event.get_text_content():
+                    embedding_vector = self.semantic_model.encode([text_content])[0]
+                    db_event_doc.embedding = embedding_vector.tolist()
 
-                has_image = any(seg.type == "image" for seg in event.content)
-                if has_image and self.image_analysis_service:
-                    logger.debug(f"事件 '{event.event_id}' 包含图片，已提交至后台进行分析。")
-                    await self.image_analysis_service.submit_event_for_analysis(saved_doc)
+        saved_doc_dict = db_event_doc.to_dict()
+        if await self.event_service.save_event_document(saved_doc_dict):
+            logger.debug(f"事件文档 '{event.event_id}' 已保存。")
 
-        if event.conversation_info and event.conversation_info.conversation_id:
-            await self.entity_service.get_or_create_conversation_entity(
-                conversation_id=event.conversation_info.conversation_id,
-                platform=platform_id,
-                conv_type=event.conversation_info.type,
-                name=event.conversation_info.name,
-                extra=event.conversation_info.extra,
-            )
-        return saved_doc
+            has_image = any(seg.type == "image" for seg in event.content)
+            if has_image and self.image_analysis_service:
+                await self.image_analysis_service.submit_event_for_analysis(saved_doc_dict)
+
+            # 返回保存后的文档，它现在包含了 embedding
+            return saved_doc_dict
+
+        return None
 
     async def _associate_person_and_update_membership(
         self, event: ProtocolEvent, platform_id: str
@@ -234,21 +227,22 @@ class DefaultMessageProcessor:
         self, event: ProtocolEvent, saved_event_doc: dict | None
     ) -> None:
         """专门负责根据事件类型和当前状态，决定后续动作."""
+        # 1. 先从原始事件创建基础的 Stimulus 对象
         stimulus = Stimulus.from_protocol_event(event)
 
-        if (
-            event.event_type.startswith("message.")
-            and self.qq_chat_session_manager
-            and self.core_logic
-            and (session := self.core_logic._get_current_session())
-            and session.conversation_id
-            == f"{stimulus.platform}_{stimulus.conversation_type}_{stimulus.conversation_id}"
-        ):
-            bot_profile = await session.get_bot_profile()
-            bot_platform_id = str(bot_profile.get("user_id"))
-            if stimulus.sender_id and stimulus.sender_id != bot_platform_id:
-                session.reset_consecutive_bot_message_count()
+        # 2. 如果事件被持久化了，使用 dataclasses.replace 创建一个包含新信息的新实例
+        if saved_event_doc:
+            embedding_vector = saved_event_doc.get("embedding")
+            narrative = saved_event_doc.get("narrative_sentence")
+            
+            # 使用 dataclasses.replace 安全地创建新的、不可变的实例
+            stimulus = dataclasses.replace(
+                stimulus,
+                embedding=embedding_vector,
+                narrative_sentence=narrative
+            )
 
+        # 3. 发布经过“输血”的、信息完整的 Stimulus 对象
         await self.interruption_broker.publish(stimulus)
         logger.debug(f"领域对象 Stimulus (源自事件 '{event.event_id}') 已发布到中断代理。")
 

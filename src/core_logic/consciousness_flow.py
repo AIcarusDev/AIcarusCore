@@ -341,34 +341,51 @@ class CoreLogic:
     async def _listen_for_interruptions(
         self, session: "ChatSession", start_timestamp: float
     ) -> Stimulus | None:
-        """纯粹的中断监听器（哨兵），现在通过订阅事件代理来工作."""
+        """纯粹的中断监听器（哨兵），现在通过订阅事件代理来工作。"""
         subscription_queue = None
         try:
+            # --- [探针 A] ---
+            logger.error(f"[PROBE A] Sentry for '{session.conversation_id}' starting.")
             subscription_queue = await self.interruption_broker.subscribe(session)
             context_stimulus = self._last_interrupt_context_stimulus
             bot_profile = await session.get_bot_profile()
             current_bot_id = str(bot_profile.get("user_id") or session.bot_id)
+            # --- [探針 B] ---
+            logger.error(f"[PROBE B] Sentry for '{session.conversation_id}' entering loop. Context is: {context_stimulus}")
 
             while True:
                 new_stimulus = await subscription_queue.get()
+                # --- [探针 C] ---
+                logger.error(f"[PROBE C] Sentry got new stimulus: {new_stimulus.event_id}")
+
                 if new_stimulus.timestamp <= start_timestamp:
                     continue
 
                 interrupting_stimulus, new_context_stimulus = self._evaluate_interrupt(
                     new_stimulus, context_stimulus, current_bot_id, session
                 )
+                
+                # --- [探针 D] ---
+                logger.error(f"[PROBE D] Evaluation result: interrupting={interrupting_stimulus is not None}, new_context={new_context_stimulus is not None}")
+
                 if interrupting_stimulus:
+                    # --- [探针 E] ---
+                    logger.error(f"[PROBE E] Sentry returning interrupting stimulus: {interrupting_stimulus.event_id}")
                     return interrupting_stimulus
 
                 if new_context_stimulus:
                     context_stimulus = new_context_stimulus
         except asyncio.CancelledError:
-            return None
+            logger.info(f"[{session.conversation_id}] 中断哨兵任务被取消。")
+            return None # 明确返回 None
         except Exception as e:
-            logger.error(f"[{session.conversation_id}] 中断哨兵任务异常: {e}", exc_info=True)
+            # --- [探针 F - 关键] ---
+            logger.error(f"[PROBE F] Sentry caught UNEXPECTED EXCEPTION in loop: {e}", exc_info=True)
             return None
         finally:
             if session:
+                # --- [探针 G] ---
+                logger.error(f"[PROBE G] Sentry for '{session.conversation_id}' entering finally block.")
                 await self.interruption_broker.unsubscribe(session)
 
     def _evaluate_interrupt(
@@ -379,12 +396,17 @@ class CoreLogic:
         session: "ChatSession",
     ) -> tuple[Stimulus | None, Stimulus | None]:
         """对单个刺激物进行中断评估的辅助函数."""
+        # 守卫1: 忽略自己发出的消息, 但需要更新上下文，以便下一个事件可以和这个事件进行比较
         if new_stimulus.sender_id and new_stimulus.sender_id == current_bot_id:
-            return None, None
-
-        if not new_stimulus.text_content and not new_stimulus.image_urls:
             return None, new_stimulus
 
+        # 守卫2: 忽略没有文本和图片内容的纯粹系统事件 (例如，进入/退出应用的通知)
+        if not new_stimulus.text_content and not new_stimulus.image_urls:
+            return None, new_stimulus  # 但仍然更新上下文
+
+        # 守卫3: 【升维验证】如果事件没有被成功向量化，就不能进行基于向量的意外度评估。
+        # --- [探针 H] ---
+        logger.error(f"[PROBE H] Evaluator calling should_interrupt for event {new_stimulus.event_id}")
         if session.intelligent_interrupter.should_interrupt(
             new_stimulus=new_stimulus, context_stimulus=context_stimulus
         ):
@@ -392,6 +414,7 @@ class CoreLogic:
                 f"[{session.conversation_id}] IIS决策：中断！元凶事件ID: {new_stimulus.event_id}"
             )
             return new_stimulus, new_stimulus
+        
         return None, new_stimulus
 
     async def _wait_for_next_cycle(self, interval: float) -> None:

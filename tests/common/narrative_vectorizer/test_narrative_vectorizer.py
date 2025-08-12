@@ -2,22 +2,24 @@
 
 import numpy as np
 import pytest
+
 # --- [核心修正] 导入 SegBuilder ---
-from aicarus_protocols import ConversationInfo, Event, Seg, UserInfo, SegBuilder
+from aicarus_protocols import ConversationInfo, Event, SegBuilder, UserInfo
+
 # --- [结束修正] ---
 from pytest_mock import MockerFixture
 from src.common.narrative_vectorizer.narrative_vectorizer import NarrativeVectorizer
 
 
 @pytest.fixture
-def mock_entity_service(mocker: MockerFixture):
+def mock_entity_service(mocker: MockerFixture) -> MockerFixture:
     """模拟 EntityGraphService."""
     mock = mocker.MagicMock()
     return mock
 
 
 @pytest.fixture
-def mock_image_analysis_service(mocker: MockerFixture):
+def mock_image_analysis_service(mocker: MockerFixture) -> MockerFixture:
     """模拟 ImageAnalysisService."""
     mock = mocker.MagicMock()
     mock.get_analysis_result = mocker.AsyncMock(
@@ -28,7 +30,7 @@ def mock_image_analysis_service(mocker: MockerFixture):
 
 
 @pytest.fixture
-def mock_semantic_model(mocker: MockerFixture):
+def mock_semantic_model(mocker: MockerFixture) -> MockerFixture:
     """模拟 SemanticModel."""
     mock = mocker.MagicMock()
     mock.encode.return_value = [np.array([0.1, 0.2, 0.3, 0.4])]
@@ -37,9 +39,11 @@ def mock_semantic_model(mocker: MockerFixture):
 
 @pytest.fixture
 def vectorizer(
-    mock_entity_service, mock_image_analysis_service, mock_semantic_model
+    mock_entity_service: MockerFixture,
+    mock_image_analysis_service: MockerFixture,
+    mock_semantic_model: MockerFixture,
 ) -> NarrativeVectorizer:
-    """创建一个带有模拟依赖的 NarrativeVectorizer 实例。"""
+    """创建一个带有模拟依赖的 NarrativeVectorizer 实例."""
     return NarrativeVectorizer(
         entity_service=mock_entity_service,
         image_analysis_service=mock_image_analysis_service,
@@ -48,9 +52,13 @@ def vectorizer(
 
 
 def create_test_event(
-    user_id="12345", nickname="测试用户", text=None, image_b64=None, conv_name="测试群"
+    user_id: str = "12345",
+    nickname: str = "测试用户",
+    text: str | None = None,
+    image_b64: str | None = None,
+    conv_name: str = "测试群",
 ) -> Event:
-    """辅助函数，用于创建测试用的 Event 对象。"""
+    """辅助函数，用于创建测试用的 Event 对象."""
     content = []
     if text:
         # --- [核心修正] 使用 SegBuilder.text() ---
@@ -75,8 +83,8 @@ def create_test_event(
 
 
 @pytest.mark.asyncio
-async def test_vectorize_text_only_event(vectorizer: NarrativeVectorizer):
-    """测试场景1: 纯文本事件。"""
+async def test_vectorize_text_only_event(vectorizer: NarrativeVectorizer) -> None:
+    """测试场景1: 纯文本事件."""
     event = create_test_event(text="你好啊")
     sentence, vector = await vectorizer.build_and_vectorize(event)
 
@@ -87,31 +95,33 @@ async def test_vectorize_text_only_event(vectorizer: NarrativeVectorizer):
 
 
 @pytest.mark.asyncio
-async def test_vectorize_image_and_text_event(vectorizer: NarrativeVectorizer):
-    """测试场景2: 图文混合事件。"""
+async def test_vectorize_image_and_text_event(vectorizer: NarrativeVectorizer) -> None:
+    """测试场景2: 图文混合事件."""
     event = create_test_event(text="看这张图", image_b64="fake_base64_string")
     sentence, vector = await vectorizer.build_and_vectorize(event)
 
-    expected_sentence = "群主，对话参与者，'12345'，在'测试群'的场景下，发送了image，内容为“一只戴着墨镜的柴犬”，并附言：“看这张图”。"
+    expected_sentence = "群主，对话参与者，'12345'，在'测试群'的场景下，发送了image，内容为“一只戴着墨镜的柴犬”，并附言：“看这张图”。"  # noqa: E501
     assert sentence == expected_sentence
     assert vector == [0.1, 0.2, 0.3, 0.4]
     vectorizer.image_analysis_service.get_analysis_result.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_vectorize_image_only_event(vectorizer: NarrativeVectorizer):
-    """测试场景3: 纯图片事件。"""
+async def test_vectorize_image_only_event(vectorizer: NarrativeVectorizer) -> None:
+    """测试场景3: 纯图片事件."""
     event = create_test_event(image_b64="fake_base64_string")
     sentence, vector = await vectorizer.build_and_vectorize(event)
 
-    expected_sentence = "群主，对话参与者，'12345'，在'测试群'的场景下，发送了image，内容为“一只戴着墨镜的柴犬”。"
+    expected_sentence = (
+        "群主，对话参与者，'12345'，在'测试群'的场景下，发送了image，内容为“一只戴着墨镜的柴犬”。"
+    )
     assert sentence == expected_sentence
     assert vector is not None
 
 
 @pytest.mark.asyncio
-async def test_vectorize_event_with_no_user_info(vectorizer: NarrativeVectorizer):
-    """测试场景4: 缺少 user_info 的异常事件。"""
+async def test_vectorize_event_with_no_user_info(vectorizer: NarrativeVectorizer) -> None:
+    """测试场景4: 缺少 user_info 的异常事件."""
     event = create_test_event(text="你好")
     event.user_info = None
     sentence, vector = await vectorizer.build_and_vectorize(event)

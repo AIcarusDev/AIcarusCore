@@ -30,11 +30,13 @@ class Stimulus:
     sender_nickname: str | None = None
     sender_cardname: str | None = None
 
-    # --- [新增] 供格式化器等特殊模块使用的附加信息 ---
+    # 供格式化器等特殊模块使用的附加信息
     raw_event_type: str | None = None
     raw_content: list[dict[str, Any]] = field(default_factory=list)
     image_analysis: list[dict[str, Any]] | None = None
     motivation: str | None = None  # 用于记录 AI 自身发言的动机
+    embedding: list[float] | None = field(default=None, repr=False)
+    narrative_sentence: str | None = None
 
     @classmethod
     def from_protocol_event(cls, event: ProtocolEvent) -> "Stimulus":
