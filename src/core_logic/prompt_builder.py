@@ -649,7 +649,7 @@ class ThoughtPromptBuilder:
         response_schema = DELIBERATION_RESPONSE_SCHEMA
 
         # 打印调试信息
-        logger.debug("=" * 30 + " 慢思考辩论 PROMPT " + "=" * 30)
+        logger.debug("=" * 30 + " 慢思考 PROMPT " + "=" * 30)
         logger.debug(f"--- [SYSTEM PROMPT (慢思考)] ---\n{system_prompt}")
         logger.debug(f"--- [USER PROMPT (慢思考)] ---\n{user_prompt}")
         logger.debug(
