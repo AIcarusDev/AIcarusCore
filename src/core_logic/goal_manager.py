@@ -36,17 +36,31 @@ class GoalManager:
         return goal_id
 
     async def add_goals(self, goals_to_add: list[dict[str, str]]) -> list[str]:
-        """(异步) 添加一个或多个新目标."""
+        """(异步) 添加一个或多个新目标，使用 asyncio.gather 并发执行以提高性能."""
+        # 1. 首先，筛选出所有有效的目标数据
+        valid_goals_data = [
+            data for data in goals_to_add if data.get("goal") and data.get("reason")
+        ]
+
+        if not valid_goals_data:
+            return []
+
+        # 2. 为每个有效目标创建一个 ID 生成任务
+        id_generation_tasks = [self._generate_next_id() for _ in valid_goals_data]
+
+        # 3. 使用 asyncio.gather 并发执行所有 ID 生成任务
+        generated_ids = await asyncio.gather(*id_generation_tasks)
+
+        # 4. 在所有 ID 都生成后，统一进行同步的添加操作
         added_ids = []
-        for goal_data in goals_to_add:
-            goal_text = goal_data.get("goal")
-            reason_text = goal_data.get("reason")
-            if goal_text and reason_text:
-                new_id = await self._generate_next_id()
-                new_goal = Goal(id=new_id, goal=goal_text, reason=reason_text)
-                self._goals[new_id] = new_goal
-                added_ids.append(new_id)
-                logger.info(f"新增目标 '{new_id}': {goal_text}")
+        for goal_data, new_id in zip(valid_goals_data, generated_ids, strict=False):
+            goal_text = goal_data["goal"]
+            reason_text = goal_data["reason"]
+            new_goal = Goal(id=new_id, goal=goal_text, reason=reason_text)
+            self._goals[new_id] = new_goal
+            added_ids.append(new_id)
+            logger.info(f"新增目标 '{new_id}': {goal_text}")
+
         return added_ids
 
     async def remove_goals(self, goal_ids: list[str]) -> list[str]:

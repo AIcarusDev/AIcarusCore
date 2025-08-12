@@ -26,9 +26,7 @@ class GoalStorageService:
         """
         bind_vars = {"@collection": self.collection_name}
         results = await self.conn_manager.execute_query(query, bind_vars)
-        if results:
-            return [GoalDocument(**doc) for doc in results]
-        return []
+        return [GoalDocument(**doc) for doc in results] if results else []
 
     async def add_goal(self, goal_doc: GoalDocument) -> bool:
         """向数据库中添加一个新的目标文档."""
