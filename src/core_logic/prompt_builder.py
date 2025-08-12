@@ -16,6 +16,7 @@ from src.common.time_utils import (
 from src.common.utils import build_conversation_entity_uid, parse_focus_path
 from src.config import config
 from src.core_logic.internal_info_builder import InternalInfoBuilder
+from src.core_logic.state_manager import AIStateManager
 from src.database import EntityGraphService, ThoughtStorageService
 from src.database.models import ConversationDetails
 from src.domain.models import Stimulus
@@ -66,6 +67,7 @@ class ThoughtPromptBuilder:
         thought_storage_service: "ThoughtStorageService",
         entity_graph_service: "EntityGraphService",
         action_handler: "ActionHandler",
+        state_manager: "AIStateManager",
         chat_session_manager: Optional["ChatSessionManager"] = None,
         core_ws_server: Optional["CoreWebsocketServer"] = None,
     ) -> None:
@@ -75,6 +77,7 @@ class ThoughtPromptBuilder:
         self.thought_storage = thought_storage_service
         self.entity_service = entity_graph_service
         self.action_handler = action_handler
+        self.state_manager = state_manager
         self.chat_session_manager = chat_session_manager
         self.core_ws_server = core_ws_server
         self.is_context_switch_flag: bool = False
@@ -281,6 +284,7 @@ class ThoughtPromptBuilder:
 {sticker_collection_block}
 </sticker_collection_preview>
 """
+        current_goals_block = self.state_manager.goal_manager.get_formatted_goals()
 
         return {
             "aicarus_rule_block": AICARUS_RULE,
@@ -291,6 +295,7 @@ class ThoughtPromptBuilder:
             "current_state_block": await self._get_current_state_block(level, platform_id, conv_id),
             "attentional_trajectory_block": await self._build_attentional_trajectory_block(),
             "working_memory_block": working_memory_block,
+            "current_goals_block": current_goals_block,
             "behavior_guidelines_block": self._get_behavior_guidelines_block(level),
             "internal_info_block": internal_info_block,
             "input_XML_block_description": self._get_input_xml_block_description(level),

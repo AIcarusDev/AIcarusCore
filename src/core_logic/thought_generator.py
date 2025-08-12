@@ -1,5 +1,6 @@
 # src/core_logic/thought_generator.py
 import json
+import re
 import uuid
 from typing import TYPE_CHECKING, Any
 
@@ -54,8 +55,15 @@ class ThoughtGenerator:
         logger.debug("=" * 40 + " LLM DEBUG PROMPT " + "=" * 40)
         logger.debug(f"当前注意力焦点 (Focus Path): {focus_path or 'core'}")
 
-        # 使用 logger.info 打印多行内容，loguru会自动处理换行
-        logger.debug(f"--- [SYSTEM PROMPT] ---\n{system_prompt}")
+        # 2. 创建一个专门用于日志打印的 prompt 版本
+        prompt_for_logging = re.sub(
+            r"<system_rule>.*?</system_rule>",
+            "<system_rule>... [内容已省略] ...</system_rule>",
+            system_prompt,
+            flags=re.DOTALL,  # re.DOTALL 标志让 '.' 可以匹配包括换行符在内的任意字符
+        )
+        # 3. 在日志中使用这个净化后的版本
+        logger.debug(f"--- [SYSTEM PROMPT] ---\n{prompt_for_logging}")
         logger.debug(f"--- [USER PROMPT] ---\n{user_prompt}")
 
         if response_schema:

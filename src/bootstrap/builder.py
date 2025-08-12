@@ -100,6 +100,7 @@ class ServiceBuilder:
             thought_storage_service=db_services["thought_storage_service"],
             entity_graph_service=db_services["entity_graph_service"],
             action_handler=action_handler,
+            state_manager=state_manager,
             chat_session_manager=None,
             core_ws_server=None,
         )

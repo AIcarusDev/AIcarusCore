@@ -32,6 +32,10 @@ CORE_CYCLE_SYSTEM_PROMPT = """
 {self_prompt_block}
 </self_prompt>
 
+<current_goals>
+{current_goals_block}
+</current_goals>
+
 <current_state>
 {current_state_block}
 </current_state>

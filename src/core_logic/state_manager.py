@@ -3,6 +3,7 @@ import datetime
 from typing import Any, ClassVar
 
 from src.common.custom_logging.logging_config import get_logger
+from src.core_logic.goal_manager import GoalManager
 from src.database import ActionLogStorageService, ThoughtStorageService
 
 logger = get_logger(__name__)
@@ -33,13 +34,18 @@ class AIStateManager:
         "action_log_block": "你最近没有执行过任何动作。",
     }
 
+    # <-- 修改点 1: 移除了 goal_storage_service 参数
     def __init__(
         self, thought_service: ThoughtStorageService, action_log_service: ActionLogStorageService
     ) -> None:
         """初始化需要 thought_storage_service 和 action_log_service 才能干活，哼."""
         self.thought_service = thought_service
         self.action_log_service = action_log_service
+        # GoalManager 现在是纯内存组件，不再需要 GoalStorageService
+        self.goal_manager = GoalManager()
         logger.info("AIStateManager (思想链版) 初始化完毕。")
+
+    # <-- 修改点 2: 移除了 initialize 方法，因为它不再需要从数据库加载目标
 
     async def get_current_state_for_prompt(self) -> dict[str, str]:  # TODO：该方法可能废弃，待处理
         """从思想链获取最新的状态，构建Prompt需要的所有状态块."""

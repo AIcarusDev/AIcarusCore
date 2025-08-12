@@ -12,11 +12,7 @@ from src.database import (
     ThoughtStorageService,
 )
 from src.database.services.event_storage_service import EventStorageService
-
-# ======================== [ 新增导入 ] ========================
 from src.domain.models import ActionMetadata, ActionResult
-
-# =============================================================
 
 if TYPE_CHECKING:
     from src.action.action_handler import ActionHandler
@@ -36,20 +32,17 @@ class PendingActionManager:
         event_storage_service: EventStorageService,
         action_handler_instance: "ActionHandler",
     ) -> None:
-        # ======================== [ 核心改造点 1 ] ========================
         # _pending_actions 现在存储 Future[ActionResult] 和 ActionMetadata
         self._pending_actions: dict[
             str,
             tuple[asyncio.Future[ActionResult], str | None, str, dict[str, Any], ActionMetadata],
         ] = {}
-        # =============================================================
         self.action_log_service = action_log_service
         self.thought_storage_service = thought_storage_service
         self.event_storage_service = event_storage_service
         self.action_handler = action_handler_instance
         logger.info(f"{self.__class__.__name__} instance created (领域驱动改造版).")
 
-    # ======================== [ 核心改造点 2 ] ========================
     # 方法签名改变，接收 ActionMetadata，返回 ActionResult
     async def add_and_wait_for_action(
         self,
@@ -82,8 +75,6 @@ class PendingActionManager:
         finally:
             self._pending_actions.pop(action_id, None)
 
-    # =================================================================
-
     async def _handle_action_timeout(self, action_id: str) -> None:
         """处理动作超时的情况."""
         if action_id not in self._pending_actions:
@@ -91,13 +82,11 @@ class PendingActionManager:
         logger.warning(f"动作 '{action_id}' 超时未收到响应！")
         pending_future, _, _, _, _ = self._pending_actions.pop(action_id)
         if not pending_future.done():
-            # ======================== [ 核心改造点 3 ] ========================
             # 超时也设置一个 ActionResult
             timeout_result = ActionResult(
                 action_id=action_id, is_success=False, error_message="动作响应超时。"
             )
             pending_future.set_result(timeout_result)
-            # =============================================================
         await self.action_log_service.update_action_log_with_response(
             action_id=action_id,
             status="timeout",
@@ -259,8 +248,6 @@ class PendingActionManager:
         if tasks_to_gather:
             await asyncio.gather(*tasks_to_gather)
 
-    # =================================================================
-
     async def _proactively_create_conversation_docs_from_list(
         self, details: dict | None, sent_dict: dict
     ) -> None:
@@ -326,7 +313,6 @@ class PendingActionManager:
                 return False, status, response_data.get("message", "适配器报告未知错误"), details
         return False, "unknown_format", "响应格式不正确", None
 
-    # ======================== [ 核心改造点 6 ] ========================
     # 方法签名改变，接收 ActionResult
     def _create_final_result_message(self, description: str, result: ActionResult) -> str:
         """根据 ActionResult 创建最终的结果消息."""
@@ -342,9 +328,6 @@ class PendingActionManager:
             return msg
         return f"动作 '{description}' 执行失败: {result.error_message}"
 
-    # =================================================================
-
-    # ======================== [ 核心改造点 7 ] ========================
     # 方法签名改变，接收 ActionMetadata
     async def _save_successful_action_as_event(
         self,
@@ -396,8 +379,6 @@ class PendingActionManager:
         }
         await self.event_storage_service.save_event_document(event_to_save)
         logger.info(f"成功的平台动作 '{action_id}' 已作为事件存入 events 表。")
-
-    # =================================================================
 
     async def _get_sent_message_id_safe(self, event_data: dict[str, Any]) -> str:
         default_id = "unknow_message_id"
