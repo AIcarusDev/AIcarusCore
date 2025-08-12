@@ -16,6 +16,7 @@ from src.common.time_utils import (
 from src.common.utils import build_conversation_entity_uid, parse_focus_path
 from src.config import config
 from src.core_logic.internal_info_builder import InternalInfoBuilder
+from src.core_logic.state_manager import AIStateManager
 from src.database import EntityGraphService, ThoughtStorageService
 from src.database.models import ConversationDetails
 from src.domain.models import Stimulus
@@ -66,6 +67,7 @@ class ThoughtPromptBuilder:
         thought_storage_service: "ThoughtStorageService",
         entity_graph_service: "EntityGraphService",
         action_handler: "ActionHandler",
+        state_manager: "AIStateManager",
         chat_session_manager: Optional["ChatSessionManager"] = None,
         core_ws_server: Optional["CoreWebsocketServer"] = None,
     ) -> None:
@@ -75,6 +77,7 @@ class ThoughtPromptBuilder:
         self.thought_storage = thought_storage_service
         self.entity_service = entity_graph_service
         self.action_handler = action_handler
+        self.state_manager = state_manager
         self.chat_session_manager = chat_session_manager
         self.core_ws_server = core_ws_server
         self.is_context_switch_flag: bool = False
@@ -281,11 +284,7 @@ class ThoughtPromptBuilder:
 {sticker_collection_block}
 </sticker_collection_preview>
 """
-        current_goals_block = ""
-        if self.action_handler.chat_session_manager:  # action_handler 持有 chat_session_manager
-            # chat_session_manager 持有 core_logic, core_logic 持有 state_manager
-            state_manager = self.action_handler.chat_session_manager.core_logic.state_manager
-            current_goals_block = state_manager.goal_manager.get_formatted_goals()
+        current_goals_block = self.state_manager.goal_manager.get_formatted_goals()
 
         return {
             "aicarus_rule_block": AICARUS_RULE,
@@ -649,7 +648,7 @@ class ThoughtPromptBuilder:
         response_schema = DELIBERATION_RESPONSE_SCHEMA
 
         # 打印调试信息
-        logger.debug("=" * 30 + " 慢思考 PROMPT " + "=" * 30)
+        logger.debug("=" * 30 + " 慢思考辩论 PROMPT " + "=" * 30)
         logger.debug(f"--- [SYSTEM PROMPT (慢思考)] ---\n{system_prompt}")
         logger.debug(f"--- [USER PROMPT (慢思考)] ---\n{user_prompt}")
         logger.debug(
