@@ -10,6 +10,7 @@ from src.common.custom_logging.logging_config import get_logger
 from src.common.intelligent_interrupt_system.models import SemanticModel
 from src.common.interruption_broker import InterruptionEventBroker
 from src.common.narrative_vectorizer.narrative_vectorizer import NarrativeVectorizer
+from src.common.utils import build_conversation_entity_uid
 from src.config import config
 from src.database import (
     ActionLogStorageService,
@@ -80,6 +81,27 @@ class DefaultMessageProcessor:
             return
 
         logger.debug(f"开始处理事件: {proto_event.event_type}, ID: {proto_event.event_id}")
+
+        # 在处理任何逻辑之前，先检查是否需要重置连续发言计数器
+        if (
+            self.qq_chat_session_manager
+            and proto_event.event_type.startswith("message.")
+            and proto_event.user_info
+            and proto_event.user_info.user_id != proto_event.bot_id
+            and proto_event.conversation_info
+            and proto_event.conversation_info.conversation_id
+            and proto_event.conversation_info.type
+        ):
+            conv_entity_uid = build_conversation_entity_uid(
+                platform_id,
+                proto_event.conversation_info.type,
+                proto_event.conversation_info.conversation_id,
+            )
+            # 从管理器中查找当前会话
+            session = self.qq_chat_session_manager.sessions.get(conv_entity_uid)
+            # 如果会话存在，调用重置方法
+            if session:
+                session.reset_consecutive_bot_message_count()
 
         try:
             # _handle_event_persistence 现在会返回包含了向量信息的文档
