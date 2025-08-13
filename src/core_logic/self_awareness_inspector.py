@@ -148,7 +148,7 @@ async def inspect_and_initialize_self_profile(
     action_handler: "ActionHandler",
     platform_id: str,
 ) -> tuple[bool, dict[str, Any] | None]:
-    """(重构后) 编排检查和初始化自身档案的流程."""
+    """编排检查和初始化自身档案的流程."""
     logger.info(f"--- 开始对平台 '{platform_id}' 进行自我客观信息检查 ---")
 
     # 1. 尝试从数据库加载现有档案
