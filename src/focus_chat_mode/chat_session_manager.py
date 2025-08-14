@@ -145,6 +145,10 @@ class ChatSessionManager:
                 getattr(conv_entity_doc, "last_read_timestamp", 0.0) or time.time() * 1000.0
             )
 
+            if 'extra' not in conv_details:
+                conv_details.extra = {}
+            conv_details.extra['membership_status'] = conv_details.membership_status
+
             new_session = ChatSession(
                 conversation_info=conversation_info_obj,
                 conversation_id=conversation_entity_uid,

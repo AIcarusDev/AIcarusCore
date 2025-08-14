@@ -56,6 +56,26 @@ class EntityGraphService:
         tx.query(insert_query).resolve()
         logger.debug(f"已更新账户 '{account_uid}' 的昵称为 '{new_nickname}'。")
 
+    async def update_conversation_membership_status(self, conversation_entity_uid: str, status: str) -> bool:
+        # TODO:这个方法不适用于新版数据库，需要重构跟上新版本。
+        """原子性地更新一个会话实体的成员状态。"""
+        query = """
+            UPDATE @key WITH { details: { membership_status: @status } }
+            IN @@collection OPTIONS { mergeObjects: true }
+        """
+        bind_vars = {
+            "key": conversation_entity_uid,
+            "status": status,
+            "@collection": CoreDBCollections.ENTITIES,
+        }
+        try:
+            await self.conn_manager.execute_query(query, bind_vars)
+            logger.info(f"已更新会话实体 '{conversation_entity_uid}' 的成员状态为 '{status}'。")
+            return True
+        except Exception as e:
+            logger.error(f"更新会话 '{conversation_entity_uid}' 成员状态时失败: {e}", exc_info=True)
+            return False
+
     async def find_or_create_profile_and_account_entity(
         self, user_info: ProtocolUserInfo, platform: str
     ) -> tuple[str | None, str | None]:

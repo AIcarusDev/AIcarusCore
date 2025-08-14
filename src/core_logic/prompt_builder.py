@@ -191,7 +191,21 @@ class ThoughtPromptBuilder:
         builder = platform_builder_registry.get_builder(platform_id)
         core_builder = platform_builder_registry.get_builder("core")
 
-        # 先获取完整的 controls schema
+        # --- 步骤 1: 获取当前会话实例 (如果适用) ---
+        session = None
+        if level == 'cellular' and self.chat_session_manager and conv_id:
+            try:
+                if "." not in conv_id:
+                    raise ValueError("会话部分必须是 'type.id' 格式")
+                conv_type, actual_id = conv_id.split(".", 1)
+                session_key = build_conversation_entity_uid(platform_id, conv_type, actual_id)
+                session = self.chat_session_manager.sessions.get(session_key)
+            except (ValueError, IndexError):
+                logger.warning(f"无法从 conv_id '{conv_id}' 解析会话，将使用默认动作列表。")
+
+
+        # --- 步骤 2: 构建意识控制 (Consciousness Controls) 的 Schema ---
+        # 这部分逻辑与之前保持一致
         consciousness_controls_schema, _ = (
             core_builder.get_level_consciousness_controls_definitions(level)
         )
@@ -204,6 +218,34 @@ class ThoughtPromptBuilder:
 
         if level == "cellular":
             consciousness_controls_schema["properties"].pop("focus", None)
+
+
+        # --- 步骤 3: 构建外部动作 (Action) 的 Schema，并根据会话状态进行动态修改 ---
+
+        # 3.1 首先，获取当前层级下所有理论上可用的动作
+        action_properties = self._build_action_schema_properties(level, builder)
+
+        # 3.2 检查会话状态，如果是 'left' (已退群)，则进入“只读观察模式”
+        if session and session.membership_status == 'left':
+            logger.info(
+                f"会话 '{session.conversation_id}' 处于“只读观察模式”，"
+                "正在从可用动作列表中移除互动类指令..."
+            )
+            # 定义所有需要被禁用的互动类动作
+            interactive_actions_to_remove = [
+                "send_message",
+                "poke_user",
+                "kick_member",
+                "ban_member",
+                "ban_all_members",
+                "set_member_card",
+                "set_member_title",
+            ]
+
+            # 从当前平台的动作定义中安全地移除这些动作
+            if platform_id in action_properties and "properties" in action_properties[platform_id]:
+                for action_name in interactive_actions_to_remove:
+                    action_properties[platform_id]["properties"].pop(action_name, None)
 
         return {
             "type": "object",
@@ -229,7 +271,7 @@ class ThoughtPromptBuilder:
                 "consciousness_control": consciousness_controls_schema,
                 "action": {
                     "type": "object",
-                    "properties": self._build_action_schema_properties(level, builder),
+                    "properties": action_properties,
                 },
             },
             "required": ["internal_state"],
@@ -736,6 +778,11 @@ class ThoughtPromptBuilder:
         if not session:
             raise PromptBuilderError(
                 f"在 'cellular' 层级，找不到会话实体UID为 '{session_key}' 的活跃会话档案，无法构建当前状态块。"  # noqa: E501
+            )
+        if session.membership_status == 'left':
+            return (
+                f'你当前正在观察一个你【已退出】的QQ群 "{session.conversation_name or "未知群聊"}"。'  # noqa: E501
+                '你无法在此发送消息或进行任何互动，只能回顾历史消息。'
             )
 
         bot_profile = await session.get_bot_profile()

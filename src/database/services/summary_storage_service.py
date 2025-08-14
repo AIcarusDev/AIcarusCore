@@ -51,7 +51,7 @@ class SummaryStorageService:
         # 在异步方法中动态获取集合，确保操作的原子性和异步正确性
         collection_name = CoreDBCollections.CONVERSATION_SUMMARIES
         try:
-            self.summaries_collection = await self.db_manager.get_collection(collection_name)
+            self.summaries_collection = await self.conn_manager.get_collection(collection_name)
             if not self.summaries_collection:
                 logger.error(f"无法获取 '{collection_name}' 集合，操作中止。")
                 return False

@@ -230,6 +230,7 @@ class ConversationDetails(BaseEntityDetails):
     name: str | None = None
     parent_id: str | None = None
     avatar: str | None = None
+    membership_status: str = 'active'  # 'active' (活跃), 'left' (已退出)
     extra: dict[str, Any] = field(default_factory=dict)  # 存放平台特有的、非通用的额外信息
 
 
