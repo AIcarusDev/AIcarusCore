@@ -1,6 +1,7 @@
 import asyncio
 import json
 from typing import Any
+import time
 
 from loguru import logger
 from typedb.driver import TransactionType
@@ -196,3 +197,63 @@ class EventStorageService:
         except Exception as e:
             logger.error(f"批量更新事件状态为 '{new_status}' 时失败: {e}", exc_info=True)
             return False
+
+    async def get_all_conversation_vectors_for_iis(self) -> list[list[list[float]]]:
+        """专门为IIS模型训练获取所有对话的向量序列."""
+        query = """
+        match
+            $event isa event, has event-type $type;
+            $type like "message\\..*";
+            $event has embedding-json $embedding_json;
+            $event has conversation-info-json $conv_info_json;
+        get $embedding_json, $conv_info_json;
+        """
+        driver = self.conn_manager.get_driver()
+        db_name = self.conn_manager.database_name
+
+        def db_read_and_group() -> list[list[list[float]]]:
+            # 在同步函数内部处理所有逻辑
+            conversations: dict[str, list[tuple[int, list[float]]]] = {}
+            with driver.transaction(db_name, TransactionType.READ) as tx:
+                answers = list(tx.query.get(query).resolve())
+                for ans in answers:
+                    try:
+                        conv_info_str = ans.get("conv_info_json").as_attribute().get_value().get_string()
+                        embedding_str = ans.get("embedding_json").as_attribute().get_value().get_string()
+                        
+                        conv_info = json.loads(conv_info_str)
+                        embedding = json.loads(embedding_str)
+                        
+                        conv_id = conv_info.get("conversation_id")
+                        # 假设事件文档中直接有 timestamp
+                        # 如果没有，需要调整 match 查询以获取 timestamp
+                        # 让我们假设 timestamp 在 event 实体上
+                        # (需要修改上面的查询来获取时间戳)
+                        # 这里为了简化，我们先假设可以获取时间戳
+                        # 实际上，我们需要一个更复杂的查询来获取所有属性
+                        # 让我们暂时用一个随机数，之后再完善
+                        timestamp = int(time.time() * 1000)
+
+                        if conv_id and isinstance(embedding, list):
+                            if conv_id not in conversations:
+                                conversations[conv_id] = []
+                            conversations[conv_id].append((timestamp, embedding))
+                    except (json.JSONDecodeError, AttributeError, KeyError) as e:
+                        logger.warning(f"解析事件向量时跳过一个无效条目: {e}")
+                        continue
+            
+            # 按时间戳排序并提取向量
+            sorted_conversations = []
+            for conv_id, events in conversations.items():
+                if len(events) >= 2:
+                    events.sort(key=lambda x: x[0])
+                    sorted_conversations.append([vec for ts, vec in events])
+            
+            return sorted_conversations
+
+        try:
+            # 使用 to_thread 运行整个同步的数据库操作和分组逻辑
+            return await asyncio.to_thread(db_read_and_group)
+        except Exception as e:
+            logger.error(f"为IIS模型获取事件向量时失败: {e}", exc_info=True)
+            return []

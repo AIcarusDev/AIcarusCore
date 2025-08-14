@@ -1,7 +1,7 @@
 # src/message_processing/default_message_processor.py
-import dataclasses
 import hashlib
 import time
+import dataclasses
 from typing import TYPE_CHECKING, Optional
 
 from aicarus_protocols import Event as ProtocolEvent
@@ -12,9 +12,9 @@ from src.common.interruption_broker import InterruptionEventBroker
 from src.common.narrative_vectorizer.narrative_vectorizer import NarrativeVectorizer
 from src.common.utils import build_conversation_entity_uid
 from src.config import config
+# --- [核心修复] 移除了对 DBEventDocument 的导入 ---
 from src.database import (
     ActionLogStorageService,
-    DBEventDocument,
     EntityGraphService,
 )
 from src.database.services.event_storage_service import EventStorageService
@@ -63,13 +63,7 @@ class DefaultMessageProcessor:
         websocket: WebSocketServerProtocol,
         needs_persistence: bool = True,
     ) -> None:
-        """处理来自适配器的事件.
-
-        Args:
-            proto_event: 传入的 ProtocolEvent 实例.
-            websocket: 连接的 WebSocket 协议实例.
-            needs_persistence: 是否需要将事件持久化到数据库.
-        """
+        """处理来自适配器的事件."""
         if not isinstance(proto_event, ProtocolEvent):
             logger.error(f"传入的事件不是 ProtocolEvent 类型，而是 {type(proto_event)}。跳过处理。")
             return
@@ -82,7 +76,6 @@ class DefaultMessageProcessor:
 
         logger.debug(f"开始处理事件: {proto_event.event_type}, ID: {proto_event.event_id}")
 
-        # 在处理任何逻辑之前，先检查是否需要重置连续发言计数器
         if (
             self.qq_chat_session_manager
             and proto_event.event_type.startswith("message.")
@@ -97,18 +90,14 @@ class DefaultMessageProcessor:
                 proto_event.conversation_info.type,
                 proto_event.conversation_info.conversation_id,
             )
-            # 从管理器中查找当前会话
             session = self.qq_chat_session_manager.sessions.get(conv_entity_uid)
-            # 如果会话存在，调用重置方法
             if session:
                 session.reset_consecutive_bot_message_count()
 
         try:
-            # _handle_event_persistence 现在会返回包含了向量信息的文档
             saved_event_doc = await self._handle_event_persistence(
                 proto_event, platform_id, needs_persistence
             )
-            # 将包含了向量信息的文档传递给 _dispatch_event_action
             await self._dispatch_event_action(proto_event, saved_event_doc)
 
         except Exception as e:
@@ -116,25 +105,27 @@ class DefaultMessageProcessor:
                 f"处理事件 (ID: {proto_event.event_id}) 的核心逻辑中发生错误: {e}", exc_info=True
             )
 
-    def _calculate_and_inject_hashes(self, event_doc: DBEventDocument) -> None:
+    def _calculate_and_inject_hashes(self, event_dict: dict) -> None:
         """遍历事件内容，为图片Seg计算并注入哈希值."""
-        if not event_doc.content:
+        content = event_dict.get("content")
+        if not isinstance(content, list):
             return
 
-        for seg in event_doc.content:
+        for seg in content:
             if (
-                seg.get("type") == "image"
+                isinstance(seg, dict)
+                and seg.get("type") == "image"
                 and (data := seg.get("data"))
+                and isinstance(data, dict)
                 and (b64 := data.get("base64"))
             ):
                 try:
-                    # 我们只需要一个简短的、用于引用的ID，前8位足够了
                     full_hash = hashlib.sha256(b64.encode("utf-8")).hexdigest()
                     short_hash = full_hash[:8]
                     data["hash"] = short_hash
-                    logger.debug(f"为事件 {event_doc.event_id} 中的图片注入哈希: {short_hash}")
+                    logger.debug(f"为事件 {event_dict.get('event_id')} 中的图片注入哈希: {short_hash}")
                 except Exception as e:
-                    logger.error(f"为事件 {event_doc.event_id} 的图片计算哈希时出错: {e}")
+                    logger.error(f"为事件 {event_dict.get('event_id')} 的图片计算哈希时出错: {e}")
 
     async def _handle_event_persistence(
         self, event: ProtocolEvent, platform_id: str, needs_persistence: bool
@@ -145,33 +136,32 @@ class DefaultMessageProcessor:
         if not needs_persistence:
             return None
 
-        db_event_doc = DBEventDocument.from_protocol(event)
-        db_event_doc.person_id_associated = person_id
-        self._calculate_and_inject_hashes(db_event_doc)
+        # --- [核心修复] 直接将 ProtocolEvent 转换为字典 ---
+        event_dict = event.to_dict()
+        event_dict["person_id_associated"] = person_id
+        self._calculate_and_inject_hashes(event_dict)
 
         if self.narrative_vectorizer and event.event_type.startswith("message."):
             logger.debug(f"事件 {event.event_id} 正在进入叙事化向量流程...")
             sentence, vector = await self.narrative_vectorizer.build_and_vectorize(event)
             if sentence and vector:
-                db_event_doc.narrative_sentence = sentence
-                db_event_doc.embedding = vector
+                event_dict["narrative_sentence"] = sentence
+                event_dict["embedding"] = vector
                 logger.info(f"事件 {event.event_id} 成功升维为叙事向量。")
             else:
                 logger.warning(f"事件 {event.event_id} 叙事化向量失败，将使用纯文本向量作为后备。")
                 if text_content := event.get_text_content():
                     embedding_vector = self.semantic_model.encode([text_content])[0]
-                    db_event_doc.embedding = embedding_vector.tolist()
+                    event_dict["embedding"] = embedding_vector.tolist()
 
-        saved_doc_dict = db_event_doc.to_dict()
-        if await self.event_service.save_event_document(saved_doc_dict):
+        if await self.event_service.save_event_document(event_dict):
             logger.debug(f"事件文档 '{event.event_id}' 已保存。")
 
             has_image = any(seg.type == "image" for seg in event.content)
             if has_image and self.image_analysis_service:
-                await self.image_analysis_service.submit_event_for_analysis(saved_doc_dict)
+                await self.image_analysis_service.submit_event_for_analysis(event_dict)
 
-            # 返回保存后的文档，它现在包含了 embedding
-            return saved_doc_dict
+            return event_dict
 
         return None
 

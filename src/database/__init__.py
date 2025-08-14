@@ -4,7 +4,8 @@
 from .core.connection_manager import TypeDBConnectionManager
 from .models import (
     ActionLogDocument,
-    # [修正] 移除 DBEventDocument
+    CoreDBCollections,
+    EnrichedConversationInfo, # <-- 导出 EnrichedConversationInfo
     GoalDocument,
     ImageCacheDocument,
     StickerDocument,
@@ -28,6 +29,8 @@ from .services import (
 __all__ = [
     # Connection Manager
     "TypeDBConnectionManager",
+    # Core Definitions
+    "CoreDBCollections",
     # Models
     "ActionLogDocument",
     "SummaryDocument",
@@ -35,6 +38,7 @@ __all__ = [
     "ImageCacheDocument",
     "ThoughtChainDocument",
     "StickerDocument",
+    "EnrichedConversationInfo", # <-- 将其加入 __all__
     # Services
     "ActionLogStorageService",
     "EntityGraphService",

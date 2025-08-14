@@ -19,7 +19,8 @@ from src.config import config
 from src.core_communication.action_sender import ActionSender
 from src.core_communication.event_receiver import EventReceiver
 from src.core_logic.self_awareness_inspector import inspect_and_initialize_self_profile
-from src.database import DBEventDocument, EntityGraphService
+# --- [核心修复] 移除了对 DBEventDocument 的导入 ---
+from src.database import EntityGraphService
 from src.database.services.event_storage_service import EventStorageService
 from src.platform_builders.registry import platform_builder_registry
 from websockets.exceptions import ConnectionClosed, ConnectionClosedError, ConnectionClosedOK
@@ -29,28 +30,7 @@ logger = get_logger(__name__)
 
 
 class CoreWebsocketServer:
-    """AIcarus 核心 WebSocket 服务器类.
-
-    这个服务器负责处理来自不同适配器的连接，接收事件，发送动作指令，
-    并维护适配器的心跳状态。它还会在适配器连接和断开时生成系统事件，
-    并在适配器连接时执行安检仪式.
-
-    Attributes:
-        host (str): 服务器监听的主机地址.
-        port (int): 服务器监听的端口号.
-        server (websockets.WebSocketServer | None): WebSocket服务器实例.
-        event_storage_service (EventStorageService): 事件存储服务实例，用于存储事件.
-        event_receiver (EventReceiver): 事件接收器实例，用于处理接收到的事件.
-        action_sender (ActionSender): 动作发送器实例，用于发送动作指令.
-        action_handler_instance (ActionHandler): 动作处理器实例，用于处理动作逻辑.
-        entity_service (EntityGraphService): 实体图服务实例，用于管理实体信息.
-        adapter_clients_info (dict[str, dict[str, Any]]): 存储适配器连接信息的字典.
-        _websocket_to_adapter_id (dict[WebSocketServerProtocol, str]): 映射WebSocket连接到
-            适配器ID的字典.
-        _stop_event (asyncio.Event): 用于控制服务器停止的事件.
-        _heartbeat_check_task (asyncio.Task | None): 心跳检查任务实例.
-        active_inspection_tasks (set[asyncio.Task]): 存储所有正在进行的安检任务的集合.
-    """
+    """AIcarus 核心 WebSocket 服务器类."""
 
     HEARTBEAT_CLIENT_INTERVAL_SECONDS = 30
     HEARTBEAT_SERVER_TIMEOUT_SECONDS = 90
@@ -87,9 +67,6 @@ class CoreWebsocketServer:
     ) -> None:
         """生成并存储系统生命周期事件。现在它接收的是事件后缀."""
         current_timestamp = time.time()
-
-        # --- ❤❤❤ 构造事件时，也遵循新的命名空间规则！❤❤❤ ---
-        # 我们用 "system" 作为平台ID，代表这是核心系统自己产生的事件
         final_event_type = f"meta.system.{event_type_suffix}"
 
         event_content_text = ""
@@ -98,7 +75,6 @@ class CoreWebsocketServer:
         elif event_type_suffix == "lifecycle.adapter_disconnected":
             event_content_text = f"[状态] {display_name}({adapter_id})断开({reason})"
         else:
-            # --- ❤❤❤ 这里是修复点！我不再抱怨了，而是直接用后缀作为内容！❤❤❤ ---
             logger.debug(f"生成一个通用的系统事件，后缀: {event_type_suffix}")
             event_content_text = f"[系统事件] {display_name}({adapter_id}): {event_type_suffix}"
 
@@ -109,13 +85,14 @@ class CoreWebsocketServer:
             bot_id=config.persona.bot_name,
             content=[SegBuilder.text(event_content_text)],
             conversation_info=ConversationInfo(conversation_id="system_events", type="system"),
+            user_info=ProtocolUserInfo(user_id="system", user_nickname="AIcarus Core")
         )
 
         if self.event_storage_service:
             try:
-                # DBEventDocument.from_protocol 会从 event_type 解析出 platform
+                # --- [核心修复] 直接使用 protocol event 的 to_dict() 方法 ---
                 await self.event_storage_service.save_event_document(
-                    DBEventDocument.from_protocol(system_event).to_dict()
+                    system_event.to_dict()
                 )
                 logger.info(f"已生成并存储系统事件: {event_content_text}")
             except Exception as e:
@@ -125,7 +102,7 @@ class CoreWebsocketServer:
                 )
         else:
             logger.warning(f"EventStorageService 未初始化，无法存储系统事件 for '{adapter_id}'.")
-
+    # ... 文件其余部分保持不变 ...
     async def _register_adapter(
         self, adapter_id: str, display_name: str, websocket: WebSocketServerProtocol
     ) -> None:
@@ -276,17 +253,15 @@ class CoreWebsocketServer:
         """注销一个适配器，并通知 ActionSender."""
         adapter_id = self._websocket_to_adapter_id.pop(websocket, None)
         if adapter_id:
-            self.adapter_clients_info.pop(adapter_id, None)
+            info = self.adapter_clients_info.pop(adapter_id, {})
+            display_name = info.get("display_name", adapter_id)
             # 通知 ActionSender
             self.action_sender.unregister_adapter(websocket)
-            display_name = self.action_sender.adapter_clients_info.get(adapter_id, {}).get(
-                "display_name", adapter_id
-            )
+
             logger.info(
                 f"适配器 '{display_name}({adapter_id})' 已断开 ({reason}): "
                 f"{websocket.remote_address}. 当前连接数: {len(self.adapter_clients_info)}"
             )
-            # --- ❤❤❤ 这里是修复点！只传入后缀！❤❤❤ ---
             await self._generate_and_store_system_event(
                 adapter_id, display_name, "lifecycle.adapter_disconnected", reason
             )
@@ -477,7 +452,7 @@ class CoreWebsocketServer:
                         await self._generate_and_store_system_event(
                             adapter_id,
                             display_name,
-                            "meta.lifecycle.adapter_disconnected",
+                            "lifecycle.adapter_disconnected",
                             "心跳超时 (无websocket对象)",
                         )
         logger.info("心跳超时检查任务已停止。")
@@ -578,8 +553,8 @@ class CoreWebsocketServer:
             # 情况 3: 平台不在线，但数据库里有记录
             elif platform_id in known_platforms:
                 profile = known_platforms[platform_id]
-                bot_id = profile.get("platform_id", "未知ID")
-                bot_name = profile.get("nickname", "未知昵称")
+                bot_id = profile.get("details", {}).get("platform_id", "未知ID")
+                bot_name = profile.get("details", {}).get("nickname", "未知昵称")
                 platform_block.append("  - 状态: 离线")
                 platform_block.append(f"  - 你的{platform_id}号是：{bot_id}")
                 platform_block.append(f"  - 你的{platform_id}名称是：{bot_name}")
@@ -658,22 +633,6 @@ class CoreWebsocketServer:
             await self.server.wait_closed()
 
         logger.info("AIcarus 核心 WebSocket 服务器已完全停止，干净又卫生，哼！")
-
-        # 使用 action_sender 中维护的连接列表来关闭
-        active_connections_ws_list = list(self.action_sender.connected_adapters.values())
-        if active_connections_ws_list:
-            logger.info(f"正在关闭 {len(active_connections_ws_list)} 个活动的适配器连接...")
-            await asyncio.gather(
-                *(
-                    ws.close(code=1001, reason="Server shutting down")
-                    for ws in active_connections_ws_list
-                ),
-                return_exceptions=True,
-            )
-        if self.server and self.server.is_serving():
-            self.server.close()
-            await self.server.wait_closed()
-        logger.info("AIcarus 核心 WebSocket 服务器已停止。")
 
     async def _register_simple_identity(self, adapter_id: str, display_name: str) -> None:
         """对于无需安检的平台，执行一个简单的身份登记流程.

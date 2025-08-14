@@ -318,11 +318,12 @@ class ServiceBuilder:
 
     async def _initialize_typedb_and_services(self) -> dict:
         """[心脏移植完成] 初始化 TypeDB 连接和所有核心数据服务."""
+        # 从环境变量中读取数据库配置
         db_config_dict = {
-            "host": config.database.host,
-            "database_name": config.database.database_name,
-            "username": config.database.username,
-            "password": config.database.password,
+            "host": os.getenv("TYPEDB_HOST", "localhost:1729"),
+            "database_name": os.getenv("TYPEDB_DATABASE", "aicarus_core_db"),
+            "username": os.getenv("TYPEDB_USER", "admin"),
+            "password": os.getenv("TYPEDB_PASSWORD", "password"),
         }
         # 现在从 src/database/core/connection_manager.py 导入
         conn_manager = await TypeDBConnectionManager.get_instance(db_config_dict)

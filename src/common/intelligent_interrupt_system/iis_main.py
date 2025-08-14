@@ -40,26 +40,8 @@ class IISBuilder:
         """构建一个全新的语义马尔可夫模型，并保存到文件中."""
         logger.info("记忆已陈旧或不存在，开始基于【事件向量】重建全新的语义马尔可夫模型...")
 
-        query = """
-            FOR doc IN @@collection
-                FILTER doc.event_type LIKE 'message.%'
-                AND doc.embedding != null
-                FILTER HAS(doc, 'conversation_id_extracted')
-            COLLECT convId = doc.conversation_id_extracted INTO conversation_group
-            FILTER COUNT(conversation_group) >= 2
-            LET sorted_vectors = (
-                FOR item IN conversation_group
-                SORT item.doc.timestamp ASC
-                RETURN item.doc.embedding
-            )
-            RETURN sorted_vectors
-        """
-        bind_vars = {"@collection": CoreDBCollections.EVENTS}
-
-        logger.info("正在从事件存储中提取所有预计算的事件向量...")
-        all_conversations_vectors: list[list[list[float]]] = await self.conn_manager.execute_query(
-            query, bind_vars
-        )
+        logger.info("正在通过 EventStorageService 提取所有预计算的事件向量...")
+        all_conversations_vectors = await self.event_storage.get_all_conversation_vectors_for_iis()
 
         if not all_conversations_vectors:
             logger.warning("未能从数据库中提取到足够的事件向量来训练IIS模型。将创建一个空模型。")

@@ -112,27 +112,6 @@ class AllModelPurposesConfig(ConfigBase):
     image_analysis: ModelParams | None = None
     """图像分析模型，用于处理图像内容的分析和描述."""
 
-
-@dataclass
-class DatabaseSettings(ConfigBase):
-    """数据库连接设置.
-
-    此处无需修改，无需配置文件中创建对应配置项。该配置将直接被环境变量覆盖.
-    """
-
-    host: str = "http://localhost:8529"
-    """数据库主机地址。默认值为 http://localhost:8529."""
-
-    username: str = "root"
-    """数据库用户名。默认值为 root."""
-
-    password: str = "your_password"
-    """数据库密码。默认值为 your_password."""
-
-    database_name: str = "aicarus_core_db"
-    """数据库名称。默认值为 aicarus_core_db."""
-
-
 @dataclass
 class ServerSettings(ConfigBase):
     """服务器相关设置，包括主机和端口配置."""
@@ -298,7 +277,6 @@ class AlcarusRootConfig(ConfigBase):
     focus_chat_mode: FocusChatModeSettings = field(
         default_factory=FocusChatModeSettings
     )  # 新增专注聊天配置
-    database: DatabaseSettings = field(default_factory=DatabaseSettings)  # 新增数据库配置
     logging: LoggingSettings = field(default_factory=LoggingSettings)
     server: ServerSettings = field(default_factory=ServerSettings)
     interrupt_model: InterruptModelConfig = field(default_factory=InterruptModelConfig)
