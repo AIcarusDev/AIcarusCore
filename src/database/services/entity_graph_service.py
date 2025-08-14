@@ -2,7 +2,7 @@
 import asyncio
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from aicarus_protocols import UserInfo as ProtocolUserInfo
@@ -19,6 +19,7 @@ logger = get_logger(__name__)
 
 SELF_PROFILE_ID = "aic_person_0"
 
+
 class EntityGraphService:
     """(TypeDB版) 负责管理实体与实体侧写之间的关系图谱.
 
@@ -31,21 +32,21 @@ class EntityGraphService:
 
     # --- 核心实体创建与关联 ---
 
-    async def _update_account_nickname_if_changed(self,
-            tx,
-            account_uid: str,
-            new_nickname: str
-        ) -> None:
+    async def _update_account_nickname_if_changed(
+        self, tx, account_uid: str, new_nickname: str
+    ) -> None:
         """事务内辅助函数：如果昵称变化，则更新."""
         # 1. 查找旧昵称
-        match_query = f'match $a isa account, has account-uid "{account_uid}", has nickname $n; select $n;'
+        match_query = (
+            f'match $a isa account, has account-uid "{account_uid}", has nickname $n; select $n;'
+        )
         response = tx.query(match_query).resolve()
         answers = list(response.as_concept_rows())
 
         if answers and (old_nick_concept := answers[0].get("n")):
             old_nick = old_nick_concept.as_attribute().get_value().as_string()
             if old_nick == new_nickname:
-                return # 昵称未变，无需操作
+                return  # 昵称未变，无需操作
 
             # 2. 删除旧昵称
             delete_query = f'match $a isa account, has account-uid "{account_uid}", has nickname "{old_nick}"; delete $a has nickname "{old_nick}";'
@@ -56,9 +57,11 @@ class EntityGraphService:
         tx.query(insert_query).resolve()
         logger.debug(f"已更新账户 '{account_uid}' 的昵称为 '{new_nickname}'。")
 
-    async def update_conversation_membership_status(self, conversation_entity_uid: str, status: str) -> bool:
+    async def update_conversation_membership_status(
+        self, conversation_entity_uid: str, status: str
+    ) -> bool:
         # TODO:这个方法不适用于新版数据库，需要重构跟上新版本。
-        """原子性地更新一个会话实体的成员状态。"""
+        """原子性地更新一个会话实体的成员状态."""
         query = """
             UPDATE @key WITH { details: { membership_status: @status } }
             IN @@collection OPTIONS { mergeObjects: true }
@@ -87,7 +90,7 @@ class EntityGraphService:
             return None, None
 
         account_uid = f"{platform}_{user_info.user_id}"
-        nickname = (user_info.user_nickname or "").replace('"', '\\"')
+        _nickname = (user_info.user_nickname or "").replace('"', '\\"')
 
         # 模式：先读，后写。这是在 TypeDB 中实现 "Find or Create" 的标准模式。
         # 1. 尝试查找
@@ -102,14 +105,18 @@ class EntityGraphService:
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.get_database_name()
 
-        def db_read():
+        def db_read() -> tuple[str | None, str | None]:
             with driver.transaction(db_name, TransactionType.READ) as tx:
                 response = tx.query(find_query).resolve()
                 answers = list(response.as_concept_rows())
                 if answers:
                     p_uid = answers[0].get("p_uid").as_attribute().get_value().as_string()
                     a_uid_concept = answers[0].get("account-uid")
-                    a_uid = a_uid_concept.as_attribute().get_value().as_string() if a_uid_concept else None
+                    a_uid = (
+                        a_uid_concept.as_attribute().get_value().as_string()
+                        if a_uid_concept
+                        else None
+                    )
                     return p_uid, a_uid
                 return None, None
 
@@ -128,7 +135,7 @@ class EntityGraphService:
         platform: str,
         is_self: bool = False,
     ) -> tuple[str | None, str | None]:
-        """原子性地创建新的 Profile、Account 实体及它们之间的关系。"""
+        """原子性地创建新的 Profile、Account 实体及它们之间的关系."""
         profile_uid = SELF_PROFILE_ID if is_self else f"profile_{uuid.uuid4().hex[:12]}"
         account_uid = f"{platform}_{user_info.user_id}"
         nickname = (user_info.user_nickname or "").replace('"', '\\"')
@@ -144,15 +151,19 @@ class EntityGraphService:
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.get_database_name()
 
-        def db_write():
+        def db_write() -> None:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
                 # Step 1: 确保 Person 存在
                 if is_self:
                     # 查找，如果不存在则创建
-                    find_person_query = f'match $p isa person, has person-uid "{profile_uid}"; get $p;'
+                    find_person_query = (
+                        f'match $p isa person, has person-uid "{profile_uid}"; get $p;'
+                    )
                     result = tx.query(find_person_query).resolve()
                     if not list(result.as_concept_rows()):
-                        insert_person_query = f'insert $p isa person, has person-uid "{profile_uid}";'
+                        insert_person_query = (
+                            f'insert $p isa person, has person-uid "{profile_uid}";'
+                        )
                         tx.query(insert_person_query).resolve()
 
                 else:
@@ -184,7 +195,7 @@ class EntityGraphService:
         user_info: ProtocolUserInfo,
         conversation_name: str | None,
     ) -> bool:
-        """更新一个账户在某个会话中的存在关系（membership）。"""
+        """更新一个账户在某个会话中的存在关系（membership）."""
         cardname = (user_info.user_cardname or "").replace('"', '\\"')
         perm_level = (user_info.permission_level or "member").replace('"', '\\"')
         timestamp = int(time.time() * 1000)
@@ -192,7 +203,7 @@ class EntityGraphService:
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.get_database_name()
 
-        def db_upsert_membership():
+        def db_upsert_membership() -> None:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
                 # Step 1: 删除旧的 membership 关系（如果有）
                 delete_query = f"""
@@ -220,14 +231,19 @@ class EntityGraphService:
 
         try:
             await asyncio.to_thread(db_upsert_membership)
-            logger.debug(f"成功更新存在关系: Account '{account_entity_uid}' in Conv '{conversation_entity_uid}'")
+            logger.debug(
+                f"成功更新存在关系: Account '{account_entity_uid}' "
+                f"in Conv '{conversation_entity_uid}'"
+            )
             return True
         except Exception as e:
             logger.error(f"更新存在关系时失败: {e}", exc_info=True)
             return False
 
-    async def get_or_create_platform_entity(self, platform_id: str, display_name: str | None = None) -> EntityDocument | None:
-        """原子性地获取或创建一个平台实体。"""
+    async def get_or_create_platform_entity(
+        self, platform_id: str, display_name: str | None = None
+    ) -> EntityDocument | None:
+        """原子性地获取或创建一个平台实体."""
         async with self._platform_entity_lock:
             if platform_id in self._platform_entity_cache:
                 return self._platform_entity_cache[platform_id]
@@ -237,7 +253,7 @@ class EntityGraphService:
             driver = self.conn_manager.get_driver()
             db_name = self.conn_manager.get_database_name()
 
-            def db_op():
+            def db_op() -> EntityDocument | None:
                 with driver.transaction(db_name, TransactionType.WRITE) as tx:
                     response = tx.query(find_query).resolve()
                     answers = list(response.as_concept_rows())
@@ -245,7 +261,10 @@ class EntityGraphService:
                         # 实体已存在，无需创建
                         # TODO: 这里可以添加逻辑来从 Concept 对象重建 EntityDocument
                         logger.debug(f"平台实体 '{platform_id}' 已存在。")
-                        return {"_key": platform_id, "details": {"platform": platform_id, "display_name": display_name}}
+                        return {
+                            "_key": platform_id,
+                            "details": {"platform": platform_id, "display_name": display_name},
+                        }
 
                     # 实体不存在，创建它
                     insert_query = f"""
@@ -258,7 +277,7 @@ class EntityGraphService:
                     logger.info(f"平台实体 '{platform_id}' 创建成功。")
                     return {
                         "_key": platform_id,
-                        "details": {"platform": platform_id, "display_name": display_name}
+                        "details": {"platform": platform_id, "display_name": display_name},
                     }
 
             try:
@@ -270,9 +289,8 @@ class EntityGraphService:
                         entity_uid=doc_dict["_key"],
                         entity_type="platform",
                         details=PlatformDetails(
-                            platform_id=platform_id,
-                            display_name=display_name or platform_id
-                        )
+                            platform_id=platform_id, display_name=display_name or platform_id
+                        ),
                     )
                     self._platform_entity_cache[platform_id] = entity_doc
                     return entity_doc
@@ -301,15 +319,20 @@ class EntityGraphService:
                 response = tx.query(query).resolve()
                 for answer in response.as_concept_rows():
                     uid = answer.get("uid").as_attribute().get_value().as_string()
-                    platform = uid.split('_')[0]
-                    entities.append({
-                        "entity_uid": uid,
-                        "details": {
-                            "platform": platform,
-                            "platform_id": uid.replace(f"{platform}_", ""),
-                            "nickname": answer.get("nick").as_attribute().get_value().as_string(),
+                    platform = uid.split("_")[0]
+                    entities.append(
+                        {
+                            "entity_uid": uid,
+                            "details": {
+                                "platform": platform,
+                                "platform_id": uid.replace(f"{platform}_", ""),
+                                "nickname": answer.get("nick")
+                                .as_attribute()
+                                .get_value()
+                                .as_string(),
+                            },
                         }
-                    })
+                    )
             return entities
 
         try:
@@ -333,19 +356,21 @@ class EntityGraphService:
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.get_database_name()
 
-        def db_read():
+        def db_read() -> list[dict[str, Any]]:
             """获取平台的待处理好友请求信息."""
             requests = []
             with driver.transaction(db_name, TransactionType.READ) as tx:
                 response = tx.query(query).resolve()
                 for answer in response.as_concept_rows():
                     uid = answer.get("uid").as_attribute().get_value().as_string()
-                    requests.append({
-                        "user_id": uid.replace(f"{platform_id}_", ""),
-                        "nickname": answer.get("nick").as_attribute().get_value().as_string(),
-                        "flag": answer.get("f").as_attribute().get_value().as_string(),
-                        "comment": answer.get("c").as_attribute().get_value().as_string(),
-                    })
+                    requests.append(
+                        {
+                            "user_id": uid.replace(f"{platform_id}_", ""),
+                            "nickname": answer.get("nick").as_attribute().get_value().as_string(),
+                            "flag": answer.get("f").as_attribute().get_value().as_string(),
+                            "comment": answer.get("c").as_attribute().get_value().as_string(),
+                        }
+                    )
             return requests
 
         try:
@@ -366,7 +391,7 @@ class EntityGraphService:
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.get_database_name()
 
-        def db_read():
+        def db_read() -> float:
             with driver.transaction(db_name, TransactionType.READ) as tx:
                 response = tx.query(query).resolve()
                 answers = list(response.as_concept_rows())
@@ -388,7 +413,9 @@ class EntityGraphService:
         """更新一个会话的最后已读时间戳（UPSERT read-status 关系）."""
         # TypeDB datetime requires ISO 8601 format
 
-        ts_iso = datetime.fromtimestamp(timestamp / 1000.0, tz=timezone.utc).isoformat(timespec='milliseconds')
+        ts_iso = datetime.fromtimestamp(timestamp / 1000.0, tz=UTC).isoformat(
+            timespec="milliseconds"
+        )
 
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.get_database_name()
@@ -422,7 +449,9 @@ class EntityGraphService:
             logger.info(f"已更新会话实体 '{conversation_entity_uid}' 的最后已读时间戳。")
             return True
         except Exception as e:
-            logger.error(f"更新会话实体 '{conversation_entity_uid}' 的时间戳失败: {e}", exc_info=True)
+            logger.error(
+                f"更新会话实体 '{conversation_entity_uid}' 的时间戳失败: {e}", exc_info=True
+            )
             return False
 
     async def get_or_create_conversation_entity(
@@ -433,16 +462,18 @@ class EntityGraphService:
         name: str | None = None,
         extra: dict | None = None,
     ) -> EntityDocument | None:
-        """获取或创建一个会话实体，并确保其与平台实体关联。"""
+        """获取或创建一个会话实体，并确保其与平台实体关联."""
         conv_entity_uid = build_conversation_entity_uid(platform, conv_type, conversation_id)
 
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.get_database_name()
 
-        def db_op():
+        def db_op() -> str | None:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
                 # Check if conversation exists
-                find_query = f'match $c isa conversation, has conversation-uid "{conv_entity_uid}"; get $c;'
+                find_query = (
+                    f'match $c isa conversation, has conversation-uid "{conv_entity_uid}"; get $c;'
+                )
                 result = tx.query(find_query).resolve()
                 if list(result.as_concept_rows()):
                     # TODO: Update name if changed

@@ -5,9 +5,10 @@ from typing import Any
 from src.common.custom_logging.logging_config import get_logger
 from src.common.image_utils import compare_phashes
 from src.database.core.typedb_connection_manager import TypeDBConnectionManager
-from typedb.driver import TransactionType
+from typedb.driver import TransactionType, TypeDBTransaction
 
 logger = get_logger(__name__)
+
 
 class StickerStorageService:
     """服务类，负责管理表情包元数据的存储和检索 (TypeDB gRPC 版本)."""
@@ -17,7 +18,7 @@ class StickerStorageService:
         self.conn_manager = conn_manager
         logger.info("StickerStorageService (TypeDB gRPC) 初始化完成。")
 
-    async def _get_next_sticker_id(self, platform_id: str, tx) -> str:
+    async def _get_next_sticker_id(self, platform_id: str, tx: TypeDBTransaction) -> str:
         """在事务内原子性地获取下一个可用的表情包ID (e.g., "001", "002")."""
         # TypeQL 使用聚合查询来找到最大ID
         query = f"""
@@ -34,7 +35,7 @@ class StickerStorageService:
         if answers and (max_id_concept := answers[0].get("max_id")):
             max_id_str = max_id_concept.as_attribute().get_value().as_string()
             # 从 "platform_sticker_001" 中提取数字
-            numeric_part = ''.join(filter(str.isdigit, max_id_str))
+            numeric_part = "".join(filter(str.isdigit, max_id_str))
             if numeric_part:
                 max_id_num = int(numeric_part)
 
@@ -47,7 +48,7 @@ class StickerStorageService:
         filename: str,
         impression: str,
         source_image_hash: str,
-        perceptual_hash: str
+        perceptual_hash: str,
     ) -> str | None:
         """添加一个新的表情包元数据记录，并将其与对应的平台关联."""
         driver = self.conn_manager.get_driver()
@@ -105,7 +106,7 @@ class StickerStorageService:
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.get_database_name()
 
-        def db_read_and_compare() -> (dict[str, Any] | None):
+        def db_read_and_compare() -> dict[str, Any] | None:
             with driver.transaction(db_name, TransactionType.READ) as tx:
                 response = tx.query(query).resolve()
                 for answer in response.as_concept_rows():
@@ -187,6 +188,7 @@ class StickerStorageService:
                 tx.query(insert_query).resolve()
                 tx.commit()
                 return True
+
         try:
             success = await asyncio.to_thread(db_update)
             if success:
@@ -220,12 +222,14 @@ class StickerStorageService:
             with driver.transaction(db_name, TransactionType.READ) as tx:
                 response = tx.query(query).resolve()
                 for answer in response.as_concept_rows():
-                    stickers.append({
-                        "sticker_id": answer.get("uid").as_attribute().get_value().as_string(),
-                        "filename": answer.get("fn").as_attribute().get_value().as_string(),
-                        "impression": answer.get("imp").as_attribute().get_value().as_string(),
-                        "image_hash": answer.get("hash").as_attribute().get_value().as_string(),
-                    })
+                    stickers.append(
+                        {
+                            "sticker_id": answer.get("uid").as_attribute().get_value().as_string(),
+                            "filename": answer.get("fn").as_attribute().get_value().as_string(),
+                            "impression": answer.get("imp").as_attribute().get_value().as_string(),
+                            "image_hash": answer.get("hash").as_attribute().get_value().as_string(),
+                        }
+                    )
             return stickers
 
         try:
@@ -248,7 +252,7 @@ class StickerStorageService:
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.get_database_name()
 
-        def db_read() -> (dict[str, Any] | None):
+        def db_read() -> dict[str, Any] | None:
             with driver.transaction(db_name, TransactionType.READ) as tx:
                 response = tx.query(query).resolve()
                 answers = list(response.as_concept_rows())
@@ -259,7 +263,10 @@ class StickerStorageService:
                         "filename": answer.get("fn").as_attribute().get_value().as_string(),
                         "impression": answer.get("imp").as_attribute().get_value().as_string(),
                         "image_hash": answer.get("hash").as_attribute().get_value().as_string(),
-                    "perceptual_hash": answer.get("phash").as_attribute().get_value().as_string()
+                        "perceptual_hash": answer.get("phash")
+                        .as_attribute()
+                        .get_value()
+                        .as_string(),
                     }
             return None
 

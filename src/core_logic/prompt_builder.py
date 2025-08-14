@@ -193,7 +193,7 @@ class ThoughtPromptBuilder:
 
         # --- 步骤 1: 获取当前会话实例 (如果适用) ---
         session = None
-        if level == 'cellular' and self.chat_session_manager and conv_id:
+        if level == "cellular" and self.chat_session_manager and conv_id:
             try:
                 if "." not in conv_id:
                     raise ValueError("会话部分必须是 'type.id' 格式")
@@ -202,7 +202,6 @@ class ThoughtPromptBuilder:
                 session = self.chat_session_manager.sessions.get(session_key)
             except (ValueError, IndexError):
                 logger.warning(f"无法从 conv_id '{conv_id}' 解析会话，将使用默认动作列表。")
-
 
         # --- 步骤 2: 构建意识控制 (Consciousness Controls) 的 Schema ---
         # 这部分逻辑与之前保持一致
@@ -219,14 +218,13 @@ class ThoughtPromptBuilder:
         if level == "cellular":
             consciousness_controls_schema["properties"].pop("focus", None)
 
-
         # --- 步骤 3: 构建外部动作 (Action) 的 Schema，并根据会话状态进行动态修改 ---
 
         # 3.1 首先，获取当前层级下所有理论上可用的动作
         action_properties = self._build_action_schema_properties(level, builder)
 
         # 3.2 检查会话状态，如果是 'left' (已退群)，则进入“只读观察模式”
-        if session and session.membership_status == 'left':
+        if session and session.membership_status == "left":
             logger.info(
                 f"会话 '{session.conversation_id}' 处于“只读观察模式”，"
                 "正在从可用动作列表中移除互动类指令..."
@@ -779,10 +777,10 @@ class ThoughtPromptBuilder:
             raise PromptBuilderError(
                 f"在 'cellular' 层级，找不到会话实体UID为 '{session_key}' 的活跃会话档案，无法构建当前状态块。"  # noqa: E501
             )
-        if session.membership_status == 'left':
+        if session.membership_status == "left":
             return (
                 f'你当前正在观察一个你【已退出】的QQ群 "{session.conversation_name or "未知群聊"}"。'  # noqa: E501
-                '你无法在此发送消息或进行任何互动，只能回顾历史消息。'
+                "你无法在此发送消息或进行任何互动，只能回顾历史消息。"
             )
 
         bot_profile = await session.get_bot_profile()

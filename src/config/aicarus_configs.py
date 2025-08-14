@@ -22,7 +22,7 @@ class PersonaSettings(ConfigBase):
     """祂的个人资料信息."""
 
     slow_thought_persona: str = "你的思考风格是审慎、多疑、逻辑严密且极度客观的。"
-    """祂的理性思考方式。"""
+    """祂的理性思考方式."""
 
 
 @dataclass
@@ -104,13 +104,13 @@ class AllModelPurposesConfig(ConfigBase):
     """网页搜索代理模型，用于处理web_search动作并总结结果."""
 
     url_context_agent: ModelParams | None = None
-    """URL 上下文代理模型，用于访问特定网址并总结内容。"""
+    """URL 上下文代理模型，用于访问特定网址并总结内容."""
 
     deliberation: ModelParams | None = None
-    """“慢思考”辩论模型，用于内部决策审查。"""
+    """“慢思考”辩论模型，用于内部决策审查."""
 
     image_analysis: ModelParams | None = None
-    """图像分析模型，用于处理图像内容的分析和描述。"""
+    """图像分析模型，用于处理图像内容的分析和描述."""
 
 
 @dataclass
@@ -152,10 +152,10 @@ class CoreLogicSettings(ConfigBase):
     """思考间隔时间（秒），用于控制 AI 的思考频率."""
 
     enable_continuous_thinking: bool = False
-    """【实验性】是否启用连续思考模式。若为True，AI将在动作完成后进行极短的休眠然后继续思考，模拟不间断的意识流。"""
+    """【实验性】是否启用连续思考模式。若为True，AI将在动作完成后进行极短的休眠然后继续思考，模拟不间断的意识流."""
 
     continuous_thinking_interval_seconds: float = 0.1
-    """在连续思考模式下，每次思考循环之间的最小休眠时间（秒）。"""
+    """在连续思考模式下，每次思考循环之间的最小休眠时间（秒）."""
 
 
 @dataclass
@@ -278,7 +278,7 @@ class RuntimeEnvironmentSettings(ConfigBase):
     """定义数据根目录."""
 
     stickers_dir: str = "data/stickers"
-    """定义表情包目录。"""
+    """定义表情包目录."""
 
 
 @dataclass

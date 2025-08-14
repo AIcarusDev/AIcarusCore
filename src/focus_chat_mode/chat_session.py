@@ -73,7 +73,7 @@ class ChatSession:
         # --- 功能组件初始化 ---
         self.summarization_manager = SummarizationManager(self)
         self.guidance_generator = BehavioralGuidanceGenerator(self)
-        self.membership_status: str = conversation_info.extra.get('membership_status', 'active')
+        self.membership_status: str = conversation_info.extra.get("membership_status", "active")
 
         # --- 会话运行时状态 ---
         self.last_processed_timestamp: float = (

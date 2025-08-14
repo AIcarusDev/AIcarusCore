@@ -29,19 +29,17 @@ from src.core_logic.prompt_builder import ThoughtPromptBuilder
 from src.core_logic.state_manager import AIStateManager
 from src.core_logic.thought_generator import ThoughtGenerator
 from src.core_logic.thought_persistor import ThoughtPersistor
-from src.database import (
-    ActionLogStorageService,
-    ArangoDBConnectionManager,
-    CoreDBCollections,
-    EntityGraphService,
-    EventStorageService,
-    SummaryStorageService,
-    ThoughtStorageService,
-)
-from src.database.services.image_analysis_cache_service import (
-    ImageAnalysisCacheService,
-)
-from src.database.services.sticker_storage_service import StickerStorageService
+
+# --- [心脏移植] 导入新的 TypeDB 模块 ---
+from src.database_typedb.connection_manager import TypeDBConnectionManager
+from src.database_typedb.services.action_log_storage_service import ActionLogStorageService
+from src.database_typedb.services.entity_graph_service import EntityGraphService
+from src.database_typedb.services.event_storage_service import EventStorageService
+from src.database_typedb.services.goal_storage_service import GoalStorageService
+from src.database_typedb.services.image_analysis_cache_service import ImageAnalysisCacheService
+from src.database_typedb.services.sticker_storage_service import StickerStorageService
+from src.database_typedb.services.summary_storage_service import SummaryStorageService
+from src.database_typedb.services.thought_storage_service import ThoughtStorageService
 from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.message_processing.default_message_processor import DefaultMessageProcessor
 from src.message_processing.image_analysis_service import ImageAnalysisService
@@ -66,7 +64,9 @@ class ServiceBuilder:
         """构建并返回一个服务容器，包含所有核心服务和组件."""
         platform_builder_registry.discover_and_register_builders(platform_builders)
         llm_clients = self._initialize_llm_clients()
-        db_services = await self._initialize_database_and_services()
+
+        # --- [心脏移植] 初始化新的 TypeDB 服务 ---
+        db_services = await self._initialize_typedb_and_services()
 
         sticker_service = StickerService(
             sticker_storage_service=db_services["sticker_storage_service"],
@@ -74,7 +74,7 @@ class ServiceBuilder:
         )
 
         image_analysis_service = ImageAnalysisService(
-            db_services["conn_manager"],
+            db_services["conn_manager"],  # ImageAnalysisService 仍然可以使用新的conn_manager
             db_services["image_analysis_cache_service"],
         )
         interrupt_model = await self._initialize_interrupt_model(
@@ -213,6 +213,7 @@ class ServiceBuilder:
             sticker_service=sticker_service,
             narrative_vectorizer=narrative_vectorizer,
             chat_session_manager=None,
+            goal_storage_service=db_services["goal_storage_service"],
         )
 
     def _initialize_llm_clients(self) -> dict:
@@ -316,14 +317,18 @@ class ServiceBuilder:
         logger.info("LLM客户端初始化完毕。")
         return clients
 
-    async def _initialize_database_and_services(self) -> dict:
-        """初始化数据库连接和所有核心数据服务."""
-        conn_manager = await ArangoDBConnectionManager.create_from_config(
-            config.database,
-            core_collection_configs=CoreDBCollections.get_all_core_collection_configs(),
-        )
-        if not conn_manager or not conn_manager.db:
-            raise RuntimeError("数据库连接管理器初始化失败。")
+    async def _initialize_typedb_and_services(self) -> dict:
+        """[心脏移植] 初始化 TypeDB 连接和所有核心数据服务."""
+        db_config_dict = {
+            "host": config.database.host,
+            "database_name": config.database.database_name,
+            "username": config.database.username,
+            "password": config.database.password,
+        }
+        conn_manager = await TypeDBConnectionManager.get_instance(db_config_dict)
+
+        if not conn_manager or not conn_manager.get_driver():
+            raise RuntimeError("TypeDB 连接管理器初始化失败。")
 
         # 初始化核心数据存储服务
         services_to_create = {
@@ -334,17 +339,22 @@ class ServiceBuilder:
             "summary_storage_service": SummaryStorageService,
             "image_analysis_cache_service": ImageAnalysisCacheService,
             "sticker_storage_service": StickerStorageService,
+            "goal_storage_service": GoalStorageService,
         }
 
         initialized_services = {"conn_manager": conn_manager}
         for instance_name, service_class in services_to_create.items():
+            # 所有服务都接收 conn_manager 作为依赖
             instance = service_class(conn_manager=conn_manager)
-            if isinstance(instance, Initializable):
+            if isinstance(instance, Initializable) and hasattr(
+                instance, "initialize_infrastructure"
+            ):
                 await instance.initialize_infrastructure()
             initialized_services[instance_name] = instance
-        logger.info("所有核心数据存储服务均已初始化。")
+        logger.info("所有核心 TypeDB 数据存储服务均已初始化。")
         return initialized_services
 
+    # _initialize_interrupt_model 和 _get_semantic_model 保持不变...
     async def _initialize_interrupt_model(
         self, event_storage_service: EventStorageService
     ) -> IntelligentInterrupter:

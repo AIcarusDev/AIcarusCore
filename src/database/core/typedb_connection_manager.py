@@ -11,6 +11,7 @@ from typedb.driver import Credentials, Driver, DriverOptions, TypeDB
 
 logger = get_logger(__name__)
 
+
 class TypeDBConnectionManager:
     """管理与 TypeDB 的连接和生命周期 (基于 gRPC Driver)."""
 
@@ -47,7 +48,7 @@ class TypeDBConnectionManager:
 
                 logger.info(
                     f"TypeDBConnectionManager 初始化成功，目标数据库: '{cls._database_name}'。"
-                    )
+                )
 
             return cls(cls._driver, cls._database_name)
 

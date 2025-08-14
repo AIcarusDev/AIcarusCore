@@ -1,0 +1,177 @@
+define
+
+# --- 实体类型 (Entities) ---
+
+# Profile: 主观侧写
+person sub entity, owns person-uid @key, abstract;
+aic_self sub person, plays identity-ownership:owner, plays read-status:reader;
+external_person sub person, plays identity-ownership:owner;
+
+# Account: 平台客观实体
+account sub entity,
+  owns account-uid @key, owns platform, owns platform-id, owns nickname,
+  owns last-known-nickname, owns friend-remark, owns flag, owns comment,
+  owns request-timestamp,
+  plays identity-ownership:owned-account, plays membership:member;
+
+# Conversation: 会话客观实体
+conversation sub entity,
+  owns conversation-uid @key, owns platform, owns conversation-id, owns type,
+  owns display-name, owns last-read-timestamp,
+  plays membership:group, plays residency:resident, plays read-status:readable;
+
+# Platform: 平台客观实体
+platform sub entity,
+  owns platform-uid @key, owns display-name,
+  plays residency:host-platform, plays platform-asset:hosting-platform;
+
+# Sticker: 表情包实体
+sticker sub entity,
+  owns sticker-uid @key, owns filename, owns impression, owns image-hash,
+  owns perceptual-hash, owns added-at,
+  plays platform-asset:hosted-asset;
+
+# Event: 事件实体
+event sub entity,
+  owns event-id @key, owns event-type, owns timestamp, owns platform, owns bot-id,
+  owns content-json, owns user-info-json, owns conversation-info-json,
+  owns status, owns narrative-sentence, owns embedding-json,
+  owns image-analysis-json, owns person-id-associated, owns motivation;
+
+# Thought: 思想点实体
+thought-chain-node sub entity,
+  owns thought-id @key, owns timestamp, owns mood, owns think, owns intent,
+  owns source-type, owns source-id, owns action-id, owns action-payload-json,
+  owns action-result,
+  plays precedes-thought:preceding-thought, plays precedes-thought:succeeding-thought,
+  plays leads-to-action:thought-source;
+
+# Action Log: 动作日志实体
+action-log sub entity,
+  owns action-id @key, owns action-type, owns timestamp, owns platform, owns bot-id,
+  owns status, owns response-timestamp, owns response-time-ms, owns error-info,
+  owns result-details-json,
+  plays leads-to-action:action-target;
+
+# System Pointer: 系统状态指针实体
+system-pointer sub entity,
+  owns pointer-name @key,
+  owns target-key;
+
+# Intrusive Thought: 侵入性思维池实体
+intrusive-thought sub entity,
+  owns thought-id @key,
+  owns thought-text,
+  owns used,
+  owns timestamp-generated;
+
+# Summary: 会话总结实体
+summary sub entity,
+  owns summary-id @key,
+  owns conversation-uid,
+  owns timestamp,
+  owns summary-text,
+  owns event-ids-covered-json;
+
+# Image Cache: 图片分析缓存实体
+image-cache sub entity,
+  owns image-hash @key,
+  owns analysis-result-json,
+  owns version,
+  owns timestamp;
+
+# Goal: 目标实体
+goal sub entity,
+  owns goal-id @key,
+  owns goal-text,
+  owns reason-text,
+  owns status,
+  owns created-at,
+  owns updated-at;
+
+
+# --- 关系类型 (Relations) ---
+
+identity-ownership sub relation, relates owner, relates owned-account;
+membership sub relation, owns cardname, owns permission-level, owns timestamp, relates member, relates group;
+residency sub relation, relates resident, relates host-platform;
+platform-asset sub relation, relates hosting-platform, relates hosted-asset;
+read-status sub relation, owns timestamp, relates reader, relates readable;
+precedes-thought sub relation, relates preceding-thought, relates succeeding-thought;
+leads-to-action sub relation, relates thought-source, relates action-target;
+
+
+# --- 属性类型 (Attributes) ---
+
+# UIDs and IDs
+person-uid sub string, value string;
+account-uid sub string, value string;
+conversation-uid sub string, value string;
+platform-uid sub string, value string;
+sticker-uid sub string, value string;
+platform-id sub string, value string;
+conversation-id sub string, value string;
+event-id sub string, value string;
+person-id-associated sub string, value string;
+thought-id sub string, value string;
+action-id sub string, value string;
+target-key sub string, value string;
+summary-id sub string, value string;
+goal-id sub string, value string;
+
+# Common Attributes
+platform sub string, value string;
+nickname sub string, value string;
+last-known-nickname sub string, value string;
+friend-remark sub string, value string;
+display-name sub string, value string;
+type sub string, value string;
+filename sub string, value string;
+impression sub string, value string;
+image-hash sub string, value string;
+perceptual-hash sub string, value string;
+cardname sub string, value string;
+permission-level sub string, value string;
+flag sub string, value string;
+comment sub string, value string;
+event-type sub string, value string;
+action-type sub string, value string;
+status sub string, value string;
+motivation sub string, value string;
+narrative-sentence sub string, value string;
+mood sub string, value string;
+think sub string, value string;
+intent sub string, value string;
+source-type sub string, value string;
+source-id sub string, value string;
+action-result sub string, value string;
+pointer-name sub string, value string;
+thought-text sub string, value string;
+used sub boolean, value boolean;
+summary-text sub string, value string;
+version sub string, value string;
+goal-text sub string, value string;
+reason-text sub string, value string;
+error-info sub string, value string;
+
+# JSON String Attributes
+content-json sub string, value string;
+user-info-json sub string, value string;
+conversation-info-json sub string, value string;
+embedding-json sub string, value string;
+image-analysis-json sub string, value string;
+action-payload-json sub string, value string;
+result-details-json sub string, value string;
+event-ids-covered-json sub string, value string;
+analysis-result-json sub string, value string;
+
+# Timestamps & Numerics
+timestamp sub long, value long;
+request-timestamp sub timestamp, value long;
+added-at sub long, value long;
+timestamp-generated sub long, value long;
+response-timestamp sub long, value long;
+response-time-ms sub long, value long;
+created-at sub long, value long;
+updated-at sub long, value long;
+last-read-timestamp sub long, value long;

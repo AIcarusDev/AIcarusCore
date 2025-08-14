@@ -8,6 +8,7 @@ from src.platform_builders.base_builder import BasePlatformBuilder
 
 logger = get_logger(__name__)
 
+
 class LinuxMCPBuilder(BasePlatformBuilder):
     """Linux-MCP 平台的构建器，是其在 Core 中的“外交大使”."""
 
@@ -22,11 +23,8 @@ class LinuxMCPBuilder(BasePlatformBuilder):
         return "linux_mcp"
 
     def build_action_event(
-            self,
-            action_name: str,
-            params: dict[str, Any],
-            bot_id: str
-        ) -> Event | None:
+        self, action_name: str, params: dict[str, Any], bot_id: str
+    ) -> Event | None:
         """将 Core 的指令转换为发往 Agent 的标准 Event."""
         final_event_type = f"action.{self.platform_id}.{action_name}"
         action_seg = Seg(type="action_params", data=params)
@@ -35,7 +33,7 @@ class LinuxMCPBuilder(BasePlatformBuilder):
             event_id=str(uuid.uuid4()),
             event_type=final_event_type,
             time=int(time.time() * 1000),
-            bot_id=bot_id, # 在这里通常就是 platform_id
+            bot_id=bot_id,  # 在这里通常就是 platform_id
             content=[action_seg],
         )
 
@@ -53,10 +51,8 @@ class LinuxMCPBuilder(BasePlatformBuilder):
             "state_tool": {
                 "type": "object",
                 "description": "核心感知工具。获取当前沙盒桌面的完整状态，包括UI元素和屏幕截图。",
-                "properties": {
-                    "motivation": {"type": "string"}
-                },
-                "required": ["motivation"]
+                "properties": {"motivation": {"type": "string"}},
+                "required": ["motivation"],
             },
             "click_tool": {
                 "type": "object",
@@ -67,9 +63,9 @@ class LinuxMCPBuilder(BasePlatformBuilder):
                         "description": "要点击的坐标，从 state_tool 返回的 `coords` 字段获取。",
                         "items": [{"type": "integer"}, {"type": "integer"}],
                         "minItems": 2,
-                        "maxItems": 2
+                        "maxItems": 2,
                     },
-                    "motivation": {"type": "string"}
+                    "motivation": {"type": "string"},
                 },
                 "required": ["loc", "motivation"],
             },
@@ -82,10 +78,10 @@ class LinuxMCPBuilder(BasePlatformBuilder):
                         "description": "要点击的坐标，从 state_tool 返回的 `coords` 字段获取。",
                         "items": [{"type": "integer"}, {"type": "integer"}],
                         "minItems": 2,
-                        "maxItems": 2
+                        "maxItems": 2,
                     },
                     "text": {"type": "string", "description": "要输入的文本。"},
-                    "motivation": {"type": "string"}
+                    "motivation": {"type": "string"},
                 },
                 "required": ["loc", "text", "motivation"],
             },
@@ -94,7 +90,7 @@ class LinuxMCPBuilder(BasePlatformBuilder):
                 "description": "按下指定的单个按键（例如 'enter', 'tab'）。",
                 "properties": {
                     "key": {"type": "string", "description": "要按下的按键名称。"},
-                    "motivation": {"type": "string"}
+                    "motivation": {"type": "string"},
                 },
                 "required": ["key", "motivation"],
             },
