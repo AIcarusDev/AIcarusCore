@@ -1,177 +1,268 @@
 define
 
-# --- 实体类型 (Entities) ---
+# --- 根类型定义 (Base Types) ---
+# 定义了最顶层的抽象概念
 
-# Profile: 主观侧写
-person sub entity, owns person-uid @key, abstract;
-aic_self sub person, plays identity-ownership:owner, plays read-status:reader;
-external_person sub person, plays identity-ownership:owner;
+entity person @abstract;
+entity objective-entity @abstract;
 
-# Account: 平台客观实体
-account sub entity,
-  owns account-uid @key, owns platform, owns platform-id, owns nickname,
-  owns last-known-nickname, owns friend-remark, owns flag, owns comment,
-  owns request-timestamp,
-  plays identity-ownership:owned-account, plays membership:member;
+# --- 实体类型 (Concrete Entities) ---
+entity aic_self @abstract;
 
-# Conversation: 会话客观实体
-conversation sub entity,
-  owns conversation-uid @key, owns platform, owns conversation-id, owns type,
-  owns display-name, owns last-read-timestamp,
-  plays membership:group, plays residency:resident, plays read-status:readable;
+aic_self sub person,
+    plays identity-ownership:owner,
+    plays read-status:reader;
 
-# Platform: 平台客观实体
-platform sub entity,
-  owns platform-uid @key, owns display-name,
-  plays residency:host-platform, plays platform-asset:hosting-platform;
+# 创建外部用户
+entity external_person @abstract;
 
-# Sticker: 表情包实体
-sticker sub entity,
-  owns sticker-uid @key, owns filename, owns impression, owns image-hash,
-  owns perceptual-hash, owns added-at,
-  plays platform-asset:hosted-asset;
+# 外部用户继承人
+external_person sub person,
+    plays identity-ownership:owner;
 
-# Event: 事件实体
-event sub entity,
-  owns event-id @key, owns event-type, owns timestamp, owns platform, owns bot-id,
-  owns content-json, owns user-info-json, owns conversation-info-json,
-  owns status, owns narrative-sentence, owns embedding-json,
-  owns image-analysis-json, owns person-id-associated, owns motivation;
+entity account @abstract;
 
-# Thought: 思想点实体
-thought-chain-node sub entity,
-  owns thought-id @key, owns timestamp, owns mood, owns think, owns intent,
-  owns source-type, owns source-id, owns action-id, owns action-payload-json,
-  owns action-result,
-  plays precedes-thought:preceding-thought, plays precedes-thought:succeeding-thought,
-  plays leads-to-action:thought-source;
+# 平台账户实体
+account sub objective-entity,
+    owns account-uid @key,
+    # owns platform,  -- [移除] 不再需要，通过 residency 关系链接
+    owns platform-id,
+    owns nickname,
+    owns last-known-nickname,
+    owns friend-remark,
+    owns flag,
+    owns comment,
+    owns request-timestamp,
+    plays identity-ownership:owned-account,
+    plays membership:member,
+    plays residency:resident; # [新增] 扮演 resident 角色
 
-# Action Log: 动作日志实体
-action-log sub entity,
-  owns action-id @key, owns action-type, owns timestamp, owns platform, owns bot-id,
-  owns status, owns response-timestamp, owns response-time-ms, owns error-info,
-  owns result-details-json,
-  plays leads-to-action:action-target;
+entity conversation @abstract;
 
-# System Pointer: 系统状态指针实体
-system-pointer sub entity,
-  owns pointer-name @key,
-  owns target-key;
+conversation sub objective-entity,
+    owns conversation-uid @key,
+    # owns platform, -- [移除]
+    owns conversation-id,
+    owns type,
+    owns display-name,
+    owns last-read-timestamp,
+    plays membership:group,
+    plays residency:resident, # [新增]
+    plays read-status:readable;
 
-# Intrusive Thought: 侵入性思维池实体
-intrusive-thought sub entity,
-  owns thought-id @key,
-  owns thought-text,
-  owns used,
-  owns timestamp-generated;
+entity platform @abstract;
 
-# Summary: 会话总结实体
-summary sub entity,
-  owns summary-id @key,
-  owns conversation-uid,
-  owns timestamp,
-  owns summary-text,
-  owns event-ids-covered-json;
+# 平台实体
+platform sub objective-entity,
+    owns platform-uid @key,
+    owns display-name,
+    plays residency:host-platform, # [修正] 明确扮演 host-platform 角色
+    plays platform-asset:hosting-platform;
 
-# Image Cache: 图片分析缓存实体
-image-cache sub entity,
-  owns image-hash @key,
-  owns analysis-result-json,
-  owns version,
-  owns timestamp;
+# 表情包实体
+entity sticker,
+    owns sticker-uid @key,
+    owns sticker-id,
+    owns filename,
+    owns impression,
+    owns image-hash,
+    owns perceptual-hash,
+    owns added-at,
+    plays platform-asset:hosted-asset;
 
-# Goal: 目标实体
-goal sub entity,
-  owns goal-id @key,
-  owns goal-text,
-  owns reason-text,
-  owns status,
-  owns created-at,
-  owns updated-at;
+# 事件实体
+entity event,
+    owns event-id @key,
+    owns event-type,
+    owns timestamp,
+    # owns platform, -- [移除]
+    owns bot-id,
+    owns content-json,
+    owns user-info-json,
+    owns conversation-info-json,
+    owns status,
+    owns narrative-sentence,
+    owns embedding-json,
+    owns image-analysis-json,
+    owns person-id-associated,
+    owns motivation;
+    # 注意: event 与 platform 的关系需要通过其 conversation 实体间接获得
+
+# 思想点实体
+entity thought-chain-node,
+    owns thought-id @key,
+    owns timestamp,
+    owns mood,
+    owns think,
+    owns intent,
+    owns source-type,
+    owns source-id,
+    owns action-id,
+    owns action-payload-json,
+    owns action-result,
+    plays precedes-thought:preceding-thought,
+    plays precedes-thought:succeeding-thought,
+    plays leads-to-action:thought-source;
+
+# 动作日志实体
+entity action-log,
+    owns action-id @key,
+    owns action-type,
+    owns timestamp,
+    # owns platform, -- [移除]
+    owns bot-id,
+    owns status,
+    owns response-timestamp,
+    owns response-time-ms,
+    owns error-info,
+    owns result-details-json,
+    plays leads-to-action:action-target;
+
+# 系统状态指针实体
+entity system-pointer,
+    owns pointer-name @key,
+    owns target-key;
+
+# 侵入性思维池实体
+entity intrusive-thought,
+    owns thought-id @key,
+    owns thought-text,
+    owns used,
+    owns timestamp-generated;
+
+# 会话总结实体
+entity summary,
+    owns summary-id @key,
+    owns conversation-uid,
+    owns timestamp,
+    owns summary-text,
+    owns event-ids-covered-json;
+
+# 图片分析缓存实体
+entity image-cache,
+    owns image-hash @key,
+    owns analysis-result-json,
+    owns version,
+    owns timestamp;
+
+# 目标实体
+entity goal,
+    owns goal-id @key,
+    owns goal-text,
+    owns reason-text,
+    owns status,
+    owns created-at,
+    owns updated-at;
 
 
 # --- 关系类型 (Relations) ---
 
-identity-ownership sub relation, relates owner, relates owned-account;
-membership sub relation, owns cardname, owns permission-level, owns timestamp, relates member, relates group;
-residency sub relation, relates resident, relates host-platform;
-platform-asset sub relation, relates hosting-platform, relates hosted-asset;
-read-status sub relation, owns timestamp, relates reader, relates readable;
-precedes-thought sub relation, relates preceding-thought, relates succeeding-thought;
-leads-to-action sub relation, relates thought-source, relates action-target;
+relation identity-ownership,
+    relates owner,
+    relates owned-account;
+
+relation membership,
+    owns cardname,
+    owns permission-level,
+    owns timestamp,
+    relates member,
+    relates group;
+
+relation residency,
+    relates resident,
+    relates host-platform; # [修正] 使用更明确的角色名
+
+relation platform-asset,
+    relates hosting-platform,
+    relates hosted-asset;
+
+relation read-status,
+    owns timestamp,
+    relates reader,
+    relates readable;
+
+relation precedes-thought,
+    relates preceding-thought,
+    relates succeeding-thought;
+
+relation leads-to-action,
+    relates thought-source,
+    relates action-target;
 
 
 # --- 属性类型 (Attributes) ---
 
 # UIDs and IDs
-person-uid sub string, value string;
-account-uid sub string, value string;
-conversation-uid sub string, value string;
-platform-uid sub string, value string;
-sticker-uid sub string, value string;
-platform-id sub string, value string;
-conversation-id sub string, value string;
-event-id sub string, value string;
-person-id-associated sub string, value string;
-thought-id sub string, value string;
-action-id sub string, value string;
-target-key sub string, value string;
-summary-id sub string, value string;
-goal-id sub string, value string;
+attribute person-uid, value string;
+attribute account-uid, value string;
+attribute conversation-uid, value string;
+attribute platform-uid, value string;
+attribute sticker-uid, value string;
+attribute platform-id, value string;
+attribute conversation-id, value string;
+attribute event-id, value string;
+attribute person-id-associated, value string;
+attribute thought-id, value string;
+attribute action-id, value string;
+attribute target-key, value string;
+attribute summary-id, value string;
+attribute goal-id, value string;
+attribute sticker-id, value integer;
 
 # Common Attributes
-platform sub string, value string;
-nickname sub string, value string;
-last-known-nickname sub string, value string;
-friend-remark sub string, value string;
-display-name sub string, value string;
-type sub string, value string;
-filename sub string, value string;
-impression sub string, value string;
-image-hash sub string, value string;
-perceptual-hash sub string, value string;
-cardname sub string, value string;
-permission-level sub string, value string;
-flag sub string, value string;
-comment sub string, value string;
-event-type sub string, value string;
-action-type sub string, value string;
-status sub string, value string;
-motivation sub string, value string;
-narrative-sentence sub string, value string;
-mood sub string, value string;
-think sub string, value string;
-intent sub string, value string;
-source-type sub string, value string;
-source-id sub string, value string;
-action-result sub string, value string;
-pointer-name sub string, value string;
-thought-text sub string, value string;
-used sub boolean, value boolean;
-summary-text sub string, value string;
-version sub string, value string;
-goal-text sub string, value string;
-reason-text sub string, value string;
-error-info sub string, value string;
+# [移除] attribute platform, value string;
+attribute nickname, value string;
+attribute last-known-nickname, value string;
+attribute friend-remark, value string;
+attribute display-name, value string;
+attribute type, value string;
+attribute filename, value string;
+attribute impression, value string;
+attribute image-hash, value string;
+attribute perceptual-hash, value string;
+attribute cardname, value string;
+attribute permission-level, value string;
+attribute flag, value string;
+attribute comment, value string;
+attribute event-type, value string;
+attribute action-type, value string;
+attribute status, value string;
+attribute motivation, value string;
+attribute narrative-sentence, value string;
+attribute mood, value string;
+attribute think, value string;
+attribute intent, value string;
+attribute source-type, value string;
+attribute source-id, value string;
+attribute action-result, value string;
+attribute pointer-name, value string;
+attribute thought-text, value string;
+attribute used, value boolean;
+attribute summary-text, value string;
+attribute version, value string;
+attribute goal-text, value string;
+attribute reason-text, value string;
+attribute error-info, value string;
+attribute bot-id, value string; # [新增] 为 event 和 action-log 增加 bot-id 属性
 
 # JSON String Attributes
-content-json sub string, value string;
-user-info-json sub string, value string;
-conversation-info-json sub string, value string;
-embedding-json sub string, value string;
-image-analysis-json sub string, value string;
-action-payload-json sub string, value string;
-result-details-json sub string, value string;
-event-ids-covered-json sub string, value string;
-analysis-result-json sub string, value string;
+attribute content-json, value string;
+attribute user-info-json, value string;
+attribute conversation-info-json, value string;
+attribute embedding-json, value string;
+attribute image-analysis-json, value string;
+attribute action-payload-json, value string;
+attribute result-details-json, value string;
+attribute event-ids-covered-json, value string;
+attribute analysis-result-json, value string;
 
 # Timestamps & Numerics
-timestamp sub long, value long;
-request-timestamp sub timestamp, value long;
-added-at sub long, value long;
-timestamp-generated sub long, value long;
-response-timestamp sub long, value long;
-response-time-ms sub long, value long;
-created-at sub long, value long;
-updated-at sub long, value long;
-last-read-timestamp sub long, value long;
+attribute timestamp, value integer;
+attribute request-timestamp, sub timestamp; # [修正] 子类型不需要重复声明 value type
+attribute added-at, value integer;
+attribute timestamp-generated, value integer;
+attribute response-timestamp, value integer;
+attribute response-time-ms, value integer;
+attribute created-at, value integer;
+attribute updated-at, value integer;
+attribute last-read-timestamp, value integer;
