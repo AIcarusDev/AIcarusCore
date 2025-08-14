@@ -16,6 +16,7 @@ def service(mocker: MockerFixture) -> GoalStorageService:
 
 def mock_to_thread(mocker: MockerFixture) -> None:
     """自动为所有测试模拟 asyncio.to_thread."""
+
     async def mock_async_wrapper(func: callable, *args: any, **kwargs: any) -> any:
         return func(*args, **kwargs)
 

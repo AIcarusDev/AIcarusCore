@@ -7,7 +7,7 @@ import threading
 from src.common.custom_logging.logging_config import get_logger
 from src.common.json_parser.json_parser import parse_llm_json_response
 from src.config import config
-from src.database import ArangoDBConnectionManager, CoreDBCollections, ThoughtStorageService
+from src.database import CoreDBCollections, ThoughtStorageService, TypeDBConnectionManager
 from src.llmrequest.llm_processor import Client as ProcessorClient
 
 logger = get_logger(__name__)
@@ -92,9 +92,7 @@ class IntrusiveThoughtsGenerator:
             logger.info("后台线程：正在创建专属的数据库连接...")
             db_config = config.database
             core_configs = CoreDBCollections.get_all_core_collection_configs()
-            conn_manager = await ArangoDBConnectionManager.create_from_config(
-                db_config, core_configs
-            )
+            conn_manager = await TypeDBConnectionManager.create_from_config(db_config, core_configs)
             logger.info("后台线程：专属数据库连接创建成功！")
 
             # 2. 用这个专属的连接，创建一个专属的、只为我所用的 ThoughtStorageService！

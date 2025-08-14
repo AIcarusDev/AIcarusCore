@@ -1,178 +1,128 @@
-# AIcarusCore/src/database/services/action_log_storage_service.py (欲望补完版 V1.1)
+# src/database/services/action_log_storage_service.py
+import asyncio
+import json
 from typing import Any
 
-from arangoasync.exceptions import DocumentInsertError, DocumentUpdateError
 from src.common.custom_logging.logging_config import get_logger
-from src.database import (
-    ArangoDBConnectionManager,
-    CoreDBCollections,
-    StandardCollection,
-)
+
+# [修正] 导入正确的事务类名
+from typedb.driver import TransactionType
+
+# [修正] 修正相对导入路径
+from ..core.connection_manager import TypeDBConnectionManager
+from ..models import ActionLogDocument
 
 logger = get_logger(__name__)
 
 
 class ActionLogStorageService:
-    """服务类，负责处理动作日志的存储和管理."""
+    """服务类，负责处理动作日志的存储和管理 (TypeDB 版本)."""
 
-    def __init__(self, conn_manager: ArangoDBConnectionManager) -> None:
+    def __init__(self, conn_manager: TypeDBConnectionManager) -> None:
         self.conn_manager = conn_manager
-        self.collection_name = CoreDBCollections.ACTION_LOGS
-        logger.info(f"ActionLogStorageService 初始化完毕，将操作集合 '{self.collection_name}'。")
+        logger.info("ActionLogStorageService (TypeDB) 初始化完成。")
 
-    async def _get_collection(self) -> StandardCollection:
-        return await self.conn_manager.get_collection(self.collection_name)
+    async def save_action_attempt(self, action_doc: ActionLogDocument) -> bool:
+        """保存一个动作尝试到数据库."""
+        driver = self.conn_manager.get_driver()
+        db_name = self.conn_manager.database_name
 
-    async def save_action_attempt(
-        self,
-        action_id: str,
-        action_type: str,
-        timestamp: int,
-        platform: str,
-        bot_id: str,
-        conversation_id: str,
-        content: list[dict[str, Any]],
-        original_event_id: str | None = None,
-        target_user_id: str | None = None,
-    ) -> bool:
-        """保存一个动作尝试到 ActionLog 中."""
-        collection = await self._get_collection()
-        action_log_doc = {
-            "_key": action_id,
-            "action_id": action_id,
-            "action_type": action_type,
-            "timestamp": timestamp,
-            "platform": platform,
-            "bot_id": bot_id,
-            "conversation_id": conversation_id,
-            "target_user_id": target_user_id,
-            "content": content,
-            "status": "executing",
-            "original_event_id": original_event_id,
-            "response_timestamp": None,
-            "response_time_ms": None,
-            "error_info": None,
-            "result_details": None,
-        }
+        def db_write() -> bool:
+            with driver.transaction(db_name, TransactionType.WRITE) as tx:
+                # 检查是否已存在
+                match_query = f'match $a isa action-log, has action-id "{action_doc._key}"; get $a;'
+                answers = list(tx.query.get(match_query).resolve())
+                if answers:
+                    logger.warning(f"动作尝试 '{action_doc._key}' 的记录已存在，跳过插入。")
+                    return True
+
+                # 构造插入语句
+                insert_parts = [
+                    f'$a isa action-log, has action-id "{action_doc._key}"',
+                    f'has action-type "{action_doc.action_type}"',
+                    f"has timestamp {action_doc.timestamp}",
+                    f'has platform "{action_doc.platform}"',
+                    f'has bot-id "{action_doc.bot_id}"',
+                    f'has status "{action_doc.status}"',
+                ]
+                insert_query = "insert " + ",\n".join(insert_parts) + ";"
+                tx.query.insert(insert_query).resolve()
+                tx.commit()
+                return True
+
         try:
-            await collection.insert(action_log_doc, overwrite=False)
-            logger.info(
-                f"动作尝试 '{action_id}' ({action_type}) 已记录到 ActionLog，状态：executing。"
-            )
-            return True
-        except DocumentInsertError:
-            logger.info(f"动作尝试 '{action_id}' 的记录已存在，无需重复插入。")
-            return True
+            success = await asyncio.to_thread(db_write)
+            if success:
+                logger.info(f"动作尝试 '{action_doc._key}' ({action_doc.action_type}) 已记录。")
+            return success
         except Exception as e:
-            logger.error(f"保存动作尝试 '{action_id}' 到 ActionLog 失败: {e}", exc_info=True)
+            logger.error(f"保存动作尝试 '{action_doc._key}' 失败: {e}", exc_info=True)
             return False
 
     async def update_action_log_with_response(
-        self,
-        action_id: str,
-        status: str,
-        response_timestamp: int,
-        response_time_ms: int | None = None,
-        error_info: str | None = None,
-        result_details: dict[str, Any] | None = None,
+        self, action_id: str, updates: dict[str, Any]
     ) -> bool:
         """更新动作日志的状态和响应信息."""
-        collection = await self._get_collection()
-        doc_fields_to_update = {
-            "status": status,
-            "response_timestamp": response_timestamp,
-            "response_time_ms": response_time_ms,
-            "error_info": error_info,
-            "result_details": result_details,
-        }
-        final_doc_to_update = {k: v for k, v in doc_fields_to_update.items() if v is not None}
-        if not final_doc_to_update:
-            return True
-        document_for_update_api = {"_key": action_id, **final_doc_to_update}
-        try:
-            result = await collection.update(document_for_update_api)
-            if result and result.get("_id"):
-                logger.info(f"ActionLog 中动作 '{action_id}' 的状态已更新为 '{status}'。")
+        driver = self.conn_manager.get_driver()
+        db_name = self.conn_manager.database_name
+
+        def db_write() -> bool:
+            with driver.transaction(db_name, TransactionType.WRITE) as tx:
+                # 1. First, delete all potentially existing attributes that will be updated.
+                delete_parts = []
+                attr_map_for_delete = {
+                    "status": "status",
+                    "response_timestamp": "response-timestamp",
+                    "response_time_ms": "response-time-ms",
+                    "error_info": "error-info",
+                    "result_details": "result-details-json",
+                }
+                for key in updates:
+                    if attr_name := attr_map_for_delete.get(key):
+                        delete_parts.append(f"$a has {attr_name} ${key};")
+
+                if delete_parts:
+                    delete_query = f"""
+                    match $a isa action-log, has action-id "{action_id}";
+                    {" ".join(delete_parts)}
+                    delete $a has $status;, $a has $response_timestamp;, $a has $response_time_ms;, $a has $error_info;, $a has $result_details;;
+                    """
+                    tx.query.delete(delete_query).resolve()
+
+                # 2. Now, insert the new or updated values.
+                insert_parts = [f'match $a isa action-log, has action-id "{action_id}"; insert']
+
+                for key, value in updates.items():
+                    if value is None:
+                        continue
+
+                    attr_name = attr_map_for_delete.get(key)
+                    if not attr_name:
+                        continue
+
+                    safe_value: Any
+                    if isinstance(value, dict):
+                        safe_value = json.dumps(value, ensure_ascii=False).replace('"', '\\"')
+                    elif isinstance(value, str):
+                        safe_value = value.replace('"', '\\"')
+                    else:
+                        safe_value = value
+
+                    quote = '"' if not isinstance(value, int | float | bool) else ""
+                    insert_parts.append(f"$a has {attr_name} {quote}{safe_value}{quote}")
+
+                if len(insert_parts) > 1:
+                    insert_query = " ".join(insert_parts) + ";"
+                    tx.query.insert(insert_query).resolve()
+
+                tx.commit()
                 return True
-            else:
-                logger.warning(f"尝试更新 ActionLog 中动作 '{action_id}' 未生效，可能记录不存在。")
-                return False
-        except DocumentUpdateError as e:
-            logger.error(
-                f"严重错误：尝试更新一个不存在的 ActionLog 记录 '{action_id}'。 ArangoError: {e}"
-            )
+
+        try:
+            success = await asyncio.to_thread(db_write)
+            if success:
+                logger.info(f"ActionLog 中动作 '{action_id}' 的状态已更新。")
+            return success
+        except Exception as e:
+            logger.error(f"更新 ActionLog 中动作 '{action_id}' 时失败: {e}", exc_info=True)
             return False
-        except Exception as e:
-            logger.error(f"更新 ActionLog 中动作 '{action_id}' 时发生未知错误: {e}", exc_info=True)
-            return False
-
-    async def get_action_log(self, action_id: str) -> dict[str, Any] | None:
-        """根据动作ID获取对应的动作日志记录."""
-        collection = await self._get_collection()
-        try:
-            return await collection.get(action_id)
-        except Exception as e:
-            logger.error(f"获取 ActionLog 记录 '{action_id}' 失败: {e}", exc_info=True)
-            return None
-
-    async def get_action_log_by_platform_message_id(
-        self, platform: str, conversation_id: str, message_id: str
-    ) -> dict[str, Any] | None:
-        """根据平台返回的消息ID，查找对应的、成功的 send_message 动作日志.
-
-        现在它使用 (平台, 会话ID, 消息ID) 三元组来确保定位的唯一性.
-        """
-        if not all([platform, conversation_id, message_id]):
-            logger.debug("回声定位缺少必要坐标 (platform, conversation_id, message_id)，无法查找。")
-            return None
-        try:
-            query = """
-                FOR doc IN @@collection
-                    FILTER doc.status == 'success'
-                    AND doc.action_type LIKE '%.send_message'
-                    AND doc.platform == @platform
-                    AND doc.conversation_id == @conversation_id
-                    AND doc.result_details.sent_message_id == @message_id
-                    SORT doc.timestamp DESC
-                    LIMIT 1
-                    RETURN doc
-            """
-            bind_vars = {
-                "@collection": self.collection_name,
-                "platform": platform,
-                "conversation_id": conversation_id,
-                "message_id": message_id,
-            }
-            results = await self.conn_manager.execute_query(query, bind_vars)
-            if results:
-                logger.debug(
-                    f"通过精确坐标 (P:{platform}, C:{conversation_id}, M:{message_id}) "
-                    f"成功匹配到动作日志: {results[0]['_key']}"
-                )
-                return results[0]
-            return None
-        except Exception as e:
-            logger.error(
-                f"通过精确坐标 (P:{platform}, C:{conversation_id}, M:{message_id}) "
-                f"查找动作日志失败: {e}",
-                exc_info=True,
-            )
-            return None
-
-    async def get_recent_action_logs(self, limit: int = 10) -> list[dict[str, Any]]:
-        """获取最近的动作日志，按时间降序排列."""
-        if limit <= 0:
-            return []
-        try:
-            query = """
-                FOR doc IN @@collection
-                    SORT doc.timestamp DESC
-                    LIMIT @limit
-                    RETURN { timestamp: doc.timestamp, action_type: doc.action_type, status: doc.status, error_info: doc.error_info }
-            """  # noqa: E501
-            bind_vars = {"@collection": self.collection_name, "limit": limit}
-            results = await self.conn_manager.execute_query(query, bind_vars)
-            return results if results is not None else []
-        except Exception as e:
-            logger.error(f"获取最近动作日志失败: {e}", exc_info=True)
-            return []

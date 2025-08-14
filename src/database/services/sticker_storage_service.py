@@ -1,11 +1,14 @@
-# src/database/services/sticker_storage_service.py
+# src/database_typedb/services/sticker_storage_service.py
 import asyncio
+import time
 from typing import Any
 
+from src.database.utils import compare_phashes
 from src.common.custom_logging.logging_config import get_logger
-from src.common.image_utils import compare_phashes
-from src.database.core.typedb_connection_manager import TypeDBConnectionManager
-from typedb.driver import TransactionType, TypeDBTransaction
+from src.database import TypeDBConnectionManager
+
+# [修正] 导入正确的事务类名 Transaction
+from typedb.driver import Transaction, TransactionType
 
 logger = get_logger(__name__)
 
@@ -18,7 +21,8 @@ class StickerStorageService:
         self.conn_manager = conn_manager
         logger.info("StickerStorageService (TypeDB gRPC) 初始化完成。")
 
-    async def _get_next_sticker_id(self, platform_id: str, tx: TypeDBTransaction) -> str:
+    # [修正] 更新类型提示
+    def _get_next_sticker_id(self, platform_id: str, tx: Transaction) -> str:
         """在事务内原子性地获取下一个可用的表情包ID (e.g., "001", "002")."""
         # TypeQL 使用聚合查询来找到最大ID
         query = f"""
@@ -28,16 +32,13 @@ class StickerStorageService:
             $s isa sticker, has sticker-uid $uid;
         reduce $max_id = max($uid);
         """
-        response = tx.query(query).resolve()
-        answers = list(response.as_concept_rows())
+        # 修正: v3 driver 中没有 get, 统一使用 query
+        answers = list(tx.query.get_aggregate(query).resolve())
 
         max_id_num = 0
-        if answers and (max_id_concept := answers[0].get("max_id")):
-            max_id_str = max_id_concept.as_attribute().get_value().as_string()
-            # 从 "platform_sticker_001" 中提取数字
-            numeric_part = "".join(filter(str.isdigit, max_id_str))
-            if numeric_part:
-                max_id_num = int(numeric_part)
+        if answers and (max_id_concept := answers[0]) and not max_id_concept.is_nan():
+            max_id_str = max_id_concept.as_int()  # 假设 sticker-uid 存的是纯数字
+            max_id_num = int(max_id_str)
 
         next_id_num = max_id_num + 1
         return f"{next_id_num:03d}"
@@ -49,48 +50,52 @@ class StickerStorageService:
         impression: str,
         source_image_hash: str,
         perceptual_hash: str,
-    ) -> str | None:
+    ) -> dict[str, Any] | None:
         """添加一个新的表情包元数据记录，并将其与对应的平台关联."""
         driver = self.conn_manager.get_driver()
-        db_name = self.conn_manager.get_database_name()
+        db_name = self.conn_manager.database_name
 
-        def db_write() -> str | None:
+        def db_write() -> dict[str, Any] | None:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
-                # 在事务内获取下一个ID
-                next_id = asyncio.run(self._get_next_sticker_id(platform_id, tx))
-                sticker_uid = f"{platform_id}_sticker_{next_id}"
+                # [修正] 同步调用
+                next_id_str = self._get_next_sticker_id(platform_id, tx)
+                sticker_uid = f"{platform_id}_sticker_{next_id_str}"
+                added_at_ts = int(time.time() * 1000)
 
+                # 修正: v3 TypeQL 语法
                 query = f"""
                 match $p isa platform, has platform-uid "{platform_id}";
                 insert $s isa sticker,
                     has sticker-uid "{sticker_uid}",
+                    has sticker-id {int(next_id_str)},
                     has filename "{filename.replace('"', '\\"')}",
                     has impression "{impression.replace('"', '\\"')}",
                     has image-hash "{source_image_hash}",
-                    has perceptual-hash "{perceptual_hash}";
-                $pa (hosting-platform: $p, hosted-asset: $s) isa platform-asset;
+                    has perceptual-hash "{perceptual_hash}",
+                    has added-at {added_at_ts};
+                insert (hosting-platform: $p, hosted-asset: $s) isa platform-asset;
                 """
-                tx.query(query).resolve()
+                tx.query.insert(query).resolve()
                 tx.commit()
-                return sticker_uid
+                return {
+                    "sticker_id": next_id_str,
+                    "sticker_uid": sticker_uid,
+                    "filename": filename,
+                    "impression": impression,
+                    "added_at": added_at_ts,
+                }
 
         try:
-            sticker_uid = await asyncio.to_thread(db_write)
-            logger.info(f"新表情包 '{sticker_uid}' 已添加到 TypeDB 并关联到平台 '{platform_id}'。")
-            return sticker_uid
+            sticker_doc = await asyncio.to_thread(db_write)
+            if sticker_doc:
+                logger.info(
+                    f"新表情包 '{sticker_doc['sticker_uid']}' "
+                    f"已添加到 TypeDB 并关联到平台 '{platform_id}'。"
+                )
+            return sticker_doc
         except Exception as e:
             logger.error(f"添加表情包到 TypeDB 失败: {e}", exc_info=True)
             return None
-
-    # TODO: [PERFORMANCE] 当前的相似度检查实现存在性能瓶颈。
-    #  它会获取平台下的所有哈希值到内存中进行比较。当表情包数量巨大时，这会导致高昂的I/O和CPU开销。
-    #  未来的优化方向:
-    #  1.  **数据库层面优化**: 利用 ArangoSearch View 和 LEVENSHTEIN_MATCH 函数，
-    #      将汉明距离的计算下推到数据库层面，利用其C++实现的索引进行高效的近似最近邻搜索。
-    #  2.  **LSH (局部敏感哈希)**: 在应用层实现LSH算法，将相似的哈希映射到相同的桶中，
-    #      查询时只需比较同桶内的少量候选者。
-    #  对于当前版本，此实现是可接受的。
-    #  这个注释不许删! ╰（‵□′）╯
 
     async def find_similar_sticker_by_phash(
         self, platform_id: str, phash_to_check: str, tolerance: int = 5
@@ -104,19 +109,26 @@ class StickerStorageService:
         select $uid, $phash;
         """
         driver = self.conn_manager.get_driver()
-        db_name = self.conn_manager.get_database_name()
+        db_name = self.conn_manager.database_name
 
         def db_read_and_compare() -> dict[str, Any] | None:
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                response = tx.query(query).resolve()
-                for answer in response.as_concept_rows():
-                    candidate_uid = answer.get("uid").as_attribute().get_value().as_string()
-                    candidate_phash = answer.get("phash").as_attribute().get_value().as_string()
-                    if compare_phashes(phash_to_check, candidate_phash, tolerance):
-                        logger.info(
-                            f"发现视觉相似的表情包: ID {candidate_uid} (pHash 距离 <= {tolerance})"
-                        )
-                        return {"sticker_id": candidate_uid, "phash": candidate_phash}
+                answers = list(tx.query.get(query).resolve())
+                for answer in answers:
+                    uid_attr = answer.get("uid")
+                    phash_attr = answer.get("phash")
+                    if uid_attr and phash_attr:
+                        candidate_uid = uid_attr.as_attribute().get_value().get_string()
+                        candidate_phash = phash_attr.as_attribute().get_value().get_string()
+                        if compare_phashes(phash_to_check, candidate_phash, tolerance):
+                            logger.info(
+                                f"发现视觉相似的表情包: ID {candidate_uid} "
+                                f"(pHash 距离 <= {tolerance})"
+                            )
+                            return {
+                                "sticker_id": candidate_uid,
+                                "phash": candidate_phash,
+                            }
             return None
 
         try:
@@ -125,29 +137,25 @@ class StickerStorageService:
             logger.error(f"查找相似表情包时失败: {e}", exc_info=True)
             return None
 
-    async def remove_sticker(self, sticker_uid: str) -> bool:
+    async def remove_sticker(self, platform_id: str, sticker_id: str) -> bool:
         """从 TypeDB 中删除一个表情包元数据记录."""
+        sticker_uid = f"{platform_id}_sticker_{sticker_id}"
         query = f"""
         match $s isa sticker, has sticker-uid "{sticker_uid}";
         delete $s isa sticker;
         """
 
         driver = self.conn_manager.get_driver()
-        db_name = self.conn_manager.get_database_name()
+        db_name = self.conn_manager.database_name
 
-        def db_write_and_check() -> bool:
-            """执行数据库写入操作并检查删除的表情包."""
+        def db_write() -> bool:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
-                response = tx.query(query).resolve()
-                deleted_concepts = [row.get("s") for row in response.as_concept_rows()]
-                if not deleted_concepts:
-                    logger.warning(f"尝试删除一个不存在的表情包: {sticker_uid}")
-                    return False
+                tx.query.delete(query).resolve()
                 tx.commit()
                 return True
 
         try:
-            success = await asyncio.to_thread(db_write_and_check)
+            success = await asyncio.to_thread(db_write)
             if success:
                 logger.info(f"表情包 '{sticker_uid}' 已从 TypeDB 移除。")
             return success
@@ -155,37 +163,34 @@ class StickerStorageService:
             logger.error(f"移除表情包 '{sticker_uid}' 失败: {e}", exc_info=True)
             return False
 
-    async def edit_impression(self, sticker_uid: str, new_impression: str) -> bool:
+    async def edit_impression(self, platform_id: str, sticker_id: str, new_impression: str) -> bool:
         """编辑指定表情包的印象描述."""
+        sticker_uid = f"{platform_id}_sticker_{sticker_id}"
+        new_impression_safe = new_impression.replace('"', '\\"')
+
         driver = self.conn_manager.get_driver()
-        db_name = self.conn_manager.get_database_name()
+        db_name = self.conn_manager.database_name
 
         def db_update() -> bool:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
-                # 1. 找到表情包和它的旧印象
-                match_query = f"""
-                match $s isa sticker, has sticker-uid "{sticker_uid}", has impression $old_imp;
-                select $s, $old_imp;
-                """
-                response = tx.query(match_query).resolve()
-                answers = list(response.as_concept_rows())
+                match_query = f'match $s isa sticker, has sticker-uid "{sticker_uid}"; get $s;'
+                answers = list(tx.query.get(match_query).resolve())
                 if not answers:
                     logger.warning(f"尝试编辑一个不存在的表情包印象: {sticker_uid}")
                     return False
 
-                # 2. 删除旧印象
                 delete_query = f"""
-                match $s isa sticker, has sticker-uid "{sticker_uid}", has impression $old_imp;
+                match $s isa sticker, has sticker-uid "{sticker_uid}";
+                $s has impression $old_imp;
                 delete $s has $old_imp;
                 """
-                tx.query(delete_query).resolve()
+                tx.query.delete(delete_query).resolve()
 
-                # 3. 插入新印象
                 insert_query = f"""
                 match $s isa sticker, has sticker-uid "{sticker_uid}";
-                insert $s has impression "{new_impression.replace('"', '\\"')}";
+                insert $s has impression "{new_impression_safe}";
                 """
-                tx.query(insert_query).resolve()
+                tx.query.insert(insert_query).resolve()
                 tx.commit()
                 return True
 
@@ -198,36 +203,38 @@ class StickerStorageService:
             logger.error(f"编辑表情包 '{sticker_uid}' 印象失败: {e}", exc_info=True)
             return False
 
-    async def get_all_stickers(self, platform_uid: str) -> list[dict]:
+    async def get_all_stickers(self, platform_id: str) -> list[dict]:
         """获取指定平台的所有表情包元数据."""
         query = f"""
         match
-            $p isa platform, has platform-uid "{platform_uid}";
+            $p isa platform, has platform-uid "{platform_id}";
             (hosting-platform: $p, hosted-asset: $s) isa platform-asset;
             $s isa sticker;
-            $s has sticker-uid $uid;
+            $s has sticker-id $sid;
             $s has filename $fn;
             $s has impression $imp;
             $s has image-hash $hash;
-        select $uid, $fn, $imp, $hash;
-        sort $uid asc;
+        select $sid, $fn, $imp, $hash;
+        sort $sid asc;
         """
 
         driver = self.conn_manager.get_driver()
-        db_name = self.conn_manager.get_database_name()
+        db_name = self.conn_manager.database_name
 
         def db_read() -> list[dict]:
-            """执行数据库读取操作."""
             stickers = []
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                response = tx.query(query).resolve()
-                for answer in response.as_concept_rows():
+                answers = list(tx.query.get(query).resolve())
+                for answer in answers:
                     stickers.append(
                         {
-                            "sticker_id": answer.get("uid").as_attribute().get_value().as_string(),
-                            "filename": answer.get("fn").as_attribute().get_value().as_string(),
-                            "impression": answer.get("imp").as_attribute().get_value().as_string(),
-                            "image_hash": answer.get("hash").as_attribute().get_value().as_string(),
+                            "sticker_id": f"{answer.get('sid').as_attribute().get_value().get_integer():03d}",  # noqa: E501
+                            "filename": answer.get("fn").as_attribute().get_value().get_string(),
+                            "impression": answer.get("imp").as_attribute().get_value().get_string(),
+                            "source_image_hash": answer.get("hash")
+                            .as_attribute()
+                            .get_value()
+                            .get_string(),
                         }
                     )
             return stickers
@@ -235,11 +242,12 @@ class StickerStorageService:
         try:
             return await asyncio.to_thread(db_read)
         except Exception as e:
-            logger.error(f"获取平台 '{platform_uid}' 的所有表情包失败: {e}", exc_info=True)
+            logger.error(f"获取平台 '{platform_id}' 的所有表情包失败: {e}", exc_info=True)
             return []
 
-    async def get_sticker_by_id(self, sticker_uid: str) -> dict[str, Any] | None:
-        """根据UID获取单个表情包的元数据."""
+    async def get_sticker_by_id(self, platform_id: str, sticker_id: str) -> dict[str, Any] | None:
+        """根据ID获取单个表情包的元数据."""
+        sticker_uid = f"{platform_id}_sticker_{sticker_id}"
         query = f"""
         match
             $s isa sticker, has sticker-uid "{sticker_uid}";
@@ -250,23 +258,25 @@ class StickerStorageService:
         select $fn, $imp, $hash, $phash;
         """
         driver = self.conn_manager.get_driver()
-        db_name = self.conn_manager.get_database_name()
+        db_name = self.conn_manager.database_name
 
         def db_read() -> dict[str, Any] | None:
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                response = tx.query(query).resolve()
-                answers = list(response.as_concept_rows())
+                answers = list(tx.query.get(query).resolve())
                 if answers:
                     answer = answers[0]
                     return {
-                        "sticker_id": sticker_uid,
-                        "filename": answer.get("fn").as_attribute().get_value().as_string(),
-                        "impression": answer.get("imp").as_attribute().get_value().as_string(),
-                        "image_hash": answer.get("hash").as_attribute().get_value().as_string(),
+                        "sticker_id": sticker_id,
+                        "filename": answer.get("fn").as_attribute().get_value().get_string(),
+                        "impression": answer.get("imp").as_attribute().get_value().get_string(),
+                        "source_image_hash": answer.get("hash")
+                        .as_attribute()
+                        .get_value()
+                        .get_string(),
                         "perceptual_hash": answer.get("phash")
                         .as_attribute()
                         .get_value()
-                        .as_string(),
+                        .get_string(),
                     }
             return None
 
@@ -275,3 +285,24 @@ class StickerStorageService:
         except Exception as e:
             logger.error(f"获取表情包 '{sticker_uid}' 失败: {e}", exc_info=True)
             return None
+
+    async def get_distinct_platforms(self) -> list[str]:
+        """从表情包集合中查询出所有不重复的平台ID."""
+        query = "match $p isa platform, has platform-uid $uid; select $uid; distinct $uid;"
+        driver = self.conn_manager.get_driver()
+        db_name = self.conn_manager.database_name
+
+        def db_read() -> list[str]:
+            with driver.transaction(db_name, TransactionType.READ) as tx:
+                answers = list(tx.query.get(query).resolve())
+                return [
+                    a.get("uid").as_attribute().get_value().get_string()
+                    for a in answers
+                    if a.get("uid")
+                ]
+
+        try:
+            return await asyncio.to_thread(db_read)
+        except Exception as e:
+            logger.error(f"查询所有表情包平台失败: {e}", exc_info=True)
+            return []

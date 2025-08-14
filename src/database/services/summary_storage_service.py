@@ -1,87 +1,61 @@
-# src/database/services/summary_storage_service.py
-import time
+import asyncio
+import json
 import uuid
 
-from src.common.custom_logging.logging_config import get_logger
-from src.database import ArangoDBConnectionManager, ConversationSummaryDocument, CoreDBCollections
+from loguru import logger
+from typedb.driver import TransactionType
 
-logger = get_logger(__name__)
+from ..core.connection_manager import TypeDBConnectionManager
+from ..models import SummaryDocument
 
 
 class SummaryStorageService:
-    """服务类，负责处理会话总结的数据库存储操作.
+    """服务类，负责处理会话总结的数据库存储操作 (TypeDB 版本)."""
 
-    这个服务类提供了将会话总结保存到数据库的功能，确保数据的完整性和一致性。
-
-    Attributes:
-        conn_manager (ArangoDBConnectionManager): 数据库连接管理器实例，用于获取数据库集合。
-        summaries_collection (ArangoDBCollection): 会话总结集合的引用，
-            动态获取以确保操作的原子性和异步正确性。
-    """
-
-    def __init__(self, conn_manager: ArangoDBConnectionManager) -> None:
-        """初始化服务.
-
-        Args:
-            conn_manager (ArangoDBConnectionManager): 数据库连接管理器实例，用于获取数据库集合。
-        """
+    def __init__(self, conn_manager: TypeDBConnectionManager) -> None:
         self.conn_manager = conn_manager
-        self.summaries_collection = None  # 在异步方法中动态获取
+        logger.info("SummaryStorageService (TypeDB) 初始化完成。")
 
-    async def save_summary(
-        self,
-        conversation_id: str,
-        summary_text: str,
-        platform: str,
-        bot_id: str,
-        event_ids_covered: list[str],
-    ) -> bool:
-        """将一个会话的最终总结保存到数据库.
-
-        Args:
-            conversation_id: 会话的ID。
-            summary_text: 总结的文本内容。
-            platform: 会话所属平台。
-            bot_id: 处理此会话中祂的ID。
-            event_ids_covered: 此总结所覆盖的事件ID列表。
-
-        Returns:
-            如果保存成功，返回 True，否则返回 False。
-        """
-        # 在异步方法中动态获取集合，确保操作的原子性和异步正确性
-        collection_name = CoreDBCollections.CONVERSATION_SUMMARIES
-        try:
-            self.summaries_collection = await self.conn_manager.get_collection(collection_name)
-            if not self.summaries_collection:
-                logger.error(f"无法获取 '{collection_name}' 集合，操作中止。")
-                return False
-        except Exception as e:
-            logger.error(f"尝试保存总结时，无法获取 '{collection_name}' 集合: {e}", exc_info=True)
-            return False
-
-        if not summary_text or not summary_text.strip():
+    async def save_summary(self, summary_doc: SummaryDocument) -> bool:
+        """将一个会话的最终总结保存到数据库."""
+        if not summary_doc.summary_text.strip():
             logger.warning("尝试保存一个空的总结，操作已取消。")
             return False
 
-        summary_id = f"summary_{uuid.uuid4()}"
-        timestamp_ms = int(time.time() * 1000)
+        driver = self.conn_manager.get_driver()
+        db_name = self.conn_manager.database_name
 
-        summary_doc = ConversationSummaryDocument(
-            _key=summary_id,
-            summary_id=summary_id,
-            conversation_id=conversation_id,
-            timestamp=timestamp_ms,
-            platform=platform,
-            bot_id=bot_id,
-            summary_text=summary_text,
-            event_ids_covered=event_ids_covered,
-        )
+        def db_write() -> bool:
+            with driver.transaction(db_name, TransactionType.WRITE) as tx:
+                summary_id = summary_doc._key or f"summary_{uuid.uuid4()}"
+                summary_text_safe = summary_doc.summary_text.replace('"', '\\"')
+                event_ids_json = json.dumps(
+                    summary_doc.event_ids_covered, ensure_ascii=False
+                ).replace('"', '\\"')
+
+                insert_query = f"""
+                insert $s isa summary,
+                    has summary-id "{summary_id}",
+                    has conversation-uid "{summary_doc.conversation_uid}",
+                    has timestamp {summary_doc.timestamp},
+                    has summary-text "{summary_text_safe}",
+                    has event-ids-covered-json "{event_ids_json}";
+                """
+                tx.query.insert(insert_query).resolve()
+                tx.commit()
+                return True
 
         try:
-            doc_to_insert = summary_doc.to_dict()
-            await self.summaries_collection.insert(doc_to_insert)
-            logger.info(f"成功将总结 '{summary_id}' 保存到会话 '{conversation_id}' 的数据库中。")
-            return True
+            success = await asyncio.to_thread(db_write)
+            if success:
+                logger.info(
+                    f"成功将总结 '{summary_doc._key}' 保存到会话 "
+                    f"'{summary_doc.conversation_uid}' 的数据库中。"
+                )
+            return success
         except Exception as e:
-            logger.error(f"将会话 '{conversation_id}' 的总结保存到数据库时失败: {e}", exc_info=True)
+            logger.error(
+                f"将会话 '{summary_doc.conversation_uid}' 的总结保存到数据库时失败: {e}",
+                exc_info=True,
+            )
             return False

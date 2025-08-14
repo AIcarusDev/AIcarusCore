@@ -23,15 +23,16 @@ if TYPE_CHECKING:
     from src.core_logic.state_manager import AIStateManager
     from src.core_logic.thought_generator import ThoughtGenerator
     from src.core_logic.thought_persistor import ThoughtPersistor
-    from src.database import (
+    from src.database.core.connection_manager import TypeDBConnectionManager
+    from src.database.services import (
         ActionLogStorageService,
-        ArangoDBConnectionManager,
         EntityGraphService,
         EventStorageService,
+        GoalStorageService,
+        StickerStorageService,
         SummaryStorageService,
         ThoughtStorageService,
     )
-    from src.database.services.sticker_storage_service import StickerStorageService
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
     from src.llmrequest.llm_processor import Client as ProcessorClient
     from src.message_processing.default_message_processor import DefaultMessageProcessor
@@ -44,22 +45,25 @@ class ServiceContainer:
 
     # LLM 客户端
     main_consciousness_llm_client: ProcessorClient
-    summary_llm_client: ProcessorClient
-    image_analysis_service: ImageAnalysisService | None
+    summary_llm_client: ProcessorClient | None
     intrusive_thoughts_llm_client: ProcessorClient | None
     focused_chat_llm_client: ProcessorClient | None
     web_search_agent_client: ProcessorClient | None
     url_context_agent_client: ProcessorClient | None
     deliberation_llm_client: ProcessorClient | None
 
+    # 连接管理器
+    conn_manager: TypeDBConnectionManager
+
     # 核心数据存储服务
-    conn_manager: ArangoDBConnectionManager
     event_storage_service: EventStorageService
-    sticker_storage_service: StickerStorageService
     thought_storage_service: ThoughtStorageService
     action_log_service: ActionLogStorageService
     summary_storage_service: SummaryStorageService
     entity_graph_service: EntityGraphService
+    image_analysis_service: ImageAnalysisService
+    sticker_storage_service: StickerStorageService
+    goal_storage_service: GoalStorageService
 
     # 业务逻辑与功能模块
     action_handler: ActionHandler

@@ -30,16 +30,16 @@ from src.core_logic.state_manager import AIStateManager
 from src.core_logic.thought_generator import ThoughtGenerator
 from src.core_logic.thought_persistor import ThoughtPersistor
 
-# --- [心脏移植] 导入新的 TypeDB 模块 ---
-from src.database_typedb.connection_manager import TypeDBConnectionManager
-from src.database_typedb.services.action_log_storage_service import ActionLogStorageService
-from src.database_typedb.services.entity_graph_service import EntityGraphService
-from src.database_typedb.services.event_storage_service import EventStorageService
-from src.database_typedb.services.goal_storage_service import GoalStorageService
-from src.database_typedb.services.image_analysis_cache_service import ImageAnalysisCacheService
-from src.database_typedb.services.sticker_storage_service import StickerStorageService
-from src.database_typedb.services.summary_storage_service import SummaryStorageService
-from src.database_typedb.services.thought_storage_service import ThoughtStorageService
+# --- [心脏移植完成] 导入路径已更新为新的 src/database ---
+from src.database.core.connection_manager import TypeDBConnectionManager
+from src.database.services.action_log_storage_service import ActionLogStorageService
+from src.database.services.entity_graph_service import EntityGraphService
+from src.database.services.event_storage_service import EventStorageService
+from src.database.services.goal_storage_service import GoalStorageService
+from src.database.services.image_analysis_cache_service import ImageAnalysisCacheService
+from src.database.services.sticker_storage_service import StickerStorageService
+from src.database.services.summary_storage_service import SummaryStorageService
+from src.database.services.thought_storage_service import ThoughtStorageService
 from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.message_processing.default_message_processor import DefaultMessageProcessor
 from src.message_processing.image_analysis_service import ImageAnalysisService
@@ -65,7 +65,6 @@ class ServiceBuilder:
         platform_builder_registry.discover_and_register_builders(platform_builders)
         llm_clients = self._initialize_llm_clients()
 
-        # --- [心脏移植] 初始化新的 TypeDB 服务 ---
         db_services = await self._initialize_typedb_and_services()
 
         sticker_service = StickerService(
@@ -318,19 +317,19 @@ class ServiceBuilder:
         return clients
 
     async def _initialize_typedb_and_services(self) -> dict:
-        """[心脏移植] 初始化 TypeDB 连接和所有核心数据服务."""
+        """[心脏移植完成] 初始化 TypeDB 连接和所有核心数据服务."""
         db_config_dict = {
             "host": config.database.host,
             "database_name": config.database.database_name,
             "username": config.database.username,
             "password": config.database.password,
         }
+        # 现在从 src/database/core/connection_manager.py 导入
         conn_manager = await TypeDBConnectionManager.get_instance(db_config_dict)
 
         if not conn_manager or not conn_manager.get_driver():
             raise RuntimeError("TypeDB 连接管理器初始化失败。")
 
-        # 初始化核心数据存储服务
         services_to_create = {
             "event_storage_service": EventStorageService,
             "thought_storage_service": ThoughtStorageService,
@@ -344,7 +343,6 @@ class ServiceBuilder:
 
         initialized_services = {"conn_manager": conn_manager}
         for instance_name, service_class in services_to_create.items():
-            # 所有服务都接收 conn_manager 作为依赖
             instance = service_class(conn_manager=conn_manager)
             if isinstance(instance, Initializable) and hasattr(
                 instance, "initialize_infrastructure"
@@ -354,7 +352,6 @@ class ServiceBuilder:
         logger.info("所有核心 TypeDB 数据存储服务均已初始化。")
         return initialized_services
 
-    # _initialize_interrupt_model 和 _get_semantic_model 保持不变...
     async def _initialize_interrupt_model(
         self, event_storage_service: EventStorageService
     ) -> IntelligentInterrupter:
