@@ -1,11 +1,13 @@
+# src/database/services/goal_storage_service.py
 import asyncio
 import time
 
-from loguru import logger
+from src.common.custom_logging.logging_config import get_logger
 from typedb.driver import TransactionType
-
 from ..core.connection_manager import TypeDBConnectionManager
 from ..models import GoalDocument
+
+logger = get_logger(__name__)
 
 
 class GoalStorageService:
@@ -32,7 +34,8 @@ class GoalStorageService:
 
         def db_read() -> list[GoalDocument]:
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                answers = list(tx.query.get(query).resolve())
+                # [修正] tx.query 是方法
+                answers = list(tx.query(query).resolve())
                 goals = []
                 for ans in answers:
                     goals.append(
@@ -69,7 +72,8 @@ class GoalStorageService:
                     has created-at {goal_doc.created_at},
                     has updated-at {goal_doc.updated_at};
                 """
-                tx.query.insert(insert_query).resolve()
+                # [修正] tx.query 是方法
+                tx.query(insert_query).resolve()
                 tx.commit()
                 return True
 
@@ -89,21 +93,21 @@ class GoalStorageService:
 
         def db_write() -> bool:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
-                # Delete old status and updated_at
                 delete_query = f"""
                 match $g isa goal, has goal-id "{goal_id}";
                 $g has status $s;
                 $g has updated-at $ts;
                 delete $g has $s; $g has $ts;
                 """
-                tx.query.delete(delete_query).resolve()
+                # [修正] tx.query 是方法
+                tx.query(delete_query).resolve()
 
-                # Insert new status and updated_at
                 insert_query = f"""
                 match $g isa goal, has goal-id "{goal_id}";
                 insert $g has status "{status}", has updated-at {int(time.time() * 1000)};
                 """
-                tx.query.insert(insert_query).resolve()
+                # [修正] tx.query 是方法
+                tx.query(insert_query).resolve()
                 tx.commit()
                 return True
 

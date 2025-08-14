@@ -1,12 +1,14 @@
+# src/database/services/summary_storage_service.py
 import asyncio
 import json
 import uuid
 
-from loguru import logger
+from src.common.custom_logging.logging_config import get_logger
 from typedb.driver import TransactionType
-
 from ..core.connection_manager import TypeDBConnectionManager
 from ..models import SummaryDocument
+
+logger = get_logger(__name__)
 
 
 class SummaryStorageService:
@@ -41,7 +43,8 @@ class SummaryStorageService:
                     has summary-text "{summary_text_safe}",
                     has event-ids-covered-json "{event_ids_json}";
                 """
-                tx.query.insert(insert_query).resolve()
+                # [修正] tx.query 是方法
+                tx.query(insert_query).resolve()
                 tx.commit()
                 return True
 

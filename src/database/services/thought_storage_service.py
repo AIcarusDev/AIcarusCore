@@ -1,15 +1,16 @@
+# src/database/services/thought_storage_service.py
 import asyncio
 import datetime
 import json
 import time
 import uuid
 from typing import Any
-
-from loguru import logger
+from src.common.custom_logging.logging_config import get_logger
 from typedb.driver import TransactionType
-
 from ..core.connection_manager import TypeDBConnectionManager
 from ..models import ThoughtChainDocument
+
+logger = get_logger(__name__)
 
 LATEST_THOUGHT_POINTER_KEY = "latest_thought_pointer"
 
@@ -28,23 +29,22 @@ class ThoughtStorageService:
 
         def db_write() -> str | None:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
-                # 1. 获取上一个思想点的 key
                 get_pointer_query = f"""
                 match $p isa system-pointer, has pointer-name "{LATEST_THOUGHT_POINTER_KEY}";
                 $p has target-key $key; get $key;
                 """
-                answers = list(tx.query.get(get_pointer_query).resolve())
+                # [修正] tx.query 是方法
+                answers = list(tx.query(get_pointer_query).resolve())
                 last_thought_key = (
                     answers[0].get("key").as_attribute().get_value().get_string()
                     if answers
                     else None
                 )
 
-                # 2. 插入新的思想点
                 new_key = thought_data._key
                 insert_parts = [
                     f'$t isa thought-chain-node, has thought-id "{new_key}"',
-                    f"has timestamp {int(datetime.datetime.fromisoformat(thought_data.timestamp).timestamp() * 1000)}",  # noqa: E501
+                    f"has timestamp {int(datetime.datetime.fromisoformat(thought_data.timestamp).timestamp() * 1000)}",
                     f'has mood "{thought_data.mood.replace('"', '\\"')}"',
                     f'has think "{thought_data.think.replace('"', '\\"')}"',
                 ]
@@ -63,9 +63,9 @@ class ThoughtStorageService:
                     insert_parts.append(f'has action-payload-json "{payload_str}"')
 
                 insert_thought_query = "insert " + ",\n".join(insert_parts) + ";"
-                tx.query.insert(insert_thought_query).resolve()
+                # [修正] tx.query 是方法
+                tx.query(insert_thought_query).resolve()
 
-                # 3. 如果存在上一个思想点，创建 precedes-thought 关系
                 if last_thought_key:
                     link_query = f"""
                     match
@@ -74,10 +74,10 @@ class ThoughtStorageService:
                     insert
                         (preceding-thought: $prev, succeeding-thought: $curr) isa precedes-thought;
                     """
-                    tx.query.insert(link_query).resolve()
+                    # [修正] tx.query 是方法
+                    tx.query(link_query).resolve()
 
-                # 4. 更新指针 (UPSERT 逻辑)
-                if last_thought_key:  # Update
+                if last_thought_key:
                     update_pointer_query = f"""
                     match
                         $p isa system-pointer, has pointer-name "{LATEST_THOUGHT_POINTER_KEY}";
@@ -85,14 +85,16 @@ class ThoughtStorageService:
                     delete $p has $old_key;
                     insert $p has target-key "{new_key}";
                     """
-                    tx.query.update(update_pointer_query).resolve()
-                else:  # Insert
+                    # [修正] tx.query 是方法
+                    tx.query(update_pointer_query).resolve()
+                else:
                     insert_pointer_query = f"""
                     insert $p isa system-pointer,
                         has pointer-name "{LATEST_THOUGHT_POINTER_KEY}",
                         has target-key "{new_key}";
                     """
-                    tx.query.insert(insert_pointer_query).resolve()
+                    # [修正] tx.query 是方法
+                    tx.query(insert_pointer_query).resolve()
 
                 tx.commit()
                 return new_key
@@ -113,53 +115,50 @@ class ThoughtStorageService:
             $p isa system-pointer, has pointer-name "{LATEST_THOUGHT_POINTER_KEY}";
             $p has target-key $key;
             $t isa thought-chain-node, has thought-id $key;
-            $t has $a;
-            $a isa attribute;
-            $a has $v;
-        get $t, $a, $v;
+            $t has $attr;
+            $attr isa attribute;
+            $attr has $value;
+            $attr_type = $attr.type;
+            $attr_type has label $attr_label;
+        get $attr_label, $value;
         """
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.database_name
 
         def db_read() -> dict | None:
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                answers = list(tx.query.get_aggregate(query).resolve())
+                # [修正] tx.query 是方法
+                answers = list(tx.query(query).resolve())
                 if not answers:
                     return None
 
-                # 辅助函数，将TypeDB的Attribute Concept转换为Python值
-                def concept_to_value(attr_concept: Any) -> Any:
-                    val = attr_concept.get_value()
-                    if val.is_string():
-                        return val.get_string()
-                    if val.is_long():
-                        return val.get_integer()
-                    if val.is_boolean():
-                        return val.get_boolean()
-                    # ...可以根据需要添加更多类型
-                    return str(val)
-
-                # 重构文档
                 doc = {}
                 for answer in answers:
-                    attr_type_label = answer.get("a").get_type().get_label().name()
-                    attr_value = concept_to_value(answer.get("a"))
+                    label = answer.get("attr_label").as_attribute().get_value().get_string()
+                    value_concept = answer.get("value")
+                    py_value = value_concept.get_value()
 
-                    # 转换回原始的JSON key
                     key_map = {
-                        "thought-id": "_key",
-                        "action-payload-json": "action_payload",
-                        # ... 其他字段
+                        "thought-id": "_key", "action-payload-json": "action_payload",
+                        "timestamp": "timestamp", "mood": "mood", "think": "think",
+                        "intent": "intent", "source-type": "source_type", "source-id": "source_id",
+                        "action-id": "action_id", "action-result": "action_result"
                     }
-                    doc_key = key_map.get(attr_type_label, attr_type_label)
+                    doc_key = key_map.get(label, label.replace("-", "_"))
 
-                    if doc_key.endswith("_json"):
-                        doc[doc_key.replace("_json", "")] = json.loads(attr_value)
+                    if isinstance(py_value, str) and doc_key.endswith("payload"):
+                        try:
+                            doc[doc_key] = json.loads(py_value)
+                        except json.JSONDecodeError:
+                            doc[doc_key] = py_value
                     else:
-                        doc[doc_key] = attr_value
+                        doc[doc_key] = py_value
+                
+                if "timestamp" in doc and isinstance(doc["timestamp"], int):
+                    doc["timestamp"] = datetime.datetime.fromtimestamp(doc["timestamp"] / 1000, tz=datetime.UTC).isoformat()
 
                 if doc:
-                    doc["_key"] = doc.get("thought-id")
+                    doc["_key"] = doc.get("thought_id")
                     logger.debug(f"成功获取最新的思想点: {doc.get('_key')}")
                 return doc
 
@@ -183,7 +182,8 @@ class ThoughtStorageService:
                 match $t isa thought-chain-node, has thought-id "{thought_key}";
                 insert $t has action-result "{result_text.replace('"', '\\"')}";
                 """
-                tx.query.insert(update_query).resolve()
+                # [修正] tx.query 是方法
+                tx.query(update_query).resolve()
                 tx.commit()
                 return True
 
@@ -221,7 +221,8 @@ class ThoughtStorageService:
                         has used false,
                         has timestamp-generated {ts};
                     """
-                    tx.query.insert(insert_query).resolve()
+                    # [修正] tx.query 是方法
+                    tx.query(insert_query).resolve()
                     successful_inserts += 1
                 tx.commit()
             return successful_inserts
@@ -238,14 +239,14 @@ class ThoughtStorageService:
         self,
     ) -> dict[str, Any] | None:
         """从侵入性思维池中获取一个随机的、未被使用过的侵入性思维文档."""
-        # TypeDB没有内置RANDOM，所以我们获取所有未使用的，然后在Python中随机选一个
-        query = "match $it isa intrusive-thought, has used false; $it has thought-text $text; get $text;"  # noqa: E501
+        query = "match $it isa intrusive-thought, has used false; $it has thought-text $text; get $text;"
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.database_name
 
         def db_read() -> list[str]:
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                answers = list(tx.query.get(query).resolve())
+                # [修正] tx.query 是方法
+                answers = list(tx.query(query).resolve())
                 return [a.get("text").as_attribute().get_value().get_string() for a in answers]
 
         try:
@@ -272,20 +273,20 @@ class ThoughtStorageService:
         def db_write() -> bool:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
                 text_safe = thought_text.replace('"', '\\"')
-                # 1. Match and delete 'used false'
                 delete_query = f"""
                 match $it isa intrusive-thought, has thought-text "{text_safe}";
                 $it has used false;
                 delete $it has used false;
                 """
-                tx.query.delete(delete_query).resolve()
+                # [修正] tx.query 是方法
+                tx.query(delete_query).resolve()
 
-                # 2. Insert 'used true'
                 insert_query = f"""
                 match $it isa intrusive-thought, has thought-text "{text_safe}";
                 insert $it has used true;
                 """
-                tx.query.insert(insert_query).resolve()
+                # [修正] tx.query 是方法
+                tx.query(insert_query).resolve()
                 tx.commit()
             return True
 

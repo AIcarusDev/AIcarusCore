@@ -15,7 +15,6 @@ from typedb.driver import (
 
 logger = get_logger(__name__)
 
-# 定义 Schema 文件的路径，相对于当前文件
 SCHEMA_PATH = Path(__file__).parent.parent / "schema.tql"
 
 
@@ -33,7 +32,6 @@ class TypeDBConnectionManager:
             if cls._driver is None or not cls._driver.is_open():
                 logger.info("TypeDB driver 实例不存在或已关闭，正在创建新实例...")
                 cls._database_name = db_config["database_name"]
-                # TypeDB gRPC 默认端口是 1729
                 address = db_config["host"]
                 if ":" not in address:
                     address = f"{address}:1729"
@@ -45,7 +43,6 @@ class TypeDBConnectionManager:
                 )
 
                 logger.info(f"正在连接到 TypeDB 服务器: {address}...")
-                # to_thread 用于在异步事件循环中安全地运行同步的驱动连接代码
                 cls._driver = await asyncio.to_thread(TypeDB.driver, address, credentials, options)
 
                 db_exists = await asyncio.to_thread(
@@ -74,9 +71,8 @@ class TypeDBConnectionManager:
 
         def sync_define_schema() -> None:
             with driver.transaction(db_name, TransactionType.SCHEMA) as tx:
-                # 在v3+驱动中，所有查询都通过 tx.query 对象下的方法发起
-                # define 是一个写操作，不需要 resolve()，直接 commit
-                tx.query.define(schema_content).resolve()
+                # [修正] tx.query 是一个方法，直接接收完整的查询字符串
+                tx.query(schema_content).resolve()
                 tx.commit()
 
         await asyncio.to_thread(sync_define_schema)

@@ -1,12 +1,14 @@
+# src/database/services/event_storage_service.py
 import asyncio
 import json
-from typing import Any
 import time
+from typing import Any
 
-from loguru import logger
-from typedb.driver import TransactionType
-
+from src.common.custom_logging.logging_config import get_logger
+from typedb.driver import TransactionType, Transaction
 from ..core.connection_manager import TypeDBConnectionManager
+
+logger = get_logger(__name__)
 
 
 class EventStorageService:
@@ -33,7 +35,8 @@ class EventStorageService:
         def db_write() -> bool:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
                 match_query = f'match $e isa event, has event-id "{event_id}"; get $e;'
-                answers = list(tx.query.get(match_query).resolve())
+                # [修正] tx.query 是方法
+                answers = list(tx.query(match_query).resolve())
                 if answers:
                     logger.warning(f"尝试插入已存在的事件 Event ID: {event_id}。操作被跳过。")
                     return True
@@ -41,7 +44,7 @@ class EventStorageService:
                 insert_parts = [
                     f'$e isa event, has event-id "{event_id}"',
                     f'has event-type "{event_doc_data.get("event_type", "unknown")}"',
-                    f"has timestamp {event_doc_data.get('timestamp', 0)}",
+                    f"has timestamp {event_doc_data.get('time', 0)}", # 协议对象用 time
                     f'has platform "{event_doc_data.get("platform", "unknown")}"',
                     f'has bot-id "{event_doc_data.get("bot_id", "unknown")}"',
                     f'has status "{event_doc_data.get("status", "unread")}"',
@@ -68,7 +71,8 @@ class EventStorageService:
                         insert_parts.append(f'has {attr_name} "{safe_value}"')
 
                 insert_query = "insert " + ",\n".join(insert_parts) + ";"
-                tx.query.insert(insert_query).resolve()
+                # [修正] tx.query 是方法
+                tx.query(insert_query).resolve()
                 tx.commit()
                 return True
 
@@ -99,21 +103,24 @@ class EventStorageService:
 
         def db_read() -> dict[str, Any] | None:
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                answers = list(tx.query.get(query).resolve())
-                if answers:
-                    event_concept = answers[0].get("e")
-                    # 修正：在一个事务内完成后续查询
-                    event_id_answers = list(
-                        tx.query.get(
-                            f"match $x iid {event_concept.get_iid()}; $x has event-id $id; get $id;"
-                        ).resolve()
-                    )
-                    if event_id_answers:
-                        event_id = (
-                            event_id_answers[0].get("id").as_attribute().get_value().get_string()
-                        )
-                        logger.debug(f"通过图片哈希 '{image_hash}' 成功找到事件 '{event_id}'。")
-                        return {"_key": event_id}
+                # [修正] tx.query 是方法
+                answers = list(tx.query(query).resolve())
+                if not answers:
+                    return None
+                
+                event_concept = answers[0].get("e")
+                if not event_concept: return None
+
+                # 在同一个事务内完成后续查询
+                event_id_query = f"match $x iid {event_concept.get_iid()}; $x has event-id $id; get $id;"
+                # [修正] tx.query 是方法
+                event_id_answers = list(tx.query(event_id_query).resolve())
+
+                if event_id_answers and (id_attr := event_id_answers[0].get("id")):
+                    event_id = id_attr.as_attribute().get_value().get_string()
+                    logger.debug(f"通过图片哈希 '{image_hash}' 成功找到事件 '{event_id}'。")
+                    # 返回一个包含所有属性的完整文档
+                    return self._get_full_event_doc_sync(tx, event_id)
             return None
 
         try:
@@ -122,16 +129,48 @@ class EventStorageService:
             logger.error(f"通过图片哈希 '{image_hash}' 查找事件时失败: {e}", exc_info=True)
             return None
 
+    def _get_full_event_doc_sync(self, tx: Transaction, event_id: str) -> dict[str, Any] | None:
+        """[Helper] 在一个事务内，根据 event-id 获取完整的事件文档字典."""
+        query = f"""
+        match $e isa event, has event-id "{event_id}";
+        $e has $attr;
+        $attr isa attribute;
+        $attr has $value;
+        $attr_type = $attr.type;
+        $attr_type has label $attr_label;
+        get $attr_label, $value;
+        """
+        # [修正] tx.query 是方法
+        answers = list(tx.query(query).resolve())
+        if not answers:
+            return None
+
+        doc = {"_key": event_id, "event_id": event_id}
+        for ans in answers:
+            label = ans.get("attr_label").as_attribute().get_value().get_string()
+            value_concept = ans.get("value")
+            
+            # 这是一个简化的值提取逻辑，需要根据实际值类型进行扩展
+            py_value = value_concept.get_value()
+            
+            if label.endswith("-json"):
+                key = label.replace("-json", "")
+                doc[key] = json.loads(py_value)
+            else:
+                doc[label.replace("-", "_")] = py_value
+        return doc
+
     async def get_recent_chat_message_documents(
-        self, conversation_id: str, limit: int = 50
+        self, conversation_id: str, limit: int = 50, fetch_all_event_types: bool = False
     ) -> list[dict[str, Any]]:
         """获取指定会话最近的聊天消息事件文档."""
-        # 修正点：在 f-string 前面加上 'r'
+        event_type_filter = 'message\\..*' if not fetch_all_event_types else '.*'
+        
         query = rf"""
         match
             $e isa event, has conversation-info-json $ci;
             $ci like '.*"conversation_id": "{conversation_id}".*';
-            $e has event-type $et; $et like "message\..*";
+            $e has event-type $et; $et like "{event_type_filter}";
             $e has timestamp $ts;
         get $e, $ts;
         sort $ts desc; limit {limit};
@@ -141,21 +180,21 @@ class EventStorageService:
 
         def db_read() -> list[dict[str, Any]]:
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                answers = list(tx.query.get(query).resolve())
+                # [修正] tx.query 是方法
+                answers = list(tx.query(query).resolve())
                 docs = []
                 for ans in answers:
                     event_concept = ans.get("e")
-                    # 修正：在一个事务内完成后续查询
-                    event_id_answers = list(
-                        tx.query.get(
-                            f"match $x iid {event_concept.get_iid()}; $x has event-id $id; get $id;"
-                        ).resolve()
-                    )
-                    if event_id_answers:
-                        event_id = (
-                            event_id_answers[0].get("id").as_attribute().get_value().get_string()
-                        )
-                        docs.append({"_key": event_id})  # Simplified
+                    if not event_concept: continue
+
+                    event_id_query = f"match $x iid {event_concept.get_iid()}; $x has event-id $id; get $id;"
+                    # [修正] tx.query 是方法
+                    event_id_answers = list(tx.query(event_id_query).resolve())
+                    if event_id_answers and (id_attr := event_id_answers[0].get("id")):
+                        event_id = id_attr.as_attribute().get_value().get_string()
+                        full_doc = self._get_full_event_doc_sync(tx, event_id)
+                        if full_doc:
+                            docs.append(full_doc)
                 return docs
 
         try:
@@ -175,17 +214,13 @@ class EventStorageService:
         def db_write() -> bool:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
                 for event_id in event_ids:
-                    match_query = f'match $e isa event, has event-id "{event_id}", has status $old_status; get $e, $old_status;'  # noqa: E501
-                    answers = list(tx.query.get(match_query).resolve())
-                    if not answers:
-                        logger.warning(f"尝试更新状态时未找到事件: {event_id}")
-                        continue
+                    delete_query = f'match $e isa event, has event-id "{event_id}", has status $s; delete $e has $s;'
+                    # [修正] tx.query 是方法
+                    tx.query(delete_query).resolve()
 
-                    delete_query = f'match $e isa event, has event-id "{event_id}", has status $s; delete $e has $s;'  # noqa: E501
-                    tx.query.delete(delete_query).resolve()
-
-                    insert_query = f'match $e isa event, has event-id "{event_id}"; insert $e has status "{new_status}";'  # noqa: E501
-                    tx.query.insert(insert_query).resolve()
+                    insert_query = f'match $e isa event, has event-id "{event_id}"; insert $e has status "{new_status}";'
+                    # [修正] tx.query 是方法
+                    tx.query(insert_query).resolve()
                 tx.commit()
             return True
 
@@ -197,7 +232,7 @@ class EventStorageService:
         except Exception as e:
             logger.error(f"批量更新事件状态为 '{new_status}' 时失败: {e}", exc_info=True)
             return False
-
+            
     async def get_all_conversation_vectors_for_iis(self) -> list[list[list[float]]]:
         """专门为IIS模型训练获取所有对话的向量序列."""
         query = """
@@ -206,43 +241,35 @@ class EventStorageService:
             $type like "message\\..*";
             $event has embedding-json $embedding_json;
             $event has conversation-info-json $conv_info_json;
-        get $embedding_json, $conv_info_json;
+            $event has timestamp $ts;
+        get $embedding_json, $conv_info_json, $ts;
         """
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.database_name
 
         def db_read_and_group() -> list[list[list[float]]]:
-            # 在同步函数内部处理所有逻辑
             conversations: dict[str, list[tuple[int, list[float]]]] = {}
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                answers = list(tx.query.get(query).resolve())
+                # [修正] tx.query 是方法
+                answers = list(tx.query(query).resolve())
                 for ans in answers:
                     try:
                         conv_info_str = ans.get("conv_info_json").as_attribute().get_value().get_string()
                         embedding_str = ans.get("embedding_json").as_attribute().get_value().get_string()
-                        
+                        ts = ans.get("ts").as_attribute().get_value().get_integer()
+
                         conv_info = json.loads(conv_info_str)
                         embedding = json.loads(embedding_str)
                         
                         conv_id = conv_info.get("conversation_id")
-                        # 假设事件文档中直接有 timestamp
-                        # 如果没有，需要调整 match 查询以获取 timestamp
-                        # 让我们假设 timestamp 在 event 实体上
-                        # (需要修改上面的查询来获取时间戳)
-                        # 这里为了简化，我们先假设可以获取时间戳
-                        # 实际上，我们需要一个更复杂的查询来获取所有属性
-                        # 让我们暂时用一个随机数，之后再完善
-                        timestamp = int(time.time() * 1000)
-
                         if conv_id and isinstance(embedding, list):
                             if conv_id not in conversations:
                                 conversations[conv_id] = []
-                            conversations[conv_id].append((timestamp, embedding))
+                            conversations[conv_id].append((ts, embedding))
                     except (json.JSONDecodeError, AttributeError, KeyError) as e:
                         logger.warning(f"解析事件向量时跳过一个无效条目: {e}")
                         continue
             
-            # 按时间戳排序并提取向量
             sorted_conversations = []
             for conv_id, events in conversations.items():
                 if len(events) >= 2:
@@ -252,7 +279,6 @@ class EventStorageService:
             return sorted_conversations
 
         try:
-            # 使用 to_thread 运行整个同步的数据库操作和分组逻辑
             return await asyncio.to_thread(db_read_and_group)
         except Exception as e:
             logger.error(f"为IIS模型获取事件向量时失败: {e}", exc_info=True)

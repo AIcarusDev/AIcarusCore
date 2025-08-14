@@ -1,14 +1,12 @@
-# src/database_typedb/services/sticker_storage_service.py
+# src/database/services/sticker_storage_service.py
 import asyncio
 import time
 from typing import Any
 
-from src.database.utils import compare_phashes
 from src.common.custom_logging.logging_config import get_logger
-from src.database import TypeDBConnectionManager
-
-# [修正] 导入正确的事务类名 Transaction
+from src.common.image_utils import compare_phashes
 from typedb.driver import Transaction, TransactionType
+from ..core.connection_manager import TypeDBConnectionManager
 
 logger = get_logger(__name__)
 
@@ -21,24 +19,21 @@ class StickerStorageService:
         self.conn_manager = conn_manager
         logger.info("StickerStorageService (TypeDB gRPC) 初始化完成。")
 
-    # [修正] 更新类型提示
     def _get_next_sticker_id(self, platform_id: str, tx: Transaction) -> str:
         """在事务内原子性地获取下一个可用的表情包ID (e.g., "001", "002")."""
-        # TypeQL 使用聚合查询来找到最大ID
         query = f"""
         match
             $p isa platform, has platform-uid "{platform_id}";
             (hosting-platform: $p, hosted-asset: $s) isa platform-asset;
-            $s isa sticker, has sticker-uid $uid;
-        reduce $max_id = max($uid);
+            $s isa sticker, has sticker-id $sid;
+        reduce $max_id = max($sid);
         """
-        # 修正: v3 driver 中没有 get, 统一使用 query
-        answers = list(tx.query.get_aggregate(query).resolve())
+        # [修正] tx.query 是方法
+        answers = list(tx.query(query).resolve())
 
         max_id_num = 0
         if answers and (max_id_concept := answers[0]) and not max_id_concept.is_nan():
-            max_id_str = max_id_concept.as_int()  # 假设 sticker-uid 存的是纯数字
-            max_id_num = int(max_id_str)
+            max_id_num = max_id_concept.as_int()
 
         next_id_num = max_id_num + 1
         return f"{next_id_num:03d}"
@@ -57,12 +52,10 @@ class StickerStorageService:
 
         def db_write() -> dict[str, Any] | None:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
-                # [修正] 同步调用
                 next_id_str = self._get_next_sticker_id(platform_id, tx)
                 sticker_uid = f"{platform_id}_sticker_{next_id_str}"
                 added_at_ts = int(time.time() * 1000)
 
-                # 修正: v3 TypeQL 语法
                 query = f"""
                 match $p isa platform, has platform-uid "{platform_id}";
                 insert $s isa sticker,
@@ -75,7 +68,8 @@ class StickerStorageService:
                     has added-at {added_at_ts};
                 insert (hosting-platform: $p, hosted-asset: $s) isa platform-asset;
                 """
-                tx.query.insert(query).resolve()
+                # [修正] tx.query 是方法
+                tx.query(query).resolve()
                 tx.commit()
                 return {
                     "sticker_id": next_id_str,
@@ -106,14 +100,15 @@ class StickerStorageService:
             $p isa platform, has platform-uid "{platform_id}";
             (hosting-platform: $p, hosted-asset: $s) isa platform-asset;
             $s isa sticker, has sticker-uid $uid, has perceptual-hash $phash;
-        select $uid, $phash;
+        get $uid, $phash;
         """
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.database_name
 
         def db_read_and_compare() -> dict[str, Any] | None:
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                answers = list(tx.query.get(query).resolve())
+                # [修正] tx.query 是方法
+                answers = list(tx.query(query).resolve())
                 for answer in answers:
                     uid_attr = answer.get("uid")
                     phash_attr = answer.get("phash")
@@ -150,7 +145,8 @@ class StickerStorageService:
 
         def db_write() -> bool:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
-                tx.query.delete(query).resolve()
+                # [修正] tx.query 是方法
+                tx.query(query).resolve()
                 tx.commit()
                 return True
 
@@ -174,7 +170,8 @@ class StickerStorageService:
         def db_update() -> bool:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
                 match_query = f'match $s isa sticker, has sticker-uid "{sticker_uid}"; get $s;'
-                answers = list(tx.query.get(match_query).resolve())
+                # [修正] tx.query 是方法
+                answers = list(tx.query(match_query).resolve())
                 if not answers:
                     logger.warning(f"尝试编辑一个不存在的表情包印象: {sticker_uid}")
                     return False
@@ -184,13 +181,15 @@ class StickerStorageService:
                 $s has impression $old_imp;
                 delete $s has $old_imp;
                 """
-                tx.query.delete(delete_query).resolve()
+                # [修正] tx.query 是方法
+                tx.query(delete_query).resolve()
 
                 insert_query = f"""
                 match $s isa sticker, has sticker-uid "{sticker_uid}";
                 insert $s has impression "{new_impression_safe}";
                 """
-                tx.query.insert(insert_query).resolve()
+                # [修正] tx.query 是方法
+                tx.query(insert_query).resolve()
                 tx.commit()
                 return True
 
@@ -214,7 +213,7 @@ class StickerStorageService:
             $s has filename $fn;
             $s has impression $imp;
             $s has image-hash $hash;
-        select $sid, $fn, $imp, $hash;
+        get $sid, $fn, $imp, $hash;
         sort $sid asc;
         """
 
@@ -224,11 +223,12 @@ class StickerStorageService:
         def db_read() -> list[dict]:
             stickers = []
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                answers = list(tx.query.get(query).resolve())
+                # [修正] tx.query 是方法
+                answers = list(tx.query(query).resolve())
                 for answer in answers:
                     stickers.append(
                         {
-                            "sticker_id": f"{answer.get('sid').as_attribute().get_value().get_integer():03d}",  # noqa: E501
+                            "sticker_id": f"{answer.get('sid').as_attribute().get_value().get_integer():03d}",
                             "filename": answer.get("fn").as_attribute().get_value().get_string(),
                             "impression": answer.get("imp").as_attribute().get_value().get_string(),
                             "source_image_hash": answer.get("hash")
@@ -255,14 +255,15 @@ class StickerStorageService:
             $s has impression $imp;
             $s has image-hash $hash;
             $s has perceptual-hash $phash;
-        select $fn, $imp, $hash, $phash;
+        get $fn, $imp, $hash, $phash;
         """
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.database_name
 
         def db_read() -> dict[str, Any] | None:
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                answers = list(tx.query.get(query).resolve())
+                # [修正] tx.query 是方法
+                answers = list(tx.query(query).resolve())
                 if answers:
                     answer = answers[0]
                     return {
@@ -288,13 +289,14 @@ class StickerStorageService:
 
     async def get_distinct_platforms(self) -> list[str]:
         """从表情包集合中查询出所有不重复的平台ID."""
-        query = "match $p isa platform, has platform-uid $uid; select $uid; distinct $uid;"
+        query = "match $p isa platform, has platform-uid $uid; get $uid; distinct $uid;"
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.database_name
 
         def db_read() -> list[str]:
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                answers = list(tx.query.get(query).resolve())
+                # [修正] tx.query 是方法
+                answers = list(tx.query(query).resolve())
                 return [
                     a.get("uid").as_attribute().get_value().get_string()
                     for a in answers

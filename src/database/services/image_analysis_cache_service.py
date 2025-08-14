@@ -1,13 +1,15 @@
+# src/database/services/image_analysis_cache_service.py
 import asyncio
 import json
 import time
 from typing import Any
 
-from loguru import logger
+from src.common.custom_logging.logging_config import get_logger
 from typedb.driver import TransactionType
-
 from ..core.connection_manager import TypeDBConnectionManager
 from ..models import ImageCacheDocument
+
+logger = get_logger(__name__)
 
 
 class ImageAnalysisCacheService:
@@ -36,7 +38,8 @@ class ImageAnalysisCacheService:
 
         def db_read() -> dict[str, Any] | None:
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                answers = list(tx.query.get(query).resolve())
+                # [修正] tx.query 是方法
+                answers = list(tx.query(query).resolve())
                 if not answers:
                     return None
 
@@ -64,18 +67,24 @@ class ImageAnalysisCacheService:
             logger.error(f"从缓存检索图片分析时失败 (哈希: {image_hash}): {e}", exc_info=True)
             return None
 
-    async def save_analysis(self, cache_doc: ImageCacheDocument) -> bool:
+    async def save_analysis(self, image_hash: str, analysis_result: dict, version: str) -> bool:
         """将新的图片分析结果存入缓存 (UPSERT)."""
+        cache_doc = ImageCacheDocument(
+            _key=image_hash,
+            analysis_result=analysis_result,
+            version=version,
+            timestamp=int(time.time() * 1000),
+        )
+
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.database_name
 
         def db_write() -> bool:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
-                # Delete existing if it exists
-                delete_query = f'match $ic isa image-cache, has image-hash "{cache_doc._key}"; delete $ic isa image-cache;'  # noqa: E501
-                tx.query.delete(delete_query).resolve()
+                delete_query = f'match $ic isa image-cache, has image-hash "{cache_doc._key}"; delete $ic isa image-cache;'
+                # [修正] tx.query 是方法
+                tx.query(delete_query).resolve()
 
-                # Insert new version
                 result_json_safe = json.dumps(
                     cache_doc.analysis_result, ensure_ascii=False
                 ).replace('"', '\\"')
@@ -86,7 +95,8 @@ class ImageAnalysisCacheService:
                     has version "{cache_doc.version}",
                     has timestamp {cache_doc.timestamp};
                 """
-                tx.query.insert(insert_query).resolve()
+                # [修正] tx.query 是方法
+                tx.query(insert_query).resolve()
                 tx.commit()
                 return True
 
