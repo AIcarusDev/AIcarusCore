@@ -1,8 +1,8 @@
 import pytest
 from pytest_mock import MockerFixture
-from src.database_typedb.connection_manager import TypeDBConnectionManager
-from src.database_typedb.models import SummaryDocument
-from src.database_typedb.services.summary_storage_service import (
+from src.database.core.connection_manager import TypeDBConnectionManager
+from src.database.models import SummaryDocument
+from src.database.services.summary_storage_service import (
     SummaryStorageService,
 )
 

@@ -337,7 +337,7 @@ class ServiceBuilder:
         # 2. 创建依赖于其他服务的服务，并手动注入
         entity_graph_service = EntityGraphService(
             conn_manager=conn_manager,
-            event_storage_service=event_storage_service # <-- 在这里注入！
+            event_storage_service=event_storage_service,  # <-- 在这里注入！
         )
         event_storage_service.set_entity_graph_service(entity_graph_service)
 

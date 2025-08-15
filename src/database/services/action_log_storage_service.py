@@ -92,7 +92,9 @@ class ActionLogStorageService:
                 # 只有当有东西要删除时才执行删除查询
                 if delete_clauses:
                     # 组合成一个大的 match-delete 查询
-                    delete_query = " ".join(match_parts) + " delete " + ", ".join(delete_clauses) + ";"
+                    delete_query = (
+                        " ".join(match_parts) + " delete " + ", ".join(delete_clauses) + ";"
+                    )
                     tx.query(delete_query).resolve()
 
                 # 2. 构建一个单一的查询来插入所有新属性
@@ -148,17 +150,20 @@ class ActionLogStorageService:
             with driver.transaction(db_name, TransactionType.READ) as tx:
                 answers = list(tx.query(query).resolve())
                 for ans in answers:
-                    logs.append({
-                        "timestamp": ans.get("ts").as_attribute().get_value().as_integer(),
-                        "action_type": ans.get("type").as_attribute().get_value().as_string(),
-                        "status": ans.get("status").as_attribute().get_value().as_string(),
-                        "error_info": (
-                            ans.get("err").as_attribute().get_value().as_string()
-                            if ans.get("err")
-                            else None
-                        ),
-                    })
+                    logs.append(
+                        {
+                            "timestamp": ans.get("ts").as_attribute().get_value().as_integer(),
+                            "action_type": ans.get("type").as_attribute().get_value().as_string(),
+                            "status": ans.get("status").as_attribute().get_value().as_string(),
+                            "error_info": (
+                                ans.get("err").as_attribute().get_value().as_string()
+                                if ans.get("err")
+                                else None
+                            ),
+                        }
+                    )
             return logs
+
         try:
             return await asyncio.to_thread(db_read)
         except Exception as e:

@@ -1,8 +1,8 @@
 import pytest
 from pytest_mock import MockerFixture
-from src.database_typedb.connection_manager import TypeDBConnectionManager
-from src.database_typedb.models import GoalDocument
-from src.database_typedb.services.goal_storage_service import GoalStorageService
+from src.database.core.connection_manager import TypeDBConnectionManager
+from src.database.models import GoalDocument
+from src.database.services.goal_storage_service import GoalStorageService
 
 
 @pytest.fixture

@@ -3,8 +3,8 @@ from unittest.mock import MagicMock
 
 import pytest
 from pytest_mock import MockerFixture
-from src.database_typedb.connection_manager import TypeDBConnectionManager
-from src.database_typedb.services.event_storage_service import EventStorageService
+from src.database.core.connection_manager import TypeDBConnectionManager
+from src.database.services.event_storage_service import EventStorageService
 
 
 @pytest.fixture

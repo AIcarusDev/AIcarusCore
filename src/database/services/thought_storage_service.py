@@ -252,10 +252,7 @@ class ThoughtStorageService:
         self,
     ) -> dict[str, Any] | None:
         """从侵入性思维池中获取一个随机的、未被使用过的侵入性思维文档."""
-        query = (
-            "match $it isa intrusive-thought, has used false; "
-            "$it has thought-text $text;"
-        )
+        query = "match $it isa intrusive-thought, has used false; $it has thought-text $text;"
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.database_name
 

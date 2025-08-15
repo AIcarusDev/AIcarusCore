@@ -3,11 +3,11 @@ from unittest.mock import MagicMock
 
 import pytest
 from pytest_mock import MockerFixture
-from src.database_typedb.connection_manager import TypeDBConnectionManager
+from src.database.core.connection_manager import TypeDBConnectionManager
 
 # 修正导入路径为绝对路径，这是测试的最佳实践
-from src.database_typedb.models import ThoughtChainDocument
-from src.database_typedb.services.thought_storage_service import (
+from src.database.models import ThoughtChainDocument
+from src.database.services.thought_storage_service import (
     ThoughtStorageService,
 )
 

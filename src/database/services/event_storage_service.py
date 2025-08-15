@@ -62,7 +62,7 @@ class EventStorageService:
                     f'has event-type "{event_doc_data.get("event_type", "unknown")}"',
                     f"has timestamp {
                         event_doc_data.get('time', event_doc_data.get('timestamp', 0))
-                        }",
+                    }",
                     f'has bot-id "{event_doc_data.get("bot_id", "unknown")}"',
                     f'has status "{event_doc_data.get("status", "unread")}"',
                 ]
@@ -135,9 +135,7 @@ class EventStorageService:
                     return None
 
                 # 在同一个事务内完成后续查询
-                event_id_query = (
-                    f"match $x iid {event_concept.get_iid()}; $x has event-id $id;"
-                )
+                event_id_query = f"match $x iid {event_concept.get_iid()}; $x has event-id $id;"
                 # tx.query 是方法
                 event_id_answers = list(tx.query(event_id_query).resolve())
 
@@ -215,13 +213,10 @@ class EventStorageService:
                         continue
 
                     # 移除 get 子句
-                    event_id_query = (
-                        f"match $x iid {event_concept.get_iid()}; $x has event-id $id;"
-                    )
+                    event_id_query = f"match $x iid {event_concept.get_iid()}; $x has event-id $id;"
                     # tx.query 是方法
                     event_id_answers = list(tx.query(event_id_query).resolve())
                     if event_id_answers and (id_attr := event_id_answers[0].get("id")):
-
                         event_id = id_attr.as_attribute().get_value().get_string()
                         full_doc = self._get_full_event_doc_sync(tx, event_id)
                         if full_doc:
@@ -272,7 +267,7 @@ class EventStorageService:
 
     async def get_all_conversation_vectors_for_iis(self) -> list[list[list[float]]]:
         """专门为IIS模型训练获取所有对话的向量序列."""
-        query = """
+        query = r"""
         match
             $event isa event, has event-type $type;
             $type like "message\\..*";
@@ -324,7 +319,9 @@ class EventStorageService:
             logger.error(f"为IIS模型获取事件向量时失败: {e}", exc_info=True)
             return []
 
-    async def get_event_by_timestamp(self, conversation_uid: str, timestamp: int) -> dict[str, Any] | None:  # noqa: E501
+    async def get_event_by_timestamp(
+        self, conversation_uid: str, timestamp: int
+    ) -> dict[str, Any] | None:
         """根据会话UID和精确时间戳获取单个事件."""
         # conversation-info-json 中存储的是原始ID，而不是UID
         _, _, conv_native_id = parse_entity_uid(conversation_uid) or (None, None, None)
@@ -355,17 +352,19 @@ class EventStorageService:
             logger.error(f"通过时间戳 {timestamp} 获取事件失败: {e}", exc_info=True)
             return None
 
-    async def get_unread_count(self, conversation_uid: str, self_bot_ids: dict[str, str]) -> dict[str, Any]:  # noqa: E501
+    async def get_unread_count(
+        self, conversation_uid: str, self_bot_ids: dict[str, str]
+    ) -> dict[str, Any]:
         """获取会话的未读消息数和高优状态."""
         if not self.entity_graph_service:
             logger.error(
                 "EntityGraphService not injected into EventStorageService. Cannot get unread count."
-                )
+            )
             return {"unread_count": 0, "has_high_priority": False}
 
         last_read_ts = await self.entity_graph_service.get_conversation_last_read_timestamp(
             conversation_uid
-            )
+        )
 
         # conversation-info-json 中存储的是原始ID，而不是UID
         _, _, conv_native_id = parse_entity_uid(conversation_uid) or (None, None, None)
@@ -395,10 +394,9 @@ class EventStorageService:
                         content_str = ans.get("content").as_value().get_string()
                         if any(
                             f'"user_id": "{bot_id}"' in content_str for bot_id in all_my_bot_ids
-                        ) and any(tag in content_str for tag in [
-                            '"type": "at"',
-                            '"type": "quote"'
-                            ]):
+                        ) and any(
+                            tag in content_str for tag in ['"type": "at"', '"type": "quote"']
+                        ):
                             has_high_priority = True
                             break
             return {"unread_count": unread_count, "has_high_priority": has_high_priority}

@@ -2,8 +2,8 @@ import time
 
 import pytest
 from pytest_mock import MockerFixture
-from src.database_typedb.connection_manager import TypeDBConnectionManager
-from src.database_typedb.services.image_analysis_cache_service import (
+from src.database.core.connection_manager import TypeDBConnectionManager
+from src.database.services.image_analysis_cache_service import (
     ImageAnalysisCacheService,
 )
 from tests.database_typedb.test_entity_graph_service import create_mock_attribute

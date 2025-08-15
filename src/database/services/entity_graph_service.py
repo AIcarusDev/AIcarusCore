@@ -24,10 +24,10 @@ class EntityGraphService:
     def __init__(
         self,
         conn_manager: TypeDBConnectionManager,
-        event_storage_service: EventStorageService, # <-- 接收注入
+        event_storage_service: EventStorageService,  # <-- 接收注入
     ) -> None:
         self.conn_manager = conn_manager
-        self.event_storage_service = event_storage_service # <-- 保存注入的实例
+        self.event_storage_service = event_storage_service  # <-- 保存注入的实例
         logger.info("EntityGraphService (TypeDB) 初始化完成。")
 
     # --- 核心实体创建与关联 ---
@@ -36,9 +36,7 @@ class EntityGraphService:
     ) -> None:
         """事务内辅助函数：如果昵称变化，则更新."""
         # 1. 查找旧昵称
-        match_query = (
-            f'match $a isa account, has account-uid "{account_uid}", has nickname $n;'
-        )
+        match_query = f'match $a isa account, has account-uid "{account_uid}", has nickname $n;'
         answers = list(tx.query(match_query).resolve())
 
         if answers and (old_nick_concept := answers[0].get("n")):
@@ -267,15 +265,18 @@ class EntityGraphService:
                         {
                             "entity_uid": answer.get("uid").as_attribute().get_value().as_string(),
                             "details": {
-                                "platform": answer.get(
-                                    "platform"
-                                    ).as_attribute().get_value().as_string(),
-                                "platform_id": answer.get(
-                                    "pid"
-                                    ).as_attribute().get_value().as_string(),
-                                "nickname": answer.get(
-                                    "nick"
-                                    ).as_attribute().get_value().as_string(),
+                                "platform": answer.get("platform")
+                                .as_attribute()
+                                .get_value()
+                                .as_string(),
+                                "platform_id": answer.get("pid")
+                                .as_attribute()
+                                .get_value()
+                                .as_string(),
+                                "nickname": answer.get("nick")
+                                .as_attribute()
+                                .get_value()
+                                .as_string(),
                             },
                         }
                     )
@@ -403,9 +404,7 @@ class EntityGraphService:
 
         def db_op() -> str | None:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
-                find_query = (
-                    f'match $c isa conversation, has conversation-uid "{conv_entity_uid}";'
-                )
+                find_query = f'match $c isa conversation, has conversation-uid "{conv_entity_uid}";'
                 if list(tx.query(find_query).resolve()):
                     return conv_entity_uid
 
@@ -476,7 +475,7 @@ class EntityGraphService:
                     "_key": entity_uid,
                     "entity_uid": entity_uid,
                     "entity_type": entity_type,
-                    "details": {}
+                    "details": {},
                 }
 
                 for ans in answers:
@@ -584,13 +583,11 @@ class EntityGraphService:
         all_self = await self.get_all_self_entities()
         return next(
             (e for e in all_self if e.get("details", {}).get("platform") == platform_id), None
-            )
+        )
 
     async def get_self_presence_in_conversation(
-            self,
-            platform: str,
-            conversation_entity_uid: str
-            ) -> dict[str, Any] | None:
+        self, platform: str, conversation_entity_uid: str
+    ) -> dict[str, Any] | None:
         """获取“祂”在特定会话中的存在信息（如群名片、权限等）."""
         # This method needs a proper TQL query to fetch membership relation details.
         # For now, returning a placeholder.
@@ -630,9 +627,7 @@ class EntityGraphService:
 
                         if platform and conv_type and native_id:
                             conv_uid = build_conversation_entity_uid(
-                                platform,
-                                conv_type,
-                                str(native_id)
+                                platform, conv_type, str(native_id)
                             )
                             if ts > conv_latest_event.get(conv_uid, 0):
                                 conv_latest_event[conv_uid] = ts
@@ -660,12 +655,10 @@ class EntityGraphService:
                 tasks = {
                     "conv_doc": self.get_entity_by_key(conv_uid),
                     "latest_event": self.event_storage_service.get_event_by_timestamp(
-                        conv_uid,
-                        latest_ts
-                        ),
+                        conv_uid, latest_ts
+                    ),
                     "unread_info": self.event_storage_service.get_unread_count(
-                        conv_uid,
-                        self_bot_ids
+                        conv_uid, self_bot_ids
                     ),
                 }
                 results = await asyncio.gather(*tasks.values(), return_exceptions=True)
@@ -679,13 +672,14 @@ class EntityGraphService:
                         raise result
 
                 if task_results["conv_doc"] and task_results["latest_event"]:
-                    active_convs_data.append({
-                        "conv_doc": task_results["conv_doc"],
-                        "latest_event": task_results["latest_event"],
-                        **task_results["unread_info"],
-                    })
+                    active_convs_data.append(
+                        {
+                            "conv_doc": task_results["conv_doc"],
+                            "latest_event": task_results["latest_event"],
+                            **task_results["unread_info"],
+                        }
+                    )
             except Exception as e:
                 logger.error(f"处理会话 {conv_uid} 的详细信息时出错: {e}", exc_info=True)
 
         return active_convs_data
-
