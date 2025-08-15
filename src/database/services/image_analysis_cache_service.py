@@ -6,6 +6,7 @@ from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
 from typedb.driver import TransactionType
+
 from ..core.connection_manager import TypeDBConnectionManager
 from ..models import ImageCacheDocument
 
@@ -38,7 +39,7 @@ class ImageAnalysisCacheService:
 
         def db_read() -> dict[str, Any] | None:
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                # [修正] tx.query 是方法
+                #  tx.query 是方法
                 answers = list(tx.query(query).resolve())
                 if not answers:
                     return None
@@ -81,8 +82,11 @@ class ImageAnalysisCacheService:
 
         def db_write() -> bool:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
-                delete_query = f'match $ic isa image-cache, has image-hash "{cache_doc._key}"; delete $ic isa image-cache;'
-                # [修正] tx.query 是方法
+                delete_query = (
+                    f'match $ic isa image-cache, has image-hash "{cache_doc._key}"; '
+                    f"delete $ic isa image-cache;"
+                )
+                #  tx.query 是方法
                 tx.query(delete_query).resolve()
 
                 result_json_safe = json.dumps(
@@ -95,7 +99,7 @@ class ImageAnalysisCacheService:
                     has version "{cache_doc.version}",
                     has timestamp {cache_doc.timestamp};
                 """
-                # [修正] tx.query 是方法
+                #  tx.query 是方法
                 tx.query(insert_query).resolve()
                 tx.commit()
                 return True

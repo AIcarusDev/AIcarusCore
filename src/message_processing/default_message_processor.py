@@ -1,7 +1,7 @@
 # src/message_processing/default_message_processor.py
+import dataclasses
 import hashlib
 import time
-import dataclasses
 from typing import TYPE_CHECKING, Optional
 
 from aicarus_protocols import Event as ProtocolEvent
@@ -12,7 +12,6 @@ from src.common.interruption_broker import InterruptionEventBroker
 from src.common.narrative_vectorizer.narrative_vectorizer import NarrativeVectorizer
 from src.common.utils import build_conversation_entity_uid
 from src.config import config
-# --- [核心修复] 移除了对 DBEventDocument 的导入 ---
 from src.database import (
     ActionLogStorageService,
     EntityGraphService,
@@ -123,7 +122,9 @@ class DefaultMessageProcessor:
                     full_hash = hashlib.sha256(b64.encode("utf-8")).hexdigest()
                     short_hash = full_hash[:8]
                     data["hash"] = short_hash
-                    logger.debug(f"为事件 {event_dict.get('event_id')} 中的图片注入哈希: {short_hash}")
+                    logger.debug(
+                        f"为事件 {event_dict.get('event_id')} 中的图片注入哈希: {short_hash}"
+                    )
                 except Exception as e:
                     logger.error(f"为事件 {event_dict.get('event_id')} 的图片计算哈希时出错: {e}")
 

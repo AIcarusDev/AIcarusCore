@@ -19,7 +19,6 @@ from src.config import config
 from src.core_communication.action_sender import ActionSender
 from src.core_communication.event_receiver import EventReceiver
 from src.core_logic.self_awareness_inspector import inspect_and_initialize_self_profile
-# --- [核心修复] 移除了对 DBEventDocument 的导入 ---
 from src.database import EntityGraphService
 from src.database.services.event_storage_service import EventStorageService
 from src.platform_builders.registry import platform_builder_registry
@@ -85,15 +84,13 @@ class CoreWebsocketServer:
             bot_id=config.persona.bot_name,
             content=[SegBuilder.text(event_content_text)],
             conversation_info=ConversationInfo(conversation_id="system_events", type="system"),
-            user_info=ProtocolUserInfo(user_id="system", user_nickname="AIcarus Core")
+            user_info=ProtocolUserInfo(user_id="system", user_nickname="AIcarus Core"),
         )
 
         if self.event_storage_service:
             try:
                 # --- [核心修复] 直接使用 protocol event 的 to_dict() 方法 ---
-                await self.event_storage_service.save_event_document(
-                    system_event.to_dict()
-                )
+                await self.event_storage_service.save_event_document(system_event.to_dict())
                 logger.info(f"已生成并存储系统事件: {event_content_text}")
             except Exception as e:
                 logger.error(
@@ -102,6 +99,7 @@ class CoreWebsocketServer:
                 )
         else:
             logger.warning(f"EventStorageService 未初始化，无法存储系统事件 for '{adapter_id}'.")
+
     # ... 文件其余部分保持不变 ...
     async def _register_adapter(
         self, adapter_id: str, display_name: str, websocket: WebSocketServerProtocol

@@ -34,12 +34,12 @@ class SomeService:
 
     async def some_method_that_needs_an_index(self, query_param):
         collection = await self.db_manager.get_collection("some_collection")
-        
+
         # ！！！【【【 绝对禁止 】】】！！！
         # 为了让下面的查询变快，在这里偷偷加个索引
         # 这就是所谓的“野生索引”，是项目的技术债务！
-        await collection.add_persistent_index(fields=["some_field"]) 
-        
+        await collection.add_persistent_index(fields=["some_field"])
+
         # ... 执行查询 ...
 ```
 

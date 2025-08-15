@@ -5,6 +5,7 @@ from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
 from typedb.driver import TransactionType
+
 from ..core.connection_manager import TypeDBConnectionManager
 from ..models import ActionLogDocument
 
@@ -26,7 +27,7 @@ class ActionLogStorageService:
         def db_write() -> bool:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
                 match_query = f'match $a isa action-log, has action-id "{action_doc._key}"; get $a;'
-                # [修正] tx.query 是方法
+                #  tx.query 是方法
                 answers = list(tx.query(match_query).resolve())
                 if answers:
                     logger.warning(f"动作尝试 '{action_doc._key}' 的记录已存在，跳过插入。")
@@ -41,7 +42,7 @@ class ActionLogStorageService:
                     f'has status "{action_doc.status}"',
                 ]
                 insert_query = "insert " + ",\n".join(insert_parts) + ";"
-                # [修正] tx.query 是方法
+                #  tx.query 是方法
                 tx.query(insert_query).resolve()
                 tx.commit()
                 return True
@@ -75,7 +76,7 @@ class ActionLogStorageService:
                 for key in updates:
                     if attr_name := attr_map.get(key):
                         delete_parts.append(f"$a has {attr_name} ${key};")
-                
+
                 if delete_parts:
                     # [优化] 使用更简洁的方式删除多个属性
                     vars_to_delete = ", ".join([f"${key}" for key in updates if key in attr_map])
@@ -84,27 +85,27 @@ class ActionLogStorageService:
                     {" ".join(delete_parts)}
                     delete $a has {vars_to_delete};
                     """
-                    # [修正] tx.query 是方法
+                    #  tx.query 是方法
                     tx.query(delete_query).resolve()
 
                 insert_parts = [f'match $a isa action-log, has action-id "{action_id}"; insert']
                 for key, value in updates.items():
                     if value is None or not (attr_name := attr_map.get(key)):
                         continue
-                    
+
                     if isinstance(value, dict):
                         safe_value = json.dumps(value, ensure_ascii=False).replace('"', '\\"')
                     elif isinstance(value, str):
                         safe_value = value.replace('"', '\\"')
                     else:
                         safe_value = value
-                    
+
                     quote = '"' if isinstance(safe_value, str) else ""
                     insert_parts.append(f"$a has {attr_name} {quote}{safe_value}{quote}")
 
                 if len(insert_parts) > 1:
                     insert_query = " ".join(insert_parts) + ";"
-                    # [修正] tx.query 是方法
+                    #  tx.query 是方法
                     tx.query(insert_query).resolve()
 
                 tx.commit()

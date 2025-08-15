@@ -1,7 +1,7 @@
 # src/database/services/entity_graph_service.py
 import asyncio
-import time
 import json
+import time
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -9,10 +9,9 @@ from typing import Any
 from aicarus_protocols import UserInfo as ProtocolUserInfo
 from src.common.custom_logging.logging_config import get_logger
 from src.common.utils import build_conversation_entity_uid
-# [修正] 修正相对导入路径
-from ..core.connection_manager import TypeDBConnectionManager
-# [修正] 导入正确的事务类名
 from typedb.driver import Transaction, TransactionType
+
+from ..core.connection_manager import TypeDBConnectionManager
 
 logger = get_logger(__name__)
 
@@ -44,11 +43,17 @@ class EntityGraphService:
                 return  # 昵称未变，无需操作
 
             # 2. 删除旧昵称
-            delete_query = f'match $a isa account, has account-uid "{account_uid}", has nickname "{old_nick}"; delete $a has nickname "{old_nick}";'
+            delete_query = (
+                f'match $a isa account, has account-uid "{account_uid}", '
+                f'has nickname "{old_nick}"; delete $a has nickname "{old_nick}";'
+            )
             tx.query.delete(delete_query).resolve()
 
         # 3. 插入新昵称
-        insert_query = f'match $a isa account, has account-uid "{account_uid}"; insert $a has nickname "{new_nickname}";'
+        insert_query = (
+            f'match $a isa account, has account-uid "{account_uid}"; '
+            f'insert $a has nickname "{new_nickname}";'
+        )
         tx.query.insert(insert_query).resolve()
         logger.debug(f"已更新账户 '{account_uid}' 的昵称为 '{new_nickname}'。")
 
@@ -416,7 +421,9 @@ class EntityGraphService:
                     has conversation-uid "{conv_entity_uid}",
                     has type "{conv_type}",
                     has display-name "{(name or conversation_id).replace('"', '\\"')}",
-                    has extra-json "{json.dumps(extra or {}, ensure_ascii=False).replace('"', '\\"')}";
+                    has extra-json "{
+                    json.dumps(extra or {}, ensure_ascii=False).replace('"', '\\"')
+                }";
                 (resident: $c, host-platform: $p) isa residency;
                 """
                 tx.query.insert(insert_query).resolve()
@@ -459,8 +466,8 @@ class EntityGraphService:
                 insert_query = f"""
                 match $acc isa account, has account-uid "{entity_uid}";
                 insert $acc has flag "{flag.replace('"', '\\"')}",
-                             has comment "{comment.replace('"', '\\"')}",
-                             has request-timestamp {timestamp};
+                            has comment "{comment.replace('"', '\\"')}",
+                            has request-timestamp {timestamp};
                 """
                 tx.query.insert(insert_query).resolve()
                 tx.commit()

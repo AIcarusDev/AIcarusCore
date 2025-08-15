@@ -1,15 +1,16 @@
 # src/database/models.py
 import time
 from dataclasses import asdict, dataclass, field
-from typing import Any, Literal, Type
+from typing import Any, Literal
 
 
 @dataclass
 class EnrichedConversationInfo:
-    """
-    一个数据传输对象 (DTO)，用于在创建 ChatSession 时传递丰富的会话上下文。
+    """一个数据传输对象 (DTO)，用于在创建 ChatSession 时传递丰富的会话上下文.
+
     它不是一个直接映射到数据库集合的模型。
     """
+
     platform: str
     bot_id: str
     conversation_id: str
@@ -19,13 +20,13 @@ class EnrichedConversationInfo:
     avatar: str | None = None
     extra: dict = field(default_factory=dict)
 
-# ==================== [ 新增 ] ====================
+
 # 这些 dataclass 是我们在 schema.tql 中定义的实体属性的 Python 表现形式。
 # 它们提供了类型安全，并使得服务层代码更清晰。
-
 @dataclass
 class AccountDetails:
     """'account' 实体的 details 属性."""
+
     platform: str
     platform_id: str
     nickname: str | None = None
@@ -33,15 +34,19 @@ class AccountDetails:
     friend_remark: str | None = None
     friend_request_pending: dict | None = None
 
+
 @dataclass
 class PlatformDetails:
     """'platform' 实体的 details 属性."""
+
     platform_id: str
     display_name: str
+
 
 @dataclass
 class ConversationDetails:
     """'conversation' 实体的 details 属性."""
+
     platform: str
     conversation_id: str
     type: str  # 'group' or 'private'
@@ -50,9 +55,11 @@ class ConversationDetails:
     avatar: str | None = None
     extra: dict = field(default_factory=dict)
 
+
 @dataclass
 class MembershipProperties:
     """'is_present_in' 边的属性."""
+
     group_name: str | None = None
     cardname: str | None = None
     permission_level: str | None = None
@@ -63,22 +70,25 @@ class MembershipProperties:
         """将 dataclass 转换为字典，并移除值为 None 的字段."""
         return {k: v for k, v in asdict(self).items() if v is not None}
 
+
 # 实体类型字面量
 EntityTypeLiteral = Literal["account", "platform", "conversation", "unknown"]
 
 # 将实体类型映射到其对应的 Details dataclass
-ENTITY_TYPE_TO_DETAILS_CLASS: dict[EntityTypeLiteral, Type] = {
+ENTITY_TYPE_TO_DETAILS_CLASS: dict[EntityTypeLiteral, type] = {
     "account": AccountDetails,
     "platform": PlatformDetails,
     "conversation": ConversationDetails,
 }
 
+
 @dataclass
 class EntityDocument:
-    """
-    一个统一的领域模型，代表从 'entities' 集合中获取的任何实体。
+    """一个统一的领域模型，代表从 'entities' 集合中获取的任何实体.
+
     它包含所有实体共有的字段，以及一个类型化的 'details' 字段。
     """
+
     _key: str
     entity_uid: str
     entity_type: EntityTypeLiteral
@@ -93,9 +103,9 @@ class EntityDocument:
         """将 EntityDocument 转换为适合存入数据库的字典."""
         data = asdict(self)
         if hasattr(self.details, "to_dict"):
-            data["details"] = self.details.to_dict() # type: ignore
+            data["details"] = self.details.to_dict()  # type: ignore
         elif isinstance(self.details, dict):
-             data["details"] = self.details
+            data["details"] = self.details
         return data
 
     @classmethod
@@ -112,30 +122,32 @@ class EntityDocument:
             )
         entity_type = data.get("entity_type", "unknown")
         details_data = data.get("details")
-        details_class = ENTITY_TYPE_TO_DETAILS_CLASS.get(entity_type) # type: ignore
+        details_class = ENTITY_TYPE_TO_DETAILS_CLASS.get(entity_type)  # type: ignore
 
         details_obj = None
         if details_class and isinstance(details_data, dict):
             # 使用 inspect 来动态地只传递 dataclass 需要的字段
             import inspect
+
             sig = inspect.signature(details_class)
             valid_keys = {p.name for p in sig.parameters.values()}
             filtered_data = {k: v for k, v in details_data.items() if k in valid_keys}
             details_obj = details_class(**filtered_data)
         elif isinstance(details_data, dict):
-            details_obj = details_data # 如果没有对应的dataclass，则保留为字典
+            details_obj = details_data  # 如果没有对应的dataclass，则保留为字典
 
         # 使用 pop 来避免将它们传递给构造函数两次
         data.pop("details", None)
         return cls(details=details_obj, **data)
 
-# ==================== [ 新增 ] ====================
+
 class CoreDBCollections:
-    """
-    数据库核心集合的“唯一真实来源” (Single Source of Truth).
+    """数据库核心集合的“唯一真实来源” (Single Source of Truth).
+
     所有核心集合和服务都应在这里注册它们的名称。
-    这遵循了我们在 mention.md 中定下的“神圣契约”。
+    这遵循了我们在 mention.md 中定下的“神圣契约”.
     """
+
     # 文档集合
     EVENTS = "events"
     THOUGHT_CHAIN = "thought_chain"
@@ -144,13 +156,13 @@ class CoreDBCollections:
     IMAGE_CACHE = "image_cache"
     GOALS = "goals"
     STICKER_COLLECTION = "sticker_collection"
-    # [新增] 这是一个特殊的集合，用于存储像“最新思想点指针”这样的系统元数据
+    # 这是一个特殊的集合，用于存储像“最新思想点指针”这样的系统元数据
     SYSTEM_POINTERS = "system_pointers"
     INTRUSIVE_THOUGHTS = "intrusive_thoughts"
 
     # 边集合
     PRECEDES_THOUGHT = "precedes_thought"  # 思想链的前后关系
-    ACTION_TRIGGERED_BY = "action_triggered_by" # 动作由哪个思想触发
+    ACTION_TRIGGERED_BY = "action_triggered_by"  # 动作由哪个思想触发
 
     @classmethod
     def get_all_collections(cls) -> list[str]:
@@ -174,7 +186,10 @@ class CoreDBCollections:
             cls.PRECEDES_THOUGHT,
             cls.ACTION_TRIGGERED_BY,
         ]
+
+
 # ==================== [ 结束新增 ] ====================
+
 
 @dataclass
 class ThoughtChainDocument:

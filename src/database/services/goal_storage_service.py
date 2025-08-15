@@ -4,6 +4,7 @@ import time
 
 from src.common.custom_logging.logging_config import get_logger
 from typedb.driver import TransactionType
+
 from ..core.connection_manager import TypeDBConnectionManager
 from ..models import GoalDocument
 
@@ -34,7 +35,7 @@ class GoalStorageService:
 
         def db_read() -> list[GoalDocument]:
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                # [修正] tx.query 是方法
+                #  tx.query 是方法
                 answers = list(tx.query(query).resolve())
                 goals = []
                 for ans in answers:
@@ -72,7 +73,7 @@ class GoalStorageService:
                     has created-at {goal_doc.created_at},
                     has updated-at {goal_doc.updated_at};
                 """
-                # [修正] tx.query 是方法
+                #  tx.query 是方法
                 tx.query(insert_query).resolve()
                 tx.commit()
                 return True
@@ -99,14 +100,14 @@ class GoalStorageService:
                 $g has updated-at $ts;
                 delete $g has $s; $g has $ts;
                 """
-                # [修正] tx.query 是方法
+                #  tx.query 是方法
                 tx.query(delete_query).resolve()
 
                 insert_query = f"""
                 match $g isa goal, has goal-id "{goal_id}";
                 insert $g has status "{status}", has updated-at {int(time.time() * 1000)};
                 """
-                # [修正] tx.query 是方法
+                #  tx.query 是方法
                 tx.query(insert_query).resolve()
                 tx.commit()
                 return True

@@ -6,6 +6,7 @@ from typing import Any
 from src.common.custom_logging.logging_config import get_logger
 from src.common.image_utils import compare_phashes
 from typedb.driver import Transaction, TransactionType
+
 from ..core.connection_manager import TypeDBConnectionManager
 
 logger = get_logger(__name__)
@@ -28,7 +29,7 @@ class StickerStorageService:
             $s isa sticker, has sticker-id $sid;
         reduce $max_id = max($sid);
         """
-        # [修正] tx.query 是方法
+        #  tx.query 是方法
         answers = list(tx.query(query).resolve())
 
         max_id_num = 0
@@ -68,7 +69,7 @@ class StickerStorageService:
                     has added-at {added_at_ts};
                 insert (hosting-platform: $p, hosted-asset: $s) isa platform-asset;
                 """
-                # [修正] tx.query 是方法
+                #  tx.query 是方法
                 tx.query(query).resolve()
                 tx.commit()
                 return {
@@ -107,7 +108,7 @@ class StickerStorageService:
 
         def db_read_and_compare() -> dict[str, Any] | None:
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                # [修正] tx.query 是方法
+                #  tx.query 是方法
                 answers = list(tx.query(query).resolve())
                 for answer in answers:
                     uid_attr = answer.get("uid")
@@ -145,7 +146,7 @@ class StickerStorageService:
 
         def db_write() -> bool:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
-                # [修正] tx.query 是方法
+                #  tx.query 是方法
                 tx.query(query).resolve()
                 tx.commit()
                 return True
@@ -170,7 +171,7 @@ class StickerStorageService:
         def db_update() -> bool:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
                 match_query = f'match $s isa sticker, has sticker-uid "{sticker_uid}"; get $s;'
-                # [修正] tx.query 是方法
+                #  tx.query 是方法
                 answers = list(tx.query(match_query).resolve())
                 if not answers:
                     logger.warning(f"尝试编辑一个不存在的表情包印象: {sticker_uid}")
@@ -181,14 +182,14 @@ class StickerStorageService:
                 $s has impression $old_imp;
                 delete $s has $old_imp;
                 """
-                # [修正] tx.query 是方法
+                #  tx.query 是方法
                 tx.query(delete_query).resolve()
 
                 insert_query = f"""
                 match $s isa sticker, has sticker-uid "{sticker_uid}";
                 insert $s has impression "{new_impression_safe}";
                 """
-                # [修正] tx.query 是方法
+                #  tx.query 是方法
                 tx.query(insert_query).resolve()
                 tx.commit()
                 return True
@@ -223,12 +224,14 @@ class StickerStorageService:
         def db_read() -> list[dict]:
             stickers = []
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                # [修正] tx.query 是方法
+                #  tx.query 是方法
                 answers = list(tx.query(query).resolve())
                 for answer in answers:
                     stickers.append(
                         {
-                            "sticker_id": f"{answer.get('sid').as_attribute().get_value().get_integer():03d}",
+                            "sticker_id": (
+                                f"{answer.get('sid').as_attribute().get_value().get_integer():03d}"
+                            ),
                             "filename": answer.get("fn").as_attribute().get_value().get_string(),
                             "impression": answer.get("imp").as_attribute().get_value().get_string(),
                             "source_image_hash": answer.get("hash")
@@ -262,7 +265,7 @@ class StickerStorageService:
 
         def db_read() -> dict[str, Any] | None:
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                # [修正] tx.query 是方法
+                #  tx.query 是方法
                 answers = list(tx.query(query).resolve())
                 if answers:
                     answer = answers[0]
@@ -295,7 +298,7 @@ class StickerStorageService:
 
         def db_read() -> list[str]:
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                # [修正] tx.query 是方法
+                #  tx.query 是方法
                 answers = list(tx.query(query).resolve())
                 return [
                     a.get("uid").as_attribute().get_value().get_string()

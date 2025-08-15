@@ -112,6 +112,7 @@ class AllModelPurposesConfig(ConfigBase):
     image_analysis: ModelParams | None = None
     """图像分析模型，用于处理图像内容的分析和描述."""
 
+
 @dataclass
 class ServerSettings(ConfigBase):
     """服务器相关设置，包括主机和端口配置."""

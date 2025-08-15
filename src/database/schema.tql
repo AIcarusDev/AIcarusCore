@@ -1,5 +1,5 @@
 define
-
+# 必须要先定义再sub, 否则会显示不存在, 根属性无需sub, 直接使用entity xxx或者relation xxx的方式声明即可. long 类型已改名为 integer 类型。
 # --- 根类型定义 (Base Types) ---
 # 定义了最顶层的抽象概念
 
@@ -25,7 +25,6 @@ entity account @abstract;
 # 平台账户实体
 account sub objective-entity,
     owns account-uid @key,
-    # owns platform,  -- [移除] 不再需要，通过 residency 关系链接
     owns platform-id,
     owns nickname,
     owns last-known-nickname,
@@ -35,19 +34,18 @@ account sub objective-entity,
     owns request-timestamp,
     plays identity-ownership:owned-account,
     plays membership:member,
-    plays residency:resident; # [新增] 扮演 resident 角色
+    plays residency:resident;
 
 entity conversation @abstract;
 
 conversation sub objective-entity,
     owns conversation-uid @key,
-    # owns platform, -- [移除]
     owns conversation-id,
     owns type,
     owns display-name,
     owns last-read-timestamp,
     plays membership:group,
-    plays residency:resident, # [新增]
+    plays residency:resident,
     plays read-status:readable;
 
 entity platform @abstract;
@@ -56,7 +54,7 @@ entity platform @abstract;
 platform sub objective-entity,
     owns platform-uid @key,
     owns display-name,
-    plays residency:host-platform, # [修正] 明确扮演 host-platform 角色
+    plays residency:host-platform,
     plays platform-asset:hosting-platform;
 
 # 表情包实体
@@ -75,7 +73,6 @@ entity event,
     owns event-id @key,
     owns event-type,
     owns timestamp,
-    # owns platform, -- [移除]
     owns bot-id,
     owns content-json,
     owns user-info-json,
@@ -109,7 +106,6 @@ entity action-log,
     owns action-id @key,
     owns action-type,
     owns timestamp,
-    # owns platform, -- [移除]
     owns bot-id,
     owns status,
     owns response-timestamp,
@@ -170,7 +166,7 @@ relation membership,
 
 relation residency,
     relates resident,
-    relates host-platform; # [修正] 使用更明确的角色名
+    relates host-platform;
 
 relation platform-asset,
     relates hosting-platform,
@@ -210,7 +206,6 @@ attribute goal-id, value string;
 attribute sticker-id, value integer;
 
 # Common Attributes
-# [移除] attribute platform, value string;
 attribute nickname, value string;
 attribute last-known-nickname, value string;
 attribute friend-remark, value string;
@@ -243,7 +238,7 @@ attribute version, value string;
 attribute goal-text, value string;
 attribute reason-text, value string;
 attribute error-info, value string;
-attribute bot-id, value string; # [新增] 为 event 和 action-log 增加 bot-id 属性
+attribute bot-id, value string;
 
 # JSON String Attributes
 attribute content-json, value string;
@@ -258,7 +253,7 @@ attribute analysis-result-json, value string;
 
 # Timestamps & Numerics
 attribute timestamp, value integer;
-attribute request-timestamp, sub timestamp; # [修正] 子类型不需要重复声明 value type
+attribute request-timestamp, sub timestamp; # 子类型不需要重复声明 value type
 attribute added-at, value integer;
 attribute timestamp-generated, value integer;
 attribute response-timestamp, value integer;

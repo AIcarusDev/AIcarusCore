@@ -71,7 +71,7 @@ class TypeDBConnectionManager:
 
         def sync_define_schema() -> None:
             with driver.transaction(db_name, TransactionType.SCHEMA) as tx:
-                # [修正] tx.query 是一个方法，直接接收完整的查询字符串
+                #  tx.query 是一个方法，直接接收完整的查询字符串
                 tx.query(schema_content).resolve()
                 tx.commit()
 

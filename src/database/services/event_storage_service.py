@@ -1,11 +1,11 @@
 # src/database/services/event_storage_service.py
 import asyncio
 import json
-import time
 from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
-from typedb.driver import TransactionType, Transaction
+from typedb.driver import Transaction, TransactionType
+
 from ..core.connection_manager import TypeDBConnectionManager
 
 logger = get_logger(__name__)
@@ -35,7 +35,7 @@ class EventStorageService:
         def db_write() -> bool:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
                 match_query = f'match $e isa event, has event-id "{event_id}"; get $e;'
-                # [修正] tx.query 是方法
+                #  tx.query 是方法
                 answers = list(tx.query(match_query).resolve())
                 if answers:
                     logger.warning(f"尝试插入已存在的事件 Event ID: {event_id}。操作被跳过。")
@@ -44,7 +44,7 @@ class EventStorageService:
                 insert_parts = [
                     f'$e isa event, has event-id "{event_id}"',
                     f'has event-type "{event_doc_data.get("event_type", "unknown")}"',
-                    f"has timestamp {event_doc_data.get('time', 0)}", # 协议对象用 time
+                    f"has timestamp {event_doc_data.get('time', 0)}",  # 协议对象用 time
                     f'has platform "{event_doc_data.get("platform", "unknown")}"',
                     f'has bot-id "{event_doc_data.get("bot_id", "unknown")}"',
                     f'has status "{event_doc_data.get("status", "unread")}"',
@@ -71,7 +71,7 @@ class EventStorageService:
                         insert_parts.append(f'has {attr_name} "{safe_value}"')
 
                 insert_query = "insert " + ",\n".join(insert_parts) + ";"
-                # [修正] tx.query 是方法
+                #  tx.query 是方法
                 tx.query(insert_query).resolve()
                 tx.commit()
                 return True
@@ -103,17 +103,20 @@ class EventStorageService:
 
         def db_read() -> dict[str, Any] | None:
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                # [修正] tx.query 是方法
+                # tx.query 是方法
                 answers = list(tx.query(query).resolve())
                 if not answers:
                     return None
-                
+
                 event_concept = answers[0].get("e")
-                if not event_concept: return None
+                if not event_concept:
+                    return None
 
                 # 在同一个事务内完成后续查询
-                event_id_query = f"match $x iid {event_concept.get_iid()}; $x has event-id $id; get $id;"
-                # [修正] tx.query 是方法
+                event_id_query = (
+                    f"match $x iid {event_concept.get_iid()}; $x has event-id $id; get $id;"
+                )
+                # tx.query 是方法
                 event_id_answers = list(tx.query(event_id_query).resolve())
 
                 if event_id_answers and (id_attr := event_id_answers[0].get("id")):
@@ -140,7 +143,7 @@ class EventStorageService:
         $attr_type has label $attr_label;
         get $attr_label, $value;
         """
-        # [修正] tx.query 是方法
+        # tx.query 是方法
         answers = list(tx.query(query).resolve())
         if not answers:
             return None
@@ -149,10 +152,10 @@ class EventStorageService:
         for ans in answers:
             label = ans.get("attr_label").as_attribute().get_value().get_string()
             value_concept = ans.get("value")
-            
-            # 这是一个简化的值提取逻辑，需要根据实际值类型进行扩展
+
+            # TODO: 这是一个简化的值提取逻辑，需要根据实际值类型进行扩展
             py_value = value_concept.get_value()
-            
+
             if label.endswith("-json"):
                 key = label.replace("-json", "")
                 doc[key] = json.loads(py_value)
@@ -164,8 +167,8 @@ class EventStorageService:
         self, conversation_id: str, limit: int = 50, fetch_all_event_types: bool = False
     ) -> list[dict[str, Any]]:
         """获取指定会话最近的聊天消息事件文档."""
-        event_type_filter = 'message\\..*' if not fetch_all_event_types else '.*'
-        
+        event_type_filter = "message\\..*" if not fetch_all_event_types else ".*"
+
         query = rf"""
         match
             $e isa event, has conversation-info-json $ci;
@@ -180,15 +183,18 @@ class EventStorageService:
 
         def db_read() -> list[dict[str, Any]]:
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                # [修正] tx.query 是方法
+                # tx.query 是方法
                 answers = list(tx.query(query).resolve())
                 docs = []
                 for ans in answers:
                     event_concept = ans.get("e")
-                    if not event_concept: continue
+                    if not event_concept:
+                        continue
 
-                    event_id_query = f"match $x iid {event_concept.get_iid()}; $x has event-id $id; get $id;"
-                    # [修正] tx.query 是方法
+                    event_id_query = (
+                        f"match $x iid {event_concept.get_iid()}; $x has event-id $id; get $id;"
+                    )
+                    # tx.query 是方法
                     event_id_answers = list(tx.query(event_id_query).resolve())
                     if event_id_answers and (id_attr := event_id_answers[0].get("id")):
                         event_id = id_attr.as_attribute().get_value().get_string()
@@ -214,12 +220,18 @@ class EventStorageService:
         def db_write() -> bool:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
                 for event_id in event_ids:
-                    delete_query = f'match $e isa event, has event-id "{event_id}", has status $s; delete $e has $s;'
-                    # [修正] tx.query 是方法
+                    delete_query = (
+                        f'match $e isa event, has event-id "{event_id}", '
+                        f"has status $s; delete $e has $s;"
+                    )
+                    # tx.query 是方法
                     tx.query(delete_query).resolve()
 
-                    insert_query = f'match $e isa event, has event-id "{event_id}"; insert $e has status "{new_status}";'
-                    # [修正] tx.query 是方法
+                    insert_query = (
+                        f'match $e isa event, has event-id "{event_id}"; '
+                        f'insert $e has status "{new_status}";'
+                    )
+                    # tx.query 是方法
                     tx.query(insert_query).resolve()
                 tx.commit()
             return True
@@ -232,7 +244,7 @@ class EventStorageService:
         except Exception as e:
             logger.error(f"批量更新事件状态为 '{new_status}' 时失败: {e}", exc_info=True)
             return False
-            
+
     async def get_all_conversation_vectors_for_iis(self) -> list[list[list[float]]]:
         """专门为IIS模型训练获取所有对话的向量序列."""
         query = """
@@ -250,17 +262,21 @@ class EventStorageService:
         def db_read_and_group() -> list[list[list[float]]]:
             conversations: dict[str, list[tuple[int, list[float]]]] = {}
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                # [修正] tx.query 是方法
+                #  tx.query 是方法
                 answers = list(tx.query(query).resolve())
                 for ans in answers:
                     try:
-                        conv_info_str = ans.get("conv_info_json").as_attribute().get_value().get_string()
-                        embedding_str = ans.get("embedding_json").as_attribute().get_value().get_string()
+                        conv_info_str = (
+                            ans.get("conv_info_json").as_attribute().get_value().get_string()
+                        )
+                        embedding_str = (
+                            ans.get("embedding_json").as_attribute().get_value().get_string()
+                        )
                         ts = ans.get("ts").as_attribute().get_value().get_integer()
 
                         conv_info = json.loads(conv_info_str)
                         embedding = json.loads(embedding_str)
-                        
+
                         conv_id = conv_info.get("conversation_id")
                         if conv_id and isinstance(embedding, list):
                             if conv_id not in conversations:
@@ -269,13 +285,13 @@ class EventStorageService:
                     except (json.JSONDecodeError, AttributeError, KeyError) as e:
                         logger.warning(f"解析事件向量时跳过一个无效条目: {e}")
                         continue
-            
+
             sorted_conversations = []
-            for conv_id, events in conversations.items():
+            for _, events in conversations.items():
                 if len(events) >= 2:
                     events.sort(key=lambda x: x[0])
                     sorted_conversations.append([vec for ts, vec in events])
-            
+
             return sorted_conversations
 
         try:
