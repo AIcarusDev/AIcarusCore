@@ -7,23 +7,18 @@ entity person @abstract;
 entity objective-entity @abstract;
 
 # --- 实体类型 (Concrete Entities) ---
-entity aic_self @abstract;
-
-aic_self sub person,
+entity aic_self,
+    sub person,
     plays identity-ownership:owner,
     plays read-status:reader;
 
 # 创建外部用户
-entity external_person @abstract;
-
-# 外部用户继承人
-external_person sub person,
+entity external_person,
+    sub person,
     plays identity-ownership:owner;
 
-entity account @abstract;
-
-# 平台账户实体
-account sub objective-entity,
+entity account,
+    sub objective-entity,
     owns account-uid @key,
     owns platform-id,
     owns nickname,
@@ -36,9 +31,8 @@ account sub objective-entity,
     plays membership:member,
     plays residency:resident;
 
-entity conversation @abstract;
-
-conversation sub objective-entity,
+entity conversation,
+    sub objective-entity,
     owns conversation-uid @key,
     owns conversation-id,
     owns type,
@@ -48,14 +42,14 @@ conversation sub objective-entity,
     plays residency:resident,
     plays read-status:readable;
 
-entity platform @abstract;
-
-# 平台实体
-platform sub objective-entity,
+entity platform,
+    sub objective-entity,
     owns platform-uid @key,
     owns display-name,
     plays residency:host-platform,
-    plays platform-asset:hosting-platform;
+    plays platform-asset:hosting-platform,
+    plays event-source:source-platform,
+    plays action-source:source-platform;
 
 # 表情包实体
 entity sticker,
@@ -82,8 +76,8 @@ entity event,
     owns embedding-json,
     owns image-analysis-json,
     owns person-id-associated,
-    owns motivation;
-    # 注意: event 与 platform 的关系需要通过其 conversation 实体间接获得
+    owns motivation,
+    plays event-source:sourced-event;
 
 # 思想点实体
 entity thought-chain-node,
@@ -107,12 +101,14 @@ entity action-log,
     owns action-type,
     owns timestamp,
     owns bot-id,
+    owns action-platform,
     owns status,
     owns response-timestamp,
     owns response-time-ms,
     owns error-info,
     owns result-details-json,
-    plays leads-to-action:action-target;
+    plays leads-to-action:action-target,
+    plays action-source:sourced-action;
 
 # 系统状态指针实体
 entity system-pointer,
@@ -156,6 +152,14 @@ entity goal,
 relation identity-ownership,
     relates owner,
     relates owned-account;
+
+relation event-source,
+    relates source-platform,
+    relates sourced-event;
+
+relation action-source,
+    relates source-platform,
+    relates sourced-action;
 
 relation membership,
     owns cardname,
@@ -239,6 +243,7 @@ attribute goal-text, value string;
 attribute reason-text, value string;
 attribute error-info, value string;
 attribute bot-id, value string;
+attribute action-platform, value string;
 
 # JSON String Attributes
 attribute content-json, value string;
@@ -253,7 +258,7 @@ attribute analysis-result-json, value string;
 
 # Timestamps & Numerics
 attribute timestamp, value integer;
-attribute request-timestamp, sub timestamp; # 子类型不需要重复声明 value type
+attribute request-timestamp, sub timestamp;
 attribute added-at, value integer;
 attribute timestamp-generated, value integer;
 attribute response-timestamp, value integer;

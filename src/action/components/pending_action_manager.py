@@ -11,6 +11,7 @@ from src.database import (
     ActionLogStorageService,
     ThoughtStorageService,
 )
+from src.database.models import ActionLogDocument
 from src.database.services.event_storage_service import EventStorageService
 from src.domain.models import ActionMetadata, ActionResult
 
@@ -221,14 +222,24 @@ class PendingActionManager:
         """打包并执行所有与数据库更新相关的异步任务."""
         response_timestamp = int(time.time() * 1000)
         response_time_ms = response_timestamp - sent_dict.get("timestamp", response_timestamp)
+        update_doc = ActionLogDocument(
+            _key=action_result.action_id,
+            action_type="", # type is not needed for update
+            timestamp=0, # timestamp is not needed for update
+            platform="", # platform is not needed for update
+            bot_id="", # bot_id is not needed for update
+            status=status,
+            response_timestamp=response_timestamp,
+            response_time_ms=response_time_ms,
+            error_info=action_result.error_message,
+            result_details=action_result.payload,
+        )
+
         tasks_to_gather = [
+            # 传递 ActionLogDocument 对象
             self.action_log_service.update_action_log_with_response(
                 action_id=action_result.action_id,
-                status=status,
-                response_timestamp=response_timestamp,
-                response_time_ms=response_time_ms,
-                error_info=action_result.error_message,
-                result_details=action_result.payload,
+                updates=update_doc.to_dict() # 传递字典
             )
         ]
         if thought_doc_key:

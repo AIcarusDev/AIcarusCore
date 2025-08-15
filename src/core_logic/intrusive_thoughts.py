@@ -2,12 +2,13 @@
 # 侵入性思维生成器
 # 该功能现在暂时属于搁置状态，没有任何作用，等待处理
 import asyncio
+import os
 import threading
 
 from src.common.custom_logging.logging_config import get_logger
 from src.common.json_parser.json_parser import parse_llm_json_response
 from src.config import config
-from src.database import CoreDBCollections, ThoughtStorageService, TypeDBConnectionManager
+from src.database import ThoughtStorageService, TypeDBConnectionManager
 from src.llmrequest.llm_processor import Client as ProcessorClient
 
 logger = get_logger(__name__)
@@ -90,9 +91,13 @@ class IntrusiveThoughtsGenerator:
             # 1. 创建一个专属的数据库连接管理器，
             #    只为这个线程服务，避免与其他线程或主线程的连接冲突
             logger.info("后台线程：正在创建专属的数据库连接...")
-            db_config = config.database
-            core_configs = CoreDBCollections.get_all_core_collection_configs()
-            conn_manager = await TypeDBConnectionManager.create_from_config(db_config, core_configs)
+            db_config_dict = {
+                "host": os.getenv("TYPEDB_HOST", "localhost:1729"),
+                "database_name": os.getenv("TYPEDB_DATABASE", "aicarus_core_db"),
+                "username": os.getenv("TYPEDB_USER", "admin"),
+                "password": os.getenv("TYPEDB_PASSWORD", "password"),
+            }
+            conn_manager = await TypeDBConnectionManager.get_instance(db_config_dict)
             logger.info("后台线程：专属数据库连接创建成功！")
 
             # 2. 用这个专属的连接，创建一个专属的、只为我所用的 ThoughtStorageService！

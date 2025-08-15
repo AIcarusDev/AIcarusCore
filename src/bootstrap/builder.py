@@ -331,18 +331,32 @@ class ServiceBuilder:
         if not conn_manager or not conn_manager.get_driver():
             raise RuntimeError("TypeDB 连接管理器初始化失败。")
 
+        # 1. 先创建没有额外依赖或作为别人依赖的服务
+        event_storage_service = EventStorageService(conn_manager=conn_manager)
+
+        # 2. 创建依赖于其他服务的服务，并手动注入
+        entity_graph_service = EntityGraphService(
+            conn_manager=conn_manager,
+            event_storage_service=event_storage_service # <-- 在这里注入！
+        )
+        event_storage_service.set_entity_graph_service(entity_graph_service)
+
+        # 3. 创建剩余的服务
         services_to_create = {
-            "event_storage_service": EventStorageService,
             "thought_storage_service": ThoughtStorageService,
             "action_log_service": ActionLogStorageService,
-            "entity_graph_service": EntityGraphService,
             "summary_storage_service": SummaryStorageService,
             "image_analysis_cache_service": ImageAnalysisCacheService,
             "sticker_storage_service": StickerStorageService,
             "goal_storage_service": GoalStorageService,
         }
 
-        initialized_services = {"conn_manager": conn_manager}
+        initialized_services = {
+            "conn_manager": conn_manager,
+            "event_storage_service": event_storage_service,
+            "entity_graph_service": entity_graph_service,
+        }
+
         for instance_name, service_class in services_to_create.items():
             instance = service_class(conn_manager=conn_manager)
             if isinstance(instance, Initializable) and hasattr(
@@ -350,6 +364,7 @@ class ServiceBuilder:
             ):
                 await instance.initialize_infrastructure()
             initialized_services[instance_name] = instance
+
         logger.info("所有核心 TypeDB 数据存储服务均已初始化。")
         return initialized_services
 

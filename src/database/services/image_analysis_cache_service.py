@@ -32,7 +32,6 @@ class ImageAnalysisCacheService:
         $ic has version $v;
         $ic has timestamp $ts;
         $ic has analysis-result-json $res;
-        get $v, $ts, $res;
         """
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.database_name

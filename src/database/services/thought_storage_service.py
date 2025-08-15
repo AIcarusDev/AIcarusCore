@@ -33,7 +33,7 @@ class ThoughtStorageService:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
                 get_pointer_query = f"""
                 match $p isa system-pointer, has pointer-name "{LATEST_THOUGHT_POINTER_KEY}";
-                $p has target-key $key; get $key;
+                $p has target-key $key;
                 """
                 #  tx.query 是方法
                 answers = list(tx.query(get_pointer_query).resolve())
@@ -123,11 +123,9 @@ class ThoughtStorageService:
             $p has target-key $key;
             $t isa thought-chain-node, has thought-id $key;
             $t has $attr;
-            $attr isa attribute;
             $attr has $value;
             $attr_type = $attr.type;
             $attr_type has label $attr_label;
-        get $attr_label, $value;
         """
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.database_name
@@ -256,7 +254,7 @@ class ThoughtStorageService:
         """从侵入性思维池中获取一个随机的、未被使用过的侵入性思维文档."""
         query = (
             "match $it isa intrusive-thought, has used false; "
-            "$it has thought-text $text; get $text;"
+            "$it has thought-text $text;"
         )
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.database_name

@@ -1,12 +1,18 @@
 # src/database/services/event_storage_service.py
+
 import asyncio
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from src.common.custom_logging.logging_config import get_logger
+from src.common.utils import parse_entity_uid
 from typedb.driver import Transaction, TransactionType
 
 from ..core.connection_manager import TypeDBConnectionManager
+
+if TYPE_CHECKING:
+    from .entity_graph_service import EntityGraphService
+
 
 logger = get_logger(__name__)
 
@@ -16,7 +22,12 @@ class EventStorageService:
 
     def __init__(self, conn_manager: TypeDBConnectionManager) -> None:
         self.conn_manager = conn_manager
+        self.entity_graph_service: EntityGraphService | None = None
         logger.info("EventStorageService (TypeDB) 初始化完成。")
+
+    def set_entity_graph_service(self, service: "EntityGraphService") -> None:
+        """注入 EntityGraphService 实例以解决循环依赖."""
+        self.entity_graph_service = service
 
     async def save_event_document(self, event_doc_data: dict[str, Any]) -> bool:
         """保存事件文档到数据库."""
@@ -29,23 +40,29 @@ class EventStorageService:
             logger.error("事件文档缺少 '_key' 或 'event_id'。")
             return False
 
+        platform_uid = event_doc_data.get("platform")
+        if not platform_uid:
+            logger.error(f"事件 '{event_id}' 缺少 'platform' 字段，无法关联平台实体。")
+            return False
+
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.database_name
 
         def db_write() -> bool:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
-                match_query = f'match $e isa event, has event-id "{event_id}"; get $e;'
-                #  tx.query 是方法
+                match_query = f'match $e isa event, has event-id "{event_id}";'
                 answers = list(tx.query(match_query).resolve())
                 if answers:
                     logger.warning(f"尝试插入已存在的事件 Event ID: {event_id}。操作被跳过。")
                     return True
 
+                # --- [核心逻辑修改] ---
                 insert_parts = [
                     f'$e isa event, has event-id "{event_id}"',
                     f'has event-type "{event_doc_data.get("event_type", "unknown")}"',
-                    f"has timestamp {event_doc_data.get('time', 0)}",  # 协议对象用 time
-                    f'has platform "{event_doc_data.get("platform", "unknown")}"',
+                    f"has timestamp {
+                        event_doc_data.get('time', event_doc_data.get('timestamp', 0))
+                        }",
                     f'has bot-id "{event_doc_data.get("bot_id", "unknown")}"',
                     f'has status "{event_doc_data.get("status", "unread")}"',
                 ]
@@ -70,16 +87,21 @@ class EventStorageService:
                         safe_value = str(value).replace('"', '\\"')
                         insert_parts.append(f'has {attr_name} "{safe_value}"')
 
-                insert_query = "insert " + ",\n".join(insert_parts) + ";"
-                #  tx.query 是方法
-                tx.query(insert_query).resolve()
+                # 构建完整的 match-insert 查询
+                full_query = f"""
+                match $p isa platform, has platform-uid "{platform_uid}";
+                insert {" ".join(insert_parts)};
+                insert (source-platform: $p, sourced-event: $e) isa event-source;
+                """
+
+                tx.query(full_query).resolve()
                 tx.commit()
                 return True
 
         try:
             success = await asyncio.to_thread(db_write)
             if success:
-                logger.info(f"事件文档 '{event_id}' 已保存。")
+                logger.debug(f"事件文档 '{event_id}' 已保存。")
             return success
         except Exception as e:
             logger.error(f"保存事件文档 '{event_id}' 失败: {e}", exc_info=True)
@@ -90,12 +112,12 @@ class EventStorageService:
         if not image_hash:
             return None
 
+        # 移除 get 子句
         query = f"""
         match
             $e isa event, has content-json $cj;
             $cj like ".*{image_hash}.*";
             $e has timestamp $ts;
-        get $e, $ts;
         sort $ts desc; limit 1;
         """
         driver = self.conn_manager.get_driver()
@@ -114,7 +136,7 @@ class EventStorageService:
 
                 # 在同一个事务内完成后续查询
                 event_id_query = (
-                    f"match $x iid {event_concept.get_iid()}; $x has event-id $id; get $id;"
+                    f"match $x iid {event_concept.get_iid()}; $x has event-id $id;"
                 )
                 # tx.query 是方法
                 event_id_answers = list(tx.query(event_id_query).resolve())
@@ -136,12 +158,11 @@ class EventStorageService:
         """[Helper] 在一个事务内，根据 event-id 获取完整的事件文档字典."""
         query = f"""
         match $e isa event, has event-id "{event_id}";
-        $e has $attr;
-        $attr isa attribute;
-        $attr has $value;
-        $attr_type = $attr.type;
-        $attr_type has label $attr_label;
-        get $attr_label, $value;
+            $e has $attr;
+            $attr isa attribute;
+            $attr has $value;
+            $attr_type = $attr.type;
+            $attr_type has label $attr_label;
         """
         # tx.query 是方法
         answers = list(tx.query(query).resolve())
@@ -152,13 +173,15 @@ class EventStorageService:
         for ans in answers:
             label = ans.get("attr_label").as_attribute().get_value().get_string()
             value_concept = ans.get("value")
+            py_value = value_concept.as_value().get()
 
             # TODO: 这是一个简化的值提取逻辑，需要根据实际值类型进行扩展
-            py_value = value_concept.get_value()
-
-            if label.endswith("-json"):
+            if isinstance(py_value, str) and label.endswith("-json"):
                 key = label.replace("-json", "")
-                doc[key] = json.loads(py_value)
+                try:
+                    doc[key] = json.loads(py_value)
+                except json.JSONDecodeError:
+                    doc[key] = py_value
             else:
                 doc[label.replace("-", "_")] = py_value
         return doc
@@ -169,13 +192,13 @@ class EventStorageService:
         """获取指定会话最近的聊天消息事件文档."""
         event_type_filter = "message\\..*" if not fetch_all_event_types else ".*"
 
+        # 修正: 移除 get 子句
         query = rf"""
         match
             $e isa event, has conversation-info-json $ci;
             $ci like '.*"conversation_id": "{conversation_id}".*';
             $e has event-type $et; $et like "{event_type_filter}";
             $e has timestamp $ts;
-        get $e, $ts;
         sort $ts desc; limit {limit};
         """
         driver = self.conn_manager.get_driver()
@@ -191,12 +214,14 @@ class EventStorageService:
                     if not event_concept:
                         continue
 
+                    # 移除 get 子句
                     event_id_query = (
-                        f"match $x iid {event_concept.get_iid()}; $x has event-id $id; get $id;"
+                        f"match $x iid {event_concept.get_iid()}; $x has event-id $id;"
                     )
                     # tx.query 是方法
                     event_id_answers = list(tx.query(event_id_query).resolve())
                     if event_id_answers and (id_attr := event_id_answers[0].get("id")):
+
                         event_id = id_attr.as_attribute().get_value().get_string()
                         full_doc = self._get_full_event_doc_sync(tx, event_id)
                         if full_doc:
@@ -254,7 +279,6 @@ class EventStorageService:
             $event has embedding-json $embedding_json;
             $event has conversation-info-json $conv_info_json;
             $event has timestamp $ts;
-        get $embedding_json, $conv_info_json, $ts;
         """
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.database_name
@@ -299,3 +323,88 @@ class EventStorageService:
         except Exception as e:
             logger.error(f"为IIS模型获取事件向量时失败: {e}", exc_info=True)
             return []
+
+    async def get_event_by_timestamp(self, conversation_uid: str, timestamp: int) -> dict[str, Any] | None:  # noqa: E501
+        """根据会话UID和精确时间戳获取单个事件."""
+        # conversation-info-json 中存储的是原始ID，而不是UID
+        _, _, conv_native_id = parse_entity_uid(conversation_uid) or (None, None, None)
+        if not conv_native_id:
+            return None
+
+        query = f"""
+        match
+            $e isa event, has conversation-info-json $ci, has timestamp {timestamp};
+            $ci like '.*"conversation_id": "{conv_native_id}".*';
+            $e has event-id $eid;
+        limit 1;
+        """
+        driver = self.conn_manager.get_driver()
+        db_name = self.conn_manager.database_name
+
+        def db_read() -> dict | None:
+            with driver.transaction(db_name, TransactionType.READ) as tx:
+                answers = list(tx.query(query).resolve())
+                if answers and (eid_attr := answers[0].get("eid")):
+                    event_id = eid_attr.as_value().get_string()
+                    return self._get_full_event_doc_sync(tx, event_id)
+            return None
+
+        try:
+            return await asyncio.to_thread(db_read)
+        except Exception as e:
+            logger.error(f"通过时间戳 {timestamp} 获取事件失败: {e}", exc_info=True)
+            return None
+
+    async def get_unread_count(self, conversation_uid: str, self_bot_ids: dict[str, str]) -> dict[str, Any]:  # noqa: E501
+        """获取会话的未读消息数和高优状态."""
+        if not self.entity_graph_service:
+            logger.error(
+                "EntityGraphService not injected into EventStorageService. Cannot get unread count."
+                )
+            return {"unread_count": 0, "has_high_priority": False}
+
+        last_read_ts = await self.entity_graph_service.get_conversation_last_read_timestamp(
+            conversation_uid
+            )
+
+        # conversation-info-json 中存储的是原始ID，而不是UID
+        _, _, conv_native_id = parse_entity_uid(conversation_uid) or (None, None, None)
+        if not conv_native_id:
+            return {"unread_count": 0, "has_high_priority": False}
+
+        query = f"""
+        match
+            $e isa event, has conversation-info-json $ci, has timestamp $ts;
+            $ci like '.*"conversation_id": "{conv_native_id}".*';
+            $ts > {int(last_read_ts)};
+            $e has content-json $content;
+        """
+        driver = self.conn_manager.get_driver()
+        db_name = self.conn_manager.database_name
+
+        def db_read_and_process() -> dict[str, Any]:
+            unread_count = 0
+            has_high_priority = False
+            with driver.transaction(db_name, TransactionType.READ) as tx:
+                answers = list(tx.query(query).resolve())
+                unread_count = len(answers)
+
+                if not has_high_priority:
+                    all_my_bot_ids = set(self_bot_ids.values())
+                    for ans in answers:
+                        content_str = ans.get("content").as_value().get_string()
+                        if any(
+                            f'"user_id": "{bot_id}"' in content_str for bot_id in all_my_bot_ids
+                        ) and any(tag in content_str for tag in [
+                            '"type": "at"',
+                            '"type": "quote"'
+                            ]):
+                            has_high_priority = True
+                            break
+            return {"unread_count": unread_count, "has_high_priority": has_high_priority}
+
+        try:
+            return await asyncio.to_thread(db_read_and_process)
+        except Exception as e:
+            logger.error(f"计算会话 {conversation_uid} 未读数失败: {e}", exc_info=True)
+            return {"unread_count": 0, "has_high_priority": False}

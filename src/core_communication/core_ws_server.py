@@ -89,7 +89,7 @@ class CoreWebsocketServer:
 
         if self.event_storage_service:
             try:
-                # --- [核心修复] 直接使用 protocol event 的 to_dict() 方法 ---
+                # --- 直接使用 protocol event 的 to_dict() 方法 ---
                 await self.event_storage_service.save_event_document(system_event.to_dict())
                 logger.info(f"已生成并存储系统事件: {event_content_text}")
             except Exception as e:
@@ -100,7 +100,6 @@ class CoreWebsocketServer:
         else:
             logger.warning(f"EventStorageService 未初始化，无法存储系统事件 for '{adapter_id}'.")
 
-    # ... 文件其余部分保持不变 ...
     async def _register_adapter(
         self, adapter_id: str, display_name: str, websocket: WebSocketServerProtocol
     ) -> None:

@@ -5,7 +5,7 @@ from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
 from src.common.image_utils import compare_phashes
-from typedb.driver import Transaction, TransactionType
+from typedb.driver import Concept, Transaction, TransactionType
 
 from ..core.connection_manager import TypeDBConnectionManager
 
@@ -29,12 +29,13 @@ class StickerStorageService:
             $s isa sticker, has sticker-id $sid;
         reduce $max_id = max($sid);
         """
-        #  tx.query 是方法
         answers = list(tx.query(query).resolve())
 
         max_id_num = 0
-        if answers and (max_id_concept := answers[0]) and not max_id_concept.is_nan():
-            max_id_num = max_id_concept.as_int()
+        if answers and (
+            max_id_concept := answers[0].get("max_id")
+            ) and isinstance(max_id_concept, Concept):
+            max_id_num = max_id_concept.as_value().get_integer()
 
         next_id_num = max_id_num + 1
         return f"{next_id_num:03d}"
@@ -101,7 +102,6 @@ class StickerStorageService:
             $p isa platform, has platform-uid "{platform_id}";
             (hosting-platform: $p, hosted-asset: $s) isa platform-asset;
             $s isa sticker, has sticker-uid $uid, has perceptual-hash $phash;
-        get $uid, $phash;
         """
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.database_name
@@ -170,7 +170,7 @@ class StickerStorageService:
 
         def db_update() -> bool:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
-                match_query = f'match $s isa sticker, has sticker-uid "{sticker_uid}"; get $s;'
+                match_query = f'match $s isa sticker, has sticker-uid "{sticker_uid}";'
                 #  tx.query 是方法
                 answers = list(tx.query(match_query).resolve())
                 if not answers:
@@ -214,7 +214,6 @@ class StickerStorageService:
             $s has filename $fn;
             $s has impression $imp;
             $s has image-hash $hash;
-        get $sid, $fn, $imp, $hash;
         sort $sid asc;
         """
 
@@ -258,7 +257,6 @@ class StickerStorageService:
             $s has impression $imp;
             $s has image-hash $hash;
             $s has perceptual-hash $phash;
-        get $fn, $imp, $hash, $phash;
         """
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.database_name
@@ -292,16 +290,16 @@ class StickerStorageService:
 
     async def get_distinct_platforms(self) -> list[str]:
         """从表情包集合中查询出所有不重复的平台ID."""
-        query = "match $p isa platform, has platform-uid $uid; get $uid; distinct $uid;"
+        # distinct 是一个流操作符，应该独立成行并以分号结尾
+        query = "match $p isa platform; $p has platform-uid $uid; select $uid; distinct;"
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.database_name
 
         def db_read() -> list[str]:
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                #  tx.query 是方法
                 answers = list(tx.query(query).resolve())
                 return [
-                    a.get("uid").as_attribute().get_value().get_string()
+                    a.get("uid").as_attribute().get_value().as_string()
                     for a in answers
                     if a.get("uid")
                 ]

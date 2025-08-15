@@ -14,6 +14,7 @@ from src.common.utils import find_files, generate_file_tree, parse_entity_uid
 from src.config import config
 from src.core_communication.action_sender import ActionSender
 from src.database import (
+    ActionLogDocument,
     ActionLogStorageService,
     EntityGraphService,
     EventStorageService,
@@ -666,17 +667,18 @@ class ActionHandler:
             )
             bot_id_for_log = "error_missing_bot_id"
 
-        await self.action_log_service.save_action_attempt(
-            action_id=core_action_id,
+        # 1. 创建 ActionLogDocument 实例
+        action_doc = ActionLogDocument(
+            _key=core_action_id,
             action_type=event_type,
             timestamp=timestamp,
             bot_id=bot_id_for_log,
             platform=platform,
-            conversation_id=action_to_send.get("conversation_info", {}).get(
-                "conversation_id", "unknown_conv_id"
-            ),
-            content=action_to_send.get("content", []),
+            status="pending",  # 初始状态
         )
+        # 2. 将实例传递给服务
+        await self.action_log_service.save_action_attempt(action_doc)
+
         try:
             send_success = await self.action_sender.send_action_to_adapter_by_id(
                 platform, action_to_send

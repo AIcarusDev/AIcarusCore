@@ -27,7 +27,6 @@ class GoalStorageService:
         $g has reason-text $reason;
         $g has created-at $created;
         $g has updated-at $updated;
-        get $id, $goal, $reason, $created, $updated;
         sort $created asc;
         """
         driver = self.conn_manager.get_driver()

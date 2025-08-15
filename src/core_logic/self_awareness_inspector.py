@@ -8,7 +8,6 @@ from src.common.custom_logging.logging_config import get_logger
 from src.database.models import CoreDBCollections
 
 # 导入新的服务和常量
-from src.database.services.entity_graph_service import SELF_PROFILE_ID
 
 if TYPE_CHECKING:
     from src.action.action_handler import ActionHandler
@@ -22,10 +21,7 @@ async def _check_for_existing_profile(
     entity_service: "EntityGraphService", platform_id: str
 ) -> dict[str, Any] | None:
     """检查数据库中是否已存在该平台的自身档案."""
-    profiles_collection = await entity_service._get_collection(CoreDBCollections.ENTITY_PROFILES)
-    if not await profiles_collection.has(SELF_PROFILE_ID):
-        return None
-
+    # 不再使用 _get_collection，而是直接调用高级服务方法
     all_self_entities = await entity_service.get_all_self_entities()
     if existing_entity := next(
         (e for e in all_self_entities if e.get("details", {}).get("platform") == platform_id),
