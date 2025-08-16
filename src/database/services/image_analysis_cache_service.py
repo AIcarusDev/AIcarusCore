@@ -13,6 +13,25 @@ logger = get_logger(__name__)
 
 
 class ImageAnalysisCacheService:
+    """Service for managing image analysis cache operations in TypeDB.
+
+    This service provides methods for caching and retrieving image analysis results
+    to avoid redundant processing. It stores analysis results with version information
+    and timestamp-based TTL for cache validity.
+
+    Attributes:
+    ----------
+    conn_manager : TypeDBConnectionManager
+        The connection manager for TypeDB database operations.
+
+    Methods:
+    -------
+    get_analysis_by_hash(image_hash, version, ttl_seconds)
+        Get cached image analysis result by hash if valid and matches version.
+    save_analysis(image_hash, analysis_result, version)
+        Save image analysis result to cache with version and timestamp.
+    """
+
     def __init__(self, conn_manager: TypeDBConnectionManager) -> None:
         self.conn_manager = conn_manager
         logger.info("ImageAnalysisCacheService (TypeDB) 初始化完成。")
@@ -20,6 +39,22 @@ class ImageAnalysisCacheService:
     async def get_analysis_by_hash(
         self, image_hash: str, version: str, ttl_seconds: int
     ) -> dict[str, Any] | None:
+        """Get cached image analysis result by hash.
+
+        Parameters
+        ----------
+        image_hash : str
+            The hash of the image to retrieve analysis for.
+        version : str
+            The version of the analysis algorithm to match.
+        ttl_seconds : int
+            The time-to-live in seconds for cache validity.
+
+        Returns:
+        -------
+        dict[str, Any] | None
+            The cached analysis result if found and valid, None otherwise.
+        """
         if not image_hash:
             return None
         query = f"""
@@ -56,6 +91,22 @@ class ImageAnalysisCacheService:
             return None
 
     async def save_analysis(self, image_hash: str, analysis_result: dict, version: str) -> bool:
+        """Save image analysis result to cache.
+
+        Parameters
+        ----------
+        image_hash : str
+            The hash of the image for which analysis was performed.
+        analysis_result : dict
+            The analysis result data to be cached.
+        version : str
+            The version of the analysis algorithm used.
+
+        Returns:
+        -------
+        bool
+            True if the analysis was successfully saved to cache, False otherwise.
+        """
         cache_doc = ImageCacheDocument(
             _key=image_hash,
             analysis_result=analysis_result,
@@ -89,7 +140,8 @@ class ImageAnalysisCacheService:
             success = await asyncio.to_thread(db_write)
             if success:
                 logger.info(
-                    f"新的图片分析结果已存入缓存。哈希: {cache_doc._key[:10]}..., 版本: {cache_doc.version}"
+                    f"新的图片分析结果已存入缓存。"
+                    f"哈希: {cache_doc._key[:10]}..., 版本: {cache_doc.version}"
                 )
             return success
         except Exception as e:

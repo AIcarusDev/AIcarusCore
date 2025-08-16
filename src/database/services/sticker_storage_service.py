@@ -12,6 +12,36 @@ logger = get_logger(__name__)
 
 
 class StickerStorageService:
+    """Service for managing sticker storage operations in TypeDB.
+
+    This service provides methods for adding, retrieving, updating, and removing
+    stickers from a TypeDB database. It handles sticker metadata including
+    filenames, impressions, image hashes, and perceptual hashes for similarity
+    detection.
+
+    Attributes:
+    ----------
+    conn_manager : TypeDBConnectionManager
+        The connection manager for TypeDB database operations.
+
+    Methods:
+    -------
+    add_sticker(platform_id, filename, impression, source_image_hash, perceptual_hash)
+        Add a new sticker to a specific platform.
+    find_similar_sticker_by_phash(platform_id, phash_to_check, tolerance=5)
+        Find a sticker with similar perceptual hash on a platform.
+    remove_sticker(platform_id, sticker_id)
+        Remove a sticker from a specific platform.
+    edit_impression(platform_id, sticker_id, new_impression)
+        Edit the impression text of a sticker.
+    get_all_stickers(platform_id)
+        Get all stickers for a specific platform.
+    get_sticker_by_id(platform_id, sticker_id)
+        Get a sticker by its ID from a specific platform.
+    get_distinct_platforms()
+        Get all distinct platform IDs that have stickers.
+    """
+
     def __init__(self, conn_manager: TypeDBConnectionManager) -> None:
         self.conn_manager = conn_manager
         logger.info("StickerStorageService (TypeDB gRPC) 初始化完成。")
@@ -41,6 +71,27 @@ class StickerStorageService:
         source_image_hash: str,
         perceptual_hash: str,
     ) -> dict[str, Any] | None:
+        """Add a new sticker to a specific platform.
+
+        Parameters
+        ----------
+        platform_id : str
+            The platform identifier where the sticker will be added.
+        filename : str
+            The filename of the sticker image.
+        impression : str
+            The impression or description text for the sticker.
+        source_image_hash : str
+            The hash of the original source image.
+        perceptual_hash : str
+            The perceptual hash used for similarity detection.
+
+        Returns:
+        -------
+        dict[str, Any] | None
+            A dictionary containing sticker details (sticker_id, sticker_uid, filename,
+            impression, added_at) if successful, None otherwise.
+        """
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.database_name
 
@@ -76,7 +127,8 @@ class StickerStorageService:
             sticker_doc = await asyncio.to_thread(db_write)
             if sticker_doc:
                 logger.info(
-                    f"新表情包 '{sticker_doc['sticker_uid']}' 已添加到 TypeDB 并关联到平台 '{platform_id}'。"
+                    f"新表情包 '{sticker_doc['sticker_uid']}' "
+                    f"已添加到 TypeDB 并关联到平台 '{platform_id}'。"
                 )
             return sticker_doc
         except Exception as e:
@@ -86,6 +138,23 @@ class StickerStorageService:
     async def find_similar_sticker_by_phash(
         self, platform_id: str, phash_to_check: str, tolerance: int = 5
     ) -> dict[str, Any] | None:
+        """Find a sticker with similar perceptual hash on a specific platform.
+
+        Parameters
+        ----------
+        platform_id : str
+            The platform identifier to search within.
+        phash_to_check : str
+            The perceptual hash to compare against existing stickers.
+        tolerance : int, optional
+            The maximum allowed difference between hashes, by default 5.
+
+        Returns:
+        -------
+        dict[str, Any] | None
+            A dictionary containing sticker_uid and phash if a similar sticker is found,
+            None otherwise.
+        """
         query = f"""
         match
             $p isa platform, has platform-uid "{platform_id}";
@@ -100,12 +169,11 @@ class StickerStorageService:
             with driver.transaction(db_name, TransactionType.READ) as tx:
                 answers = list(tx.query(query).resolve().as_concept_rows())
                 for answer in answers:
-                    if uid_attr := answer.get("uid"):
-                        if phash_attr := answer.get("phash"):
-                            candidate_uid = uid_attr.as_attribute().get_value()
-                            candidate_phash = phash_attr.as_attribute().get_value()
-                            if compare_phashes(phash_to_check, candidate_phash, tolerance):
-                                return {"sticker_uid": candidate_uid, "phash": candidate_phash}
+                    if (uid_attr := answer.get("uid")) and (phash_attr := answer.get("phash")):
+                        candidate_uid = uid_attr.as_attribute().get_value()
+                        candidate_phash = phash_attr.as_attribute().get_value()
+                        if compare_phashes(phash_to_check, candidate_phash, tolerance):
+                            return {"sticker_uid": candidate_uid, "phash": candidate_phash}
             return None
 
         try:
@@ -115,6 +183,20 @@ class StickerStorageService:
             return None
 
     async def remove_sticker(self, platform_id: str, sticker_id: str) -> bool:
+        """Remove a sticker from a specific platform.
+
+        Parameters
+        ----------
+        platform_id : str
+            The platform identifier where the sticker belongs.
+        sticker_id : str
+            The unique identifier of the sticker within the platform.
+
+        Returns:
+        -------
+        bool
+            True if the sticker was successfully removed, False otherwise.
+        """
         sticker_uid = f"{platform_id}_sticker_{sticker_id}"
         query = f'match $s isa sticker, has sticker-uid "{sticker_uid}"; delete $s;'
         driver = self.conn_manager.get_driver()
@@ -136,6 +218,22 @@ class StickerStorageService:
             return False
 
     async def edit_impression(self, platform_id: str, sticker_id: str, new_impression: str) -> bool:
+        """Edit the impression of a sticker.
+
+        Parameters
+        ----------
+        platform_id : str
+            The platform identifier where the sticker belongs.
+        sticker_id : str
+            The unique identifier of the sticker within the platform.
+        new_impression : str
+            The new impression text to set for the sticker.
+
+        Returns:
+        -------
+        bool
+            True if the impression was successfully updated, False otherwise.
+        """
         sticker_uid = f"{platform_id}_sticker_{sticker_id}"
         new_impression_safe = new_impression.replace('"', '\\"')
         driver = self.conn_manager.get_driver()
@@ -176,6 +274,19 @@ class StickerStorageService:
             return False
 
     async def get_all_stickers(self, platform_id: str) -> list[dict]:
+        """Get all stickers for a specific platform.
+
+        Parameters
+        ----------
+        platform_id : str
+            The platform identifier to retrieve stickers from.
+
+        Returns:
+        -------
+        list[dict]
+            A list of dictionaries containing sticker details (sticker_id, filename,
+            impression, image_hash) sorted by sticker ID in ascending order.
+        """
         query = f"""
         match
             $p isa platform, has platform-uid "{platform_id}";
@@ -213,6 +324,21 @@ class StickerStorageService:
             return []
 
     async def get_sticker_by_id(self, platform_id: str, sticker_id: str) -> dict[str, Any] | None:
+        """Get a sticker by its ID from a specific platform.
+
+        Parameters
+        ----------
+        platform_id : str
+            The platform identifier where the sticker belongs.
+        sticker_id : str
+            The unique identifier of the sticker within the platform.
+
+        Returns:
+        -------
+        dict[str, Any] | None
+            A dictionary containing sticker details (sticker_id, filename, impression,
+            source_image_hash, perceptual_hash) if found, None otherwise.
+        """
         sticker_uid = f"{platform_id}_sticker_{sticker_id}"
         query = f"""
         match
@@ -247,6 +373,13 @@ class StickerStorageService:
             return None
 
     async def get_distinct_platforms(self) -> list[str]:
+        """Get all distinct platform IDs that have stickers.
+
+        Returns:
+        -------
+        list[str]
+            A list of platform UIDs that have associated stickers.
+        """
         query = """
         match
             (hosting-platform: $p, hosted-asset: $s) isa platform-asset;

@@ -100,7 +100,7 @@ class ActionLogStorageService:
                     else:
                         safe_value = value
 
-                    quote = '"' if isinstance(value, (str, dict)) else ""
+                    quote = '"' if isinstance(value, str | dict) else ""
 
                     insert_query = f"""
                     match $a isa action-log, has action-id "{action_id}";

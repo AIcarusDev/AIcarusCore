@@ -11,11 +11,41 @@ logger = get_logger(__name__)
 
 
 class GoalStorageService:
+    """A service for managing goal data storage operations in TypeDB.
+
+    This class provides an interface for performing CRUD operations on goal
+    documents stored in a TypeDB database. It handles loading active goals,
+    adding new goals, and updating goal statuses.
+
+    Attributes:
+    ----------
+    conn_manager : TypeDBConnectionManager
+        The connection manager for TypeDB database operations.
+
+    Methods:
+    -------
+    load_all_active_goals() -> list[GoalDocument]
+        Load all active goals from the database.
+    add_goal(goal_doc: GoalDocument) -> bool
+        Add a new goal to the database.
+    update_goal_status(goal_id: str, status: str) -> bool
+        Update the status of a goal in the database.
+    """
+
     def __init__(self, conn_manager: TypeDBConnectionManager) -> None:
         self.conn_manager = conn_manager
         logger.info("GoalStorageService (TypeDB) 初始化完成。")
 
     async def load_all_active_goals(self) -> list[GoalDocument]:
+        """Load all active goals from the database.
+
+        Returns:
+        -------
+        list[GoalDocument]
+            A list of GoalDocument objects representing all active goals,
+            sorted by creation date in ascending order. Returns an empty
+            list if no active goals are found or if an error occurs.
+        """
         query = """
         match $g isa goal, has status "active";
         $g has goal-id $id;
@@ -50,6 +80,18 @@ class GoalStorageService:
             return []
 
     async def add_goal(self, goal_doc: GoalDocument) -> bool:
+        """Add a new goal to the database.
+
+        Parameters
+        ----------
+        goal_doc : GoalDocument
+            The goal document containing all goal information to be stored.
+
+        Returns:
+        -------
+        bool
+            True if the goal was successfully added, False otherwise.
+        """
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.database_name
 
@@ -78,6 +120,20 @@ class GoalStorageService:
             return False
 
     async def update_goal_status(self, goal_id: str, status: str) -> bool:
+        """Update the status of a goal in the database.
+
+        Parameters
+        ----------
+        goal_id : str
+            The unique identifier of the goal to update.
+        status : str
+            The new status to set for the goal.
+
+        Returns:
+        -------
+        bool
+            True if the update was successful, False otherwise.
+        """
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.database_name
 
