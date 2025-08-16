@@ -382,9 +382,9 @@ class StickerStorageService:
         """
         query = """
         match
-            (hosting-platform: $p, hosted-asset: $s) isa platform-asset;
             $p isa platform, has platform-uid $puid;
             $s isa sticker;
+            (hosting-platform: $p, hosted-asset: $s) isa platform-asset;
         select $puid; distinct;
         """
         driver = self.conn_manager.get_driver()
