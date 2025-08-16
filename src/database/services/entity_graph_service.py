@@ -19,6 +19,8 @@ SELF_PROFILE_ID = "aic_person_0"
 
 
 class EntityGraphService:
+    """实体图服务."""
+
     def __init__(
         self,
         conn_manager: TypeDBConnectionManager,
@@ -31,7 +33,10 @@ class EntityGraphService:
     def _update_account_nickname_if_changed_sync(
         self, tx: Transaction, account_uid: str, new_nickname: str
     ) -> None:
-        match_query = f'match $a isa account, has account-uid "{account_uid}"; try {{ $a has nickname $n; }}; select $n;'
+        match_query = (
+            f'match $a isa account, has account-uid "{account_uid}"; '
+            f"try {{ $a has nickname $n; }}; select $n;"
+        )
         answers = list(tx.query(match_query).resolve().as_concept_rows())
         old_nick = None
         if answers and (old_nick_concept := answers[0].get("n")):
@@ -39,14 +44,31 @@ class EntityGraphService:
         if old_nick == new_nickname:
             return
         if old_nick is not None:
-            delete_query = f'match $a isa account, has account-uid "{account_uid}", has nickname "{old_nick}"; delete $a has nickname "{old_nick}";'
+            delete_query = (
+                f"match $a isa account, "
+                f'has account-uid "{account_uid}", has nickname "{old_nick}"; '
+                f'delete $a has nickname "{old_nick}";'
+            )
             tx.query(delete_query).resolve()
-        insert_query = f'match $a isa account, has account-uid "{account_uid}"; insert $a has nickname "{new_nickname}";'
+        insert_query = (
+            f'match $a isa account, has account-uid "{account_uid}"; '
+            f'insert $a has nickname "{new_nickname}";'
+        )
         tx.query(insert_query).resolve()
 
     async def find_or_create_profile_and_account_entity(
         self, user_info: ProtocolUserInfo, platform: str
     ) -> tuple[str | None, str | None]:
+        """查找或创建 Profile 和 Account 实体.
+
+        Args:
+            user_info (ProtocolUserInfo): 包含用户信息的 ProtocolUserInfo 对象。
+            platform (str): 平台名称。
+
+        Returns:
+            tuple[str | None, str | None]: 包含 profile_id 和 account_uid 的元组。
+                                            如果创建或查找失败，则返回 (None, None)。
+        """
         if not user_info or not user_info.user_id:
             return None, None
         account_uid = f"{platform}_{user_info.user_id}"
@@ -55,7 +77,11 @@ class EntityGraphService:
 
         def db_read_and_update() -> tuple[str | None, str | None]:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
-                find_query = f'match $acc isa account, has account-uid "{account_uid}"; (owner: $p, owned-account: $acc) isa identity-ownership; $p isa person, has person-uid $p_uid; select $p_uid;'
+                find_query = (
+                    f'match $acc isa account, has account-uid "{account_uid}"; '
+                    f"(owner: $p, owned-account: $acc) isa identity-ownership; "
+                    f"$p isa person, has person-uid $p_uid; select $p_uid;"
+                )
                 answers = list(tx.query(find_query).resolve().as_concept_rows())
                 if answers:
                     p_uid = (
@@ -84,6 +110,17 @@ class EntityGraphService:
         platform: str,
         is_self: bool = False,
     ) -> tuple[str | None, str | None]:
+        """创建新的 Profile 和 Account 实体.
+
+        Args:
+            user_info (ProtocolUserInfo): 包含用户信息的 ProtocolUserInfo 对象。
+            platform (str): 平台名称。
+            is_self (bool): 是否为自身实体。
+
+        Returns:
+            tuple[str | None, str | None]: 包含 profile_id 和 account_uid 的元组。
+                                            如果创建失败，则返回 (None, None)。
+        """
         profile_uid = SELF_PROFILE_ID if is_self else f"profile_{uuid.uuid4().hex[:12]}"
         account_uid = f"{platform}_{user_info.user_id}"
         nickname = (user_info.user_nickname or "").replace('"', '\\"')
@@ -106,10 +143,18 @@ class EntityGraphService:
                     tx.query(f'match $plat isa platform, has platform-uid "{platform}";').resolve()
                 ):
                     tx.query(
-                        f'insert $plat isa platform, has platform-uid "{platform}", has display-name "{platform}";'
+                        f'insert $plat isa platform, has platform-uid "{platform}", '
+                        f'has display-name "{platform}";'
                     ).resolve()
                 tx.query(
-                    f'match $p isa person, has person-uid "{profile_uid}"; $plat isa platform, has platform-uid "{platform}"; insert $acc isa account, has account-uid "{account_uid}", has platform-id "{platform_id_val}", has nickname "{nickname}", has last-known-nickname "{nickname}"; (owner: $p, owned-account: $acc) isa identity-ownership; (resident: $acc, host-platform: $plat) isa residency;'
+                    f'match $p isa person, has person-uid "{profile_uid}"; '
+                    f'$plat isa platform, has platform-uid "{platform}"; '
+                    f'insert $acc isa account, has account-uid "{account_uid}", '
+                    f'has platform-id "{platform_id_val}", '
+                    f'has nickname "{nickname}", '
+                    f'has last-known-nickname "{nickname}"; '
+                    f"(owner: $p, owned-account: $acc) isa identity-ownership; "
+                    f"(resident: $acc, host-platform: $plat) isa residency;"
                 ).resolve()
                 tx.commit()
 
@@ -121,7 +166,15 @@ class EntityGraphService:
             return None, None
 
     async def get_all_self_entities(self) -> list[dict[str, Any]]:
-        query = f'match $p isa person, has person-uid "{SELF_PROFILE_ID}"; (owner: $p, owned-account: $acc) isa identity-ownership; $acc isa account, has account-uid $uid, has platform-id $pid, has nickname $nick; (resident: $acc, host-platform: $plat) isa residency; $plat isa platform, has platform-uid $platform_uid; select $uid, $pid, $nick, $platform_uid;'
+        """获取所有自身实体信息."""
+        query = (
+            f'match $p isa person, has person-uid "{SELF_PROFILE_ID}"; '
+            f"(owner: $p, owned-account: $acc) isa identity-ownership; "
+            f"$acc isa account, has account-uid $uid, has platform-id $pid, has nickname $nick;"
+            f"(resident: $acc, host-platform: $plat) isa residency; "
+            f"$plat isa platform, has platform-uid $platform_uid; "
+            f"select $uid, $pid, $nick, $platform_uid;"
+        )
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.database_name
 
@@ -152,6 +205,7 @@ class EntityGraphService:
         user_info: ProtocolUserInfo,
         conversation_name: str | None,
     ) -> bool:
+        """更新用户在对话中的存在状态."""
         cardname = (user_info.user_cardname or "").replace('"', '\\"')
         perm_level = (user_info.permission_level or "member").replace('"', '\\"')
         timestamp = int(time.time() * 1000)
@@ -161,10 +215,17 @@ class EntityGraphService:
         def db_upsert_membership() -> None:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
                 tx.query(
-                    f'match $acc isa account, has account-uid "{account_entity_uid}"; $conv isa conversation, has conversation-uid "{conversation_entity_uid}"; $mem (member: $acc, group: $conv) isa membership; delete $mem;'
+                    f'match $acc isa account, has account-uid "{account_entity_uid}"; '
+                    f'$conv isa conversation, has conversation-uid "{conversation_entity_uid}"; '
+                    f"$mem (member: $acc, group: $conv) isa membership; delete $mem;"
                 ).resolve()
                 tx.query(
-                    f'match $acc isa account, has account-uid "{account_entity_uid}"; $conv isa conversation, has conversation-uid "{conversation_entity_uid}"; insert (member: $acc, group: $conv) isa membership, has cardname "{cardname}", has permission-level "{perm_level}", has timestamp {timestamp};'
+                    f'match $acc isa account, has account-uid "{account_entity_uid}"; '
+                    f'$conv isa conversation, has conversation-uid "{conversation_entity_uid}"; '
+                    f"insert (member: $acc, group: $conv) isa membership, "
+                    f'has cardname "{cardname}", '
+                    f'has permission-level "{perm_level}", '
+                    f"has timestamp {timestamp};"
                 ).resolve()
                 tx.commit()
 
@@ -178,6 +239,15 @@ class EntityGraphService:
     async def get_or_create_platform_entity(
         self, platform_id: str, display_name: str | None = None
     ) -> dict[str, Any] | None:
+        """获取或创建一个平台实体.
+
+        Args:
+            platform_id (str): 平台 ID.
+            display_name (str | None, optional): 平台显示名称. Defaults to None.
+
+        Returns:
+            dict[str, Any] | None: 平台实体信息字典，如果创建或获取失败则返回 None.
+        """
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
         display_name_safe = (display_name or platform_id).replace('"', '\\"')
 
@@ -194,7 +264,8 @@ class EntityGraphService:
                         },
                     }
                 tx.query(
-                    f'insert $p isa platform, has platform-uid "{platform_id}", has display-name "{display_name_safe}";'
+                    f'insert $p isa platform, has platform-uid "{platform_id}", '
+                    f'has display-name "{display_name_safe}";'
                 ).resolve()
                 tx.commit()
                 return {
@@ -212,7 +283,15 @@ class EntityGraphService:
             return None
 
     async def get_pending_friend_requests(self, platform_id: str) -> list[dict[str, Any]]:
-        query = f'match $acc isa account, has platform-id $pid; $p isa platform, has platform-uid "{platform_id}"; (resident: $acc, host-platform: $p) isa residency; $acc has flag $f; $acc has comment $c; $acc has last-known-nickname $nick; $acc has request-timestamp $ts; select $pid, $nick, $f, $c, $ts;'
+        """获取待处理的好友请求."""
+        query = (
+            f"match $acc isa account,"
+            f'has platform-id $pid; $p isa platform, has platform-uid "{platform_id}";'
+            f"(resident: $acc, host-platform: $p) isa residency; $acc has flag $f; "
+            f"$acc has comment $c; $acc has last-known-nickname $nick; "
+            f"$acc has request-timestamp $ts;"
+            f"select $pid, $nick, $f, $c, $ts;"
+        )
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
         def db_read() -> list[dict[str, Any]]:
@@ -235,7 +314,19 @@ class EntityGraphService:
             return []
 
     async def get_conversation_last_read_timestamp(self, conversation_entity_uid: str) -> float:
-        query = f'match $p isa person, has person-uid "{SELF_PROFILE_ID}"; $c isa conversation, has conversation-uid "{conversation_entity_uid}"; (reader: $p, readable: $c) isa read-status, has timestamp $ts; select $ts;'
+        """获取会话最后一次读取的时间戳.
+
+        Args:
+            conversation_entity_uid (str): 会话的实体 UID.
+
+        Returns:
+            float: 最后一次读取的时间戳，如果未找到则返回 0.0.
+        """
+        query = (
+            f'match $p isa person, has person-uid "{SELF_PROFILE_ID}"; '
+            f'$c isa conversation, has conversation-uid "{conversation_entity_uid}"; '
+            f"(reader: $p, readable: $c) isa read-status, has timestamp $ts; select $ts;"
+        )
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
         def db_read() -> float:
@@ -256,16 +347,29 @@ class EntityGraphService:
     async def update_conversation_last_read_timestamp(
         self, conversation_entity_uid: str, timestamp: float
     ) -> bool:
+        """更新会话的最后读取时间戳.
+
+        Args:
+            conversation_entity_uid (str): 会话的实体 UID.
+            timestamp (float): 最后读取的时间戳.
+
+        Returns:
+            bool: 指示更新是否成功的布尔值。
+        """
         ts_int = int(timestamp)
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
         def db_upsert() -> None:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
                 tx.query(
-                    f'match $p isa person, has person-uid "{SELF_PROFILE_ID}"; $c isa conversation, has conversation-uid "{conversation_entity_uid}"; $rs (reader: $p, readable: $c) isa read-status; delete $rs;'
+                    f'match $p isa person, has person-uid "{SELF_PROFILE_ID}"; '
+                    f'$c isa conversation, has conversation-uid "{conversation_entity_uid}"; '
+                    f"$rs (reader: $p, readable: $c) isa read-status; delete $rs;"
                 ).resolve()
                 tx.query(
-                    f'match $p isa person, has person-uid "{SELF_PROFILE_ID}"; $c isa conversation, has conversation-uid "{conversation_entity_uid}"; insert (reader: $p, readable: $c) isa read-status, has timestamp {ts_int};'
+                    f'match $p isa person, has person-uid "{SELF_PROFILE_ID}"; '
+                    f'$c isa conversation, has conversation-uid "{conversation_entity_uid}"; '
+                    f"insert (reader: $p, readable: $c) isa read-status, has timestamp {ts_int};"
                 ).resolve()
                 tx.commit()
 
@@ -286,6 +390,18 @@ class EntityGraphService:
         name: str | None = None,
         extra: dict | None = None,
     ) -> dict[str, Any] | None:
+        """获取或创建一个会话实体.
+
+        Args:
+            conversation_id (str): 会话 ID.
+            platform (str): 平台名称.
+            conv_type (str): 会话类型.
+            name (str | None, optional): 会话名称. Defaults to None.
+            extra (dict | None, optional): 额外信息. Defaults to None.
+
+        Returns:
+            dict[str, Any] | None: 会话实体信息字典，如果创建或获取失败则返回 None.
+        """
         conv_entity_uid = build_conversation_entity_uid(platform, conv_type, conversation_id)
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
@@ -298,7 +414,11 @@ class EntityGraphService:
                 ):
                     return conv_entity_uid
                 tx.query(
-                    f'match $p isa platform, has platform-uid "{platform}"; insert $c isa conversation, has conversation-uid "{conv_entity_uid}", has conversation-id "{conversation_id}", has type "{conv_type}", has display-name "{(name or conversation_id).replace('"', '\\"\\"')}"; insert (resident: $c, host-platform: $p) isa residency;'
+                    f'match $p isa platform, has platform-uid "{platform}"; '
+                    f'insert $c isa conversation, has conversation-uid "{conv_entity_uid}", '
+                    f'has conversation-id "{conversation_id}", has type "{conv_type}", '
+                    f'has display-name "{(name or conversation_id).replace('"', '\\"\\"')}"; '
+                    f"insert (resident: $c, host-platform: $p) isa residency;"
                 ).resolve()
                 tx.commit()
                 return conv_entity_uid
@@ -311,6 +431,14 @@ class EntityGraphService:
             return None
 
     async def get_entity_by_key(self, entity_uid: str) -> dict[str, Any] | None:
+        """通过实体 UID 获取实体信息.
+
+        Args:
+            entity_uid (str): 实体的 UID.
+
+        Returns:
+            dict[str, Any] | None: 包含实体信息的字典，如果未找到则返回 None.
+        """
         if not entity_uid:
             return None
         parsed_uid = parse_entity_uid(entity_uid)
@@ -324,7 +452,12 @@ class EntityGraphService:
         }.get(entity_type)
         if not uid_attribute_type:
             return None
-        query = f'match $e isa {entity_type}, has {uid_attribute_type} "{entity_uid}"; $e has $attr; $attr isa $attr_type; $attr_type label $attr_label; $attr has $value; select $attr_label, $value;'
+        query = (
+            f'match $e isa {entity_type}, has {uid_attribute_type} "{entity_uid}"; '
+            f"$e has $attr; $attr isa $attr_type; "
+            f"$attr_type label $attr_label; $attr has $value; "
+            f"select $attr_label, $value;"
+        )
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
         def db_read() -> dict[str, Any] | None:
@@ -355,15 +488,31 @@ class EntityGraphService:
     async def update_friend_request_status(
         self, entity_uid: str, flag: str, comment: str, timestamp: int
     ) -> bool:
+        """更新好友请求状态.
+
+        Args:
+            entity_uid (str): 账户实体 UID.
+            flag (str): 状态标志.
+            comment (str): 备注信息.
+            timestamp (int): 时间戳.
+
+        Returns:
+            bool: 指示更新是否成功的布尔值.
+        """
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
         def db_write() -> bool:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
                 tx.query(
-                    f'match $acc isa account, has account-uid "{entity_uid}"; $acc has flag $f; $acc has comment $c; $acc has request-timestamp $ts; delete has $f of $acc; has $c of $acc; has $ts of $acc;'
+                    f'match $acc isa account, has account-uid "{entity_uid}"; '
+                    f"$acc has flag $f; $acc has comment $c; $acc has request-timestamp $ts; "
+                    f"delete has $f of $acc; has $c of $acc; has $ts of $acc;"
                 ).resolve()
                 tx.query(
-                    f'match $acc isa account, has account-uid "{entity_uid}"; insert $acc has flag "{flag.replace('"', '\\"')}", has comment "{comment.replace('"', '\\"')}", has request-timestamp {timestamp};'
+                    f'match $acc isa account, has account-uid "{entity_uid}"; '
+                    f'insert $acc has flag "{flag.replace('"', '\\"')}", '
+                    f'has comment "{comment.replace('"', '\\"')}", '
+                    f"has request-timestamp {timestamp};"
                 ).resolve()
                 tx.commit()
                 return True
@@ -377,19 +526,34 @@ class EntityGraphService:
     async def finalize_friend_request(
         self, entity_uid: str, approved: bool, remark: str | None
     ) -> bool:
+        """完成好友请求.
+
+        Args:
+            entity_uid (str): 账户实体 UID.
+            approved (bool): 是否批准好友请求.
+            remark (str | None): 备注信息.
+
+        Returns:
+            bool: 指示更新是否成功的布尔值.
+        """
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
         def db_write() -> bool:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
                 tx.query(
-                    f'match $acc isa account, has account-uid "{entity_uid}"; $acc has flag $f; $acc has comment $c; $acc has request-timestamp $ts; delete has $f of $acc; has $c of $acc; has $ts of $acc;'
+                    f'match $acc isa account, has account-uid "{entity_uid}"; '
+                    f"$acc has flag $f; "
+                    f"$acc has comment $c; $acc has request-timestamp $ts; "
+                    f"delete has $f of $acc; has $c of $acc; has $ts of $acc;"
                 ).resolve()
                 if approved and remark:
                     tx.query(
-                        f'match $acc isa account, has account-uid "{entity_uid}"; $acc has friend-remark $rem; delete has $rem of $acc;'
+                        f'match $acc isa account, has account-uid "{entity_uid}"; '
+                        f"$acc has friend-remark $rem; delete has $rem of $acc;"
                     ).resolve()
                     tx.query(
-                        f'match $acc isa account, has account-uid "{entity_uid}"; insert $acc has friend-remark "{remark.replace('"', '\\"\\"')}";'
+                        f'match $acc isa account, has account-uid "{entity_uid}"; '
+                        f'insert $acc has friend-remark "{remark.replace('"', '\\"\\"')}";'
                     ).resolve()
                 tx.commit()
                 return True
@@ -401,6 +565,7 @@ class EntityGraphService:
             return False
 
     async def get_self_entity_by_platform(self, platform_id: str) -> dict[str, Any] | None:
+        """通过平台 ID 获取自身实体信息."""
         return next(
             (
                 e
@@ -413,15 +578,26 @@ class EntityGraphService:
     async def get_self_presence_in_conversation(
         self, platform: str, conversation_entity_uid: str
     ) -> dict[str, Any] | None:
+        """获取自身在会话中的状态 (占位方法)."""
         return {"cardname": "Placeholder Card", "permission_level": "member"}
 
     async def get_recently_active_conversation_entities_with_details(
         self, exclude_conversation_id: str | None = None, self_bot_ids: dict[str, str] | None = None
     ) -> list[dict[str, Any]]:
+        """获取最近活跃的会话实体及其详细信息.
+
+        Args:
+            exclude_conversation_id (str | None, optional): 需要排除的会话 ID. Defaults to None.
+            self_bot_ids (dict[str, str] | None, optional): 自身 Bot 的 ID 字典. Defaults to None.
+
+        Returns:
+            list[dict[str, Any]]: 包含会话实体及其详细信息的列表.
+        """
         if self_bot_ids is None:
             self_bot_ids = {}
         query_all_events, driver, db_name, active_convs_data = (
-            "match $event isa event, has conversation-info-json $ci, has timestamp $ts; select $ci, $ts;",
+            "match $event isa event, has conversation-info-json $ci, "
+            "has timestamp $ts; select $ci, $ts;",
             self.conn_manager.get_driver(),
             self.conn_manager.database_name,
             [],

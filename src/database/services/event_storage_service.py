@@ -15,12 +15,15 @@ logger = get_logger(__name__)
 
 
 class EventStorageService:
+    """事件存储服务，负责与 TypeDB 数据库交互，存储和检索事件数据."""
+
     def __init__(self, conn_manager: TypeDBConnectionManager) -> None:
         self.conn_manager = conn_manager
         self.entity_graph_service: EntityGraphService | None = None
         logger.info("EventStorageService (TypeDB) 初始化完成。")
 
     def set_entity_graph_service(self, service: "EntityGraphService") -> None:
+        """Sets the entity graph service."""
         self.entity_graph_service = service
 
     async def save_event_document(self, event_doc_data: dict[str, Any]) -> bool:
