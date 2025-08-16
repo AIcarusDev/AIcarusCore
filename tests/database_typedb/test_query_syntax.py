@@ -1,3 +1,5 @@
+from collections.abc import AsyncGenerator
+
 import pytest
 from typedb.driver import Driver, TransactionType
 
@@ -11,7 +13,7 @@ QUERY_SHOULD_SUCCEED = (
 
 
 @pytest.fixture(scope="function")
-async def setup_syntax_test_data(db_connection: Driver) -> None:
+async def setup_syntax_test_data(db_connection: Driver) -> AsyncGenerator[None, None]:
     """Set up test data for syntax testing by inserting a platform record.
 
     Parameters

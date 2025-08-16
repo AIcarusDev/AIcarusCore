@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import AsyncGenerator, Generator
 from pathlib import Path
 
 import pytest
@@ -35,7 +36,7 @@ SCHEMA_PATH = Path("src/database/schema.tql")
 
 
 @pytest.fixture(scope="session")
-def db_driver() -> Driver:
+def db_driver() -> Generator[Driver, None, None]:
     """一个会话级的 fixture，负责建立和销毁数据库连接."""
     print(f"\nConnecting to TypeDB at {ADDRESS}...")
     driver = TypeDB.driver(
@@ -47,7 +48,7 @@ def db_driver() -> Driver:
 
 
 @pytest.fixture(scope="function")
-async def db_connection(db_driver: Driver) -> Driver:
+async def db_connection(db_driver: Driver) -> AsyncGenerator[Driver, None]:
     """一个函数级的 fixture，确保每个测试函数都有一个干净的数据库."""
     print(f"Preparing clean database '{DATABASE_NAME}'...")
     if await asyncio.to_thread(db_driver.databases.contains, DATABASE_NAME):
