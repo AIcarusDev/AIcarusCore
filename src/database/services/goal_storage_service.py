@@ -1,4 +1,3 @@
-# src/database/services/goal_storage_service.py
 import asyncio
 import time
 
@@ -12,14 +11,11 @@ logger = get_logger(__name__)
 
 
 class GoalStorageService:
-    """服务类，负责处理 AI 目标的持久化存储和检索 (TypeDB 版本)."""
-
     def __init__(self, conn_manager: TypeDBConnectionManager) -> None:
         self.conn_manager = conn_manager
         logger.info("GoalStorageService (TypeDB) 初始化完成。")
 
     async def load_all_active_goals(self) -> list[GoalDocument]:
-        """从数据库加载所有状态为 'active' 的目标."""
         query = """
         match $g isa goal, has status "active";
         $g has goal-id $id;
@@ -34,21 +30,18 @@ class GoalStorageService:
 
         def db_read() -> list[GoalDocument]:
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                #  tx.query 是方法
-                answers = list(tx.query(query).resolve())
-                goals = []
-                for ans in answers:
-                    goals.append(
-                        GoalDocument(
-                            _key=ans.get("id").as_attribute().get_value().get_string(),
-                            goal_text=ans.get("goal").as_attribute().get_value().get_string(),
-                            reason_text=ans.get("reason").as_attribute().get_value().get_string(),
-                            status="active",
-                            created_at=ans.get("created").as_attribute().get_value().get_integer(),
-                            updated_at=ans.get("updated").as_attribute().get_value().get_integer(),
-                        )
+                answers = list(tx.query(query).resolve().as_concept_rows())
+                return [
+                    GoalDocument(
+                        _key=ans.get("id").as_attribute().get_value(),
+                        goal_text=ans.get("goal").as_attribute().get_value(),
+                        reason_text=ans.get("reason").as_attribute().get_value(),
+                        status="active",
+                        created_at=ans.get("created").as_attribute().get_value(),
+                        updated_at=ans.get("updated").as_attribute().get_value(),
                     )
-                return goals
+                    for ans in answers
+                ]
 
         try:
             return await asyncio.to_thread(db_read)
@@ -57,7 +50,6 @@ class GoalStorageService:
             return []
 
     async def add_goal(self, goal_doc: GoalDocument) -> bool:
-        """向数据库中添加一个新的目标文档."""
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.database_name
 
@@ -72,7 +64,6 @@ class GoalStorageService:
                     has created-at {goal_doc.created_at},
                     has updated-at {goal_doc.updated_at};
                 """
-                #  tx.query 是方法
                 tx.query(insert_query).resolve()
                 tx.commit()
                 return True
@@ -87,7 +78,6 @@ class GoalStorageService:
             return False
 
     async def update_goal_status(self, goal_id: str, status: str) -> bool:
-        """更新数据库中一个目标的状态."""
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.database_name
 
@@ -97,16 +87,13 @@ class GoalStorageService:
                 match $g isa goal, has goal-id "{goal_id}";
                 $g has status $s;
                 $g has updated-at $ts;
-                delete $g has $s; $g has $ts;
+                delete has $s of $g; has $ts of $g;
                 """
-                #  tx.query 是方法
                 tx.query(delete_query).resolve()
-
                 insert_query = f"""
                 match $g isa goal, has goal-id "{goal_id}";
                 insert $g has status "{status}", has updated-at {int(time.time() * 1000)};
                 """
-                #  tx.query 是方法
                 tx.query(insert_query).resolve()
                 tx.commit()
                 return True

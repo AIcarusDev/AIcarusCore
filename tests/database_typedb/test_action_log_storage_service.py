@@ -1,44 +1,57 @@
-# tests/database_typedb/test_action_log_storage_service.py
 import pytest
-from pytest_mock import MockerFixture
-from src.database.core.connection_manager import TypeDBConnectionManager
 from src.database.models import ActionLogDocument
-from src.database.services.action_log_storage_service import ActionLogStorageService
+from src.database.services import ActionLogStorageService, EntityGraphService
+from typedb.driver import Driver, TransactionType
 
-@pytest.fixture
-def service(mocker: MockerFixture) -> ActionLogStorageService:
-    """创建一个带有模拟连接管理器的服务实例."""
-    mock_conn_manager = mocker.MagicMock(spec=TypeDBConnectionManager)
-    mock_conn_manager.get_driver.return_value = mocker.MagicMock()
-    type(mock_conn_manager).database_name = mocker.PropertyMock(return_value="test_db")
-    return ActionLogStorageService(mock_conn_manager)
-
-@pytest.fixture(autouse=True)
-def mock_to_thread(mocker: MockerFixture) -> None:
-    """自动为所有测试模拟 asyncio.to_thread."""
-    async def mock_async_wrapper(func: callable, *args: any, **kwargs: any) -> any:
-        return func(*args, **kwargs)
-    mocker.patch("asyncio.to_thread", side_effect=mock_async_wrapper)
 
 @pytest.mark.asyncio
-async def test_save_action_attempt(service: ActionLogStorageService, mocker: MockerFixture) -> None:
-    """测试保存操作尝试."""
-    mock_tx = (
-        service.conn_manager.get_driver.return_value.transaction.return_value.__enter__.return_value
-    )
-    # [修正]: tx.query 是一个方法，不是一个带有 .get/.insert 的对象
-    # 我们需要模拟 tx.query() 调用本身
-    mock_promise = mocker.MagicMock()
-    # 第一次调用 (match) 返回空列表，第二次 (insert) 返回 None
-    mock_promise.resolve.side_effect = [[], None]
-    mock_tx.query.return_value = mock_promise
+async def test_save_and_update_action_log(
+    action_log_storage_service: ActionLogStorageService,
+    entity_graph_service: EntityGraphService,
+    db_connection: Driver,
+) -> None:
+    """测试保存和更新动作日志."""
+    service = action_log_storage_service
+    db_name = service.conn_manager.database_name
+
+    platform_id = "qq"
+    await entity_graph_service.get_or_create_platform_entity(platform_id, "QQ")
 
     doc = ActionLogDocument(
-        _key="action1", action_type="send", timestamp=1, platform="qq", bot_id="bot1"
+        _key="action1",
+        action_type="send",
+        timestamp=123,
+        platform=platform_id,
+        bot_id="bot1",
+        status="pending",
     )
-    success = await service.save_action_attempt(doc)
+    success_save = await service.save_action_attempt(doc)
+    assert success_save is True, "保存初始动作失败"
 
-    assert success is True
-    # [修正]: 断言 tx.query 被调用了两次
-    assert mock_tx.query.call_count == 2
-    mock_tx.commit.assert_called_once()
+    with db_connection.transaction(db_name, TransactionType.READ) as tx:
+        query = 'match $a isa action-log, has action-id "action1"; $a has status $s; select $s;'
+        answers = list(tx.query(query).resolve().as_concept_rows())
+        assert len(answers) == 1, "初始动作日志未能成功保存"
+        assert answers[0].get("s").as_attribute().get_value() == "pending"
+
+    updates = {
+        "status": "completed",
+        "response_timestamp": 456,
+        "result_details": {"info": "ok"},
+    }
+    success_update = await service.update_action_log_with_response("action1", updates)
+    assert success_update is True, "更新动作日志失败"
+
+    with db_connection.transaction(db_name, TransactionType.READ) as tx:
+        query = """
+        match $a isa action-log, has action-id "action1";
+        $a has status $s;
+        $a has response-timestamp $ts;
+        $a has result-details-json $rd;
+        select $s, $ts, $rd;
+        """
+        answers = list(tx.query(query).resolve().as_concept_rows())
+        assert len(answers) == 1, "更新后的动作日志未能找到"
+        assert answers[0].get("s").as_attribute().get_value() == "completed"
+        assert answers[0].get("ts").as_attribute().get_value() == 456
+        assert answers[0].get("rd").as_attribute().get_value() == '{"info": "ok"}'

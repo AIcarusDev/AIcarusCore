@@ -1,55 +1,27 @@
-import time
-
 import pytest
-from pytest_mock import MockerFixture
-from src.database.core.connection_manager import TypeDBConnectionManager
-from src.database.services.image_analysis_cache_service import (
-    ImageAnalysisCacheService,
-)
-from tests.database_typedb.test_entity_graph_service import create_mock_attribute
-
-
-@pytest.fixture
-def service(mocker: MockerFixture) -> ImageAnalysisCacheService:
-    """创建 ImageAnalysisCacheService 的测试实例."""
-    mock_conn_manager = mocker.MagicMock(spec=TypeDBConnectionManager)
-    mock_conn_manager.get_driver.return_value = mocker.MagicMock()
-    type(mock_conn_manager).database_name = mocker.PropertyMock(return_value="test_db")
-    return ImageAnalysisCacheService(mock_conn_manager)
-
-
-@pytest.fixture(autouse=True)
-def mock_to_thread(mocker: MockerFixture) -> None:
-    """自动为所有测试模拟 asyncio.to_thread."""
-
-    async def mock_async_wrapper(func: callable, *args: any, **kwargs: any) -> any:
-        return func(*args, **kwargs)
-
-    mocker.patch("asyncio.to_thread", side_effect=mock_async_wrapper)
+from src.database.services import ImageAnalysisCacheService
 
 
 @pytest.mark.asyncio
-async def test_get_analysis_by_hash_hit(
-    service: ImageAnalysisCacheService, mocker: MockerFixture
+async def test_save_and_get_analysis_cache(
+    image_analysis_cache_service: ImageAnalysisCacheService,
 ) -> None:
-    """测试根据哈希值获取图像分析结果."""
-    mock_tx = (
-        service.conn_manager.get_driver.return_value.transaction.return_value.__enter__.return_value
+    """Test saving and retrieving image analysis cache data.
+
+    Parameters
+    ----------
+    image_analysis_cache_service : ImageAnalysisCacheService
+        The image analysis cache service instance for testing.
+    """
+    service = image_analysis_cache_service
+    image_hash, analysis_result, version, ttl = (
+        "hash_for_cache_test",
+        {"description": "一只猫"},
+        "v1.0",
+        60,
     )
-    mock_query_manager = mock_tx.query
-
-    mock_row = mocker.MagicMock()
-    mock_row.get.side_effect = lambda key: {
-        "v": create_mock_attribute(mocker, "v1.0", "string"),
-        "ts": create_mock_attribute(mocker, int(time.time() * 1000), "long"),
-        "res": create_mock_attribute(mocker, '{"desc":"cat"}', "string"),
-    }[key]
-
-    mock_get_future = mocker.MagicMock()
-    mock_get_future.resolve.return_value = [mock_row]
-    mock_query_manager.get.return_value = mock_get_future
-
-    result = await service.get_analysis_by_hash("hash1", "v1.0", 3600)
-
-    assert result is not None
-    assert result["desc"] == "cat"
+    assert await service.get_analysis_by_hash(image_hash, version, ttl) is None
+    assert await service.save_analysis(image_hash, analysis_result, version) is True
+    assert await service.get_analysis_by_hash(image_hash, version, ttl) == analysis_result
+    assert await service.get_analysis_by_hash(image_hash, "v1.1", ttl) is None
+    assert await service.get_analysis_by_hash(image_hash, version, -1) is None

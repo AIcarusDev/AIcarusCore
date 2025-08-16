@@ -1,125 +1,46 @@
-# tests/database_typedb/test_sticker_storage_service.py
-import asyncio
-from typing import Any
-from unittest.mock import MagicMock
-
 import pytest
-from pytest_mock import MockerFixture
-from src.database.core.connection_manager import TypeDBConnectionManager
-from src.database.services.sticker_storage_service import StickerStorageService
-from typedb.api.answer.concept_row import ConceptRow
-from typedb.api.concept.instance.attribute import Attribute
-from typedb.api.concept.value.value import Value
-
-# --- 辅助函数，用于创建模拟的 Attribute ---
-def create_mock_attribute(mocker: MockerFixture, value: Any, value_type: str) -> MagicMock:
-    """辅助函数，用于创建模拟的 Attribute -> Value -> Concept 链."""
-    mock_value = mocker.MagicMock(spec=Value)
-    if value_type == "string":
-        mock_value.get_string.return_value = value
-    elif value_type == "long":
-        mock_value.get_integer.return_value = value
-
-    mock_attribute = mocker.MagicMock(spec=Attribute)
-    mock_attribute.as_attribute.return_value = mock_attribute
-    mock_attribute.get_value.return_value = mock_value
-
-    mock_concept = mocker.MagicMock()
-    mock_concept.as_attribute.return_value = mock_attribute
-    return mock_concept
-
-
-@pytest.fixture
-def mock_conn_manager(mocker: MockerFixture) -> MagicMock:
-    """模拟 TypeDBConnectionManager."""
-    mock = mocker.MagicMock(spec=TypeDBConnectionManager)
-    mock.get_driver.return_value = mocker.MagicMock()
-    type(mock).database_name = mocker.PropertyMock(return_value="test_db")
-    return mock
-
-
-@pytest.fixture
-def service(mock_conn_manager: MagicMock) -> StickerStorageService:
-    """创建一个带有模拟连接管理器的服务实例."""
-    return StickerStorageService(mock_conn_manager)
-
-
-@pytest.fixture(autouse=True)
-def mock_to_thread(mocker: MockerFixture) -> None:
-    """自动为所有测试模拟 asyncio.to_thread."""
-    async def mock_async_wrapper(func: callable, *args: any, **kwargs: any) -> any:
-        if asyncio.iscoroutinefunction(func):
-            return await func(*args, **kwargs)
-        return func(*args, **kwargs)
-    mocker.patch("asyncio.to_thread", side_effect=mock_async_wrapper)
+from src.database.services import EntityGraphService, StickerStorageService
 
 
 @pytest.mark.asyncio
-async def test_add_sticker(service: StickerStorageService, mocker: MockerFixture) -> None:
-    """测试添加新表情包的功能."""
-    mock_tx = (
-        service.conn_manager.get_driver.return_value.transaction.return_value.__enter__.return_value
-    )
-    # [修正]: tx.query 是一个方法，需要模拟它
-    mock_promise = mocker.MagicMock()
-    # 第一次调用 (在 _get_next_sticker_id 中) 返回空列表
-    # 第二次调用 (insert) 返回 None
-    mock_promise.resolve.side_effect = [[], None]
-    mock_tx.query.return_value = mock_promise
-
-    result = await service.add_sticker(
-        platform_id="qq",
-        filename="test.gif",
-        impression="一个测试表情",
-        source_image_hash="hash123",
-        perceptual_hash="phash456",
-    )
-
-    assert result is not None
-    assert result["sticker_id"] == "001"
-    assert result["filename"] == "test.gif"
-    assert mock_tx.query.call_count == 2
-    mock_tx.commit.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_find_similar_sticker_by_phash_found(
-    service: StickerStorageService, mocker: MockerFixture
+async def test_sticker_lifecycle(
+    sticker_storage_service: StickerStorageService, entity_graph_service: EntityGraphService
 ) -> None:
-    """测试当找到相似表情包时的情况."""
-    mock_tx = (
-        service.conn_manager.get_driver.return_value.transaction.return_value.__enter__.return_value
+    """测试表情包的完整生命周期：添加、查找、编辑、移除."""
+    sticker_service = sticker_storage_service
+    platform_id = "test_platform"
+
+    # 准备平台实体
+    await entity_graph_service.get_or_create_platform_entity(platform_id, "Test Platform")
+
+    # 1. 添加表情包
+    added_sticker = await sticker_service.add_sticker(
+        platform_id=platform_id,
+        filename="smile.gif",
+        impression="开心",
+        source_image_hash="hash1",
+        perceptual_hash="phash1",
     )
-    mock_row = mocker.MagicMock(spec=ConceptRow)
-    mock_row.get.side_effect = lambda key: {
-        "uid": create_mock_attribute(mocker, "qq_sticker_001", "string"),
-        "phash": create_mock_attribute(mocker, "phash_existing", "string"),
-    }[key]
-    mock_promise = mocker.MagicMock()
-    mock_promise.resolve.return_value = [mock_row]
-    mock_tx.query.return_value = mock_promise
+    assert added_sticker is not None
+    # 验证返回的 sticker_id 是格式化后的字符串
+    assert added_sticker["sticker_id"] == "001"
 
-    # [修正]: 修正 mocker.patch 的路径
-    mocker.patch("src.database.utils.compare_phashes", return_value=True)
+    # 2. 获取所有表情包，验证添加成功
+    all_stickers = await sticker_service.get_all_stickers(platform_id)
+    assert len(all_stickers) == 1
+    assert all_stickers[0]["filename"] == "smile.gif"
+    assert all_stickers[0]["sticker_id"] == "001"  # 验证 get_all 返回的也是格式化字符串
 
-    result = await service.find_similar_sticker_by_phash("qq", "phash_new", tolerance=5)
+    # 3. 编辑印象
+    assert await sticker_service.edit_impression(platform_id, "001", "非常开心") is True
 
-    assert result is not None
-    assert result["sticker_uid"] == "qq_sticker_001"
+    # 4. 验证印象已更新
+    updated_stickers = await sticker_service.get_all_stickers(platform_id)
+    assert updated_stickers[0]["impression"] == "非常开心"
 
+    # 5. 移除表情包
+    assert await sticker_service.remove_sticker(platform_id, "001") is True
 
-@pytest.mark.asyncio
-async def test_remove_sticker(service: StickerStorageService, mocker: MockerFixture) -> None:
-    """测试移除表情包的功能."""
-    mock_tx = (
-        service.conn_manager.get_driver.return_value.transaction.return_value.__enter__.return_value
-    )
-    mock_promise = mocker.MagicMock()
-    mock_promise.resolve.return_value = None
-    mock_tx.query.return_value = mock_promise
-
-    success = await service.remove_sticker("qq", "001")
-
-    assert success is True
-    mock_tx.query.assert_called_once()
-    mock_tx.commit.assert_called_once()
+    # 6. 验证已移除
+    final_stickers = await sticker_service.get_all_stickers(platform_id)
+    assert len(final_stickers) == 0

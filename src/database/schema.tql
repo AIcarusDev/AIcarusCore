@@ -3,7 +3,7 @@ define
 # --- 根类型定义 (Base Types) ---
 # 定义了最顶层的抽象概念
 
-entity person @abstract;
+entity person @abstract, owns person-uid @key;
 entity objective-entity @abstract;
 
 # --- 实体类型 (Concrete Entities) ---
