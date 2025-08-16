@@ -185,6 +185,9 @@ async def _update_single_group_info(
             conv_type="group",
             name=group_profile.get("group_name"),
         )
+        if not conversation_entity:
+            logger.error(f"为群聊 {conversation_id} 获取或创建实体失败，跳过更新。")
+            return
         conversation_entity_uid = conversation_entity._key
 
         temp_user_info_for_edge = ProtocolUserInfo(

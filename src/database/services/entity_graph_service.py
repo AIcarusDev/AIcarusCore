@@ -44,6 +44,7 @@ class EntityGraphService:
         if old_nick == new_nickname:
             return
         if old_nick is not None:
+            # Note: 'update' is more idiomatic here if cardinality is 1
             delete_query = (
                 f"match $a isa account, "
                 f'has account-uid "{account_uid}", has nickname "{old_nick}"; '
@@ -214,19 +215,24 @@ class EntityGraphService:
 
         def db_upsert_membership() -> None:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
-                tx.query(
-                    f'match $acc isa account, has account-uid "{account_entity_uid}"; '
-                    f'$conv isa conversation, has conversation-uid "{conversation_entity_uid}"; '
-                    f"$mem (member: $acc, group: $conv) isa membership; delete $mem;"
-                ).resolve()
-                tx.query(
-                    f'match $acc isa account, has account-uid "{account_entity_uid}"; '
-                    f'$conv isa conversation, has conversation-uid "{conversation_entity_uid}"; '
-                    f"insert (member: $acc, group: $conv) isa membership, "
-                    f'has cardname "{cardname}", '
-                    f'has permission-level "{perm_level}", '
-                    f"has timestamp {timestamp};"
-                ).resolve()
+                # This logic is provided by TypeDB-AI expert for an atomic upsert operation.
+                # It correctly separates the 'put' (ensure existence) and 'update' (modify attributes) stages.
+                upsert_query = f"""
+                match
+                    $acc isa account, has account-uid "{account_entity_uid}";
+                    $conv isa conversation, has conversation-uid "{conversation_entity_uid}";
+                put
+                    (member: $acc, group: $conv) isa membership;
+                match
+                    $acc isa account, has account-uid "{account_entity_uid}";
+                    $conv isa conversation, has conversation-uid "{conversation_entity_uid}";
+                    $mem (member: $acc, group: $conv) isa membership;
+                update
+                    $mem has cardname "{cardname}",
+                         has permission-level "{perm_level}",
+                         has timestamp {timestamp};
+                """
+                tx.query(upsert_query).resolve()
                 tx.commit()
 
         try:
