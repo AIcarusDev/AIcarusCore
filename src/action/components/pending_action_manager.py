@@ -348,7 +348,7 @@ class PendingActionManager:
     ) -> None:
         """将成功的动作存储为事件."""
         event_to_save = sent_dict.copy()
-        
+
         # --- 关键修复！---
         # 从 event_type 中解析出 platform_id 并添加到字典中
         event_type_full = event_to_save.get("event_type", "")

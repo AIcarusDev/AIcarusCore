@@ -4,8 +4,8 @@ from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
 from src.common.time_utils import format_relative_time
-from src.database import EntityGraphService, EventStorageService
 from src.common.utils import parse_entity_uid
+from src.database import EntityGraphService, EventStorageService
 
 logger = get_logger(__name__)
 
@@ -171,7 +171,9 @@ class UnreadInfoService:
                 f"  <!-- 在平台 '{platform_id}' 下，没有发现任何新消息。 -->\n"
                 f"</conversation_list>"
             )
-        conversation_list = await self.entity_graph_service.get_conversations_by_platform(platform_uid=platform_id)
+        conversation_list = await self.entity_graph_service.get_conversations_by_platform(
+            platform_uid=platform_id
+        )
         platform_convs = [
             c
             for c in all_active_convs
@@ -319,9 +321,13 @@ class UnreadInfoService:
         """生成顶层所需的、带XML标签的未读消息摘要."""
         logger.debug(f"开始生成精装修版未读消息摘要... (将排除: {exclude_conversation_id})")
         all_active_convs = await self._get_recently_active_conversations_with_details()
-        logger.debug(f"[PROBE 2] _get_recently_active_conversations_with_details 返回了 {len(all_active_convs)} 个会话")
+        logger.debug(
+            f"[PROBE 2] _get_recently_active_conversations_with_details 返回了 {len(all_active_convs)} 个会话"
+        )
         for i, item in enumerate(all_active_convs):
-            logger.debug(f"  [PROBE 3] 会话 {i}: conv_uid={item.get('conv_doc', {}).get('_key')}, unread_count={item.get('unread_count')}")
+            logger.debug(
+                f"  [PROBE 3] 会话 {i}: conv_uid={item.get('conv_doc', {}).get('_key')}, unread_count={item.get('unread_count')}"
+            )
         unread_convs = []
         for item in all_active_convs:
             if item.get("unread_count", 0) > 0:
@@ -331,7 +337,7 @@ class UnreadInfoService:
             return "所有其他会话均无未读消息。"
 
         grouped_by_platform = defaultdict(list)
-        logger.debug(f'[PROBE 5] 准备按平台对 {len(unread_convs)} 个会话进行分组...')
+        logger.debug(f"[PROBE 5] 准备按平台对 {len(unread_convs)} 个会话进行分组...")
         for item in unread_convs:
             platform = item["conv_doc"].get("details", {}).get("platform", "unknown_platform")
             grouped_by_platform[platform].append(item)
@@ -346,9 +352,13 @@ class UnreadInfoService:
         logger.debug("开始生成平台级摘要...")
         logger.debug("[PROBE 1] get_platform_summary - 入口")
         all_active_convs = await self._get_recently_active_conversations_with_details()
-        logger.debug(f"[PROBE 2] _get_recently_active_conversations_with_details 返回了 {len(all_active_convs)} 个会话")
+        logger.debug(
+            f"[PROBE 2] _get_recently_active_conversations_with_details 返回了 {len(all_active_convs)} 个会话"
+        )
         for i, item in enumerate(all_active_convs):
-            logger.debug(f"  [PROBE 3] 会话 {i}: conv_uid={item.get('conv_doc', {}).get('_key')}, unread_count={item.get('unread_count')}")
+            logger.debug(
+                f"  [PROBE 3] 会话 {i}: conv_uid={item.get('conv_doc', {}).get('_key')}, unread_count={item.get('unread_count')}"
+            )
         unread_convs = []
         for item in all_active_convs:
             if item.get("unread_count", 0) > 0:

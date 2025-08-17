@@ -422,8 +422,7 @@ class EntityGraphService:
             try:
                 with driver.transaction(db_name, TransactionType.WRITE) as tx:
                     query_exist = (
-                        f'match $c isa conversation, '
-                        f'has conversation-uid "{conv_entity_uid}";'
+                        f'match $c isa conversation, has conversation-uid "{conv_entity_uid}";'
                     )
                     exists = list(tx.query(query_exist).resolve())
                     logger.debug(
@@ -435,12 +434,12 @@ class EntityGraphService:
                     safe_name = (name or conversation_id).replace('"', '\\"')
                     insert_query = (
                         f'match $p isa platform, has platform-uid "{platform}"; '
-                        f'insert $c isa conversation, '
+                        f"insert $c isa conversation, "
                         f'    has conversation-uid "{conv_entity_uid}", '
                         f'    has conversation-id "{conversation_id}", '
                         f'    has type "{conv_type}", '
                         f'    has display-name "{safe_name}"; '
-                        f'insert (resident: $c, host-platform: $p) isa residency;'
+                        f"insert (resident: $c, host-platform: $p) isa residency;"
                     )
                     logger.debug(f"[Conversation][db_op] Insert-query: {insert_query!r}")
 
@@ -452,7 +451,8 @@ class EntityGraphService:
             except Exception as e:
                 logger.error(
                     f"[Conversation][db_op] 错误，conv_uid={conv_entity_uid}, "
-                    f"platform={platform}: {e}", exc_info=True
+                    f"platform={platform}: {e}",
+                    exc_info=True,
                 )
                 raise
 
@@ -466,18 +466,17 @@ class EntityGraphService:
             return None
 
     async def get_conversations_by_platform(self, platform_uid):
-        """
-        Get all conversation UIDs for a specific platform.
-        
+        """Get all conversation UIDs for a specific platform.
+
         Args:
             platform_uid: The platform UID.
-        
+
         Returns:
             dict: Dictionary with conversation UIDs as keys and display names as values
         """
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
         conversations = {}
-        
+
         with driver.transaction(db_name, TransactionType.READ) as tx:
             query = f"""
             match
@@ -494,7 +493,7 @@ class EntityGraphService:
                 conv_uid = result["conversation_uid"]
                 display_name = result["display_name"]
                 conversations[conv_uid] = display_name
-        
+
         return conversations
 
     async def get_entity_by_key(self, entity_uid: str) -> dict[str, Any] | None:
@@ -511,13 +510,13 @@ class EntityGraphService:
         """
 
         def db_read() -> dict[str, Any] | None:
-            print(f'[PROBE_D] Executing get_entity_by_key for uid: {entity_uid}')
+            print(f"[PROBE_D] Executing get_entity_by_key for uid: {entity_uid}")
             with driver.transaction(db_name, TransactionType.READ) as tx:
                 answers = list(tx.query(query).resolve().as_concept_rows())
                 if not answers:
                     logger.warning(
-                        f'[PROBE_E] get_entity_by_key for {entity_uid} returned no answers.'
-                        )
+                        f"[PROBE_E] get_entity_by_key for {entity_uid} returned no answers."
+                    )
                     return None
                 first_answer = answers[0]
                 entity_type_concept = first_answer.get("entity_type")
@@ -700,8 +699,8 @@ class EntityGraphService:
             active_convs = await asyncio.to_thread(db_read_and_process_events)
             print(active_convs)
             print(
-                f'[PROBE_A] Found {len(active_convs)} active '
-                f'conversations from events: {active_convs}'
+                f"[PROBE_A] Found {len(active_convs)} active "
+                f"conversations from events: {active_convs}"
             )
         except Exception as e:
             print(f"获取活跃会话列表失败: {e}", exc_info=True)

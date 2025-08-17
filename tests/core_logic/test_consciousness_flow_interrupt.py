@@ -55,8 +55,6 @@ def mock_interruption_broker(
     return broker
 
 
-
-
 @pytest.fixture
 def core_logic(mocker: MockerFixture, mock_interruption_broker: MagicMock) -> CoreLogic:
     """创建一个带有模拟依赖的 CoreLogic 实例."""

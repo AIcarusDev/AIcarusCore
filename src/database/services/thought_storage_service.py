@@ -122,7 +122,7 @@ class ThoughtStorageService:
                     tx.query(
                         f'insert $p isa system-pointer, has pointer-name "{LATEST_THOUGHT_POINTER_KEY}", has target-key "{new_key}";'
                     ).resolve()
-                
+
                 tx.commit()
                 return new_key
 

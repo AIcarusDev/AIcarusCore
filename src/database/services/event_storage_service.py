@@ -51,7 +51,9 @@ class EventStorageService:
         def db_write() -> bool:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
                 # 构建属性插入部分
-                timestamp_value = int(event_doc_data.get('time', event_doc_data.get('timestamp', 0)))
+                timestamp_value = int(
+                    event_doc_data.get("time", event_doc_data.get("timestamp", 0))
+                )
                 put_parts = [
                     f'$e isa event, has event-id "{event_id}"',
                     f'has event-type "{event_doc_data.get("event_type", "unknown")}"',
@@ -62,8 +64,10 @@ class EventStorageService:
 
                 # 处理 JSON 字符串属性
                 for key, attr in [
-                    ("content", "content-json"), ("user_info", "user-info-json"),
-                    ("conversation_info", "conversation-info-json"), ("embedding", "embedding-json"),
+                    ("content", "content-json"),
+                    ("user_info", "user-info-json"),
+                    ("conversation_info", "conversation-info-json"),
+                    ("embedding", "embedding-json"),
                     ("image_analysis", "image-analysis-json"),
                 ]:
                     if val := event_doc_data.get(key):
@@ -72,13 +76,14 @@ class EventStorageService:
 
                 # 处理普通字符串属性
                 for key, attr in [
-                    ("person_id_associated", "person-id-associated"), ("motivation", "motivation"),
+                    ("person_id_associated", "person-id-associated"),
+                    ("motivation", "motivation"),
                     ("narrative_sentence", "narrative-sentence"),
                 ]:
                     if val := event_doc_data.get(key):
                         safe_val = str(val).replace('"', '\\"')
                         put_parts.append(f'has {attr} "{safe_val}"')
-                
+
                 attributes_str = ",\n    ".join(put_parts)
 
                 # 构建完整的原子性 put 查询
@@ -89,8 +94,10 @@ class EventStorageService:
                     {attributes_str};
                     $_ isa event-source, links (source-platform: $p, sourced-event: $e);
                 """
-                
-                logger.debug(f"Executing atomic event put query for event_id '{event_id}':\n{full_query}")
+
+                logger.debug(
+                    f"Executing atomic event put query for event_id '{event_id}':\n{full_query}"
+                )
                 tx.query(full_query).resolve()
                 tx.commit()
                 return True
@@ -326,7 +333,7 @@ class EventStorageService:
         _, _, conv_native_id = parse_entity_uid(conversation_uid) or (None, None, None)
         if not conv_native_id:
             return None
-        
+
         # Corrected query from TypeDB-AI
         query = f"""
         match
@@ -342,7 +349,9 @@ class EventStorageService:
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
         def db_read() -> dict | None:
-            logger.debug(f'[PROBE_F] Executing get_event_by_timestamp for conv_uid={conversation_uid}, ts={timestamp}')
+            logger.debug(
+                f"[PROBE_F] Executing get_event_by_timestamp for conv_uid={conversation_uid}, ts={timestamp}"
+            )
             with driver.transaction(db_name, TransactionType.READ) as tx:
                 answers = list(tx.query(query).resolve().as_concept_rows())
                 if answers and (eid_attr := answers[0].get("event_id")):
@@ -380,7 +389,7 @@ class EventStorageService:
         _, _, conv_native_id = parse_entity_uid(conversation_uid) or (None, None, None)
         if not conv_native_id:
             return {"unread_count": 0, "has_high_priority": False}
-        
+
         # Corrected query structure with explicit `contains`
         query = f"""
         match
@@ -395,7 +404,9 @@ class EventStorageService:
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
         def db_read_and_process() -> dict[str, Any]:
-            logger.debug(f"[DEBUG] Executing get_unread_count query for conv_uid='{conversation_uid}' with last_read_ts={{int(last_read_ts)}}:\n{{query}}")
+            logger.debug(
+                f"[DEBUG] Executing get_unread_count query for conv_uid='{conversation_uid}' with last_read_ts={{int(last_read_ts)}}:\n{{query}}"
+            )
             unread_count, has_high_priority = 0, False
             with driver.transaction(db_name, TransactionType.READ) as tx:
                 answers = list(tx.query(query).resolve().as_concept_rows())
