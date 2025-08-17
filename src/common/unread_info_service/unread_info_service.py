@@ -5,6 +5,7 @@ from typing import Any
 from src.common.custom_logging.logging_config import get_logger
 from src.common.time_utils import format_relative_time
 from src.database import EntityGraphService, EventStorageService
+from src.common.utils import parse_entity_uid
 
 logger = get_logger(__name__)
 
@@ -357,15 +358,19 @@ class UnreadInfoService:
         platforms_with_news = defaultdict(
             lambda: {"has_high_priority": False, "latest_timestamp": 0, "has_any_news": False}
         )
+        print(f"unread_convs: {unread_convs}")
         for item in unread_convs:
-            if platform := item["conv_doc"].get("details", {}).get("platform"):
+            print(f"Processing item: {item}")
+            conv_key = item["conv_doc"].get("_key")
+            platform, _conv_type, native_id = parse_entity_uid(conv_key)
+            if platform:
                 platforms_with_news[platform]["has_any_news"] = True
                 if item["has_high_priority"]:
                     platforms_with_news[platform]["has_high_priority"] = True
                 event_ts = item.get("latest_event", {}).get("timestamp", 0)
                 if event_ts > platforms_with_news[platform]["latest_timestamp"]:
                     platforms_with_news[platform]["latest_timestamp"] = event_ts
-
+        print(f"final_platforms_with_news: {platforms_with_news}")
         if not platforms_with_news:
             return "所有平台均无新消息。"
 
