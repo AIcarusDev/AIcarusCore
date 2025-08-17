@@ -426,7 +426,9 @@ class EntityGraphService:
                         f'has conversation-uid "{conv_entity_uid}";'
                     )
                     exists = list(tx.query(query_exist).resolve())
-                    logger.debug(f"[Conversation][db_op] Exist-query: {query_exist!r}, hits: {len(exists)}")
+                    logger.debug(
+                        f"[Conversation][db_op] Exist-query: {query_exist!r}, hits: {len(exists)}"
+                    )
                     if exists:
                         return conv_entity_uid
 
@@ -454,7 +456,8 @@ class EntityGraphService:
             except Exception as e:
                 # 任何 TQL 错误都会被记录并抛出
                 logger.error(
-                    f"[Conversation][db_op] 错误，conv_uid={conv_entity_uid}, platform={platform}: {e}",
+                    f"[Conversation][db_op] 错误，"
+                    f"conv_uid={conv_entity_uid}, platform={platform}: {e}",
                     exc_info=True,
                 )
                 raise
