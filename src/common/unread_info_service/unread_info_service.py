@@ -164,6 +164,7 @@ class UnreadInfoService:
     ) -> str:
         """生成特定平台的会话列表摘要，支持分页和头尾提示."""
         all_active_convs = await self._get_recently_active_conversations_with_details()
+        print(f"all_active_convs: {all_active_convs}")
         if not all_active_convs:
             return (
                 f"<conversation_list>\n"
@@ -180,6 +181,7 @@ class UnreadInfoService:
         total_count = len(platform_convs)
 
         # 如果没有找到任何会话，直接返回提示信息
+        print(f"platform_convs: {platform_convs}")
         if not platform_convs:
             return (
                 f"<conversation_list>\n"
