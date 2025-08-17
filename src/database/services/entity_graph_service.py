@@ -331,7 +331,10 @@ class EntityGraphService:
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
         def db_read() -> float:
-            logger.debug(f"[DEBUG] Executing get_conversation_last_read_timestamp query for conv_uid='{conversation_entity_uid}':\n{query}")
+            logger.debug(
+                "[DEBUG] Executing get_conversation_last_read_timestamp query "
+                f"for conv_uid='{conversation_entity_uid}':\n{query}"
+            )
             with driver.transaction(db_name, TransactionType.READ) as tx:
                 answers = list(tx.query(query).resolve().as_concept_rows())
                 if answers and answers[0].get("timestamp"):
@@ -447,7 +450,10 @@ class EntityGraphService:
                     logger.debug(f"[Conversation][db_op] 成功插入会话实体 {conv_entity_uid}")
                     return conv_entity_uid
             except Exception as e:
-                logger.error(f"[Conversation][db_op] 错误，conv_uid={conv_entity_uid}, platform={platform}: {e}", exc_info=True)
+                logger.error(
+                    f"[Conversation][db_op] 错误，conv_uid={conv_entity_uid}, "
+                    f"platform={platform}: {e}", exc_info=True
+                )
                 raise
 
         try:
@@ -460,18 +466,16 @@ class EntityGraphService:
             return None
 
     async def get_entity_by_key(self, entity_uid: str) -> dict[str, Any] | None:
-        """通过实体 UID 获取实体信息 (已修复)."""
+        """通过实体 UID 获取实体信息."""
         if not entity_uid:
             return None
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
         query = f"""
         match
-            $e has $uid_attr;
-            $uid_attr == "{entity_uid}";
-            $e isa $entity_type;
+            $e isa $entity_type, has $uid_attr "{entity_uid}";
             $e has $attr;
             $attr isa $attr_type;
-        select $e, $entity_type, $attr, $attr_type;
+            select $e, $entity_type, $attr, $attr_type;
         """
 
         def db_read() -> dict[str, Any] | None:
@@ -479,7 +483,9 @@ class EntityGraphService:
             with driver.transaction(db_name, TransactionType.READ) as tx:
                 answers = list(tx.query(query).resolve().as_concept_rows())
                 if not answers:
-                    logger.warning(f'[PROBE_E] get_entity_by_key for {entity_uid} returned no answers.')
+                    logger.warning(
+                        f'[PROBE_E] get_entity_by_key for {entity_uid} returned no answers.'
+                        )
                     return None
                 first_answer = answers[0]
                 entity_type_concept = first_answer.get("entity_type")
@@ -621,10 +627,8 @@ class EntityGraphService:
         """
         if self_bot_ids is None:
             self_bot_ids = {}
-        
-        active_convs_data = [] # <-- 关键修复！
-        
-        # Corrected query from TypeDB-AI
+
+        active_convs_data = []
         query_all_events = """
         match
             $event isa event,
@@ -645,7 +649,6 @@ class EntityGraphService:
                         ci_str = ans.get("ci").as_attribute().get_value()
                         ts = ans.get("ts").as_attribute().get_value()
                         platform = ans.get("puid").as_attribute().get_value()
-                        
                         ci_json = json.loads(ci_str)
                         conv_type = ci_json.get("type", "unknown")
                         native_id = ci_json.get("conversation_id")
@@ -664,11 +667,14 @@ class EntityGraphService:
         try:
             active_convs = await asyncio.to_thread(db_read_and_process_events)
             print(active_convs)
-            print(f'[PROBE_A] Found {len(active_convs)} active conversations from events: {active_convs}')
+            print(
+                f'[PROBE_A] Found {len(active_convs)} active '
+                f'conversations from events: {active_convs}'
+            )
         except Exception as e:
             print(f"获取活跃会话列表失败: {e}", exc_info=True)
             return []
-            
+
         for conv_uid, latest_ts in active_convs:
             print(f"[PROBE_A1] Processing conv_uid: {conv_uid}")
             if conv_uid == exclude_conversation_id:
@@ -690,7 +696,7 @@ class EntityGraphService:
                 for result in task_results.values():
                     if isinstance(result, Exception):
                         raise result
-                print(f"[PROBE_B2] 111111111")
+                print("[PROBE_B2] 111111111")
                 if task_results["conv_doc"] and task_results["latest_event"]:
                     print(f'[PROBE_C] Successfully gathered details for {conv_uid}')
                     active_convs_data.append(
