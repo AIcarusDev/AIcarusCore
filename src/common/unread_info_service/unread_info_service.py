@@ -6,6 +6,7 @@ from src.common.custom_logging.logging_config import get_logger
 from src.common.time_utils import format_relative_time
 from src.common.utils import parse_entity_uid
 from src.database import EntityGraphService, EventStorageService
+from src.database.models import ConversationDetails
 
 logger = get_logger(__name__)
 
@@ -225,20 +226,22 @@ class UnreadInfoService:
             conv_doc = item["conv_doc"]
             latest_event = item["latest_event"]
             unread_count = item["unread_count"]
-            
-            # --- FIX START ---
-            # `conv_doc.details` is a dict, use .get() for safe access
-            conv_details = conv_doc.details if hasattr(conv_doc, 'details') else {}
-            if not isinstance(conv_details, dict):
-                conv_details = {} # Fallback to empty dict if details is not a dict
-                
-            entity_uid = conv_doc._key
 
-            is_temporary = conv_details.get('extra', {}).get('is_temporary', False)
-            conv_type = conv_details.get("type")
+            # ========================= [FIX START] =========================
+            # `conv_doc.details` 是 ConversationDetails 对象，直接用 `.` 访问属性
+            if not (
+                conv_doc
+                and hasattr(conv_doc, "details")
+                and isinstance(conv_doc.details, ConversationDetails)
+            ):
+                continue  # 跳过无效的 conv_doc
+            conv_details = conv_doc.details
+            entity_uid = conv_doc._key
+            is_temporary = conv_details.extra.get("is_temporary", False)
+            conv_type = conv_details.type
             sender_display_name = self._get_sender_display_name(latest_event, conv_type)
-            conv_name = conv_details.get("name") or sender_display_name
-            # --- FIX END ---
+            conv_name = conv_details.name or sender_display_name
+            # ========================== [FIX END] ==========================
 
             time_str = format_relative_time(latest_event.get("timestamp", 0))
             message_preview = self._create_message_preview(latest_event, sender_display_name)
@@ -271,21 +274,24 @@ class UnreadInfoService:
         unread_count = item["unread_count"]
 
         entity_uid = conv_doc._key
-        
-        # --- FIX START ---
-        conv_details = conv_doc.details if hasattr(conv_doc, 'details') else {}
-        if not isinstance(conv_details, dict):
-            conv_details = {}
 
-        conv_type = conv_details.get("type")
+        # ========================= [FIX START] =========================
+        if not (
+            conv_doc
+            and hasattr(conv_doc, "details")
+            and isinstance(conv_doc.details, ConversationDetails)
+        ):
+            return []  # 返回空列表以跳过此项
+        conv_details = conv_doc.details
+        conv_type = conv_details.type
         sender_name = self._get_sender_display_name(event_for_preview, conv_type)
-        is_temporary = conv_details.get('extra', {}).get('is_temporary', False)
-        conv_name = conv_details.get("name")
-        # --- FIX END ---
+        is_temporary = conv_details.extra.get("is_temporary", False)
+        conv_name = conv_details.name
+        # ========================== [FIX END] ==========================
 
         time_str = format_relative_time(event_for_preview.get("timestamp", 0))
         preview = self._create_message_preview(event_for_preview, sender_name)
-        
+
         header = f"- [{'临时会话' if is_temporary else '[用户名称]'}]：{conv_name or sender_name}"
         if conv_type == "group":
             header = f"- [群名称]：{conv_name or '未知群聊'}"
@@ -318,11 +324,25 @@ class UnreadInfoService:
         """辅助函数: 格式化单个平台的完整XML块."""
         section_parts = [f"<from_{platform}>"]
         items.sort(key=lambda x: x["has_high_priority"], reverse=True)
-        
-        # --- FIX START ---
-        group_chats = [c for c in items if c["conv_doc"].details.get("type") == "group"]
-        private_chats = [c for c in items if c["conv_doc"].details.get("type") == "private"]
-        # --- FIX END ---
+
+        # ========================= [FIX START] =========================
+        group_chats = [
+            c
+            for c in items
+            if c["conv_doc"]
+            and hasattr(c["conv_doc"], "details")
+            and isinstance(c["conv_doc"].details, ConversationDetails)
+            and c["conv_doc"].details.type == "group"
+        ]
+        private_chats = [
+            c
+            for c in items
+            if c["conv_doc"]
+            and hasattr(c["conv_doc"], "details")
+            and isinstance(c["conv_doc"].details, ConversationDetails)
+            and c["conv_doc"].details.type == "private"
+        ]
+        # ========================== [FIX END] ==========================
 
         section_parts.extend(await self._format_chat_type_section("group", group_chats))
         section_parts.extend(await self._format_chat_type_section("private", private_chats))
@@ -356,14 +376,18 @@ class UnreadInfoService:
         logger.debug(f"[PROBE 5] 准备按平台对 {len(unread_convs)} 个会话进行分组...")
         for item in unread_convs:
             conv_doc = item.get("conv_doc")
-            # --- FIX START ---
-            if conv_doc and hasattr(conv_doc, 'details') and isinstance(conv_doc.details, dict):
-                platform = conv_doc.details.get("platform")
+            # ========================= [FIX START] =========================
+            if (
+                conv_doc
+                and hasattr(conv_doc, "details")
+                and isinstance(conv_doc.details, ConversationDetails)
+            ):
+                platform = conv_doc.details.platform
                 if platform:
                     grouped_by_platform[platform].append(item)
                 else:
                     logger.warning(f"跳过一个缺少 platform 信息的 item: {item}")
-            # --- FIX END ---
+            # ========================== [FIX END] ==========================
             else:
                 logger.warning(f"跳过一个缺少 conv_doc 或 details 的 item: {item}")
 

@@ -125,6 +125,18 @@ class ChatSessionManager:
                     f"无法为平台 '{conv_details.platform}' 创建会话，ID地图中找不到对应ID。"
                 )
                 return None
+                
+            # ========================= [FIX START] =========================
+            # 删除了以下三行错误代码：
+            # if "extra" not in conv_details:
+            #     conv_details.extra = {}
+            # conv_details.extra["membership_status"] = conv_details.membership_status
+            # 理由：
+            # 1. `conv_details` 是 ConversationDetails 对象，不是字典，`in` 操作会引发 TypeError。
+            # 2. dataclass 定义已确保 `extra` 始终存在且为字典。
+            # 3. `membership_status` 不是 `ConversationDetails` 的属性，访问它会引发 AttributeError。
+            #    该属性应在创建 EnrichedConversationInfo 时从 extra 字典中读取。
+            # ========================== [FIX END] ==========================
 
             conversation_info_obj = EnrichedConversationInfo(
                 conversation_id=conv_details.conversation_id,
@@ -144,10 +156,6 @@ class ChatSessionManager:
             initial_last_processed_timestamp = (
                 getattr(conv_entity_doc, "last_read_timestamp", 0.0) or time.time() * 1000.0
             )
-
-            if "extra" not in conv_details:
-                conv_details.extra = {}
-            conv_details.extra["membership_status"] = conv_details.membership_status
 
             new_session = ChatSession(
                 conversation_info=conversation_info_obj,
