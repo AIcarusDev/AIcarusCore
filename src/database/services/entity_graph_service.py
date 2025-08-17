@@ -215,8 +215,6 @@ class EntityGraphService:
 
         def db_upsert_membership() -> None:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
-                # This logic is provided by TypeDB-AI expert for an atomic upsert operation.
-                # It correctly separates the 'put' (ensure existence) and 'update' (modify attributes) stages.
                 upsert_query = f"""
                 match
                     $acc isa account, has account-uid "{account_entity_uid}";
@@ -229,8 +227,8 @@ class EntityGraphService:
                     $mem (member: $acc, group: $conv) isa membership;
                 update
                     $mem has cardname "{cardname}",
-                         has permission-level "{perm_level}",
-                         has timestamp {timestamp};
+                        has permission-level "{perm_level}",
+                        has timestamp {timestamp};
                 """
                 tx.query(upsert_query).resolve()
                 tx.commit()
@@ -408,33 +406,78 @@ class EntityGraphService:
         Returns:
             dict[str, Any] | None: 会话实体信息字典，如果创建或获取失败则返回 None.
         """
+        # --- 1. 保证 Platform 节点存在 ---
+        plat_doc = await self.get_or_create_platform_entity(platform, display_name=platform)
+        if not plat_doc:
+            logger.error(f"[Conversation] 平台节点创建或获取失败: {platform}")
+            return None
+        logger.debug(f"[Conversation] 已确保平台实体: {plat_doc}")
+
+        # --- 2. 构建 UID ---
         conv_entity_uid = build_conversation_entity_uid(platform, conv_type, conversation_id)
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
         def db_op() -> str | None:
-            with driver.transaction(db_name, TransactionType.WRITE) as tx:
-                if list(
-                    tx.query(
-                        f'match $c isa conversation, has conversation-uid "{conv_entity_uid}";'
-                    ).resolve()
-                ):
-                    return conv_entity_uid
-                tx.query(
-                    f'match $p isa platform, has platform-uid "{platform}"; '
-                    f'insert $c isa conversation, has conversation-uid "{conv_entity_uid}", '
-                    f'has conversation-id "{conversation_id}", has type "{conv_type}", '
-                    f'has display-name "{(name or conversation_id).replace('"', '\\"\\"')}"; '
-                    f"insert (resident: $c, host-platform: $p) isa residency;"
-                ).resolve()
-                tx.commit()
-                return conv_entity_uid
+            try:
+                with driver.transaction(db_name, TransactionType.WRITE) as tx:
+                    # 2.1 查询是否已存在
+                    query_exist = (
+                        f'match $c isa conversation, '
+                        f'has conversation-uid "{conv_entity_uid}";'
+                    )
+                    exists = list(tx.query(query_exist).resolve())
+                    logger.debug(f"[Conversation][db_op] Exist-query: {query_exist!r}, hits: {len(exists)}")
+                    if exists:
+                        return conv_entity_uid
 
+                    # 2.2 转义 display-name
+                    safe_name = (name or conversation_id).replace('"', '\\"')
+
+                    # 2.3 构造插入语句
+                    insert_query = (
+                        f'match $p isa platform, has platform-uid "{platform}"; '
+                        f'insert $c isa conversation, '
+                        f'    has conversation-uid "{conv_entity_uid}", '
+                        f'    has conversation-id "{conversation_id}", '
+                        f'    has type "{conv_type}", '
+                        f'    has display-name "{safe_name}"; '
+                        f'insert (resident: $c, host-platform: $p) isa residency;'
+                    )
+                    logger.debug(f"[Conversation][db_op] Insert-query: {insert_query!r}")
+
+                    # 2.4 执行插入并提交
+                    tx.query(insert_query).resolve()
+                    tx.commit()
+                    logger.debug(f"[Conversation][db_op] 成功插入会话实体 {conv_entity_uid}")
+                    return conv_entity_uid
+
+            except Exception as e:
+                # 任何 TQL 错误都会被记录并抛出
+                logger.error(
+                    f"[Conversation][db_op] 错误，conv_uid={conv_entity_uid}, platform={platform}: {e}",
+                    exc_info=True,
+                )
+                raise
+
+        # --- 3. 在线程池执行 DB 操作，捕捉所有异常 ---
         try:
             uid = await asyncio.to_thread(db_op)
-            return await self.get_entity_by_key(uid) if uid else None
-        except Exception as e:
-            logger.error(f"获取或创建会話实体 '{conv_entity_uid}' 失败: {e}", exc_info=True)
+            if not uid:
+                logger.error(f"[Conversation] db_op 返回 None，conv_uid={conv_entity_uid}")
+                return None
+
+            # 4. 拿到 uid 之后，再去 fetch 一次完整实体
+            entity = await self.get_entity_by_key(uid)
+            if not entity:
+                logger.error(f"[Conversation] get_entity_by_key 返回 None，uid={uid}")
+            else:
+                logger.debug(f"[Conversation] 最终获取实体: {entity}")
+            return entity
+
+        except Exception:
+            # 把所有异常都吃掉并返回 None，让上层知道失败了
             return None
+
 
     async def get_entity_by_key(self, entity_uid: str) -> dict[str, Any] | None:
         """通过实体 UID 获取实体信息.
