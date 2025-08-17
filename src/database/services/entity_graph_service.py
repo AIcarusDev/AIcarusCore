@@ -7,7 +7,7 @@ from typing import Any
 
 from aicarus_protocols import UserInfo as ProtocolUserInfo
 from src.common.custom_logging.logging_config import get_logger
-from src.common.utils import build_conversation_entity_uid
+from src.common.utils import build_conversation_entity_uid, parse_entity_uid
 from typedb.driver import Transaction, TransactionType
 
 from ..core.connection_manager import TypeDBConnectionManager
@@ -332,17 +332,10 @@ class EntityGraphService:
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
         def db_read() -> float:
-            logger.debug(
-                "[DEBUG] Executing get_conversation_last_read_timestamp query "
-                f"for conv_uid='{conversation_entity_uid}':\n{query}"
-            )
             with driver.transaction(db_name, TransactionType.READ) as tx:
                 answers = list(tx.query(query).resolve().as_concept_rows())
                 if answers and answers[0].get("timestamp"):
-                    ts_val = float(answers[0].get("timestamp").as_attribute().get_value())
-                    logger.debug(f"[DEBUG] Found last_read_timestamp: {ts_val}")
-                    return ts_val
-                logger.debug("[DEBUG] No last_read_timestamp found, returning 0.0")
+                    return float(answers[0].get("timestamp").as_attribute().get_value())
                 return 0.0
 
         try:
@@ -420,49 +413,29 @@ class EntityGraphService:
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
         def db_op() -> str | None:
-            try:
-                with driver.transaction(db_name, TransactionType.WRITE) as tx:
-                    query_exist = (
-                        f'match $c isa conversation, has conversation-uid "{conv_entity_uid}";'
-                    )
-                    exists = list(tx.query(query_exist).resolve())
-                    logger.debug(
-                        f"[Conversation][db_op] Exist-query: {query_exist!r}, hits: {len(exists)}"
-                    )
-                    if exists:
-                        return conv_entity_uid
-
-                    safe_name = (name or conversation_id).replace('"', '\\"')
-                    insert_query = (
-                        f'match $p isa platform, has platform-uid "{platform}"; '
-                        f"insert $c isa conversation, "
-                        f'    has conversation-uid "{conv_entity_uid}", '
-                        f'    has conversation-id "{conversation_id}", '
-                        f'    has type "{conv_type}", '
-                        f'    has display-name "{safe_name}"; '
-                        f"insert (resident: $c, host-platform: $p) isa residency;"
-                    )
-                    logger.debug(f"[Conversation][db_op] Insert-query: {insert_query!r}")
-
-                    # 2.4 执行插入并提交
-                    tx.query(insert_query).resolve()
-                    tx.commit()
-                    logger.debug(f"[Conversation][db_op] 成功插入会话实体 {conv_entity_uid}")
+            with driver.transaction(db_name, TransactionType.WRITE) as tx:
+                if list(
+                    tx.query(f'match $c isa conversation, has conversation-uid "{conv_entity_uid}";').resolve()
+                ):
                     return conv_entity_uid
-            except Exception as e:
-                logger.error(
-                    f"[Conversation][db_op] 错误，conv_uid={conv_entity_uid}, "
-                    f"platform={platform}: {e}",
-                    exc_info=True,
+
+                safe_name = (name or conversation_id).replace('"', '\\"')
+                insert_query = (
+                    f'match $p isa platform, has platform-uid "{platform}"; '
+                    f"insert $c isa conversation, "
+                    f'    has conversation-uid "{conv_entity_uid}", '
+                    f'    has conversation-id "{conversation_id}", '
+                    f'    has type "{conv_type}", '
+                    f'    has display-name "{safe_name}"; '
+                    f"insert (resident: $c, host-platform: $p) isa residency;"
                 )
-                raise
+                tx.query(insert_query).resolve()
+                tx.commit()
+                return conv_entity_uid
 
         try:
             uid = await asyncio.to_thread(db_op)
-            if not uid:
-                logger.error(f"[Conversation] db_op 返回 None，conv_uid={conv_entity_uid}")
-                return None
-            return await self.get_entity_by_key(uid)
+            return await self.get_entity_by_key(uid) if uid else None
         except Exception:
             return None
 
@@ -478,40 +451,63 @@ class EntityGraphService:
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
         conversations = {}
 
-        with driver.transaction(db_name, TransactionType.READ) as tx:
-            query = f"""
-            match
-                $c isa conversation;
-                $p isa platform, has platform-uid "{platform_uid}";
-                $residency (resident: $c, host-platform: $p) isa residency;
-            fetch {{
-                "conversation_uid": $c.conversation-uid,
-                "display_name": $c.display-name
-            }};
-            """
-            results = list(tx.query(query).resolve())
-            for result in results:
-                conv_uid = result["conversation_uid"]
-                display_name = result["display_name"]
-                conversations[conv_uid] = display_name
-
+        def db_read():
+            with driver.transaction(db_name, TransactionType.READ) as tx:
+                query = f"""
+                match
+                    $c isa conversation, has conversation-uid $uid, has display-name $name;
+                    $p isa platform, has platform-uid "{platform_uid}";
+                    (resident: $c, host-platform: $p) isa residency;
+                select $uid, $name;
+                """
+                results = list(tx.query(query).resolve().as_concept_rows())
+                for result in results:
+                    conv_uid = result.get("uid").as_attribute().get_value()
+                    display_name = result.get("name").as_attribute().get_value()
+                    conversations[conv_uid] = display_name
+        await asyncio.to_thread(db_read)
         return conversations
 
+    # =========================================================================
+    # ============================ START OF FIX ===============================
+    # =========================================================================
     async def get_entity_by_key(self, entity_uid: str) -> EntityDocument | None:
-        """通过实体 UID 获取实体信息."""
+        """通过实体 UID 获取实体信息 (已修复)."""
         if not entity_uid:
             return None
-        driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
+
+        # 1. 解析 UID 以确定实体类型和查询属性
+        parsed_uid = parse_entity_uid(entity_uid)
+        if not parsed_uid:
+            logger.error(f"无法解析格式不正确的实体UID: '{entity_uid}'")
+            return None
+
+        _, parsed_type, _ = parsed_uid
+
+        # 2. 根据解析出的类型确定 TypeDB 实体类型和 UID 属性
+        type_map = {
+            "group": ("conversation", "conversation-uid"),
+            "private": ("conversation", "conversation-uid"),
+            # 可以根据需要扩展其他类型，例如 'user' -> ('account', 'account-uid')
+        }
+        # 默认回退到 'account'
+        entity_type_label, uid_attribute_label = type_map.get(parsed_type, ("account", "account-uid"))
+
+        # 核心修复：查询时，通过 residency 关系把 platform 的信息也一并查出来
         query = f"""
         match
-            $e isa $entity_type, has $uid_attr "{entity_uid}";
+            $e isa {entity_type_label}, has {uid_attribute_label} "{entity_uid}";
+            (resident: $e, host-platform: $p) isa residency;
+            $p isa platform, has platform-uid $platform_uid;
             $e has $attr;
             $attr isa $attr_type;
-        select $e, $entity_type, $attr, $attr_type;
+        select $e, $platform_uid, $attr, $attr_type;
         """
 
-        def db_read() -> dict[str, Any] | None:
-            print(f"[PROBE_D] Executing get_entity_by_key for uid: {entity_uid}")
+        driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
+
+        def db_read() -> EntityDocument | None:
+            logger.debug(f"[PROBE_D] Executing get_entity_by_key for uid: {entity_uid}")
             with driver.transaction(db_name, TransactionType.READ) as tx:
                 answers = list(tx.query(query).resolve().as_concept_rows())
                 if not answers:
@@ -519,17 +515,19 @@ class EntityGraphService:
                         f"[PROBE_E] get_entity_by_key for {entity_uid} returned no answers."
                     )
                     return None
-                first_answer = answers[0]
-                entity_type_concept = first_answer.get("entity_type")
-                if not entity_type_concept:
-                    return None
-                entity_type_label = entity_type_concept.as_type().get_label()
+
+                # 提取平台信息
+                platform_from_relation = answers[0].get("platform_uid").as_attribute().get_value()
+
                 doc = {
                     "_key": entity_uid,
                     "entity_uid": entity_uid,
                     "entity_type": entity_type_label,
-                    "details": {},
+                    "details": {
+                        "platform": platform_from_relation  # <-- 关键注入
+                    },
                 }
+
                 for ans in answers:
                     attr_type_concept = ans.get("attr_type")
                     attr_concept = ans.get("attr")
@@ -544,15 +542,23 @@ class EntityGraphService:
                                 doc["details"][py_key] = py_value
                         else:
                             doc["details"][py_key] = py_value
+                
+                # 从 details 中提取顶层字段
+                top_level_keys = ['last_read_timestamp', 'bot_profile_in_this_conversation']
+                for key in top_level_keys:
+                    if key in doc['details']:
+                        doc[key] = doc['details'].pop(key)
 
                 return EntityDocument.from_dict(doc)
-
 
         try:
             return await asyncio.to_thread(db_read)
         except Exception as e:
             logger.error(f"通过 key '{entity_uid}' 获取实体时失败: {e}", exc_info=True)
             return None
+    # =========================================================================
+    # ============================= END OF FIX ================================
+    # =========================================================================
 
     async def update_friend_request_status(
         self, entity_uid: str, flag: str, comment: str, timestamp: int
@@ -678,7 +684,6 @@ class EntityGraphService:
             conv_latest_event: dict[str, int] = {}
             with driver.transaction(db_name, TransactionType.READ) as tx:
                 for ans in list(tx.query(query_all_events).resolve().as_concept_rows()):
-                    print(ans)
                     try:
                         ci_str = ans.get("ci").as_attribute().get_value()
                         ts = ans.get("ts").as_attribute().get_value()
@@ -691,51 +696,45 @@ class EntityGraphService:
                                 platform, conv_type, str(native_id)
                             )
                             if ts > conv_latest_event.get(conv_uid, 0):
-                                print(conv_latest_event)
                                 conv_latest_event[conv_uid] = ts
                     except (json.JSONDecodeError, AttributeError, KeyError):
                         continue
-            print(conv_latest_event)
             return sorted(conv_latest_event.items(), key=lambda item: item[1], reverse=True)
 
         try:
             active_convs = await asyncio.to_thread(db_read_and_process_events)
-            print(active_convs)
-            print(
-                f"[PROBE_A] Found {len(active_convs)} active "
-                f"conversations from events: {active_convs}"
-            )
         except Exception as e:
-            print(f"获取活跃会话列表失败: {e}", exc_info=True)
+            logger.error(f"获取活跃会话列表失败: {e}", exc_info=True)
             return []
 
         for conv_uid, latest_ts in active_convs:
-            if conv_uid == exclude_conversation_id:
+            if conv_uid == exclude_conversation_id or conv_uid.startswith("qq_system"):
                 continue
             try:
-                tasks = {
-                    "conv_doc": self.get_entity_by_key(conv_uid),
-                    "latest_event": self.event_storage_service.get_event_by_timestamp(
-                        conv_uid, latest_ts
-                    ),
-                    "unread_info": self.event_storage_service.get_unread_count(
-                        conv_uid, self_bot_ids
-                    ),
-                }
-                results = await asyncio.gather(*tasks.values(), return_exceptions=True)
-                task_results = dict(zip(tasks.keys(), results, strict=False))
-                for result in task_results.values():
+                # 使用 gather 并发执行所有异步调用
+                results = await asyncio.gather(
+                    self.get_entity_by_key(conv_uid),
+                    self.event_storage_service.get_event_by_timestamp(conv_uid, latest_ts),
+                    self.event_storage_service.get_unread_count(conv_uid, self_bot_ids),
+                    return_exceptions=True,
+                )
+                
+                # 检查是否有任何任务失败
+                for result in results:
                     if isinstance(result, Exception):
                         raise result
-                if task_results["conv_doc"] and task_results["latest_event"]:
+                
+                conv_doc, latest_event, unread_info = results
+                
+                if conv_doc and latest_event:
                     active_convs_data.append(
                         {
-                            "conv_doc": task_results["conv_doc"],
-                            "latest_event": task_results["latest_event"],
-                            **task_results["unread_info"],
+                            "conv_doc": conv_doc,
+                            "latest_event": latest_event,
+                            **unread_info,
                         }
                     )
             except Exception as e:
-                print(f"处理会话 {conv_uid} 的详细信息时出错: {e}", exc_info=True)
-        print(active_convs_data)
+                logger.error(f"处理会话 {conv_uid} 的详细信息时出错: {e}", exc_info=True)
+        
         return active_convs_data
