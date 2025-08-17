@@ -315,17 +315,20 @@ class UnreadInfoService:
     async def generate_unread_summary_text(self, exclude_conversation_id: str | None = None) -> str:
         """生成顶层所需的、带XML标签的未读消息摘要."""
         logger.debug(f"开始生成精装修版未读消息摘要... (将排除: {exclude_conversation_id})")
-        unread_convs = [
-            item
-            for item in await self._get_recently_active_conversations_with_details(
-                exclude_conversation_id
-            )
-            if item["unread_count"] > 0
-        ]
+        all_active_convs = await self._get_recently_active_conversations_with_details()
+        logger.debug(f"[PROBE 2] _get_recently_active_conversations_with_details 返回了 {len(all_active_convs)} 个会话")
+        for i, item in enumerate(all_active_convs):
+            logger.debug(f"  [PROBE 3] 会话 {i}: conv_uid={item.get('conv_doc', {}).get('_key')}, unread_count={item.get('unread_count')}")
+        unread_convs = []
+        for item in all_active_convs:
+            if item.get("unread_count", 0) > 0:
+                unread_convs.append(item)
+        logger.debug(f"[PROBE 4] 过滤后，剩下 {len(unread_convs)} 个未读会话")
         if not unread_convs:
             return "所有其他会话均无未读消息。"
 
         grouped_by_platform = defaultdict(list)
+        logger.debug(f'[PROBE 5] 准备按平台对 {len(unread_convs)} 个会话进行分组...')
         for item in unread_convs:
             platform = item["conv_doc"].get("details", {}).get("platform", "unknown_platform")
             grouped_by_platform[platform].append(item)
@@ -338,11 +341,16 @@ class UnreadInfoService:
     async def get_platform_summary(self) -> str:
         """生成顶层所需的平台级摘要，能感知高优事件."""
         logger.debug("开始生成平台级摘要...")
-        unread_convs = [
-            item
-            for item in await self._get_recently_active_conversations_with_details()
-            if item["unread_count"] > 0
-        ]
+        logger.debug("[PROBE 1] get_platform_summary - 入口")
+        all_active_convs = await self._get_recently_active_conversations_with_details()
+        logger.debug(f"[PROBE 2] _get_recently_active_conversations_with_details 返回了 {len(all_active_convs)} 个会话")
+        for i, item in enumerate(all_active_convs):
+            logger.debug(f"  [PROBE 3] 会话 {i}: conv_uid={item.get('conv_doc', {}).get('_key')}, unread_count={item.get('unread_count')}")
+        unread_convs = []
+        for item in all_active_convs:
+            if item.get("unread_count", 0) > 0:
+                unread_convs.append(item)
+        logger.debug(f"[PROBE 4] 过滤后，剩下 {len(unread_convs)} 个未读会话")
         if not unread_convs:
             return "所有平台均无新消息。"
 

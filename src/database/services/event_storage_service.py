@@ -119,7 +119,7 @@ class EventStorageService:
         """
         if not image_hash:
             return None
-        query = f'match $e isa event, has content-json $cj; $cj like ".*{image_hash}.*"; $e has timestamp $ts; sort $ts desc; limit 1; select $e;'  # noqa: E501
+        query = f'match $e isa event, has content-json $cj; $cj like ".*{image_hash}.*"; $e has timestamp $ts; sort $ts desc; limit 1; select $e;'
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
         def db_read() -> dict[str, Any] | None:
@@ -140,7 +140,6 @@ class EventStorageService:
             return None
 
     def _get_full_event_doc_sync(self, tx: Transaction, event_id: str) -> dict[str, Any] | None:
-        # [FIXED] 修正了 TypeQL 语法
         query = f"""
         match
             $e isa event, has event-id "{event_id}";
@@ -189,7 +188,7 @@ class EventStorageService:
             Returns empty list if no events are found or if an error occurs.
         """
         event_type_filter = "message\\\\..*" if not fetch_all_event_types else ".*"
-        query = rf'match $e isa event, has conversation-info-json $ci; $ci like ".*\"conversation_id\": \"{conversation_id}\".*"; $e has event-type $et; $et like "{event_type_filter}"; $e has timestamp $ts; sort $ts desc; limit {limit}; select $e;'  # noqa: E501
+        query = rf'match $e isa event, has conversation-info-json $ci; $ci like ".*\"conversation_id\": \"{conversation_id}\".*"; $e has event-type $et; $et like "{event_type_filter}"; $e has timestamp $ts; sort $ts desc; limit {limit}; select $e;'
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
         def db_read() -> list[dict[str, Any]]:
@@ -246,10 +245,10 @@ class EventStorageService:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
                 for event_id in event_ids:
                     tx.query(
-                        f'match $e isa event, has event-id "{event_id}", has status $s; delete has $s of $e;'  # noqa: E501
+                        f'match $e isa event, has event-id "{event_id}", has status $s; delete has $s of $e;'
                     ).resolve()
                     tx.query(
-                        f'match $e isa event, has event-id "{event_id}"; insert $e has status "{new_status}";'  # noqa: E501
+                        f'match $e isa event, has event-id "{event_id}"; insert $e has status "{new_status}";'
                     ).resolve()
                 tx.commit()
             return True
@@ -274,7 +273,7 @@ class EventStorageService:
             vectors (list[float]) sorted by timestamp. Only includes conversations
             with 2 or more messages.
         """
-        query = r'match $event isa event, has event-type $type; $type like "message\\..*"; $event has embedding-json $embedding_json; $event has conversation-info-json $conv_info_json; $event has timestamp $ts;'  # noqa: E501
+        query = r'match $event isa event, has event-type $type; $type like "message\\..*"; $event has embedding-json $embedding_json; $event has conversation-info-json $conv_info_json; $event has timestamp $ts; select $conv_info_json, $embedding_json, $ts;'
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
         def db_read_and_group() -> list[list[list[float]]]:
@@ -295,7 +294,7 @@ class EventStorageService:
                     except (json.JSONDecodeError, AttributeError, KeyError):
                         continue
             return [
-                sorted([vec for _, vec in events], key=lambda x: x[0])
+                [vec for _, vec in sorted(events, key=lambda x: x[0])]
                 for _, events in conversations.items()
                 if len(events) >= 2
             ]
@@ -327,13 +326,26 @@ class EventStorageService:
         _, _, conv_native_id = parse_entity_uid(conversation_uid) or (None, None, None)
         if not conv_native_id:
             return None
-        query = f'match $e isa event, has conversation-info-json $ci, has timestamp {timestamp}; $ci like \'.*"conversation_id": "{conv_native_id}".*\'; $e has event-id $eid; select $eid; limit 1;'  # noqa: E501
+        
+        # Corrected query from TypeDB-AI
+        query = f"""
+        match
+            $event isa event,
+                has conversation-info-json $json,
+                has timestamp $ts,
+                has event-id $event_id;
+            $json contains "\\"{conv_native_id}\\"";
+            $ts == {timestamp};
+        select $event_id;
+        limit 1;
+        """
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
         def db_read() -> dict | None:
+            logger.debug(f'[PROBE_F] Executing get_event_by_timestamp for conv_uid={conversation_uid}, ts={timestamp}')
             with driver.transaction(db_name, TransactionType.READ) as tx:
                 answers = list(tx.query(query).resolve().as_concept_rows())
-                if answers and (eid_attr := answers[0].get("eid")):
+                if answers and (eid_attr := answers[0].get("event_id")):
                     return self._get_full_event_doc_sync(tx, eid_attr.as_attribute().get_value())
             return None
 
@@ -368,7 +380,18 @@ class EventStorageService:
         _, _, conv_native_id = parse_entity_uid(conversation_uid) or (None, None, None)
         if not conv_native_id:
             return {"unread_count": 0, "has_high_priority": False}
-        query = f'match $e isa event, has conversation-info-json $ci, has timestamp $ts; $ci like \'.*"conversation_id": "{conv_native_id}".*\'; $ts > {int(last_read_ts)}; $e has content-json $content; select $content;'
+        
+        # Corrected query structure with explicit `contains`
+        query = f"""
+        match
+            $e isa event,
+                has conversation-info-json $ci,
+                has timestamp $ts,
+                has content-json $content;
+            $ci contains "\\"{conv_native_id}\\"";
+            $ts > {int(last_read_ts)};
+        select $content;
+        """
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
         def db_read_and_process() -> dict[str, Any]:

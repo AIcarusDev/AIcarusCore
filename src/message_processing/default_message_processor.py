@@ -202,7 +202,16 @@ class DefaultMessageProcessor:
         if not (conv_info := event.conversation_info) or not conv_info.conversation_id:
             return sender_profile_id, sender_account_uid
 
-        conversation_entity_uid = f"{platform_id}_{conv_info.type}_{conv_info.conversation_id}"
+        conversation_entity = await self.entity_service.get_or_create_conversation_entity(
+            conversation_id=str(conv_info.conversation_id),
+            platform=platform_id,
+            conv_type=conv_info.type,
+            name=conv_info.name,
+        )
+        if not conversation_entity or not conversation_entity.get("_key"):
+            logger.error(f"为事件 {event.event_id} 获取或创建 conversation_entity 失败。")
+            return sender_profile_id, sender_account_uid
+        conversation_entity_uid = conversation_entity["_key"]
 
         # 使用字典来存储参与者，键是 account_uid (可哈希)，值是 UserInfo 对象 (不可哈希)
         participants_to_update: dict[str, ProtocolUserInfo] = {}
