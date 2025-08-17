@@ -7,7 +7,7 @@ from typing import Any
 
 from aicarus_protocols import UserInfo as ProtocolUserInfo
 from src.common.custom_logging.logging_config import get_logger
-from src.common.utils import build_conversation_entity_uid, parse_entity_uid
+from src.common.utils import build_conversation_entity_uid
 from typedb.driver import Transaction, TransactionType
 
 from ..core.connection_manager import TypeDBConnectionManager
@@ -423,7 +423,7 @@ class EntityGraphService:
                 with driver.transaction(db_name, TransactionType.WRITE) as tx:
                     query_exist = (
                         f'match $c isa conversation, '
-                        f'has conversation-uid "{conv_entity_uid}"; get $c;'
+                        f'has conversation-uid "{conv_entity_uid}";'
                     )
                     exists = list(tx.query(query_exist).resolve())
                     logger.debug(
