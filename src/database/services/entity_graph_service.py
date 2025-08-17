@@ -11,6 +11,7 @@ from src.common.utils import build_conversation_entity_uid
 from typedb.driver import Transaction, TransactionType
 
 from ..core.connection_manager import TypeDBConnectionManager
+from ..models import EntityDocument
 from .event_storage_service import EventStorageService
 
 logger = get_logger(__name__)
@@ -465,7 +466,7 @@ class EntityGraphService:
         except Exception:
             return None
 
-    async def get_conversations_by_platform(self, platform_uid):
+    async def get_conversations_by_platform(self, platform_uid: str) -> dict:
         """Get all conversation UIDs for a specific platform.
 
         Args:
@@ -496,7 +497,7 @@ class EntityGraphService:
 
         return conversations
 
-    async def get_entity_by_key(self, entity_uid: str) -> dict[str, Any] | None:
+    async def get_entity_by_key(self, entity_uid: str) -> EntityDocument | None:
         """通过实体 UID 获取实体信息."""
         if not entity_uid:
             return None
@@ -506,7 +507,7 @@ class EntityGraphService:
             $e isa $entity_type, has $uid_attr "{entity_uid}";
             $e has $attr;
             $attr isa $attr_type;
-            select $e, $entity_type, $attr, $attr_type;
+        select $e, $entity_type, $attr, $attr_type;
         """
 
         def db_read() -> dict[str, Any] | None:
@@ -543,7 +544,9 @@ class EntityGraphService:
                                 doc["details"][py_key] = py_value
                         else:
                             doc["details"][py_key] = py_value
-                return doc
+
+                return EntityDocument.from_dict(doc)
+
 
         try:
             return await asyncio.to_thread(db_read)
