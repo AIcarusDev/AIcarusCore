@@ -61,7 +61,7 @@ def parse_focus_path(focus_path: str | None) -> tuple[str, str, str | None]:
         current_platform_id = path_parts[0]
         if len(path_parts) >= 2:
             current_level = "cellular"
-            # 修复：会话ID可能是由多个部分组成的，例如 "private.123456"
+            # 会话ID可能是由多个部分组成的，例如 "private.123456"
             current_conv_id = ".".join(path_parts[1:])
         else:
             current_level = "platform"

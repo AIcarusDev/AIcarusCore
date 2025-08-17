@@ -137,7 +137,7 @@ class DefaultMessageProcessor:
         if not needs_persistence:
             return None
 
-        # --- [核心修复] 直接将 ProtocolEvent 转换为字典 ---
+        # 直接将 ProtocolEvent 转换为字典
         event_dict = event.to_dict()
         event_dict["person_id_associated"] = person_id
         self._calculate_and_inject_hashes(event_dict)

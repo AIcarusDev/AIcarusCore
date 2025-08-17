@@ -207,7 +207,6 @@ class PendingActionManager:
             await csm.focus_manager.handle_focus_control(command="return", params=return_params)
             logger.info(f"已成功触发对 '{left_conv_entity_uid}' 的强制 'return' 操作。")
 
-    # ======================== [ 核心改造点 5 ] ========================
     # 方法签名改变，接收 ActionResult 和 ActionMetadata
     async def _gather_and_execute_db_updates(
         self,

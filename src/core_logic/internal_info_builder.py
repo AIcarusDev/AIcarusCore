@@ -121,7 +121,6 @@ class InternalInfoBuilder:
     async def _format_interruption(self, session: "ChatSession", user_map: dict | None) -> str:
         """格式化中断信息."""
         context = session.interruption_context
-        # ======================== [ 核心改造点 ] ========================
         # 从上下文中获取 Stimulus 对象
         stimulus = context.get("interrupting_stimulus")
         if not stimulus:
@@ -130,7 +129,6 @@ class InternalInfoBuilder:
         # 直接从 Stimulus 对象获取信息
         text = self._escape_xml_text(stimulus.text_content or "[非文本消息]")
         sender_id = stimulus.sender_id or "未知"
-        # =============================================================
 
         sender_uid = f"未知用户({sender_id[:4]})"
         if user_map and sender_id != "未知":

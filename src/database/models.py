@@ -188,9 +188,6 @@ class CoreDBCollections:
         ]
 
 
-# ==================== [ 结束新增 ] ====================
-
-
 @dataclass
 class ThoughtChainDocument:
     """代表 thought-chain-node 实体的一个数据类."""

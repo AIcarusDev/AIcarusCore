@@ -36,7 +36,6 @@ def mock_session(mocker: MockerFixture) -> MagicMock:
     return session
 
 
-# --- [核心修复 1] ---
 # 创建一个 fixture，它只负责提供一个单一的、共享的队列实例
 @pytest.fixture
 def shared_interrupt_queue() -> asyncio.Queue:
@@ -56,7 +55,6 @@ def mock_interruption_broker(
     return broker
 
 
-# --- [修复结束] ---
 
 
 @pytest.fixture

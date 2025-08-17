@@ -96,7 +96,7 @@ class ChatSession:
         # --- 缓存 ---
         self.bot_profile_cache: dict[str, Any] = {}
         self.last_profile_update_time: float = 0.0
-        self.working_memory: dict[str, Any] = {}  # <-- 新增：工作记忆容器
+        self.working_memory: dict[str, Any] = {}
 
         logger.info(f"[ChatSession][{self.conversation_id}] 实例已创建。")
 

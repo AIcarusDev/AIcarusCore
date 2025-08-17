@@ -390,7 +390,6 @@ class CoreLogic:
         if not new_stimulus.text_content and not new_stimulus.image_urls:
             return None, new_stimulus  # 但仍然更新上下文
 
-        # --- [核心修复] ---
         # 守卫3: 如果事件没有被成功向量化，就不能进行基于向量的意外度评估。
         # 这是一个关键的预检步骤，防止将不合格的数据传递给评估器。
         if new_stimulus.embedding is None:
@@ -398,7 +397,6 @@ class CoreLogic:
                 f"Stimulus {new_stimulus.event_id} 没有 embedding，跳过中断评估，但会更新上下文。"
             )
             return None, new_stimulus  # 不中断，但更新上下文
-        # --- [修复结束] ---
 
         if session.intelligent_interrupter.should_interrupt(
             new_stimulus=new_stimulus, context_stimulus=context_stimulus

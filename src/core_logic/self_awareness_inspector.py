@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any
 
 from aicarus_protocols import UserInfo as ProtocolUserInfo
 from src.common.custom_logging.logging_config import get_logger
-from src.database.models import CoreDBCollections
 
 # 导入新的服务和常量
 
