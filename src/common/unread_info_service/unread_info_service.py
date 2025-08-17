@@ -177,7 +177,7 @@ class UnreadInfoService:
         platform_convs = [
             c
             for c in all_active_convs
-            if c.get("conv_doc", {}).get("details", {}).get("conversation_uid") in conversation_list
+            if c.get("conv_doc") and c["conv_doc"].details.conversation_uid in conversation_list
         ]
 
         total_count = len(platform_convs)
@@ -225,15 +225,14 @@ class UnreadInfoService:
             conv_doc = item["conv_doc"]
             latest_event = item["latest_event"]
             unread_count = item["unread_count"]
-            conv_details = conv_doc.get("details", {})
+            # 使用 conv_doc._key 和 conv_doc.details
+            conv_details = conv_doc.details
+            entity_uid = conv_doc._key
 
-            # 使用 conv_doc['_key'] (即 entity_uid) 作为聚焦ID
-            entity_uid = conv_doc.get("_key", "unknown_entity_uid")
-
-            is_temporary = conv_details.get("extra", {}).get("is_temporary", False)
-            conv_type = conv_details.get("type")
+            is_temporary = getattr(conv_details, 'extra', {}).get('is_temporary', False)
+            conv_type = conv_details.type
             sender_display_name = self._get_sender_display_name(latest_event, conv_type)
-            conv_name = conv_details.get("name") or sender_display_name
+            conv_name = conv_details.name or sender_display_name
             time_str = format_relative_time(latest_event.get("timestamp", 0))
             message_preview = self._create_message_preview(latest_event, sender_display_name)
 
@@ -264,21 +263,18 @@ class UnreadInfoService:
         event_for_preview = item["latest_event"]
         unread_count = item["unread_count"]
 
-        # 使用 conv_doc['_key'] (即 entity_uid) 作为聚焦ID
-        entity_uid = conv_doc.get("_key", "unknown_entity_uid")
+        entity_uid = conv_doc._key
+        conv_details = conv_doc.details
+        conv_type = conv_details.type
 
-        conv_details = conv_doc.get("details", {})
-        conv_type = conv_details.get("type", "private")
         sender_name = self._get_sender_display_name(event_for_preview, conv_type)
         time_str = format_relative_time(event_for_preview.get("timestamp", 0))
         preview = self._create_message_preview(event_for_preview, sender_name)
-        is_temporary = conv_details.get("extra", {}).get("is_temporary", False)
+        is_temporary = getattr(conv_details, 'extra', {}).get('is_temporary', False)
 
-        header = f"- [{'临时会话' if is_temporary else '[用户名称]'}]：{
-            conv_details.get('name') or sender_name
-        }"
+        header = f"- [{'临时会话' if is_temporary else '[用户名称]'}]：{conv_details.name or sender_name}"
         if conv_type == "group":
-            header = f"- [群名称]：{conv_details.get('name') or '未知群聊'}"
+            header = f"- [群名称]：{conv_details.name or '未知群聊'}"
 
         # 生成单个会话的摘要文本列表
         return [
@@ -308,10 +304,8 @@ class UnreadInfoService:
         """辅助函数: 格式化单个平台的完整XML块."""
         section_parts = [f"<from_{platform}>"]
         items.sort(key=lambda x: x["has_high_priority"], reverse=True)
-        group_chats = [c for c in items if c["conv_doc"].get("details", {}).get("type") == "group"]
-        private_chats = [
-            c for c in items if c["conv_doc"].get("details", {}).get("type") == "private"
-        ]
+        group_chats = [c for c in items if c["conv_doc"].details.type == "group"]
+        private_chats = [c for c in items if c["conv_doc"].details.type == "private"]
         section_parts.extend(await self._format_chat_type_section("group", group_chats))
         section_parts.extend(await self._format_chat_type_section("private", private_chats))
         section_parts.append(f"</from_{platform}>")
@@ -324,10 +318,14 @@ class UnreadInfoService:
         logger.debug(
             f"[PROBE 2] _get_recently_active_conversations_with_details 返回了 {len(all_active_convs)} 个会话"
         )
+        # 修复日志探针
         for i, item in enumerate(all_active_convs):
-            logger.debug(
-                f"  [PROBE 3] 会话 {i}: conv_uid={item.get('conv_doc', {}).get('_key')}, unread_count={item.get('unread_count')}"
-            )
+            conv_doc = item.get("conv_doc")
+            if conv_doc:
+                logger.debug(
+                    f"  [PROBE 3] 会话 {i}: conv_uid={conv_doc._key}, unread_count={item.get('unread_count')}"
+                )
+
         unread_convs = []
         for item in all_active_convs:
             if item.get("unread_count", 0) > 0:
@@ -339,8 +337,12 @@ class UnreadInfoService:
         grouped_by_platform = defaultdict(list)
         logger.debug(f"[PROBE 5] 准备按平台对 {len(unread_convs)} 个会话进行分组...")
         for item in unread_convs:
-            platform = item["conv_doc"].get("details", {}).get("platform", "unknown_platform")
-            grouped_by_platform[platform].append(item)
+            conv_doc = item.get("conv_doc")
+            if conv_doc and conv_doc.details:
+                platform = conv_doc.details.platform
+                grouped_by_platform[platform].append(item)
+            else:
+                logger.warning(f"跳过一个缺少 conv_doc 或 details 的 item: {item}")
 
         summary_parts = []
         for platform, items in grouped_by_platform.items():
@@ -355,10 +357,14 @@ class UnreadInfoService:
         logger.debug(
             f"[PROBE 2] _get_recently_active_conversations_with_details 返回了 {len(all_active_convs)} 个会话"
         )
+        # 修复日志探针
         for i, item in enumerate(all_active_convs):
-            logger.debug(
-                f"  [PROBE 3] 会话 {i}: conv_uid={item.get('conv_doc', {}).get('_key')}, unread_count={item.get('unread_count')}"
-            )
+            conv_doc = item.get("conv_doc")
+            if conv_doc:
+                logger.debug(
+                    f"  [PROBE 3] 会话 {i}: conv_uid={conv_doc._key}, unread_count={item.get('unread_count')}"
+                )
+
         unread_convs = []
         for item in all_active_convs:
             if item.get("unread_count", 0) > 0:
@@ -373,8 +379,15 @@ class UnreadInfoService:
         print(f"unread_convs: {unread_convs}")
         for item in unread_convs:
             print(f"Processing item: {item}")
-            conv_key = item["conv_doc"].get("_key")
-            platform, _conv_type, native_id = parse_entity_uid(conv_key)
+            conv_doc = item.get("conv_doc")
+            if not (conv_doc and conv_doc._key):
+                continue
+
+            conv_key = conv_doc._key
+            parsed = parse_entity_uid(conv_key)
+            if not parsed:
+                continue
+            platform, _conv_type, native_id = parsed
             if platform:
                 platforms_with_news[platform]["has_any_news"] = True
                 if item["has_high_priority"]:

@@ -194,10 +194,12 @@ class DefaultMessageProcessor:
             )
 
         entity_doc = await self.entity_service.get_entity_by_key(sender_account_uid)
-        if entity_doc and (remark := entity_doc.get("details", {}).get("friend_remark")):
-            if not sender_user_info.extra:
-                sender_user_info.extra = {}
-            sender_user_info.extra["friend_remark"] = remark
+        if entity_doc and hasattr(entity_doc.details, "friend_remark"):
+            remark = getattr(entity_doc.details, "friend_remark", None)
+            if remark:
+                if not sender_user_info.extra:
+                    sender_user_info.extra = {}
+                sender_user_info.extra["friend_remark"] = remark
 
         if not (conv_info := event.conversation_info) or not conv_info.conversation_id:
             return sender_profile_id, sender_account_uid
@@ -208,10 +210,10 @@ class DefaultMessageProcessor:
             conv_type=conv_info.type,
             name=conv_info.name,
         )
-        if not conversation_entity or not conversation_entity.get("_key"):
+        if not conversation_entity or not conversation_entity._key:
             logger.error(f"为事件 {event.event_id} 获取或创建 conversation_entity 失败。")
             return sender_profile_id, sender_account_uid
-        conversation_entity_uid = conversation_entity["_key"]
+        conversation_entity_uid = conversation_entity._key
 
         # 使用字典来存储参与者，键是 account_uid (可哈希)，值是 UserInfo 对象 (不可哈希)
         participants_to_update: dict[str, ProtocolUserInfo] = {}
