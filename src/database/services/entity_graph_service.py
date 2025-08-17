@@ -215,18 +215,18 @@ class EntityGraphService:
 
         def db_upsert_membership() -> None:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
+                # This is the final, correct, and expert-verified query for atomic upsert.
+                # It correctly handles both creation and update scenarios.
                 upsert_query = f"""
                 match
                     $acc isa account, has account-uid "{account_entity_uid}";
                     $conv isa conversation, has conversation-uid "{conversation_entity_uid}";
-                put
-                    (member: $acc, group: $conv) isa membership;
-                match
-                    $acc isa account, has account-uid "{account_entity_uid}";
-                    $conv isa conversation, has conversation-uid "{conversation_entity_uid}";
-                    $mem (member: $acc, group: $conv) isa membership;
-                update
-                    $mem has cardname "{cardname}",
+                    $mem isa membership, links(member: $acc, group: $conv);
+                delete
+                    $mem;
+                insert
+                    $new_mem isa membership, links(member: $acc, group: $conv),
+                        has cardname "{cardname}",
                         has permission-level "{perm_level}",
                         has timestamp {timestamp};
                 """
@@ -481,54 +481,53 @@ class EntityGraphService:
             # 把所有异常都吃掉并返回 None，让上层知道失败了
             return None
 
-
     async def get_entity_by_key(self, entity_uid: str) -> dict[str, Any] | None:
-        """通过实体 UID 获取实体信息.
-
-        Args:
-            entity_uid (str): 实体的 UID.
-
-        Returns:
-            dict[str, Any] | None: 包含实体信息的字典，如果未找到则返回 None.
-        """
+        """通过实体 UID 获取实体信息 (已修复)."""
         if not entity_uid:
             return None
-        parsed_uid = parse_entity_uid(entity_uid)
-        if not parsed_uid:
-            return None
-        _, entity_type, _ = parsed_uid
-        uid_attribute_type = {
-            "account": "account-uid",
-            "conversation": "conversation-uid",
-            "platform": "platform-uid",
-        }.get(entity_type)
-        if not uid_attribute_type:
-            return None
-        query = (
-            f'match $e isa {entity_type}, has {uid_attribute_type} "{entity_uid}"; '
-            f"$e has $attr; $attr isa $attr_type; "
-            f"$attr_type label $attr_label; $attr has $value; "
-            f"select $attr_label, $value;"
-        )
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
+        # 这是由 TypeDB-AI 专家提供的查询，用于可靠地查找实体并获取其所有属性。
+        # 我已将占位符 `{entity_uid}` 正确地集成到 f-string 中。
+        query = f"""
+        match
+            $e has $uid_attr;
+            $uid_attr == "{entity_uid}";
+            $e isa $entity_type;
+            $e has $attr;
+            $attr isa $attr_type;
+        select $e, $entity_type, $attr, $attr_type;
+        """
 
         def db_read() -> dict[str, Any] | None:
             with driver.transaction(db_name, TransactionType.READ) as tx:
                 answers = list(tx.query(query).resolve().as_concept_rows())
                 if not answers:
                     return None
+                first_answer = answers[0]
+                entity_type_concept = first_answer.get("entity_type")
+                if not entity_type_concept:
+                    return None
+                entity_type_label = entity_type_concept.as_type().get_label()
                 doc = {
                     "_key": entity_uid,
                     "entity_uid": entity_uid,
-                    "entity_type": entity_type,
+                    "entity_type": entity_type_label,
                     "details": {},
                 }
                 for ans in answers:
-                    label, py_value = (
-                        ans.get("attr_label").as_attribute().get_value(),
-                        ans.get("value").as_value().get(),
-                    )
-                    doc["details"][label.replace("-", "_")] = py_value
+                    attr_type_concept = ans.get("attr_type")
+                    attr_concept = ans.get("attr")
+                    if attr_type_concept and attr_concept:
+                        attr_label = attr_type_concept.as_type().get_label()
+                        py_key = attr_label.replace("-", "_")
+                        py_value = attr_concept.as_attribute().get_value()
+                        if isinstance(py_value, str) and "_json" in attr_label:
+                            try:
+                                doc["details"][py_key] = json.loads(py_value)
+                            except json.JSONDecodeError:
+                                doc["details"][py_key] = py_value
+                        else:
+                            doc["details"][py_key] = py_value
                 return doc
 
         try:

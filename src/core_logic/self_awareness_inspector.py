@@ -188,7 +188,7 @@ async def _update_single_group_info(
         if not conversation_entity:
             logger.error(f"为群聊 {conversation_id} 获取或创建实体失败，跳过更新。")
             return
-        conversation_entity_uid = conversation_entity._key
+        conversation_entity_uid = conversation_entity["_key"]
 
         temp_user_info_for_edge = ProtocolUserInfo(
             user_cardname=group_profile.get("card"),
@@ -201,13 +201,6 @@ async def _update_single_group_info(
             conversation_name=group_profile.get("group_name"),
         )
 
-        entities_collection = await entity_service._get_collection(CoreDBCollections.ENTITIES)
-        await entities_collection.update(
-            {
-                "_key": conversation_entity_uid,
-                "bot_profile_in_this_conversation": bot_profile_for_conv,
-            }
-        )
     except Exception as e:
         logger.error(f"更新群聊 '{conversation_id}' 的实体信息时在底层失败: {e}", exc_info=True)
         raise e
