@@ -7,7 +7,7 @@ from typing import Any
 
 from aicarus_protocols import UserInfo as ProtocolUserInfo
 from src.common.custom_logging.logging_config import get_logger
-from src.common.utils import build_conversation_entity_uid, parse_entity_uid
+from src.common.utils import build_conversation_entity_uid
 from typedb.driver import Transaction, TransactionType
 
 from ..core.connection_manager import TypeDBConnectionManager
@@ -57,6 +57,37 @@ class EntityGraphService:
             f'insert $a has nickname "{new_nickname}";'
         )
         tx.query(insert_query).resolve()
+
+    def _update_conversation_name_if_changed_sync(
+        self, tx: Transaction, conv_entity_uid: str, new_name: str
+    ) -> None:
+        """如果提供的名称与数据库中的不同，则更新它."""
+        # 1. 获取当前名称
+        match_query = (
+            f'match $c isa conversation, has conversation-uid "{conv_entity_uid}"; '
+            f"try {{ $c has display-name $n; }}; select $n;"
+        )
+        answers = list(tx.query(match_query).resolve().as_concept_rows())
+        old_name = None
+        if answers and (old_name_concept := answers[0].get("n")):
+            old_name = old_name_concept.as_attribute().get_value()
+
+        # 2. 如果名称不同，则执行 delete -> insert 更新
+        if old_name != new_name:
+            logger.info(f"会话 '{conv_entity_uid}' 名称已从 '{old_name}' 更新为 '{new_name}'。")
+            if old_name is not None:
+                delete_query = (
+                    f"match $c isa conversation, "
+                    f'has conversation-uid "{conv_entity_uid}", has display-name "{old_name}"; '
+                    f'delete $c has display-name "{old_name}";'
+                )
+                tx.query(delete_query).resolve()
+
+            insert_query = (
+                f'match $c isa conversation, has conversation-uid "{conv_entity_uid}"; '
+                f'insert $c has display-name "{new_name.replace('"', '\\"')}";'
+            )
+            tx.query(insert_query).resolve()
 
     async def find_or_create_profile_and_account_entity(
         self, user_info: ProtocolUserInfo, platform: str
@@ -414,11 +445,20 @@ class EntityGraphService:
 
         def db_op() -> str | None:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
-                if list(
-                    tx.query(f'match $c isa conversation, has conversation-uid "{conv_entity_uid}";').resolve()
-                ):
+                # 检查会话实体是否存在
+                exists_query = (
+                    f'match $c isa conversation, has conversation-uid "{conv_entity_uid}";'
+                    )
+                is_existing = list(tx.query(exists_query).resolve())
+
+                if is_existing:
+                    # 如果实体已存在，检查是否需要更新名称
+                    if name:
+                        self._update_conversation_name_if_changed_sync(tx, conv_entity_uid, name)
+                    tx.commit()  # 别忘了提交事务
                     return conv_entity_uid
 
+                # 如果实体不存在，则创建它
                 safe_name = (name or conversation_id).replace('"', '\\"')
                 insert_query = (
                     f'match $p isa platform, has platform-uid "{platform}"; '
@@ -451,7 +491,7 @@ class EntityGraphService:
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
         conversations = {}
 
-        def db_read():
+        def db_read() -> None:
             with driver.transaction(db_name, TransactionType.READ) as tx:
                 query = f"""
                 match
@@ -468,32 +508,23 @@ class EntityGraphService:
         await asyncio.to_thread(db_read)
         return conversations
 
-    # =========================================================================
-    # ============================ START OF FIX ===============================
-    # =========================================================================
     async def get_entity_by_key(self, entity_uid: str) -> EntityDocument | None:
         """通过实体 UID 获取实体信息 (已修复)."""
         if not entity_uid:
             return None
 
-        # 1. 解析 UID 以确定实体类型和查询属性
-        parsed_uid = parse_entity_uid(entity_uid)
-        if not parsed_uid:
-            logger.error(f"无法解析格式不正确的实体UID: '{entity_uid}'")
+        # 1. 智能判断 UID 类型并构建查询
+        parts = entity_uid.split("_")
+        if len(parts) >= 3:  # 认为是会话: platform_type_id...
+            entity_type_label = "conversation"
+            uid_attribute_label = "conversation-uid"
+        elif len(parts) == 2:  # 认为是账户: platform_id
+            entity_type_label = "account"
+            uid_attribute_label = "account-uid"
+        else:
+            logger.error(f"无法识别的实体UID格式: '{entity_uid}'")
             return None
 
-        _, parsed_type, _ = parsed_uid
-
-        # 2. 根据解析出的类型确定 TypeDB 实体类型和 UID 属性
-        type_map = {
-            "group": ("conversation", "conversation-uid"),
-            "private": ("conversation", "conversation-uid"),
-            # 可以根据需要扩展其他类型，例如 'user' -> ('account', 'account-uid')
-        }
-        # 默认回退到 'account'
-        entity_type_label, uid_attribute_label = type_map.get(parsed_type, ("account", "account-uid"))
-
-        # 核心修复：查询时，通过 residency 关系把 platform 的信息也一并查出来
         query = f"""
         match
             $e isa {entity_type_label}, has {uid_attribute_label} "{entity_uid}";
@@ -516,7 +547,6 @@ class EntityGraphService:
                     )
                     return None
 
-                # 提取平台信息
                 platform_from_relation = answers[0].get("platform_uid").as_attribute().get_value()
 
                 doc = {
@@ -524,7 +554,7 @@ class EntityGraphService:
                     "entity_uid": entity_uid,
                     "entity_type": entity_type_label,
                     "details": {
-                        "platform": platform_from_relation  # <-- 关键注入
+                        "platform": platform_from_relation
                     },
                 }
 
@@ -542,8 +572,7 @@ class EntityGraphService:
                                 doc["details"][py_key] = py_value
                         else:
                             doc["details"][py_key] = py_value
-                
-                # 从 details 中提取顶层字段
+
                 top_level_keys = ['last_read_timestamp', 'bot_profile_in_this_conversation']
                 for key in top_level_keys:
                     if key in doc['details']:
@@ -718,14 +747,14 @@ class EntityGraphService:
                     self.event_storage_service.get_unread_count(conv_uid, self_bot_ids),
                     return_exceptions=True,
                 )
-                
+
                 # 检查是否有任何任务失败
                 for result in results:
                     if isinstance(result, Exception):
                         raise result
-                
+
                 conv_doc, latest_event, unread_info = results
-                
+
                 if conv_doc and latest_event:
                     active_convs_data.append(
                         {
@@ -736,5 +765,5 @@ class EntityGraphService:
                     )
             except Exception as e:
                 logger.error(f"处理会话 {conv_uid} 的详细信息时出错: {e}", exc_info=True)
-        
+
         return active_convs_data

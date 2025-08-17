@@ -918,12 +918,10 @@ class ThoughtPromptBuilder:
         if level == "core":
             # 1. 获取当前最新的未读摘要
             current_unread_summary = await self.unread_info_service.get_platform_summary()
-            print(current_unread_summary)
 
             # 2. 核心判断逻辑
             if current_unread_summary and current_unread_summary != self._last_shown_unread_summary:
                 external_info = current_unread_summary
-                print(external_info)
                 logger.info("检测到新的未读消息，将在顶层Prompt中展示。")
             else:
                 external_info = "所有平台均无新的未读消息。"
