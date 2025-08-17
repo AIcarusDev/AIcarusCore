@@ -171,11 +171,11 @@ class UnreadInfoService:
                 f"  <!-- 在平台 '{platform_id}' 下，没有发现任何新消息。 -->\n"
                 f"</conversation_list>"
             )
-
+        conversation_list = await self.entity_graph_service.get_conversations_by_platform(platform_uid=platform_id)
         platform_convs = [
             c
             for c in all_active_convs
-            if c.get("conv_doc", {}).get("details", {}).get("platform") == platform_id
+            if c.get("conv_doc", {}).get("details", {}).get("conversation_uid") in conversation_list
         ]
 
         total_count = len(platform_convs)

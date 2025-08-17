@@ -465,6 +465,38 @@ class EntityGraphService:
         except Exception:
             return None
 
+    async def get_conversations_by_platform(self, platform_uid):
+        """
+        Get all conversation UIDs for a specific platform.
+        
+        Args:
+            platform_uid: The platform UID.
+        
+        Returns:
+            dict: Dictionary with conversation UIDs as keys and display names as values
+        """
+        driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
+        conversations = {}
+        
+        with driver.transaction(db_name, TransactionType.READ) as tx:
+            query = f"""
+            match
+                $c isa conversation;
+                $p isa platform, has platform-uid "{platform_uid}";
+                $residency (resident: $c, host-platform: $p) isa residency;
+            fetch {{
+                "conversation_uid": $c.conversation-uid,
+                "display_name": $c.display-name
+            }};
+            """
+            results = list(tx.query(query).resolve())
+            for result in results:
+                conv_uid = result["conversation_uid"]
+                display_name = result["display_name"]
+                conversations[conv_uid] = display_name
+        
+        return conversations
+
     async def get_entity_by_key(self, entity_uid: str) -> dict[str, Any] | None:
         """通过实体 UID 获取实体信息."""
         if not entity_uid:
@@ -676,9 +708,7 @@ class EntityGraphService:
             return []
 
         for conv_uid, latest_ts in active_convs:
-            print(f"[PROBE_A1] Processing conv_uid: {conv_uid}")
             if conv_uid == exclude_conversation_id:
-                print(f'[PROBE_B] Processing conv_uid: {conv_uid}')
                 continue
             try:
                 tasks = {
@@ -692,13 +722,10 @@ class EntityGraphService:
                 }
                 results = await asyncio.gather(*tasks.values(), return_exceptions=True)
                 task_results = dict(zip(tasks.keys(), results, strict=False))
-                print(f"[PROBE_B1] {task_results}")
                 for result in task_results.values():
                     if isinstance(result, Exception):
                         raise result
-                print("[PROBE_B2] 111111111")
                 if task_results["conv_doc"] and task_results["latest_event"]:
-                    print(f'[PROBE_C] Successfully gathered details for {conv_uid}')
                     active_convs_data.append(
                         {
                             "conv_doc": task_results["conv_doc"],
