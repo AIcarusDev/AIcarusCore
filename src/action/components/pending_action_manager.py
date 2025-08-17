@@ -349,13 +349,20 @@ class PendingActionManager:
     ) -> None:
         """将成功的动作存储为事件."""
         event_to_save = sent_dict.copy()
+        
+        # --- 关键修复！---
+        # 从 event_type 中解析出 platform_id 并添加到字典中
+        event_type_full = event_to_save.get("event_type", "")
+        platform = event_type_full.split(".")[1] if "." in event_type_full else "unknown"
+        event_to_save["platform"] = platform
+        # --- 修复结束 ---
+
         event_to_save["event_id"] = action_id
         event_to_save["timestamp"] = int(time.time() * 1000)
         event_to_save["status"] = "read"
         conv_info = event_to_save.get("conversation_info")
         original_action_type = event_to_save.get("event_type", "")
         if original_action_type.endswith(".send_message"):
-            platform = original_action_type.split(".")[1]
             if conv_info and isinstance(conv_info, dict):
                 conv_type = conv_info.get("type", "unknown")
                 event_to_save["event_type"] = f"message.{platform}.{conv_type}"

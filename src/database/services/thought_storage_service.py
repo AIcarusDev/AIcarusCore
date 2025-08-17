@@ -64,9 +64,10 @@ class ThoughtStorageService:
 
         def db_write() -> str | None:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
+                # 1. 获取上一个思想节点的 key
                 answers = list(
                     tx.query(
-                        f'match $p isa system-pointer, has pointer-name "{LATEST_THOUGHT_POINTER_KEY}"; $p has target-key $key; select $key;'  # noqa: E501
+                        f'match $p isa system-pointer, has pointer-name "{LATEST_THOUGHT_POINTER_KEY}"; $p has target-key $key; select $key;'
                     )
                     .resolve()
                     .as_concept_rows()
@@ -75,14 +76,11 @@ class ThoughtStorageService:
                     answers[0].get("key").as_attribute().get_value() if answers else None
                 )
                 new_key = thought_data._key
+
+                # 2. 构建属性插入部分
                 insert_parts = [
-                    f'$t isa thought-chain-node, has thought-id "{new_key}"',
-                    f"has timestamp {
-                        int(
-                            datetime.datetime.fromisoformat(thought_data.timestamp).timestamp()
-                            * 1000
-                        )
-                    }",
+                    f'has thought-id "{new_key}"',
+                    f"has timestamp {int(datetime.datetime.fromisoformat(thought_data.timestamp).timestamp() * 1000)}",
                     f'has mood "{thought_data.mood.replace('"', '\\"')}"',
                     f'has think "{thought_data.think.replace('"', '\\"')}"',
                 ]
@@ -96,25 +94,35 @@ class ThoughtStorageService:
                     insert_parts.append(f'has action-id "{thought_data.action_id}"')
                 if thought_data.action_payload:
                     insert_parts.append(
-                        f'has action-payload-json "{
-                            json.dumps(thought_data.action_payload, ensure_ascii=False).replace(
-                                '"', '\\"'
-                            )
-                        }"'
+                        f'has action-payload-json "{json.dumps(thought_data.action_payload, ensure_ascii=False).replace('"', '\\"')}"'
                     )
-                tx.query("insert " + ", ".join(insert_parts) + ";").resolve()
+                attributes_str = ",\n    ".join(insert_parts)
+
+                # 3. 使用单一、原子性的查询来插入新思想并建立连接
+                if last_thought_key:
+                    full_query = f"""
+                    match
+                        $prev isa thought-chain-node, has thought-id "{last_thought_key}";
+                    insert
+                        $curr isa thought-chain-node, {attributes_str};
+                        (preceding-thought: $prev, succeeding-thought: $curr) isa precedes-thought;
+                    """
+                else:
+                    full_query = f"""
+                    insert $curr isa thought-chain-node, {attributes_str};
+                    """
+                tx.query(full_query).resolve()
+
+                # 4. 原子性地更新指针
                 if last_thought_key:
                     tx.query(
-                        f'match $prev isa thought-chain-node, has thought-id "{last_thought_key}"; $curr isa thought-chain-node, has thought-id "{new_key}"; insert (preceding-thought: $prev, succeeding-thought: $curr) isa precedes-thought;'  # noqa: E501
-                    ).resolve()
-                if last_thought_key:
-                    tx.query(
-                        f'match $p isa system-pointer, has pointer-name "{LATEST_THOUGHT_POINTER_KEY}"; $p has target-key $old_key; delete has $old_key of $p; insert $p has target-key "{new_key}";'  # noqa: E501
+                        f'match $p isa system-pointer, has pointer-name "{LATEST_THOUGHT_POINTER_KEY}"; $p has target-key $old_key; delete has $old_key of $p; insert $p has target-key "{new_key}";'
                     ).resolve()
                 else:
                     tx.query(
-                        f'insert $p isa system-pointer, has pointer-name "{LATEST_THOUGHT_POINTER_KEY}", has target-key "{new_key}";'  # noqa: E501
+                        f'insert $p isa system-pointer, has pointer-name "{LATEST_THOUGHT_POINTER_KEY}", has target-key "{new_key}";'
                     ).resolve()
+                
                 tx.commit()
                 return new_key
 

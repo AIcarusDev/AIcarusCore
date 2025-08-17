@@ -318,34 +318,33 @@ class EntityGraphService:
             return []
 
     async def get_conversation_last_read_timestamp(self, conversation_entity_uid: str) -> float:
-        """获取会话最后一次读取的时间戳.
-
-        Args:
-            conversation_entity_uid (str): 会话的实体 UID.
-
-        Returns:
-            float: 最后一次读取的时间戳，如果未找到则返回 0.0.
+        """获取会话最后一次读取的时间戳."""
+        query = f"""
+        match
+            $person isa person, has person-uid "{SELF_PROFILE_ID}";
+            $conversation isa conversation, has conversation-uid "{conversation_entity_uid}";
+            $read_status isa read-status,
+                links (reader: $person, readable: $conversation),
+                has timestamp $timestamp;
+        select $timestamp;
         """
-        query = (
-            f'match $p isa person, has person-uid "{SELF_PROFILE_ID}"; '
-            f'$c isa conversation, has conversation-uid "{conversation_entity_uid}"; '
-            f"(reader: $p, readable: $c) isa read-status, has timestamp $ts; select $ts;"
-        )
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
         def db_read() -> float:
+            logger.debug(f"[DEBUG] Executing get_conversation_last_read_timestamp query for conv_uid='{conversation_entity_uid}':\n{query}")
             with driver.transaction(db_name, TransactionType.READ) as tx:
                 answers = list(tx.query(query).resolve().as_concept_rows())
-                return (
-                    float(answers[0].get("ts").as_attribute().get_value())
-                    if answers and answers[0].get("ts")
-                    else 0.0
-                )
+                if answers and answers[0].get("timestamp"):
+                    logger.debug(f"[DEBUG] Found last_read_timestamp: {{float(answers[0].get('timestamp').as_attribute().get_value())}}")
+                    return float(answers[0].get("timestamp").as_attribute().get_value())
+                logger.debug("[DEBUG] No last_read_timestamp found, returning 0.0")
+                return 0.0
 
         try:
             return await asyncio.to_thread(db_read)
         except Exception as e:
             logger.error(f"获取会话 '{conversation_entity_uid}' 最后已读时间戳失败: {e}")
+            logger.debug("[DEBUG] No last_read_timestamp found, returning 0.0")
             return 0.0
 
     async def update_conversation_last_read_timestamp(

@@ -137,8 +137,8 @@ class DefaultMessageProcessor:
         if not needs_persistence:
             return None
 
-        # --- [核心修复] 直接将 ProtocolEvent 转换为字典 ---
         event_dict = event.to_dict()
+        event_dict["platform"] = platform_id  # <--- 关键修复！
         event_dict["person_id_associated"] = person_id
         self._calculate_and_inject_hashes(event_dict)
 
@@ -194,7 +194,7 @@ class DefaultMessageProcessor:
             )
 
         entity_doc = await self.entity_service.get_entity_by_key(sender_account_uid)
-        if entity_doc and (remark := entity_doc.details.friend_remark):
+        if entity_doc and (remark := entity_doc.get("details", {}).get("friend_remark")):
             if not sender_user_info.extra:
                 sender_user_info.extra = {}
             sender_user_info.extra["friend_remark"] = remark

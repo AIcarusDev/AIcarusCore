@@ -27,65 +27,79 @@ class EventStorageService:
         self.entity_graph_service = service
 
     async def save_event_document(self, event_doc_data: dict[str, Any]) -> bool:
-        """Save an event document to the TypeDB database.
+        """Save an event document to the TypeDB database using an idempotent `put` query.
 
         Parameters
         ----------
         event_doc_data : dict[str, Any]
-            Dictionary containing event data including event_id, platform, event_type,
-            timestamp, bot_id, status, and optional fields like content, user_info,
-            conversation_info, embedding, image_analysis, person_id_associated,
-            motivation, and narrative_sentence.
+            Dictionary containing event data.
 
         Returns:
         -------
         bool
-            True if the event was successfully saved or already exists, False if
-            required fields are missing or if an error occurs during saving.
+            True if the event was successfully saved or already existed, False on error.
         """
         if not (event_id := (event_doc_data.get("_key") or event_doc_data.get("event_id"))):
+            logger.error("保存事件失败：缺少 'event_id' 或 '_key'。")
             return False
         if not (platform_uid := event_doc_data.get("platform")):
+            logger.error(f"保存事件 '{event_id}' 失败：缺少 'platform' 字段。")
             return False
+
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
         def db_write() -> bool:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
-                if list(tx.query(f'match $e isa event, has event-id "{event_id}";').resolve()):
-                    return True
-                insert_parts = [
+                # 构建属性插入部分
+                timestamp_value = int(event_doc_data.get('time', event_doc_data.get('timestamp', 0)))
+                put_parts = [
                     f'$e isa event, has event-id "{event_id}"',
                     f'has event-type "{event_doc_data.get("event_type", "unknown")}"',
-                    f"has timestamp {event_doc_data.get('time', event_doc_data.get('timestamp', 0))}",  # noqa: E501
+                    f"has timestamp {timestamp_value}",
                     f'has bot-id "{event_doc_data.get("bot_id", "unknown")}"',
                     f'has status "{event_doc_data.get("status", "unread")}"',
                 ]
+
+                # 处理 JSON 字符串属性
                 for key, attr in [
-                    ("content", "content-json"),
-                    ("user_info", "user-info-json"),
-                    ("conversation_info", "conversation-info-json"),
-                    ("embedding", "embedding-json"),
+                    ("content", "content-json"), ("user_info", "user-info-json"),
+                    ("conversation_info", "conversation-info-json"), ("embedding", "embedding-json"),
                     ("image_analysis", "image-analysis-json"),
                 ]:
                     if val := event_doc_data.get(key):
-                        insert_parts.append(
-                            f'has {attr} "{json.dumps(val, ensure_ascii=False).replace('"', '\\"')}"'  # noqa: E501
-                        )
+                        safe_val = json.dumps(val, ensure_ascii=False).replace('"', '\\"')
+                        put_parts.append(f'has {attr} "{safe_val}"')
+
+                # 处理普通字符串属性
                 for key, attr in [
-                    ("person_id_associated", "person-id-associated"),
-                    ("motivation", "motivation"),
+                    ("person_id_associated", "person-id-associated"), ("motivation", "motivation"),
                     ("narrative_sentence", "narrative-sentence"),
                 ]:
                     if val := event_doc_data.get(key):
-                        insert_parts.append(f'has {attr} "{str(val).replace('"', '\\"')}"')
-                tx.query(
-                    f'match $p isa platform, has platform-uid "{platform_uid}"; insert {", ".join(insert_parts)}; insert (source-platform: $p, sourced-event: $e) isa event-source;'  # noqa: E501
-                ).resolve()
+                        safe_val = str(val).replace('"', '\\"')
+                        put_parts.append(f'has {attr} "{safe_val}"')
+                
+                attributes_str = ",\n    ".join(put_parts)
+
+                # 构建完整的原子性 put 查询
+                full_query = f"""
+                match
+                    $p isa platform, has platform-uid "{platform_uid}";
+                put
+                    {attributes_str};
+                    $_ isa event-source, links (source-platform: $p, sourced-event: $e);
+                """
+                
+                logger.debug(f"Executing atomic event put query for event_id '{event_id}':\n{full_query}")
+                tx.query(full_query).resolve()
                 tx.commit()
                 return True
 
         try:
-            return await asyncio.to_thread(db_write)
+            success = await asyncio.to_thread(db_write)
+            if success:
+                logger.debug(f"事件文档 '{event_id}' 已通过幂等操作保存/确认存在。")
+            return success
         except Exception as e:
             logger.error(f"保存事件文档 '{event_id}' 失败: {e}", exc_info=True)
             return False
@@ -266,7 +280,7 @@ class EventStorageService:
         def db_read_and_group() -> list[list[list[float]]]:
             conversations: dict[str, list[tuple[int, list[float]]]] = {}
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                for ans in list(tx.query(query).resolve()):
+                for ans in list(tx.query(query).resolve().as_concept_rows()):
                     try:
                         ci_str, emb_str, ts = (
                             ans.get("conv_info_json").as_attribute().get_value(),
@@ -354,18 +368,22 @@ class EventStorageService:
         _, _, conv_native_id = parse_entity_uid(conversation_uid) or (None, None, None)
         if not conv_native_id:
             return {"unread_count": 0, "has_high_priority": False}
-        query = f'match $e isa event, has conversation-info-json $ci, has timestamp $ts; $ci like \'.*"conversation_id": "{conv_native_id}".*\'; $ts > {int(last_read_ts)}; $e has content-json $content;'  # noqa: E501
+        query = f'match $e isa event, has conversation-info-json $ci, has timestamp $ts; $ci like \'.*"conversation_id": "{conv_native_id}".*\'; $ts > {int(last_read_ts)}; $e has content-json $content; select $content;'
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
         def db_read_and_process() -> dict[str, Any]:
+            logger.debug(f"[DEBUG] Executing get_unread_count query for conv_uid='{conversation_uid}' with last_read_ts={{int(last_read_ts)}}:\n{{query}}")
             unread_count, has_high_priority = 0, False
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                answers = list(tx.query(query).resolve())
+                answers = list(tx.query(query).resolve().as_concept_rows())
                 unread_count = len(answers)
                 if not has_high_priority:
                     all_my_bot_ids = set(self_bot_ids.values())
                     for ans in answers:
-                        content_str = ans.get("content").as_value().get_string()
+                        content_concept = ans.get("content")
+                        if not content_concept:
+                            continue
+                        content_str = content_concept.as_attribute().get_value()
                         if any(
                             f'"user_id": "{bot_id}"' in content_str for bot_id in all_my_bot_ids
                         ) and any(
