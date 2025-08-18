@@ -8,7 +8,6 @@ from src.common.custom_logging.logging_config import get_logger
 from src.config.aicarus_configs import FocusChatModeSettings
 from src.database.models import ConversationDetails
 from src.database.services.event_storage_service import EventStorageService
-from src.database.services.summary_storage_service import SummaryStorageService
 from src.database.services.thought_storage_service import ThoughtStorageService
 from src.llmrequest.llm_processor import Client as LLMProcessorClient
 
@@ -20,7 +19,6 @@ if TYPE_CHECKING:
     from src.common.intelligent_interrupt_system.intelligent_interrupter import (
         IntelligentInterrupter,
     )
-    from src.common.summarization_observation.summarization_service import SummarizationService
     from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
     from src.core_logic.internal_info_builder import InternalInfoBuilder
     from src.database.services.entity_graph_service import EntityGraphService
@@ -39,8 +37,6 @@ class ChatSessionManager:
         event_storage: EventStorageService,
         action_handler: ActionHandler,
         self_bot_ids_map: dict[str, str],
-        summarization_service: "SummarizationService",
-        summary_storage_service: "SummaryStorageService",
         intelligent_interrupter: "IntelligentInterrupter",
         entity_graph_service: "EntityGraphService",
         thought_storage_service: "ThoughtStorageService",
@@ -54,8 +50,6 @@ class ChatSessionManager:
         self.event_storage = event_storage
         self.action_handler = action_handler
         self.self_bot_ids_map = self_bot_ids_map
-        self.summarization_service = summarization_service
-        self.summary_storage_service = summary_storage_service
         self.thought_storage_service = thought_storage_service
         self.internal_info_builder = internal_info_builder
         self.intelligent_interrupter = intelligent_interrupter
@@ -166,8 +160,6 @@ class ChatSessionManager:
                 bot_id=bot_id_for_session,
                 core_logic=self.core_logic,
                 chat_session_manager=self,
-                summarization_service=self.summarization_service,
-                summary_storage_service=self.summary_storage_service,
                 intelligent_interrupter=self.intelligent_interrupter,
                 thought_storage_service=self.thought_storage_service,
                 internal_info_builder=self.internal_info_builder,
@@ -190,11 +182,6 @@ class ChatSessionManager:
                 final_timestamp = session.last_processed_timestamp
                 await self.entity_graph_service.update_conversation_last_read_timestamp(
                     conversation_entity_uid, final_timestamp
-                )
-                context = handover_context or {}
-                await session.summarization_manager.create_and_save_final_summary(
-                    shift_motivation=context.get("motivation"),
-                    target_conversation_id=context.get("target_id"),
                 )
                 logger.info(
                     f"[SessionManager] 会话实体 '{conversation_entity_uid}' 的最终总结已处理，"

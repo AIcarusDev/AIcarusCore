@@ -13,7 +13,6 @@ if TYPE_CHECKING:
     )
     from src.common.interruption_broker import InterruptionEventBroker
     from src.common.narrative_vectorizer.narrative_vectorizer import NarrativeVectorizer
-    from src.common.summarization_observation.summarization_service import SummarizationService
     from src.common.unread_info_service.unread_info_service import UnreadInfoService
     from src.core_communication.core_ws_server import CoreWebsocketServer
     from src.core_logic.consciousness_flow import CoreLogic
@@ -30,7 +29,6 @@ if TYPE_CHECKING:
         EventStorageService,
         GoalStorageService,
         StickerStorageService,
-        SummaryStorageService,
         ThoughtStorageService,
     )
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
@@ -59,7 +57,6 @@ class ServiceContainer:
     event_storage_service: EventStorageService
     thought_storage_service: ThoughtStorageService
     action_log_service: ActionLogStorageService
-    summary_storage_service: SummaryStorageService
     entity_graph_service: EntityGraphService
     image_analysis_service: ImageAnalysisService
     sticker_storage_service: StickerStorageService
@@ -74,7 +71,6 @@ class ServiceContainer:
     message_processor: DefaultMessageProcessor
     prompt_builder: ThoughtPromptBuilder
     state_manager: AIStateManager
-    summarization_service: SummarizationService
     thought_generator: ThoughtGenerator
     thought_persistor: ThoughtPersistor
     unread_info_service: UnreadInfoService

@@ -180,8 +180,6 @@ class FocusChatModeSettings(ConfigBase):
     enabled: bool = True
     """是否允许AI进入底层会话"""
 
-    summary_interval: int = 5
-    """渐进式总结的触发消息间隔"""
 
 
 @dataclass

@@ -152,7 +152,6 @@ class CoreDBCollections:
     EVENTS = "events"
     THOUGHT_CHAIN = "thought_chain"
     ACTION_LOG = "action_log"
-    SUMMARIES = "summaries"
     IMAGE_CACHE = "image_cache"
     GOALS = "goals"
     STICKER_COLLECTION = "sticker_collection"
@@ -226,22 +225,6 @@ class ActionLogDocument:
     def to_dict(self) -> dict[str, Any]:
         """将 ActionLogDocument 转换为字典."""
         return asdict(self)
-
-
-@dataclass
-class SummaryDocument:
-    """代表 summary 实体的一个数据类."""
-
-    _key: str  # summary_id
-    conversation_uid: str
-    timestamp: int
-    summary_text: str
-    event_ids_covered: list[str] = field(default_factory=list)
-
-    def to_dict(self) -> dict[str, Any]:
-        """将 SummaryDocument 转换为字典."""
-        return asdict(self)
-
 
 @dataclass
 class ImageCacheDocument:

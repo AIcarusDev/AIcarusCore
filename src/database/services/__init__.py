@@ -6,5 +6,4 @@ from .event_storage_service import EventStorageService
 from .goal_storage_service import GoalStorageService
 from .image_analysis_cache_service import ImageAnalysisCacheService
 from .sticker_storage_service import StickerStorageService
-from .summary_storage_service import SummaryStorageService
 from .thought_storage_service import ThoughtStorageService

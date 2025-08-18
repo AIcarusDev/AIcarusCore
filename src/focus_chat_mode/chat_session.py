@@ -11,17 +11,14 @@ from src.database.services.thought_storage_service import ThoughtStorageService
 from src.llmrequest.llm_processor import Client as LLMProcessorClient
 
 from .behavioral_guidance_generator import BehavioralGuidanceGenerator
-from .summarization_manager import SummarizationManager
 
 if TYPE_CHECKING:
     from src.common.intelligent_interrupt_system.intelligent_interrupter import (
         IntelligentInterrupter,
     )
-    from src.common.summarization_observation.summarization_service import SummarizationService
     from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
     from src.core_logic.internal_info_builder import InternalInfoBuilder
     from src.database.services.entity_graph_service import EntityGraphService
-    from src.database.services.summary_storage_service import SummaryStorageService
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 
 CACHE_EXPIRATION_SECONDS = 600
@@ -43,8 +40,6 @@ class ChatSession:
         bot_id: str,
         core_logic: "CoreLogicFlow",
         chat_session_manager: "ChatSessionManager",
-        summarization_service: "SummarizationService",
-        summary_storage_service: "SummaryStorageService",
         internal_info_builder: "InternalInfoBuilder",
         intelligent_interrupter: "IntelligentInterrupter",
         thought_storage_service: "ThoughtStorageService",
@@ -63,15 +58,12 @@ class ChatSession:
         self.conversation_name: str | None = conversation_info.name
         self.core_logic = core_logic
         self.chat_session_manager = chat_session_manager
-        self.summarization_service = summarization_service
-        self.summary_storage_service = summary_storage_service
         self.internal_info_builder = internal_info_builder
         self.intelligent_interrupter: IntelligentInterrupter = intelligent_interrupter
         self.thought_storage_service: ThoughtStorageService = thought_storage_service
         self.entity_graph_service = entity_graph_service  # 存储服务实例
 
         # --- 功能组件初始化 ---
-        self.summarization_manager = SummarizationManager(self)
         self.guidance_generator = BehavioralGuidanceGenerator(self)
         self.membership_status: str = conversation_info.extra.get("membership_status", "active")
 
@@ -90,7 +82,6 @@ class ChatSession:
         # --- 中断相关 ---
         self.interruption_context: dict | None = None
         self.sent_action_ids_this_turn: list[str] = []
-        self.current_handover_summary: str | None = None
         self.last_command_feedback: str | None = None
 
         # --- 缓存 ---

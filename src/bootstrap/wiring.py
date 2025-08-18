@@ -56,8 +56,6 @@ async def wire_dynamic_dependencies(container: ServiceContainer) -> None:
             event_storage=container.event_storage_service,
             action_handler=container.action_handler,
             self_bot_ids_map=bot_ids_map,
-            summarization_service=container.summarization_service,
-            summary_storage_service=container.summary_storage_service,
             intelligent_interrupter=container.intelligent_interrupter,
             thought_storage_service=container.thought_storage_service,
             internal_info_builder=container.internal_info_builder,

@@ -11,7 +11,6 @@ from src.database.services import (
     GoalStorageService,
     ImageAnalysisCacheService,
     StickerStorageService,
-    SummaryStorageService,
     ThoughtStorageService,
 )
 from typedb.driver import (
@@ -121,12 +120,6 @@ def image_analysis_cache_service(
 def sticker_storage_service(conn_manager: TypeDBConnectionManager) -> StickerStorageService:
     """提供一个 StickerStorageService 实例."""
     return StickerStorageService(conn_manager)
-
-
-@pytest.fixture(scope="function")
-def summary_storage_service(conn_manager: TypeDBConnectionManager) -> SummaryStorageService:
-    """提供一个 SummaryStorageService 实例."""
-    return SummaryStorageService(conn_manager)
 
 
 @pytest.fixture(scope="function")

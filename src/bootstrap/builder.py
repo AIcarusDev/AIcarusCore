@@ -15,7 +15,6 @@ from src.common.intelligent_interrupt_system.intelligent_interrupter import Inte
 from src.common.intelligent_interrupt_system.models import SemanticModel
 from src.common.interruption_broker import InterruptionEventBroker
 from src.common.narrative_vectorizer.narrative_vectorizer import NarrativeVectorizer
-from src.common.summarization_observation.summarization_service import SummarizationService
 from src.common.unread_info_service.unread_info_service import UnreadInfoService
 from src.config import config
 from src.config.aicarus_configs import ModelParams
@@ -38,7 +37,6 @@ from src.database.services.event_storage_service import EventStorageService
 from src.database.services.goal_storage_service import GoalStorageService
 from src.database.services.image_analysis_cache_service import ImageAnalysisCacheService
 from src.database.services.sticker_storage_service import StickerStorageService
-from src.database.services.summary_storage_service import SummaryStorageService
 from src.database.services.thought_storage_service import ThoughtStorageService
 from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.message_processing.default_message_processor import DefaultMessageProcessor
@@ -104,10 +102,9 @@ class ServiceBuilder:
         )
 
         internal_info_builder.prompt_builder = prompt_builder
-        summary_llm = (
-            llm_clients["summary_llm_client"] or llm_clients["main_consciousness_llm_client"]
-        )
-        summarization_service = SummarizationService(summary_llm)
+        # summary_llm = (
+        #     llm_clients["summary_llm_client"] or llm_clients["main_consciousness_llm_client"]
+        # )
         semantic_model = await self._get_semantic_model(db_services["event_storage_service"])
 
         narrative_vectorizer = NarrativeVectorizer(
@@ -192,7 +189,6 @@ class ServiceBuilder:
             thought_storage_service=db_services["thought_storage_service"],
             action_log_service=db_services["action_log_service"],
             image_analysis_service=image_analysis_service,
-            summary_storage_service=db_services["summary_storage_service"],
             entity_graph_service=db_services["entity_graph_service"],
             action_handler=action_handler,
             intelligent_interrupter=interrupt_model,
@@ -202,7 +198,6 @@ class ServiceBuilder:
             prompt_builder=prompt_builder,
             state_manager=state_manager,
             interruption_broker=interruption_broker,
-            summarization_service=summarization_service,
             thought_generator=thought_generator,
             thought_persistor=thought_persistor,
             unread_info_service=unread_info_service,
@@ -345,7 +340,6 @@ class ServiceBuilder:
         services_to_create = {
             "thought_storage_service": ThoughtStorageService,
             "action_log_service": ActionLogStorageService,
-            "summary_storage_service": SummaryStorageService,
             "image_analysis_cache_service": ImageAnalysisCacheService,
             "sticker_storage_service": StickerStorageService,
             "goal_storage_service": GoalStorageService,

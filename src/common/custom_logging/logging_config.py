@@ -39,9 +39,7 @@ MODULE_CONFIG_MAP = {
     "common.custom_logging.logger_manager": ("日志管理", "white"),
     "common.focus_chat_history_builder.chat_prompt_builder": ("聊天提示构建", "green"),
     "common.intelligent_interrupt_system.iis_main": ("智能中断", "green"),
-    "common.summarization_observation.summarization_service": ("观察摘要", "light-black"),
     "common.utils": ("通用工具", "white"),
-    "common.summarization_observation": ("观察摘要", "light-black"),
     "common.json_parser.json_parser": ("JSON 解析", "white"),
     # 配置
     "config.config_io": ("配置IO", "yellow"),
@@ -70,7 +68,6 @@ MODULE_CONFIG_MAP = {
     "database.services.action_log_storage_service": ("动作日志", "cyan"),
     "database.services.conversation_storage_service": ("会话存储", "cyan"),
     "database.services.event_storage_service": ("事件存储", "cyan"),
-    "database.services.summary_storage_service": ("摘要存储", "cyan"),
     "database.services.thought_storage_service": ("思考存储", "cyan"),
     "database.services": ("数据库服务", "cyan"),
     # 专注聊天
@@ -79,7 +76,6 @@ MODULE_CONFIG_MAP = {
     "focus_chat_mode.chat_session_manager": ("会话管理", "green"),
     "focus_chat_mode.focus_chat_cycler": ("专注循环", "green"),
     "focus_chat_mode.llm_response_handler": ("LLM响应处理", "green"),
-    "focus_chat_mode.summarization_manager": ("摘要管理", "green"),
     # LLM & 工具
     "llmrequest.llm_processor": ("LLM 处理", "light-blue"),
     "llmrequest.utils_model": ("LLM 底层", "blue"),

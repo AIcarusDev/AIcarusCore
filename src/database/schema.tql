@@ -122,14 +122,6 @@ entity intrusive-thought,
     owns used,
     owns timestamp-generated;
 
-# 会话总结实体
-entity summary,
-    owns summary-id @key,
-    owns conversation-uid,
-    owns timestamp,
-    owns summary-text,
-    owns event-ids-covered-json;
-
 # 图片分析缓存实体
 entity image-cache,
     owns image-hash @key,
@@ -205,7 +197,6 @@ attribute person-id-associated, value string;
 attribute thought-id, value string;
 attribute action-id, value string;
 attribute target-key, value string;
-attribute summary-id, value string;
 attribute goal-id, value string;
 attribute sticker-id, value integer;
 
@@ -237,7 +228,6 @@ attribute action-result, value string;
 attribute pointer-name, value string;
 attribute thought-text, value string;
 attribute used, value boolean;
-attribute summary-text, value string;
 attribute version, value string;
 attribute goal-text, value string;
 attribute reason-text, value string;
