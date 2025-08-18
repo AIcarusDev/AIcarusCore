@@ -68,3 +68,84 @@ async def test_find_or_create_profile_and_account_entity(
     ) = await entity_graph_service.find_or_create_profile_and_account_entity(user_info, platform)
     assert profile_id_2 == profile_id_1
     assert account_uid_2 == account_uid_1
+
+class TestConversationEntity:
+    """专门测试会话实体（特别是群聊名称）的创建和更新逻辑。"""
+
+    async def test_creates_group_with_name(
+        self, entity_graph_service: EntityGraphService, db_connection: Driver
+    ):
+        """测试场景1 (Happy Path): 创建一个带有名称的群聊实体。"""
+        # 1. 准备 (Arrange)
+        conv_id = "group1"
+        platform = "qq"
+        conv_type = "group"
+        name = "测试群组"
+        db_name = entity_graph_service.conn_manager.database_name
+
+        # 2. 执行 (Act)
+        entity = await entity_graph_service.get_or_create_conversation_entity(
+            conversation_id=conv_id, platform=platform, conv_type=conv_type, name=name
+        )
+
+        # 3. 断言 (Assert)
+        assert entity is not None
+        # 直接查询数据库，验证 display-name 属性是否被正确写入
+        with db_connection.transaction(db_name, TransactionType.READ) as tx:
+            query = f'match $c isa conversation, has conversation-id "{conv_id}", has display-name $n; select $n;'
+            answers = list(tx.query(query).resolve().as_concept_rows())
+            assert len(answers) == 1
+            assert answers[0].get("n").as_attribute().get_value() == name
+
+    async def test_creates_group_without_name(
+        self, entity_graph_service: EntityGraphService, db_connection: Driver
+    ):
+        """测试场景2 (Bug复现): 创建一个 name=None 的群聊实体。"""
+        # 1. 准备 (Arrange)
+        conv_id = "group2"
+        platform = "qq"
+        conv_type = "group"
+        db_name = entity_graph_service.conn_manager.database_name
+
+        # 2. 执行 (Act)
+        entity = await entity_graph_service.get_or_create_conversation_entity(
+            conversation_id=conv_id, platform=platform, conv_type=conv_type, name=None
+        )
+
+        # 3. 断言 (Assert)
+        assert entity is not None
+        # 直接查询数据库，验证 display-name 属性是否 *不存在*
+        with db_connection.transaction(db_name, TransactionType.READ) as tx:
+            # 这个查询会查找有 conv_id 但没有 display-name 的实体
+            query = f'match $c isa conversation, has conversation-id "{conv_id}"; not {{ $c has display-name $any_name; }}; select $c;'
+            answers = list(tx.query(query).resolve().as_concept_rows())
+            # 我们期望能找到这样一个实体，证明它被创建了但是是“无名”的
+            assert len(answers) == 1
+
+    async def test_updates_group_name_on_subsequent_call(
+        self, entity_graph_service: EntityGraphService, db_connection: Driver
+    ):
+        """测试场景3 (更新路径): 先创建一个无名群聊，再用有名称的数据调用，验证其名称被更新。"""
+        # 1. 准备 (Arrange) - 第一次调用，无名称
+        conv_id = "group3"
+        platform = "qq"
+        conv_type = "group"
+        new_name = "后来补上的群名"
+        db_name = entity_graph_service.conn_manager.database_name
+
+        await entity_graph_service.get_or_create_conversation_entity(
+            conversation_id=conv_id, platform=platform, conv_type=conv_type, name=None
+        )
+
+        # 2. 执行 (Act) - 第二次调用，有名称
+        await entity_graph_service.get_or_create_conversation_entity(
+            conversation_id=conv_id, platform=platform, conv_type=conv_type, name=new_name
+        )
+
+        # 3. 断言 (Assert)
+        # 直接查询数据库，验证 display-name 是否已成功更新
+        with db_connection.transaction(db_name, TransactionType.READ) as tx:
+            query = f'match $c isa conversation, has conversation-id "{conv_id}", has display-name $n; select $n;'
+            answers = list(tx.query(query).resolve().as_concept_rows())
+            assert len(answers) == 1
+            assert answers[0].get("n").as_attribute().get_value() == new_name

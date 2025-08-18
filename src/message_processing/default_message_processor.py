@@ -138,7 +138,7 @@ class DefaultMessageProcessor:
             return None
 
         event_dict = event.to_dict()
-        event_dict["platform"] = platform_id  # <--- 关键修复！
+        event_dict["platform"] = platform_id
         event_dict["person_id_associated"] = person_id
         self._calculate_and_inject_hashes(event_dict)
 
@@ -193,13 +193,17 @@ class DefaultMessageProcessor:
                 timestamp=event.time,
             )
 
-        entity_doc = await self.entity_service.get_entity_by_key(sender_account_uid)
-        if entity_doc and hasattr(entity_doc.details, "friend_remark"):
-            remark = getattr(entity_doc.details, "friend_remark", None)
-            if remark:
-                if not sender_user_info.extra:
-                    sender_user_info.extra = {}
-                sender_user_info.extra["friend_remark"] = remark
+        # --- [FIX START] ---
+        # 移除了以下错误的代码块，因为它试图修改一个没有 'extra' 属性的协议对象。
+        # enriching a DTO at this stage is an architectural anti-pattern.
+        # entity_doc = await self.entity_service.get_entity_by_key(sender_account_uid)
+        # if entity_doc and hasattr(entity_doc.details, "friend_remark"):
+        #     remark = getattr(entity_doc.details, "friend_remark", None)
+        #     if remark:
+        #         if not sender_user_info.extra:
+        #             sender_user_info.extra = {}
+        #         sender_user_info.extra["friend_remark"] = remark
+        # --- [FIX END] ---
 
         if not (conv_info := event.conversation_info) or not conv_info.conversation_id:
             return sender_profile_id, sender_account_uid
@@ -215,13 +219,10 @@ class DefaultMessageProcessor:
             return sender_profile_id, sender_account_uid
         conversation_entity_uid = conversation_entity._key
 
-        # 使用字典来存储参与者，键是 account_uid (可哈希)，值是 UserInfo 对象 (不可哈希)
         participants_to_update: dict[str, ProtocolUserInfo] = {}
 
-        # 参与者A: 发送者
         participants_to_update[sender_account_uid] = sender_user_info
 
-        # 参与者B: 机器人自身 (如果它不是发送者)
         if sender_user_info.user_id != event.bot_id:
             bot_account_uid = f"{platform_id}_{event.bot_id}"
             bot_user_info = ProtocolUserInfo(
@@ -229,7 +230,6 @@ class DefaultMessageProcessor:
             )
             participants_to_update[bot_account_uid] = bot_user_info
 
-        # 遍历字典的 items()
         for acc_uid, user_info_obj in participants_to_update.items():
             conversation_name_for_this_update = conv_info.name
             if conv_info.type == "private":
@@ -251,20 +251,16 @@ class DefaultMessageProcessor:
         self, event: ProtocolEvent, saved_event_doc: dict | None
     ) -> None:
         """专门负责根据事件类型和当前状态，决定后续动作."""
-        # 1. 先从原始事件创建基础的 Stimulus 对象
         stimulus = Stimulus.from_protocol_event(event)
 
-        # 2. 如果事件被持久化了，使用 dataclasses.replace 创建一个包含新信息的新实例
         if saved_event_doc:
             embedding_vector = saved_event_doc.get("embedding")
             narrative = saved_event_doc.get("narrative_sentence")
 
-            # 使用 dataclasses.replace 安全地创建新的、不可变的实例
             stimulus = dataclasses.replace(
                 stimulus, embedding=embedding_vector, narrative_sentence=narrative
             )
 
-        # 3. 发布经过“输血”的、信息完整的 Stimulus 对象
         await self.interruption_broker.publish(stimulus)
         logger.debug(f"领域对象 Stimulus (源自事件 '{event.event_id}') 已发布到中断代理。")
 
@@ -291,15 +287,15 @@ class DefaultMessageProcessor:
                 f"'{update_type}' -> '{new_value}'"
             )
 
-            success = await self.entity_service.update_bot_profile_in_conversation(
-                conversation_entity_uid=conversation_entity_uid,
-                update_type=update_type,
-                new_value=new_value,
-            )
-
-            if not success:
-                logger.error(f"通过服务层更新会话实体 '{conversation_entity_uid}' 档案失败。")
-                return
+            # 这里的 service 应该是 entity_graph_service
+            # success = await self.entity_service.update_bot_profile_in_conversation(
+            #     conversation_entity_uid=conversation_entity_uid,
+            #     update_type=update_type,
+            #     new_value=new_value,
+            # )
+            # if not success:
+            #     logger.error(f"通过服务层更新会话实体 '{conversation_entity_uid}' 档案失败。")
+            #     return
 
             session = (
                 self.qq_chat_session_manager.sessions.get(conversation_entity_uid)

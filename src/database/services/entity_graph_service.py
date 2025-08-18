@@ -59,9 +59,9 @@ class EntityGraphService:
         tx.query(insert_query).resolve()
 
     def _update_conversation_name_if_changed_sync(
-        self, tx: Transaction, conv_entity_uid: str, new_name: str
+        self, tx: Transaction, conv_entity_uid: str, new_name: str | None
     ) -> None:
-        """如果提供的名称与数据库中的不同，则更新它."""
+        """如果提供的名称与数据库中的不同，则更新它 (已修复)。"""
         # 1. 获取当前名称
         match_query = (
             f'match $c isa conversation, has conversation-uid "{conv_entity_uid}"; '
@@ -72,22 +72,26 @@ class EntityGraphService:
         if answers and (old_name_concept := answers[0].get("n")):
             old_name = old_name_concept.as_attribute().get_value()
 
-        # 2. 如果名称不同，则执行 delete -> insert 更新
+        # 2. 如果名称不同，则执行更新
         if old_name != new_name:
             logger.info(f"会话 '{conv_entity_uid}' 名称已从 '{old_name}' 更新为 '{new_name}'。")
+            # 2.1 如果之前有名字，就删掉旧的
             if old_name is not None:
                 delete_query = (
-                    f"match $c isa conversation, "
-                    f'has conversation-uid "{conv_entity_uid}", has display-name "{old_name}"; '
-                    f'delete $c has display-name "{old_name}";'
+                    f'match $c isa conversation, has conversation-uid "{conv_entity_uid}", has display-name $old_name; '
+                    f'where $old_name == "{old_name.replace('"', '\\"\\"')}"; '
+                    f"delete has $old_name of $c;"
                 )
                 tx.query(delete_query).resolve()
 
-            insert_query = (
-                f'match $c isa conversation, has conversation-uid "{conv_entity_uid}"; '
-                f'insert $c has display-name "{new_name.replace('"', '\\"')}";'
-            )
-            tx.query(insert_query).resolve()
+            # 2.2 如果新名字不是 None 或空，就插入新的
+            if new_name and new_name.strip():
+                insert_query = (
+                    f'match $c isa conversation, has conversation-uid "{conv_entity_uid}"; '
+                    f'insert $c has display-name "{new_name.replace('"', '\\"\\"')}";'
+                )
+                tx.query(insert_query).resolve()
+
 
     async def find_or_create_profile_and_account_entity(
         self, user_info: ProtocolUserInfo, platform: str
@@ -246,37 +250,48 @@ class EntityGraphService:
         user_info: ProtocolUserInfo,
         conversation_name: str | None,
     ) -> bool:
-        """更新用户在对话中的存在状态."""
+        """更新用户在对话中的存在状态，并智能更新会话名称。"""
         cardname = (user_info.user_cardname or "").replace('"', '\\"')
         perm_level = (user_info.permission_level or "member").replace('"', '\\"')
         timestamp = int(time.time() * 1000)
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.database_name
 
-        def db_upsert_membership() -> None:
+        def db_upsert_membership_and_name() -> None:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
-                # 检查是否存在 membership
-                upsert_query = f"""
+                # 步骤 1: 更新或插入成员关系 (membership)
+                delete_membership_query = f"""
                 match
                     $acc isa account, has account-uid "{account_entity_uid}";
                     $conv isa conversation, has conversation-uid "{conversation_entity_uid}";
                     $mem isa membership, links(member: $acc, group: $conv);
                 delete
                     $mem;
+                """
+                tx.query(delete_membership_query).resolve()
+
+                insert_membership_query = f"""
+                match
+                    $acc isa account, has account-uid "{account_entity_uid}";
+                    $conv isa conversation, has conversation-uid "{conversation_entity_uid}";
                 insert
                     $new_mem isa membership, links(member: $acc, group: $conv),
                         has cardname "{cardname}",
                         has permission-level "{perm_level}",
                         has timestamp {timestamp};
                 """
-                tx.query(upsert_query).resolve()
+                tx.query(insert_membership_query).resolve()
+
+                # 步骤 2: 智能更新会话名称
+                self._update_conversation_name_if_changed_sync(tx, conversation_entity_uid, conversation_name)
+                
                 tx.commit()
 
         try:
-            await asyncio.to_thread(db_upsert_membership)
+            await asyncio.to_thread(db_upsert_membership_and_name)
             return True
         except Exception as e:
-            logger.error(f"更新存在关系时失败: {e}", exc_info=True)
+            logger.error(f"更新存在关系和会话名称时失败: {e}", exc_info=True)
             return False
 
     async def get_or_create_platform_entity(
@@ -420,6 +435,7 @@ class EntityGraphService:
             )
             return False
 
+    # --- [FIX START] ---
     async def get_or_create_conversation_entity(
         self,
         conversation_id: str,
@@ -455,36 +471,42 @@ class EntityGraphService:
                 # 检查会话实体是否存在
                 exists_query = (
                     f'match $c isa conversation, has conversation-uid "{conv_entity_uid}";'
-                    )
+                )
                 is_existing = list(tx.query(exists_query).resolve())
 
                 if is_existing:
-                    # 如果实体已存在，检查是否需要更新名称
-                    if name:
-                        self._update_conversation_name_if_changed_sync(tx, conv_entity_uid, name)
-                    tx.commit()  # 别忘了提交事务
+                    # 无论 name 是否为 None，都调用更新逻辑
+                    self._update_conversation_name_if_changed_sync(tx, conv_entity_uid, name)
+                    tx.commit()
                     return conv_entity_uid
 
                 # 如果实体不存在，则创建它
-                safe_name = (name or conversation_id).replace('"', '\\"')
-                insert_query = (
-                    f'match $p isa platform, has platform-uid "{platform}"; '
-                    f"insert $c isa conversation, "
-                    f'    has conversation-uid "{conv_entity_uid}", '
-                    f'    has conversation-id "{conversation_id}", '
-                    f'    has type "{conv_type}", '
-                    f'    has display-name "{safe_name}"; '
-                    f"insert (resident: $c, host-platform: $p) isa residency;"
-                )
-                tx.query(insert_query).resolve()
+                insert_query_parts = [
+                    f'match $p isa platform, has platform-uid "{platform}";',
+                    "insert $c isa conversation,",
+                    f'    has conversation-uid "{conv_entity_uid}",',
+                    f'    has conversation-id "{conversation_id}",',
+                    f'    has type "{conv_type}";',
+                    "residency (resident: $c, host-platform: $p);",
+                ]
+                
+                # 只有当 name 存在时，才添加 has display-name
+                if name and name.strip():
+                    safe_name = name.replace('"', '\\"')
+                    insert_query_parts[2] = insert_query_parts[2] + f'\n    has display-name "{safe_name}",'
+                
+                full_query = "\n".join(insert_query_parts)
+                tx.query(full_query).resolve()
                 tx.commit()
                 return conv_entity_uid
 
         try:
             uid = await asyncio.to_thread(db_op)
             return await self.get_entity_by_key(uid) if uid else None
-        except Exception:
+        except Exception as e:
+            logger.error(f"获取或创建会话实体 '{conv_entity_uid}' 失败: {e}", exc_info=True)
             return None
+    # --- [FIX END] ---
 
     async def get_conversations_by_platform(self, platform_uid: str) -> dict:
         """Get all conversation UIDs for a specific platform.
@@ -592,9 +614,6 @@ class EntityGraphService:
         except Exception as e:
             logger.error(f"通过 key '{entity_uid}' 获取实体时失败: {e}", exc_info=True)
             return None
-    # =========================================================================
-    # ============================= END OF FIX ================================
-    # =========================================================================
 
     async def update_friend_request_status(
         self, entity_uid: str, flag: str, comment: str, timestamp: int

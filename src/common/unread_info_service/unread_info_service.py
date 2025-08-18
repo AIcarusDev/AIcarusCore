@@ -212,6 +212,7 @@ class UnreadInfoService:
             for c in all_active_convs
             if c.get("conv_doc") and c["conv_doc"]._key in conversation_list
         ]
+        
 
         total_count = len(platform_convs)
 
@@ -252,7 +253,8 @@ class UnreadInfoService:
                 if remaining_count > 0
                 else "--- 已经到底了 ---"
             )
-
+        print(f"conversation_list: {conversation_list}")
+        print(f"convs_to_display: {convs_to_display}")
         for item in convs_to_display:
             conv_doc = item["conv_doc"]
             latest_event = item["latest_event"]
@@ -265,6 +267,7 @@ class UnreadInfoService:
                 and isinstance(conv_doc.details, ConversationDetails)
             ):
                 continue  # 跳过无效的 conv_doc
+            print(f"conv_doc: {conv_doc}")
             conv_details = conv_doc.details
             entity_uid = conv_doc._key
             is_temporary = conv_details.extra.get("is_temporary", False)
@@ -272,8 +275,15 @@ class UnreadInfoService:
             sender_display_name = self._get_sender_display_name(latest_event, conv_type)
 
             # 核心逻辑修正：根据会话类型决定名称
+            print(f"conv_details: {conv_details}")
             if conv_type == "group":
-                conv_name = conv_details.name or f"未知群聊({conv_details.conversation_id})"
+                # [MODIFIED] 优先从我们一开始就获取的、包含准确名称的 conversation_list 字典中取值。
+                # 只有当字典中没有时，才使用 conv_doc 里的名称作为备用，最后再使用 ID 回退。
+                conv_name = (
+                    conversation_list.get(entity_uid)
+                    or conv_details.name
+                    or f"未知群聊({conv_details.conversation_id})"
+                )
             else: # private
                 conv_name = conv_details.name or sender_display_name
             # ========================== [FIX END] ==========================
@@ -319,13 +329,14 @@ class UnreadInfoService:
             and isinstance(conv_doc.details, ConversationDetails)
         ):
             return []
-
+        print(f"conv_doc: {conv_doc}")
         conv_details = conv_doc.details
         conv_type = conv_details.type
         sender_name = self._get_sender_display_name(event_for_preview, conv_type)
         is_temporary = conv_details.extra.get("is_temporary", False)
 
         # 核心逻辑修正：根据会话类型决定名称
+        print(f"conv_details: {conv_details}")
         if conv_type == "group":
             conv_name = conv_details.name or f"未知群聊({conv_details.conversation_id})"
         else: # private
