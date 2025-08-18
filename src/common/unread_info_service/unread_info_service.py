@@ -111,10 +111,8 @@ class UnreadInfoService:
                 # 是在 @ 机器人自己
                 platform_id = conv_doc.details.platform
                 # 1. 优先尝试获取群名片
-                presence_info = (
-                    await self.entity_graph_service.get_self_presence_in_conversation(
-                        platform=platform_id, conversation_entity_uid=conv_doc._key
-                    )
+                presence_info = await self.entity_graph_service.get_self_presence_in_conversation(
+                    platform=platform_id, conversation_entity_uid=conv_doc._key
                 )
                 if presence_info and (card := presence_info.get("cardname")):
                     return f"@{card}"
@@ -274,7 +272,7 @@ class UnreadInfoService:
             print(f"conv_details: {conv_details}")
             if conv_type == "group":
                 conv_name = conv_details.name or f"未知群聊({conv_details.conversation_id})"
-            else: # private
+            else:  # private
                 conv_name = conv_details.name or sender_display_name
             # ========================== [FIX END] ==========================
 
@@ -329,7 +327,7 @@ class UnreadInfoService:
         print(f"conv_details: {conv_details}")
         if conv_type == "group":
             conv_name = conv_details.name or f"未知群聊({conv_details.conversation_id})"
-        else: # private
+        else:  # private
             conv_name = conv_details.name or sender_name
 
         time_str = format_relative_time(event_for_preview.get("timestamp", 0))

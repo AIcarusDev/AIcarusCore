@@ -181,7 +181,6 @@ class FocusChatModeSettings(ConfigBase):
     """是否允许AI进入底层会话"""
 
 
-
 @dataclass
 class TestFunctionConfig(ConfigBase):
     """测试功能配置类，用于测试和调试目的.

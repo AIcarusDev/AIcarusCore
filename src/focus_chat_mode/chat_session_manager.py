@@ -119,7 +119,7 @@ class ChatSessionManager:
                     f"无法为平台 '{conv_details.platform}' 创建会话，ID地图中找不到对应ID。"
                 )
                 return None
-                
+
             # ========================= [FIX START] =========================
             # 删除了以下三行错误代码：
             # if "extra" not in conv_details:

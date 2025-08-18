@@ -69,6 +69,7 @@ async def test_find_or_create_profile_and_account_entity(
     assert profile_id_2 == profile_id_1
     assert account_uid_2 == account_uid_1
 
+
 class TestConversationEntity:
     """专门测试会话实体（特别是群聊名称）的创建和更新逻辑。"""
 

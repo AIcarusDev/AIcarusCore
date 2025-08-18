@@ -1,11 +1,11 @@
 # tests/core_logic/test_prompt_builder.py
 
-import pytest
 import asyncio
 from unittest.mock import MagicMock
-from pytest_mock import MockerFixture
 
-from src.core_logic.prompt_builder import ThoughtPromptBuilder, PromptBuilderError
+import pytest
+from pytest_mock import MockerFixture
+from src.core_logic.prompt_builder import PromptBuilderError, ThoughtPromptBuilder
 from src.database.models import ConversationDetails, EntityDocument
 
 # 标记整个模块的所有测试都需要异步环境
@@ -64,11 +64,9 @@ class TestPromptBuilderCurrentState:
         mock_session.conversation_type = "group"
         mock_session.membership_status = "active"
         # get_bot_profile 是一个 async 方法，需要用 AsyncMock 模拟
-        mock_session.get_bot_profile = MagicMock(
-            return_value=asyncio.Future()
-        )
+        mock_session.get_bot_profile = MagicMock(return_value=asyncio.Future())
         mock_session.get_bot_profile.return_value.set_result({"card": "测试机器人"})
-        
+
         mock_chat_session_manager.sessions = {"qq_group_12345": mock_session}
 
         # 2. 执行 (Act)
@@ -91,7 +89,7 @@ class TestPromptBuilderCurrentState:
         mock_session.membership_status = "active"
         mock_session.get_bot_profile = MagicMock(return_value=asyncio.Future())
         mock_session.get_bot_profile.return_value.set_result({"card": "测试机器人"})
-        
+
         mock_chat_session_manager.sessions = {"qq_group_12345": mock_session}
 
         # 2. 执行 (Act)
@@ -114,19 +112,21 @@ class TestPromptBuilderCurrentState:
         mock_session.conversation_name = "张三"
         mock_session.conversation_type = "private"
         mock_session.membership_status = "active"
-        
+
         # --- [FIX START] ---
         # 修复点：为 mock_session 明确设置 platform 属性
         mock_session.platform = "qq"
         # --- [FIX END] ---
-        
+
         mock_session.conversation_info.extra = {
             "is_temporary": True,
             "source_group_id": "group-abc",
         }
-        
+
         mock_session.get_bot_profile = MagicMock(return_value=asyncio.Future())
-        mock_session.get_bot_profile.return_value.set_result({"user_id": "bot_id", "nickname": "AIcarus"})
+        mock_session.get_bot_profile.return_value.set_result(
+            {"user_id": "bot_id", "nickname": "AIcarus"}
+        )
 
         mock_chat_session_manager.sessions = {"qq_private_67890": mock_session}
 
@@ -139,7 +139,7 @@ class TestPromptBuilderCurrentState:
                 platform="qq",
                 conversation_id="group-abc",
                 type="group",
-                name="源群聊-聊天室" # 关键测试点
+                name="源群聊-聊天室",  # 关键测试点
             ),
         )
         mock_entity_graph_service.get_entity_by_key.return_value = mock_group_entity
@@ -150,10 +150,8 @@ class TestPromptBuilderCurrentState:
         )
 
         # 3. 断言 (Assert)
-        assert '处理来自“源群聊-聊天室”群聊中“张三”的临时会话私聊' in result
-        mock_entity_graph_service.get_entity_by_key.assert_awaited_once_with(
-            "qq_group_group-abc"
-        )
+        assert "处理来自“源群聊-聊天室”群聊中“张三”的临时会话私聊" in result
+        mock_entity_graph_service.get_entity_by_key.assert_awaited_once_with("qq_group_group-abc")
 
     async def test_get_current_state_exited_group(
         self, prompt_builder: ThoughtPromptBuilder, mock_chat_session_manager: MagicMock
@@ -165,7 +163,7 @@ class TestPromptBuilderCurrentState:
         mock_session.conversation_type = "group"
         mock_session.membership_status = "left"  # 关键测试点
         mock_session.get_bot_profile = MagicMock(return_value=asyncio.Future())
-        mock_session.get_bot_profile.return_value.set_result({}) # 在已退出的群里没有群名片
+        mock_session.get_bot_profile.return_value.set_result({})  # 在已退出的群里没有群名片
 
         mock_chat_session_manager.sessions = {"qq_group_54321": mock_session}
 
@@ -191,6 +189,6 @@ class TestPromptBuilderCurrentState:
             await prompt_builder._get_current_state_block(
                 level="cellular", platform_id="qq", conv_id="group.nonexistent"
             )
-        
+
         # 验证异常信息是否符合预期
         assert "找不到会话实体UID为 'qq_group_nonexistent' 的活跃会话档案" in str(excinfo.value)

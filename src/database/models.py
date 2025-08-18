@@ -226,6 +226,7 @@ class ActionLogDocument:
         """将 ActionLogDocument 转换为字典."""
         return asdict(self)
 
+
 @dataclass
 class ImageCacheDocument:
     """代表 image-cache 实体的一个数据类."""

@@ -1,14 +1,15 @@
 # tests/common/unread_info_service/test_unread_info_service.py
 
-import pytest
 from unittest.mock import MagicMock
-from pytest_mock import MockerFixture
 
+import pytest
+from pytest_mock import MockerFixture
 from src.common.unread_info_service.unread_info_service import UnreadInfoService
 from src.database.models import ConversationDetails, EntityDocument
 
 # 标记整个模块的所有测试都需要异步环境
 pytestmark = pytest.mark.asyncio
+
 
 @pytest.fixture
 def mock_entity_graph_service(mocker: MockerFixture) -> MagicMock:
@@ -19,6 +20,7 @@ def mock_entity_graph_service(mocker: MockerFixture) -> MagicMock:
     # 模拟 get_conversations_by_platform 方法
     mock.get_conversations_by_platform = mocker.AsyncMock()
     return mock
+
 
 @pytest.fixture
 def unread_info_service(
@@ -33,6 +35,7 @@ def unread_info_service(
         entity_graph_service=mock_entity_graph_service,
     )
 
+
 class TestUnreadInfoServiceSummaries:
     """专门测试 UnreadInfoService 生成摘要的逻辑。"""
 
@@ -41,8 +44,7 @@ class TestUnreadInfoServiceSummaries:
         unread_info_service: UnreadInfoService,
         mock_entity_graph_service: MagicMock,
     ):
-        """
-        测试场景 (复现BUG): 当数据库中的群聊实体没有名称时，
+        """测试场景 (复现BUG): 当数据库中的群聊实体没有名称时，
         摘要应使用 '未知群聊(ID)' 作为回退。
         """
         # 1. 准备 (Arrange)
@@ -58,7 +60,7 @@ class TestUnreadInfoServiceSummaries:
                 platform="qq",
                 conversation_id=group_id,
                 type="group",
-                name=None  # <-- 关键：模拟数据库中 name 缺失的情况
+                name=None,  # <-- 关键：模拟数据库中 name 缺失的情况
             ),
         )
 
@@ -78,10 +80,7 @@ class TestUnreadInfoServiceSummaries:
                 **mock_unread_info,
             }
         ]
-        mock_entity_graph_service.get_conversations_by_platform.return_value = {
-            conv_uid: None
-        }
-
+        mock_entity_graph_service.get_conversations_by_platform.return_value = {conv_uid: None}
 
         # 2. 执行 (Act)
         summary = await unread_info_service.get_conversation_list_summary(platform_id="qq")
@@ -91,12 +90,12 @@ class TestUnreadInfoServiceSummaries:
         assert f"未知群聊({group_id})" in summary
         # 确保摘要中没有出现 None 或者其他意外的字符串
         assert "None" not in summary
-        
+
         # --- [FIX START] ---
         # 修复点：断言完整的、未被截断的短消息内容
         assert "理塘最強伝說：因为抖音有哈基米音乐" in summary
         # --- [FIX END] ---
-        
+
         assert "17 条未读信息" in summary
 
     async def test_group_summary_uses_entity_name_when_present(
@@ -104,8 +103,7 @@ class TestUnreadInfoServiceSummaries:
         unread_info_service: UnreadInfoService,
         mock_entity_graph_service: MagicMock,
     ):
-        """
-        测试场景 (正确路径): 当数据库中的群聊实体有名称时，
+        """测试场景 (正确路径): 当数据库中的群聊实体有名称时，
         摘要应优先使用该名称。
         """
         # 1. 准备 (Arrange)
@@ -122,7 +120,7 @@ class TestUnreadInfoServiceSummaries:
                 platform="qq",
                 conversation_id=group_id,
                 type="group",
-                name=group_name  # <-- 关键：提供一个有效的群名
+                name=group_name,  # <-- 关键：提供一个有效的群名
             ),
         )
 
@@ -153,7 +151,7 @@ class TestUnreadInfoServiceSummaries:
         assert f"[群名称]：{group_name}" in summary
         # 确保回退文本没有出现
         assert "未知群聊" not in summary
-        
+
         # --- [ADDED] ---
         # 新增断言：同样验证短消息不会被截断
         assert "测试用户：测试消息" in summary

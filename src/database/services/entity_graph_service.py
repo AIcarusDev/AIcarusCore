@@ -92,7 +92,6 @@ class EntityGraphService:
                 )
                 tx.query(insert_query).resolve()
 
-
     async def find_or_create_profile_and_account_entity(
         self, user_info: ProtocolUserInfo, platform: str
     ) -> tuple[str | None, str | None]:
@@ -217,7 +216,6 @@ class EntityGraphService:
 
         def db_read() -> list[dict[str, Any]]:
             with driver.transaction(db_name, TransactionType.READ) as tx:
-
                 # 第一步: 执行 - 获取 promise
                 promise = tx.query(query)
 
@@ -283,8 +281,10 @@ class EntityGraphService:
                 tx.query(insert_membership_query).resolve()
 
                 # 步骤 2: 智能更新会话名称
-                self._update_conversation_name_if_changed_sync(tx, conversation_entity_uid, conversation_name)
-                
+                self._update_conversation_name_if_changed_sync(
+                    tx, conversation_entity_uid, conversation_name
+                )
+
                 tx.commit()
 
         try:
@@ -489,12 +489,14 @@ class EntityGraphService:
                     f'    has type "{conv_type}";',
                     "residency (resident: $c, host-platform: $p);",
                 ]
-                
+
                 # 只有当 name 存在时，才添加 has display-name
                 if name and name.strip():
                     safe_name = name.replace('"', '\\"')
-                    insert_query_parts[2] = insert_query_parts[2] + f'\n    has display-name "{safe_name}",'
-                
+                    insert_query_parts[2] = (
+                        insert_query_parts[2] + f'\n    has display-name "{safe_name}",'
+                    )
+
                 full_query = "\n".join(insert_query_parts)
                 tx.query(full_query).resolve()
                 tx.commit()
@@ -506,6 +508,7 @@ class EntityGraphService:
         except Exception as e:
             logger.error(f"获取或创建会话实体 '{conv_entity_uid}' 失败: {e}", exc_info=True)
             return None
+
     # --- [FIX END] ---
 
     async def get_conversations_by_platform(self, platform_uid: str) -> dict:
@@ -534,6 +537,7 @@ class EntityGraphService:
                     conv_uid = result.get("uid").as_attribute().get_value()
                     display_name = result.get("name").as_attribute().get_value()
                     conversations[conv_uid] = display_name
+
         await asyncio.to_thread(db_read)
         return conversations
 
@@ -580,18 +584,14 @@ class EntityGraphService:
 
                 # ========================= [FIX START] =========================
                 # 核心修复：创建一个从数据库属性到 dataclass 字段的映射
-                ATTR_TO_FIELD_MAP = {
-                    "display-name": "name"
-                }
+                ATTR_TO_FIELD_MAP = {"display-name": "name"}
                 # ========================== [FIX END] ==========================
 
                 doc = {
                     "_key": entity_uid,
                     "entity_uid": entity_uid,
                     "entity_type": entity_type_label,
-                    "details": {
-                        "platform": platform_from_relation
-                    },
+                    "details": {"platform": platform_from_relation},
                 }
 
                 for ans in answers:
@@ -599,7 +599,7 @@ class EntityGraphService:
                     attr_concept = ans.get("attr")
                     if attr_type_concept and attr_concept:
                         attr_label = attr_type_concept.as_type().get_label()
-                        
+
                         # ========================= [FIX START] =========================
                         # 优先使用映射，如果没有则使用默认规则
                         py_key = ATTR_TO_FIELD_MAP.get(attr_label, attr_label.replace("-", "_"))
@@ -614,10 +614,10 @@ class EntityGraphService:
                         else:
                             doc["details"][py_key] = py_value
 
-                top_level_keys = ['last_read_timestamp', 'bot_profile_in_this_conversation']
+                top_level_keys = ["last_read_timestamp", "bot_profile_in_this_conversation"]
                 for key in top_level_keys:
-                    if key in doc['details']:
-                        doc[key] = doc['details'].pop(key)
+                    if key in doc["details"]:
+                        doc[key] = doc["details"].pop(key)
 
                 return EntityDocument.from_dict(doc)
 
