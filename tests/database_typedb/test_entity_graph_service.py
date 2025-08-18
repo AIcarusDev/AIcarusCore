@@ -1,6 +1,17 @@
+import asyncio
+import json
+import time
+import uuid
+from typing import Any
+
 import pytest
 from aicarus_protocols import UserInfo as ProtocolUserInfo
+from src.database.models import EntityDocument
 from src.database.services import EntityGraphService
+# --- [核心修复] ---
+# 导入缺失的 SELF_PROFILE_ID 常量
+from src.database.services.entity_graph_service import SELF_PROFILE_ID
+# --- [修复结束] ---
 from typedb.driver import Driver, TransactionType
 
 
@@ -150,3 +161,71 @@ class TestConversationEntity:
             answers = list(tx.query(query).resolve().as_concept_rows())
             assert len(answers) == 1
             assert answers[0].get("n").as_attribute().get_value() == new_name
+
+
+class TestEntityGraphServiceFixes:
+    """测试 EntityGraphService 中被修复的 TypeQL 查询。"""
+
+    async def test_update_conversation_last_read_timestamp_upserts_correctly(
+        self, entity_graph_service: EntityGraphService, db_connection: Driver
+    ) -> None:
+        """测试 update_conversation_last_read_timestamp 方法能否正确地创建和更新时间戳。"""
+        # 1. 准备 (Arrange)
+        conv_id = "group_ts_test"
+        platform = "qq"
+        conv_type = "group"
+        conv_uid = f"{platform}_{conv_type}_{conv_id}"
+        db_name = entity_graph_service.conn_manager.database_name
+
+        # 在数据库中创建必要的 person 和 conversation 实体
+        with db_connection.transaction(db_name, TransactionType.WRITE) as tx:
+            tx.query(f'insert $p isa aic_self, has person-uid "{SELF_PROFILE_ID}";').resolve()
+            tx.query(
+                f'insert $c isa conversation, has conversation-uid "{conv_uid}";'
+            ).resolve()
+            tx.commit()
+
+        def get_timestamp() -> int | None:
+            """辅助函数，用于从数据库查询当前的时间戳。"""
+            with db_connection.transaction(db_name, TransactionType.READ) as tx:
+                query = f"""
+                match
+                    $p isa person, has person-uid "{SELF_PROFILE_ID}";
+                    $c isa conversation, has conversation-uid "{conv_uid}";
+                    (reader: $p, readable: $c) isa read-status, has timestamp $ts;
+                select $ts;
+                """
+                answers = list(tx.query(query).resolve().as_concept_rows())
+                if answers:
+                    return answers[0].get("ts").as_attribute().get_value()
+                return None
+
+        # 2. 执行与断言 (Act & Assert) - 阶段一：创建
+        # 此时关系不存在，应该会创建
+        success_create = await entity_graph_service.update_conversation_last_read_timestamp(
+            conv_uid, 1000.0
+        )
+        assert success_create is True
+        timestamp_after_create = get_timestamp()
+        assert timestamp_after_create == 1000
+
+        # 3. 执行与断言 (Act & Assert) - 阶段二：更新
+        # 此时关系已存在，应该会更新
+        success_update = await entity_graph_service.update_conversation_last_read_timestamp(
+            conv_uid, 5000.0
+        )
+        assert success_update is True
+        timestamp_after_update = get_timestamp()
+        assert timestamp_after_update == 5000
+
+        # 验证关系只有一个
+        with db_connection.transaction(db_name, TransactionType.READ) as tx:
+            query_count = f"""
+            match
+                $p isa person, has person-uid "{SELF_PROFILE_ID}";
+                $c isa conversation, has conversation-uid "{conv_uid}";
+                (reader: $p, readable: $c) isa read-status;
+            reduce $count = count;
+            """
+            answers_count = list(tx.query(query_count).resolve().as_concept_rows())
+            assert answers_count[0].get("count").as_value().get_integer() == 1
