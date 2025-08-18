@@ -55,3 +55,63 @@ async def test_save_and_update_action_log(
         assert answers[0].get("s").as_attribute().get_value() == "completed"
         assert answers[0].get("ts").as_attribute().get_value() == 456
         assert answers[0].get("rd").as_attribute().get_value() == '{"info": "ok"}'
+
+@pytest.mark.asyncio
+async def test_get_recent_action_logs_handles_optional_error_info(
+    action_log_storage_service: ActionLogStorageService,
+    db_connection: Driver,
+) -> None:
+    """测试 get_recent_action_logs 方法能否正确处理可选的 error-info 属性."""
+    service = action_log_storage_service
+    db_name = service.conn_manager.database_name
+
+    # 准备：插入三条日志，两条没有 error-info，一条有
+    with db_connection.transaction(db_name, TransactionType.WRITE) as tx:
+        # 必须先有一个 platform 实体才能创建关系
+        tx.query('insert $p isa platform, has platform-uid "test";').resolve()
+
+        # 日志1：时间戳最早，无错误信息
+        tx.query("""
+            match $p isa platform, has platform-uid "test";
+            insert $a isa action-log, has action-id "log1", has action-type "type1",
+                   has timestamp 1000, has status "ok", has bot-id "bot", has action-platform "test";
+            insert (source-platform: $p, sourced-action: $a) isa action-source;
+        """).resolve()
+
+        # 日志2：时间戳居中，有错误信息
+        tx.query("""
+            match $p isa platform, has platform-uid "test";
+            insert $a isa action-log, has action-id "log2", has action-type "type2",
+                   has timestamp 2000, has status "error", has error-info "something bad happened",
+                   has bot-id "bot", has action-platform "test";
+            insert (source-platform: $p, sourced-action: $a) isa action-source;
+        """).resolve()
+
+        # 日志3：时间戳最新，无错误信息
+        tx.query("""
+            match $p isa platform, has platform-uid "test";
+            insert $a isa action-log, has action-id "log3", has action-type "type3",
+                   has timestamp 3000, has status "ok", has bot-id "bot", has action-platform "test";
+            insert (source-platform: $p, sourced-action: $a) isa action-source;
+        """).resolve()
+        tx.commit()
+
+    # 执行：获取最近的2条日志
+    recent_logs = await service.get_recent_action_logs(limit=2)
+
+    # 断言：
+    assert len(recent_logs) == 2, "limit 参数未能正确生效"
+
+    # 验证第一条（最新的）日志，它没有 error-info
+    log_3 = recent_logs[0]
+    assert log_3["timestamp"] == 3000
+    assert log_3["action_type"] == "type3"
+    assert log_3["status"] == "ok"
+    assert log_3["error_info"] is None, "不含 error-info 的日志应返回 None"
+
+    # 验证第二条日志，它有 error-info
+    log_2 = recent_logs[1]
+    assert log_2["timestamp"] == 2000
+    assert log_2["action_type"] == "type2"
+    assert log_2["status"] == "error"
+    assert log_2["error_info"] == "something bad happened", "含 error-info 的日志未能正确返回值"

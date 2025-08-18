@@ -81,7 +81,7 @@ class ActionLogStorageService:
                     if value is None or not (attr_name := attr_map.get(key)):
                         continue
 
-                    # [最终修正] 为每个属性执行一个原子的、健壮的 delete-insert 操作
+                    # [最终修正] 严格遵循 Ask_TypeDB-AI 提供的 delete-insert 语法
                     # 1. 删除旧属性（如果存在）
                     delete_query = f"""
                     match
@@ -117,18 +117,24 @@ class ActionLogStorageService:
                 logger.info(f"ActionLog 中动作 '{action_id}' 的状态已更新。")
             return success
         except Exception as e:
-            logger.error(f"更新 ActionLog 中动作 '{action_id}' 时失败: {e}", exc_info=True)
+            # 使用 repr(e) 来避免 f-string 和 loguru 的格式化冲突
+            logger.error(f"更新 ActionLog 中动作 '{action_id}' 时失败: {repr(e)}", exc_info=True)
             return False
 
     async def get_recent_action_logs(self, limit: int = 10) -> list[dict]:
         """获取最近的动作日志."""
+        # [FIXED] 修正了 sort 语法：必须先将属性绑定到变量
         query = f"""
-        match $a isa action-log, has timestamp $ts;
-        $a has action-type $type;
-        $a has status $status;
-        try {{ $a has error-info $err; }};
-        sort $ts desc; limit {limit};
-        select $ts, $type, $status, $err;
+        match
+            $log isa action-log, has timestamp $ts;
+        sort $ts desc;
+        limit {limit};
+        fetch {{
+            "timestamp": $ts,
+            "action_type": $log.action-type,
+            "status": $log.status,
+            "error_info": $log.error-info
+        }};
         """
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.database_name
@@ -136,18 +142,16 @@ class ActionLogStorageService:
         def db_read() -> list[dict]:
             logs = []
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                answers = list(tx.query(query).resolve().as_concept_rows())
-                for ans in answers:
+                # fetch 返回 ConceptDocumentIterator，可以直接迭代出字典
+                answers_iterator = tx.query(query).resolve().as_concept_documents()
+                for doc in answers_iterator:
+                    # 直接从文档中获取值，如果 "error-info" 不存在，其值为 None
                     logs.append(
                         {
-                            "timestamp": ans.get("ts").as_attribute().get_value(),
-                            "action_type": ans.get("type").as_attribute().get_value(),
-                            "status": ans.get("status").as_attribute().get_value(),
-                            "error_info": (
-                                ans.get("err").as_attribute().get_value()
-                                if ans.get("err")
-                                else None
-                            ),
+                            "timestamp": doc.get("timestamp"),
+                            "action_type": doc.get("action_type"),
+                            "status": doc.get("status"),
+                            "error_info": doc.get("error_info"),
                         }
                     )
             return logs
@@ -155,5 +159,5 @@ class ActionLogStorageService:
         try:
             return await asyncio.to_thread(db_read)
         except Exception as e:
-            logger.error(f"获取最近动作日志失败: {e}", exc_info=True)
+            logger.error(f"获取最近动作日志失败: {repr(e)}", exc_info=True)
             return []
