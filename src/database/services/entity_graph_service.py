@@ -419,8 +419,9 @@ class EntityGraphService:
                 tx.query(
                     f'match $p isa person, has person-uid "{SELF_PROFILE_ID}"; '
                     f'$c isa conversation, has conversation-uid "{conversation_entity_uid}"; '
-                    f"$rs (reader: $p, readable: $c) isa read-status; delete $rs;"
+                    f"$rs_old (reader: $p, readable: $c) isa read-status; delete $rs_old;"
                 ).resolve()
+
                 tx.query(
                     f'match $p isa person, has person-uid "{SELF_PROFILE_ID}"; '
                     f'$c isa conversation, has conversation-uid "{conversation_entity_uid}"; '
