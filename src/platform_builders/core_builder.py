@@ -15,7 +15,7 @@ class CoreBuilder(BasePlatformBuilder):
     # --- v2.0 全新指令集的 JSON Schema 定义 ---
     _CONSCIOUSNESS_CONTROLS_DEFINITIONS: ClassVar = {
         "focus": {
-            "title": "专注于某处",
+            "title": "专注于某处，如果你只是想保持现状，则**不需要使用它**",
             "type": "object",
             "description": "专注于指定的目标（平台或会话）。",
             "properties": {

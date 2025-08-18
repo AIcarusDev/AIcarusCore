@@ -5,7 +5,7 @@ from typing import Any
 from src.common.custom_logging.logging_config import get_logger
 from src.common.time_utils import format_relative_time
 from src.database import EntityGraphService, EventStorageService
-from src.database.models import ConversationDetails
+from src.database.models import ConversationDetails, EntityDocument
 
 logger = get_logger(__name__)
 
@@ -93,8 +93,8 @@ class UnreadInfoService:
             return f'{display_name} "戳了戳" 你'
         return f'{display_name} "戳了戳" {target_info.get("user_nickname", "某人")}'
 
-    # --- Refactoring Helper 3: 消息段到文本的转换器 ---
-    def _format_segment_to_text(self, seg: dict) -> str:
+    # Helper 3: 消息段到文本的转换器 ---
+    async def _format_segment_to_text(self, seg: dict, conv_doc: EntityDocument) -> str:
         """将单个消息段(segment)转换为可读的文本预览."""
         seg_type = seg.get("type")
         data = seg.get("data", {})
@@ -103,16 +103,49 @@ class UnreadInfoService:
         if seg_type == "image":
             return "[动画表情]" if data.get("summary") == "sticker" else "[图片]"
         if seg_type == "at":
-            return data.get("display_name", f"@{data.get('user_id', '某人')}")
+            # 智能获取 @ 对象的名称
+            all_my_bot_ids = set(self.self_bot_ids.values())
+            target_id = data.get("user_id")
+
+            if str(target_id) in all_my_bot_ids:
+                # 是在 @ 机器人自己
+                platform_id = conv_doc.details.platform
+                # 1. 优先尝试获取群名片
+                presence_info = (
+                    await self.entity_graph_service.get_self_presence_in_conversation(
+                        platform=platform_id, conversation_entity_uid=conv_doc._key
+                    )
+                )
+                if presence_info and (card := presence_info.get("cardname")):
+                    return f"@{card}"
+
+                # 2. 其次尝试获取平台昵称
+                self_entity = await self.entity_graph_service.get_self_entity_by_platform(
+                    platform_id
+                )
+                if self_entity and (nickname := self_entity.get("details", {}).get("nickname")):
+                    return f"@{nickname}"
+
+                # 3. 如果都失败，这是一个严重问题，必须报错
+                logger.critical(
+                    f"逻辑错误！无法在会话 '{conv_doc._key}' 中获取机器人自身的群名片或昵称！"
+                )
+                return "@[数据错误：无法获取名称]"
+
+            # 如果 @ 的是其他人，保持原有逻辑
+            return data.get("display_name", f"@{target_id or '某人'}")
         return ""  # 其他未知类型暂时忽略
 
-    # --- Refactoring Helper 4: 从消息段列表构建内容预览 ---
-    def _build_content_preview_from_segments(self, content: list[dict]) -> str:
+    # Helper 4: 从消息段列表构建内容预览
+    async def _build_content_preview_from_segments(
+        self, content: list[dict], conv_doc: EntityDocument
+    ) -> str:
         """从事件的 content 字段（消息段列表）构建核心预览字符串."""
         preview_parts = []
         text_buffer = []
         for seg in content:
-            formatted_text = self._format_segment_to_text(seg)
+            # 传递 conv_doc 上下文
+            formatted_text = await self._format_segment_to_text(seg, conv_doc)
             if seg.get("type") == "text":
                 text_buffer.append(formatted_text)
             else:
@@ -134,8 +167,10 @@ class UnreadInfoService:
             return text.split("\n")[0].strip() + "..."
         return f"{text[:20]}..." if len(text) > 20 else text
 
-    # --- 主函数（重构后） ---
-    def _create_message_preview(self, event: dict, display_name: str) -> str:
+    # 主函数
+    async def _create_message_preview(
+        self, event: dict, display_name: str, conv_doc: EntityDocument
+    ) -> str:
         """生成消息预览内容，包含发送者名称和消息摘要 (重构版)."""
         # 步骤 1: 使用卫语句处理特殊事件类型
         event_type = event.get("event_type", "")
@@ -145,9 +180,9 @@ class UnreadInfoService:
         # 步骤 2: 获取优先级标签 (@我/回复我)
         priority_tag = self._get_message_priority_tag(event)
 
-        # 步骤 3: 从消息段构建核心内容
+        # 步骤 3: 从消息段构建核心内容 (现在是 await 调用)
         content_list = event.get("content", [])
-        raw_preview = self._build_content_preview_from_segments(content_list)
+        raw_preview = await self._build_content_preview_from_segments(content_list, conv_doc)
 
         # 步骤 4: 格式化并截断核心内容
         formatted_preview = self._format_and_truncate_preview(raw_preview)
@@ -223,7 +258,6 @@ class UnreadInfoService:
             latest_event = item["latest_event"]
             unread_count = item["unread_count"]
 
-            # ========================= [FIX START] =========================
             # `conv_doc.details` 是 ConversationDetails 对象，直接用 `.` 访问属性
             if not (
                 conv_doc
@@ -245,7 +279,10 @@ class UnreadInfoService:
             # ========================== [FIX END] ==========================
 
             time_str = format_relative_time(latest_event.get("timestamp", 0))
-            message_preview = self._create_message_preview(latest_event, sender_display_name)
+            # --- [MODIFIED] 调用现在是 await ---
+            message_preview = await self._create_message_preview(
+                latest_event, sender_display_name, conv_doc
+            )
 
             status_line = f"(时间：{time_str}/共 {unread_count} 条未读信息)"
             header = f"- [{'临时会话' if is_temporary else '用户名称'}]：{conv_name}"
@@ -281,7 +318,8 @@ class UnreadInfoService:
             and hasattr(conv_doc, "details")
             and isinstance(conv_doc.details, ConversationDetails)
         ):
-            return []  # 返回空列表以跳过此项
+            return []
+
         conv_details = conv_doc.details
         conv_type = conv_details.type
         sender_name = self._get_sender_display_name(event_for_preview, conv_type)
@@ -294,7 +332,8 @@ class UnreadInfoService:
             conv_name = conv_details.name or sender_name
 
         time_str = format_relative_time(event_for_preview.get("timestamp", 0))
-        preview = self._create_message_preview(event_for_preview, sender_name)
+        # --- [MODIFIED] 调用现在是 await ---
+        preview = await self._create_message_preview(event_for_preview, sender_name, conv_doc)
 
         header = f"- [{'临时会话' if is_temporary else '[用户名称]'}]：{conv_name}"
         if conv_type == "group":
@@ -329,7 +368,6 @@ class UnreadInfoService:
         section_parts = [f"<from_{platform}>"]
         items.sort(key=lambda x: x["has_high_priority"], reverse=True)
 
-        # ========================= [FIX START] =========================
         group_chats = [
             c
             for c in items
@@ -356,16 +394,13 @@ class UnreadInfoService:
         """生成顶层所需的、带XML标签的未读消息摘要."""
         all_active_convs = await self._get_recently_active_conversations_with_details(
             exclude_conversation_id
-            )
+        )
 
         unread_convs = [item for item in all_active_convs if item.get("unread_count", 0) > 0]
-        logger.debug(f"[PROBE 4] 过滤后，剩下 {len(unread_convs)} 个未读会话")
-
         if not unread_convs:
             return "所有其他会话均无未读消息。"
 
         grouped_by_platform = defaultdict(list)
-        logger.debug(f"[PROBE 5] 准备按平台对 {len(unread_convs)} 个会话进行分组...")
         for item in unread_convs:
             conv_doc = item.get("conv_doc")
             if (
@@ -392,7 +427,6 @@ class UnreadInfoService:
         logger.debug("[PROBE 1] get_platform_summary - 入口")
         all_active_convs = await self._get_recently_active_conversations_with_details()
         unread_convs = [item for item in all_active_convs if item.get("unread_count", 0) > 0]
-        logger.debug(f"[PROBE 4] 过滤后，剩下 {len(unread_convs)} 个未读会话")
         if not unread_convs:
             return "所有平台均无新消息。"
 

@@ -213,6 +213,14 @@ class EntityGraphService:
 
         def db_read() -> list[dict[str, Any]]:
             with driver.transaction(db_name, TransactionType.READ) as tx:
+
+                # 第一步: 执行 - 获取 promise
+                promise = tx.query(query)
+
+                # 第二步: 解析 - 获取结果
+                answers = promise.resolve()
+
+                # 第三步: 处理 - 迭代结果
                 return [
                     {
                         "entity_uid": a.get("uid").as_attribute().get_value(),
@@ -222,7 +230,7 @@ class EntityGraphService:
                             "nickname": a.get("nick").as_attribute().get_value(),
                         },
                     }
-                    for a in tx.query(query).resolve().as_concept_rows()
+                    for a in answers.as_concept_rows()
                 ]
 
         try:
@@ -247,8 +255,7 @@ class EntityGraphService:
 
         def db_upsert_membership() -> None:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
-                # This is the final, correct, and expert-verified query for atomic upsert.
-                # It correctly handles both creation and update scenarios.
+                # 检查是否存在 membership
                 upsert_query = f"""
                 match
                     $acc isa account, has account-uid "{account_entity_uid}";
