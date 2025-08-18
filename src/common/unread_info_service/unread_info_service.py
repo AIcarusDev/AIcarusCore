@@ -119,9 +119,12 @@ class UnreadInfoService:
         all_my_bot_ids = set(self.self_bot_ids.values())
 
         for seg in event.get("content", []):
+            print(f"seg: {seg}")
             seg_type = seg.get("type")
             if seg_type in ("at", "quote"):
                 target_user_id = str(seg.get("data", {}).get("user_id", ""))
+                print(f"target_user_id: {target_user_id}")
+                print(f"all_my_bot_ids: {all_my_bot_ids}")
                 if target_user_id in all_my_bot_ids:
                     return "<b>[有人@你]</b>" if seg_type == "at" else "<b>[有人回复你]</b>"
         return ""
