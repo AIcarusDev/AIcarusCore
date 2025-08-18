@@ -737,8 +737,8 @@ class EntityGraphService:
             $acc isa account, has account-uid "{self_account_uid}";
             $conv isa conversation, has conversation-uid "{conversation_entity_uid}";
             $mem (member: $acc, group: $conv) isa membership;
-            try {{ $mem has cardname $card; }};
-            try {{ $mem has permission-level $perm; }};
+            $mem has cardname $card?;
+            $mem has permission-level $perm?;
         select $card, $perm;
         limit 1;
         """
