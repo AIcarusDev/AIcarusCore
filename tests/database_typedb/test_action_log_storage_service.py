@@ -56,6 +56,7 @@ async def test_save_and_update_action_log(
         assert answers[0].get("ts").as_attribute().get_value() == 456
         assert answers[0].get("rd").as_attribute().get_value() == '{"info": "ok"}'
 
+
 @pytest.mark.asyncio
 async def test_get_recent_action_logs_handles_optional_error_info(
     action_log_storage_service: ActionLogStorageService,

@@ -53,19 +53,18 @@ class UnreadInfoService:
         """
         event = event or {}
         user_info = (
-            event.get("user_info") or {}
-        ) if isinstance(event.get("user_info"), dict) else {}
+            (event.get("user_info") or {}) if isinstance(event.get("user_info"), dict) else {}
+        )
 
         # 从会话文档拿到类型与平台
         details = getattr(conv_doc, "details", None)
-        conv_type = (
-            getattr(details, "type", None)
-            or (event.get("conversation_info") or {}).get("type")
+        conv_type = getattr(details, "type", None) or (event.get("conversation_info") or {}).get(
+            "type"
         )
         platform = getattr(details, "platform", None)
 
         # 识别“是否自己发送”
-        current_sender_id = (user_info.get("user_id") or user_info.get("id") or "")
+        current_sender_id = user_info.get("user_id") or user_info.get("id") or ""
         is_self_sender = bool(
             platform
             and current_sender_id

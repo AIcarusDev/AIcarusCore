@@ -34,27 +34,32 @@ class EntityGraphService:
     def _update_account_nickname_if_changed_sync(
         self, tx: Transaction, account_uid: str, new_nickname: str
     ) -> None:
+        """如果提供的昵称与数据库中的不同，则更新它 (已修复)。"""
         match_query = (
             f'match $a isa account, has account-uid "{account_uid}"; '
-            f"try {{ $a has nickname $n; }}; select $n;"
+            f"{{ $a has nickname $n; }}; select $n;"
         )
         answers = list(tx.query(match_query).resolve().as_concept_rows())
         old_nick = None
         if answers and (old_nick_concept := answers[0].get("n")):
             old_nick = old_nick_concept.as_attribute().get_value()
+
         if old_nick == new_nickname:
             return
+
         if old_nick is not None:
-            # Note: 'update' is more idiomatic here if cardinality is 1
+            # 最终修复：使用正确的 'delete has ... of ...' 语法
             delete_query = (
-                f"match $a isa account, "
-                f'has account-uid "{account_uid}", has nickname "{old_nick}"; '
-                f'delete $a has nickname "{old_nick}";'
+                f'match $a isa account, has account-uid "{account_uid}"; '
+                f'$a has nickname $old_nick; '
+                f"delete has $old_nick of $a;"
             )
             tx.query(delete_query).resolve()
+
+        # 插入新值
         insert_query = (
             f'match $a isa account, has account-uid "{account_uid}"; '
-            f'insert $a has nickname "{new_nickname}";'
+            f'insert $a has nickname "{new_nickname.replace('"', '\\"\\"')}";'
         )
         tx.query(insert_query).resolve()
 
@@ -62,29 +67,26 @@ class EntityGraphService:
         self, tx: Transaction, conv_entity_uid: str, new_name: str | None
     ) -> None:
         """如果提供的名称与数据库中的不同，则更新它 (已修复)。"""
-        # 1. 获取当前名称
         match_query = (
             f'match $c isa conversation, has conversation-uid "{conv_entity_uid}"; '
-            f"try {{ $c has display-name $n; }}; select $n;"
+            f"{{ $c has display-name $n; }}; select $n;"
         )
         answers = list(tx.query(match_query).resolve().as_concept_rows())
         old_name = None
         if answers and (old_name_concept := answers[0].get("n")):
             old_name = old_name_concept.as_attribute().get_value()
 
-        # 2. 如果名称不同，则执行更新
         if old_name != new_name:
             logger.info(f"会话 '{conv_entity_uid}' 名称已从 '{old_name}' 更新为 '{new_name}'。")
-            # 2.1 如果之前有名字，就删掉旧的
             if old_name is not None:
+                # 最终修复：使用正确的 'delete has ... of ...' 语法
                 delete_query = (
-                    f'match $c isa conversation, has conversation-uid "{conv_entity_uid}", has display-name $old_name; '
-                    f'where $old_name == "{old_name.replace('"', '\\"\\"')}"; '
+                    f'match $c isa conversation, has conversation-uid "{conv_entity_uid}"; '
+                    f'$c has display-name $old_name; '
                     f"delete has $old_name of $c;"
                 )
                 tx.query(delete_query).resolve()
 
-            # 2.2 如果新名字不是 None 或空，就插入新的
             if new_name and new_name.strip():
                 insert_query = (
                     f'match $c isa conversation, has conversation-uid "{conv_entity_uid}"; '

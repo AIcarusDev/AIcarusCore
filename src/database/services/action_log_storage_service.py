@@ -105,7 +105,7 @@ class ActionLogStorageService:
                 logger.info(f"ActionLog 中动作 '{action_id}' 的状态已更新。")
             return success
         except Exception as e:
-            logger.error(f"更新 ActionLog 中动作 '{action_id}' 时失败: {repr(e)}", exc_info=True)
+            logger.error(f"更新 ActionLog 中动作 '{action_id}' 时失败: {e!r}", exc_info=True)
             return False
 
     async def get_recent_action_logs(self, limit: int = 10) -> list[dict]:
@@ -143,5 +143,5 @@ class ActionLogStorageService:
         try:
             return await asyncio.to_thread(db_read)
         except Exception as e:
-            logger.error(f"获取最近动作日志失败: {repr(e)}", exc_info=True)
+            logger.error(f"获取最近动作日志失败: {e!r}", exc_info=True)
             return []
