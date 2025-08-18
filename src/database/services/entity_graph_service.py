@@ -584,7 +584,7 @@ class EntityGraphService:
 
                 # ========================= [FIX START] =========================
                 # 核心修复：创建一个从数据库属性到 dataclass 字段的映射
-                ATTR_TO_FIELD_MAP = {"display-name": "name"}
+                attr_to_field_map = {"display-name": "name"}
                 # ========================== [FIX END] ==========================
 
                 doc = {
@@ -602,7 +602,7 @@ class EntityGraphService:
 
                         # ========================= [FIX START] =========================
                         # 优先使用映射，如果没有则使用默认规则
-                        py_key = ATTR_TO_FIELD_MAP.get(attr_label, attr_label.replace("-", "_"))
+                        py_key = attr_to_field_map.get(attr_label, attr_label.replace("-", "_"))
                         # ========================== [FIX END] ==========================
 
                         py_value = attr_concept.as_attribute().get_value()
@@ -720,8 +720,54 @@ class EntityGraphService:
     async def get_self_presence_in_conversation(
         self, platform: str, conversation_entity_uid: str
     ) -> dict[str, Any] | None:
-        """获取自身在会话中的状态 (占位方法)."""
-        return {"cardname": "Placeholder Card", "permission_level": "member"}
+        """获取自身在指定会话中的存在信息（如群名片、权限等）."""
+        # 1. 首先，需要知道“我”在这个平台上的 account_uid 是什么
+        self_entity = await self.get_self_entity_by_platform(platform)
+        if not self_entity or not self_entity.get("entity_uid"):
+            logger.warning(
+                f"在查询群内档案时，未能找到平台 '{platform}' 对应的自身实体UID。"
+            )
+            return None
+        self_account_uid = self_entity["entity_uid"]
+
+        # 2. 构建 TypeQL 查询语句
+        # 这个查询会查找连接“我”和“这个会话”的“membership”关系，并从中提取属性
+        query = f"""
+        match
+            $acc isa account, has account-uid "{self_account_uid}";
+            $conv isa conversation, has conversation-uid "{conversation_entity_uid}";
+            $mem (member: $acc, group: $conv) isa membership;
+            try {{ $mem has cardname $card; }};
+            try {{ $mem has permission-level $perm; }};
+        select $card, $perm;
+        limit 1;
+        """
+
+        driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
+
+        def db_read() -> dict[str, Any] | None:
+            with driver.transaction(db_name, TransactionType.READ) as tx:
+                answers = list(tx.query(query).resolve().as_concept_rows())
+                if not answers:
+                    return None  # 如果没有找到关系，说明我不在这个群里，返回None
+
+                answer = answers[0]
+                presence_info = {}
+                if card_attr := answer.get("card"):
+                    presence_info["cardname"] = card_attr.as_attribute().get_value()
+                if perm_attr := answer.get("perm"):
+                    presence_info["permission_level"] = perm_attr.as_attribute().get_value()
+
+                return presence_info if presence_info else None
+
+        try:
+            return await asyncio.to_thread(db_read)
+        except Exception as e:
+            logger.error(
+                f"查询自身在会话 '{conversation_entity_uid}' 的存在信息时失败: {e}",
+                exc_info=True,
+            )
+            return None
 
     async def get_recently_active_conversation_entities_with_details(
         self, exclude_conversation_id: str | None = None, self_bot_ids: dict[str, str] | None = None
