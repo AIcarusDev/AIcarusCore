@@ -15,7 +15,8 @@ entity aic_self,
 # 创建外部用户
 entity external_person,
     sub person,
-    plays identity-ownership:owner;
+    plays identity-ownership:owner,
+    plays read-status:reader;
 
 entity account,
     sub objective-entity,

@@ -250,7 +250,7 @@ class EntityGraphService:
         user_info: ProtocolUserInfo,
         conversation_name: str | None,
     ) -> bool:
-        """更新用户在对话中的存在状态，并智能更新会话名称。"""
+        """更新用户在对话中的存在状态，并智能更新会话名称."""
         cardname = (user_info.user_cardname or "").replace('"', '\\"')
         perm_level = (user_info.permission_level or "member").replace('"', '\\"')
         timestamp = int(time.time() * 1000)
@@ -416,17 +416,26 @@ class EntityGraphService:
 
         def db_upsert() -> None:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
-                tx.query(
-                    f'match $p isa person, has person-uid "{SELF_PROFILE_ID}"; '
-                    f'$c isa conversation, has conversation-uid "{conversation_entity_uid}"; '
-                    f"$rs_old (reader: $p, readable: $c) isa read-status; delete $rs_old;"
-                ).resolve()
+                # 修正了关系匹配的语法，将 `isa read-status` 提前
+                delete_query = f"""
+                match
+                    $p isa person, has person-uid "{SELF_PROFILE_ID}";
+                    $c isa conversation, has conversation-uid "{conversation_entity_uid}";
+                    $rs_old isa read-status(reader: $p, readable: $c);
+                delete
+                    $rs_old;
+                """
+                tx.query(delete_query).resolve()
 
-                tx.query(
-                    f'match $p isa person, has person-uid "{SELF_PROFILE_ID}"; '
-                    f'$c isa conversation, has conversation-uid "{conversation_entity_uid}"; '
-                    f"insert (reader: $p, readable: $c) isa read-status, has timestamp {ts_int};"
-                ).resolve()
+                # 插入查询本身是正确的，但为了清晰，也使用正确的 shorthand
+                insert_query = f"""
+                match
+                    $p isa person, has person-uid "{SELF_PROFILE_ID}";
+                    $c isa conversation, has conversation-uid "{conversation_entity_uid}";
+                insert
+                    $new_rs isa read-status(reader: $p, readable: $c), has timestamp {ts_int};
+                """
+                tx.query(insert_query).resolve()
                 tx.commit()
 
         try:
@@ -723,7 +732,7 @@ class EntityGraphService:
     async def get_self_presence_in_conversation(
         self, platform: str, conversation_entity_uid: str
     ) -> dict[str, Any] | None:
-        """获取自身在指定会话中的存在信息（如群名片、权限等）。"""
+        """获取自身在指定会话中的存在信息（如群名片、权限等）."""
         self_entity = await self.get_self_entity_by_platform(platform)
         if not self_entity or not self_entity.get("entity_uid"):
             logger.warning(
