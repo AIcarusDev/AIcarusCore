@@ -368,6 +368,8 @@ class EventStorageService:
         self, conversation_uid: str, self_bot_ids: dict[str, str]
     ) -> dict[str, Any]:
         """Get the count of unread messages and priority status for a conversation.
+        This method has been refactored to use efficient aggregate queries,
+        preventing gRPC message size limit errors.
 
         Parameters
         ----------
@@ -390,41 +392,72 @@ class EventStorageService:
         if not conv_native_id:
             return {"unread_count": 0, "has_high_priority": False}
 
-        # Corrected query structure with explicit `contains`
-        query = f"""
-        match
-            $e isa event,
-                has conversation-info-json $ci,
-                has timestamp $ts,
-                has content-json $content;
-            $ci contains "\\"{conv_native_id}\\"";
-            $ts > {int(last_read_ts)};
-        select $content;
-        """
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
         def db_read_and_process() -> dict[str, Any]:
-            logger.debug(
-                f"[DEBUG] Executing get_unread_count query for conv_uid='{conversation_uid}' with last_read_ts={{int(last_read_ts)}}:\n{{query}}"
-            )
-            unread_count, has_high_priority = 0, False
+            unread_count = 0
+            has_high_priority = False
+
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                answers = list(tx.query(query).resolve().as_concept_rows())
-                unread_count = len(answers)
-                if not has_high_priority:
-                    all_my_bot_ids = set(self_bot_ids.values())
-                    for ans in answers:
-                        content_concept = ans.get("content")
-                        if not content_concept:
-                            continue
-                        content_str = content_concept.as_attribute().get_value()
-                        if any(
-                            f'"user_id": "{bot_id}"' in content_str for bot_id in all_my_bot_ids
-                        ) and any(
-                            tag in content_str for tag in ['"type": "at"', '"type": "quote"']
-                        ):
+                # Query 1: Get total unread count (efficiently)
+                get_total_unread_query = f"""
+                match
+                    $e isa event,
+                        has conversation-info-json $ci,
+                        has timestamp $ts;
+                    $ci contains "\\"{conv_native_id}\\"";
+                    $ts > {int(last_read_ts)};
+                reduce $count = count;
+                """
+                logger.debug(f"Executing unread count query for {conversation_uid}")
+                # --- [FIX START] ---
+                answers_count_iterator = tx.query(get_total_unread_query).resolve()
+                answers_count_rows = list(answers_count_iterator.as_concept_rows())
+                if answers_count_rows:
+                    count_concept = answers_count_rows[0].get("count")
+                    if count_concept:
+                        unread_count = count_concept.as_value().get_integer()
+                # --- [FIX END] ---
+
+                # If there are no unread messages, no need to check for high priority
+                if unread_count == 0:
+                    return {"unread_count": 0, "has_high_priority": False}
+
+                # Query 2: Check for high-priority messages (mentions/quotes)
+                # Build the OR clauses for all bot IDs
+                bot_id_clauses = " or ".join(
+                    f'{{ $content contains \'"user_id": "{bot_id}"\'; }}'
+                    for bot_id in self_bot_ids.values()
+                )
+
+                if bot_id_clauses:
+                    get_high_priority_unread_query = f"""
+                    match
+                        $e isa event,
+                            has conversation-info-json $ci,
+                            has timestamp $ts,
+                            has content-json $content;
+                        $ci contains "\\"{conv_native_id}\\"";
+                        $ts > {int(last_read_ts)};
+                        {{
+                            $content contains \'"type": "at"\';
+                        }} or {{
+                            $content contains \'"type": "quote"\';
+                        }};
+                        {bot_id_clauses};
+                    reduce $exists = count;
+                    limit 1;
+                    """
+                    logger.debug(f"Executing high priority check for {conversation_uid}")
+                    # --- [FIX START] ---
+                    answers_priority_iterator = tx.query(get_high_priority_unread_query).resolve()
+                    answers_priority_rows = list(answers_priority_iterator.as_concept_rows())
+                    if answers_priority_rows:
+                        exists_concept = answers_priority_rows[0].get("exists")
+                        if exists_concept and exists_concept.as_value().get_integer() > 0:
                             has_high_priority = True
-                            break
+                    # --- [FIX END] ---
+
             return {"unread_count": unread_count, "has_high_priority": has_high_priority}
 
         try:
