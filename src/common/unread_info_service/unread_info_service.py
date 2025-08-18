@@ -41,31 +41,73 @@ class UnreadInfoService:
             )
         )
 
-    def _get_sender_display_name(self, event: dict, conversation_type: str) -> str:
-        """获取发送者的显示名称，优先使用群名片或昵称."""
-        user_info = event.get("user_info", {})
-        if not isinstance(user_info, dict):
-            return "未知用户"
+    def _get_sender_display_name(self, event: dict, conv_doc: "EntityDocument") -> str:
+        """获取会话列表中“发送者”的显示名称.
 
-        if remark := user_info.get("extra", {}).get("friend_remark"):
-            return remark
+        规则：
+        1) 如果该条最新消息是自己（机器人）发的：
+            - 群聊：优先显示自己的 群名片（没有则用自己的 昵称），都没有时回退为“我”。
+            - 私聊：优先好友备注，其次昵称；都没有时回退“我”。
+        2) 他人消息：
+            - 先好友备注；群聊再看群名片；最后看昵称；都没有时回退“用户(后4位)”/“未知用户”。
+        """
+        event = event or {}
+        user_info = (
+            event.get("user_info") or {}
+        ) if isinstance(event.get("user_info"), dict) else {}
 
-        if (
-            conversation_type == "group"
-            and (card := user_info.get("user_cardname"))
-            and isinstance(card, str)
-            and card.strip()
-        ):
-            return card
+        # 从会话文档拿到类型与平台
+        details = getattr(conv_doc, "details", None)
+        conv_type = (
+            getattr(details, "type", None)
+            or (event.get("conversation_info") or {}).get("type")
+        )
+        platform = getattr(details, "platform", None)
 
-        if (
-            (nickname := user_info.get("user_nickname"))
-            and isinstance(nickname, str)
-            and nickname.strip()
-        ):
+        # 识别“是否自己发送”
+        current_sender_id = (user_info.get("user_id") or user_info.get("id") or "")
+        is_self_sender = bool(
+            platform
+            and current_sender_id
+            and self.self_bot_ids.get(platform) == str(current_sender_id)
+        )
+
+        # 常用字段
+        friend_remark = (
+            (user_info.get("extra") or {}).get("friend_remark")
+            if isinstance(user_info.get("extra"), dict)
+            else None
+        )
+        cardname = user_info.get("user_cardname")
+        nickname = user_info.get("user_nickname")
+
+        # 情况A：自己发的
+        if is_self_sender:
+            if conv_type == "group":
+                # 群：群名片 > 昵称 > 我
+                if isinstance(cardname, str) and cardname.strip():
+                    return cardname
+                if isinstance(nickname, str) and nickname.strip():
+                    return nickname
+                return "我"
+            else:
+                # 私聊：好友备注 > 昵称 > 我
+                if isinstance(friend_remark, str) and friend_remark.strip():
+                    return friend_remark
+                if isinstance(nickname, str) and nickname.strip():
+                    return nickname
+                return "我"
+
+        # 情况B：他人发的（原有顺序整理）
+        if isinstance(friend_remark, str) and friend_remark.strip():
+            return friend_remark
+        if conv_type == "group" and isinstance(cardname, str) and cardname.strip():
+            return cardname
+        if isinstance(nickname, str) and nickname.strip():
             return nickname
 
-        if (user_id := user_info.get("user_id")) and isinstance(user_id, str):
+        user_id = user_info.get("user_id")
+        if isinstance(user_id, str) and user_id:
             return f"用户({user_id[-4:]})"
 
         return "未知用户"
@@ -320,7 +362,7 @@ class UnreadInfoService:
         print(f"conv_doc: {conv_doc}")
         conv_details = conv_doc.details
         conv_type = conv_details.type
-        sender_name = self._get_sender_display_name(event_for_preview, conv_type)
+        sender_name = self._get_sender_display_name(event_for_preview, conv_doc)
         is_temporary = conv_details.extra.get("is_temporary", False)
 
         # 核心逻辑修正：根据会话类型决定名称
