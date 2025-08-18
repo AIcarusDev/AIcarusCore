@@ -578,6 +578,13 @@ class EntityGraphService:
 
                 platform_from_relation = answers[0].get("platform_uid").as_attribute().get_value()
 
+                # ========================= [FIX START] =========================
+                # 核心修复：创建一个从数据库属性到 dataclass 字段的映射
+                ATTR_TO_FIELD_MAP = {
+                    "display-name": "name"
+                }
+                # ========================== [FIX END] ==========================
+
                 doc = {
                     "_key": entity_uid,
                     "entity_uid": entity_uid,
@@ -592,7 +599,12 @@ class EntityGraphService:
                     attr_concept = ans.get("attr")
                     if attr_type_concept and attr_concept:
                         attr_label = attr_type_concept.as_type().get_label()
-                        py_key = attr_label.replace("-", "_")
+                        
+                        # ========================= [FIX START] =========================
+                        # 优先使用映射，如果没有则使用默认规则
+                        py_key = ATTR_TO_FIELD_MAP.get(attr_label, attr_label.replace("-", "_"))
+                        # ========================== [FIX END] ==========================
+
                         py_value = attr_concept.as_attribute().get_value()
                         if isinstance(py_value, str) and "_json" in attr_label:
                             try:

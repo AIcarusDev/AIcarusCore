@@ -204,15 +204,12 @@ class UnreadInfoService:
                 f"  <!-- 在平台 '{platform_id}' 下，没有发现任何新消息。 -->\n"
                 f"</conversation_list>"
             )
-        conversation_list = await self.entity_graph_service.get_conversations_by_platform(
-            platform_uid=platform_id
-        )
         platform_convs = [
             c
             for c in all_active_convs
-            if c.get("conv_doc") and c["conv_doc"]._key in conversation_list
+            if c.get("conv_doc") and c["conv_doc"].details.platform == platform_id
         ]
-        
+        print(f"all_active_convs: {all_active_convs}")
 
         total_count = len(platform_convs)
 
@@ -253,7 +250,6 @@ class UnreadInfoService:
                 if remaining_count > 0
                 else "--- 已经到底了 ---"
             )
-        print(f"conversation_list: {conversation_list}")
         print(f"convs_to_display: {convs_to_display}")
         for item in convs_to_display:
             conv_doc = item["conv_doc"]
@@ -277,13 +273,7 @@ class UnreadInfoService:
             # 核心逻辑修正：根据会话类型决定名称
             print(f"conv_details: {conv_details}")
             if conv_type == "group":
-                # [MODIFIED] 优先从我们一开始就获取的、包含准确名称的 conversation_list 字典中取值。
-                # 只有当字典中没有时，才使用 conv_doc 里的名称作为备用，最后再使用 ID 回退。
-                conv_name = (
-                    conversation_list.get(entity_uid)
-                    or conv_details.name
-                    or f"未知群聊({conv_details.conversation_id})"
-                )
+                conv_name = conv_details.name or f"未知群聊({conv_details.conversation_id})"
             else: # private
                 conv_name = conv_details.name or sender_display_name
             # ========================== [FIX END] ==========================
