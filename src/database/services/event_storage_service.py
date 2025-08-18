@@ -108,7 +108,7 @@ class EventStorageService:
                 logger.debug(f"事件文档 '{event_id}' 已通过幂等操作保存/确认存在。")
             return success
         except Exception as e:
-            logger.error(f"保存事件文档 '{event_id}' 失败: {e}", exc_info=True)
+            logger.error(f"保存事件文档 '{event_id}' 失败: {repr(e)}", exc_info=True)
             return False
 
     async def find_event_by_image_hash(self, image_hash: str) -> dict[str, Any] | None:
@@ -143,7 +143,7 @@ class EventStorageService:
         try:
             return await asyncio.to_thread(db_read)
         except Exception as e:
-            logger.error(f"通过图片哈希 '{image_hash}' 查找事件时失败: {e}", exc_info=True)
+            logger.error(f"通过图片哈希 '{image_hash}' 查找事件时失败: {repr(e)}", exc_info=True)
             return None
 
     def _get_full_event_doc_sync(self, tx: Transaction, event_id: str) -> dict[str, Any] | None:
@@ -226,7 +226,7 @@ class EventStorageService:
         try:
             return await asyncio.to_thread(db_read)
         except Exception as e:
-            logger.error(f"获取会话 '{conversation_id}' 的最近事件失败: {e}", exc_info=True)
+            logger.error(f"获取会话 '{conversation_id}' 的最近事件失败: {repr(e)}", exc_info=True)
             return []
 
     async def update_events_status(self, event_ids: list[str], new_status: str) -> bool:
@@ -263,7 +263,7 @@ class EventStorageService:
         try:
             return await asyncio.to_thread(db_write)
         except Exception as e:
-            logger.error(f"批量更新事件状态为 '{new_status}' 时失败: {e}", exc_info=True)
+            logger.error(f"批量更新事件状态为 '{new_status}' 时失败: {repr(e)}", exc_info=True)
             return False
 
     async def get_all_conversation_vectors_for_iis(self) -> list[list[list[float]]]:
@@ -309,7 +309,7 @@ class EventStorageService:
         try:
             return await asyncio.to_thread(db_read_and_group)
         except Exception as e:
-            logger.error(f"为IIS模型获取事件向量时失败: {e}", exc_info=True)
+            logger.error(f"为IIS模型获取事件向量时失败: {repr(e)}", exc_info=True)
             return []
 
     async def get_event_by_timestamp(
@@ -361,7 +361,7 @@ class EventStorageService:
         try:
             return await asyncio.to_thread(db_read)
         except Exception as e:
-            logger.error(f"通过时间戳 {timestamp} 获取事件失败: {e}", exc_info=True)
+            logger.error(f"通过时间戳 {timestamp} 获取事件失败: {repr(e)}", exc_info=True)
             return None
 
     async def get_unread_count(
@@ -463,5 +463,5 @@ class EventStorageService:
         try:
             return await asyncio.to_thread(db_read_and_process)
         except Exception as e:
-            logger.error(f"计算会话 {conversation_uid} 未读数失败: {e}", exc_info=True)
+            logger.error(f"计算会话 {conversation_uid} 未读数失败: {repr(e)}", exc_info=True)
             return {"unread_count": 0, "has_high_priority": False}
