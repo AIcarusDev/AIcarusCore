@@ -25,9 +25,13 @@ requires_openai_key = pytest.mark.skipif(
     not REAL_OPENAI_API_KEY, reason="需要设置 REAL_OPENAI_API_KEY 环境变量"
 )
 
+# 将此文件中所有测试都标记为异步测试
 pytestmark = pytest.mark.asyncio
 
 
+# --- 测试用例 ---
+
+@pytest.mark.integration  # <--- 修改 1: 添加集成测试标记
 @requires_gemini_key
 async def test_google_gemini_real_api_call(monkeypatch: MonkeyPatch) -> None:
     """集成测试：真实调用 Google Gemini API.
@@ -68,6 +72,7 @@ async def test_google_gemini_real_api_call(monkeypatch: MonkeyPatch) -> None:
     assert "蓝" in result["text"], f"预期响应包含'蓝'，但实际为: '{result['text']}'"
 
 
+@pytest.mark.integration  # <--- 修改 2: 添加集成测试标记
 @requires_openai_key
 async def test_openai_compatible_real_api_call(monkeypatch: MonkeyPatch) -> None:
     """集成测试：真实调用 OpenAI 兼容的 API (例如 Google 的兼容层)."""
@@ -87,7 +92,7 @@ async def test_openai_compatible_real_api_call(monkeypatch: MonkeyPatch) -> None
     try:
         result = await client.make_request(
             prompt="用一个词回答：天空是什么颜色的？",
-            system_prompt="You are a helpful assistant.",  # OpenAI 风格的 system prompt
+            system_prompt="You are a helpful assistant.",
             is_stream=False,
             max_tokens=5,
         )
@@ -105,6 +110,7 @@ async def test_openai_compatible_real_api_call(monkeypatch: MonkeyPatch) -> None
     assert "蓝" in result["text"], f"预期响应包含'蓝'，但实际为: '{result['text']}'"
 
 
+@pytest.mark.integration  # <--- 修改 3: 添加集成测试标记
 async def test_invalid_key_returns_permission_error(monkeypatch: MonkeyPatch) -> None:
     """集成测试：使用一个无效的 Key 调用，预期返回权限错误，而不是 404."""
     # 1. 准备环境
@@ -133,11 +139,5 @@ async def test_invalid_key_returns_permission_error(monkeypatch: MonkeyPatch) ->
     # 4. 断言结果
     assert result is not None
     assert result.get("error") is True
-
-    # --- [BUG FIX] ---
-    # 修正断言：Google API 对无效 Key 返回 400 (APIResponseError)，
-    # 而不是 403 (PermissionDeniedError)。我们接受这个事实。
-    # 只要不是 404 (URL错误)，就说明我们的集成是成功的。
     assert result.get("type") in ["PermissionDeniedError", "APIResponseError"]
     assert result.get("status_code") in [400, 401, 403]
-    # --- [BUG FIX END] ---
