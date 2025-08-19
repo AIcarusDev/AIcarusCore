@@ -2,6 +2,7 @@
 from typing import TYPE_CHECKING, Any, Optional
 
 from src.common.utils import parse_focus_path
+from src.domain.models import Stimulus
 from src.focus_chat_mode.components import PromptComponents
 from src.prompt_templates import prompt_templates
 from src.prompt_templates.deliberation_prompts import (
@@ -70,7 +71,7 @@ class ThoughtPromptBuilder:
         focus_path: str | None,
         session: Optional["ChatSession"] = None,
         handover_result: dict | None = None,
-    ) -> tuple[PromptComponents, list | None]:
+    ) -> tuple[PromptComponents, list[Stimulus] | None]:
         """构建提示组件."""
         current_level, current_platform_id, current_conv_id = parse_focus_path(focus_path)
 
@@ -84,7 +85,7 @@ class ThoughtPromptBuilder:
             external_info_block,
             meta_info_block,
             history_components,
-            processed_raw_events,
+            processed_stimuli,
         ) = await self.external_info_builder.build(
             current_level, current_platform_id, current_conv_id, session
         )
@@ -127,7 +128,7 @@ class ThoughtPromptBuilder:
             else {},
         )
 
-        return prompt_components_obj, processed_raw_events
+        return prompt_components_obj, processed_stimuli
 
     def finalize_prompts(self, components: PromptComponents) -> tuple[str, str, dict[str, Any]]:
         """最终化提示组件，生成系统和用户提示的字符串表示."""

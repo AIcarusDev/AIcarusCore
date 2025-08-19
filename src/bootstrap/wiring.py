@@ -18,6 +18,7 @@ def wire_dependencies(container: ServiceContainer) -> None:
         core_logic=container.core_logic,
         entity_service=container.entity_graph_service,
         sticker_service=container.sticker_service,  # <-- 确保只传入新的 service，没有旧的
+        narrative_vectorizer=container.narrative_vectorizer,
     )
     container.action_handler.set_thought_trigger(container.core_logic.immediate_thought_trigger)
 
