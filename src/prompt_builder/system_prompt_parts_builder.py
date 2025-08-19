@@ -168,10 +168,18 @@ class SystemPromptPartsBuilder:
             )
         bot_profile = await session.get_bot_profile()
         if session.conversation_type == "group":
-            return (
-                f'你当前正在 qq 群"{session.conversation_name or "未知群聊"}"中参与 qq 群聊，'
-                f'你在该群的群名片是"{bot_profile.get("card", config.persona.bot_name)}"'
-            )
+            group_name = session.conversation_name or "未知群聊"
+            bot_card = bot_profile.get("card")
+            bot_nickname = bot_profile.get("nickname")
+
+            # 如果没有群名片，或者群名片等于机器人的昵称（没有特殊设置群名片），则不显示群名片部分
+            if not bot_card or (bot_nickname and bot_card == bot_nickname):
+                return f'你当前正在 qq 群"{group_name}"中参与 qq 群聊。'
+            else:
+                return (
+                    f'你当前正在 qq 群"{group_name}"中参与 qq 群聊，'
+                    f'你在该群的群名片是"{bot_card}"'
+                )
         is_temporary = session.conversation_info.extra.get("is_temporary", False)
 
         if not is_temporary:
@@ -331,3 +339,5 @@ class SystemPromptPartsBuilder:
             if tool_descs:
                 descs.append("\n".join(tool_descs))
         return "\n".join(filter(None, descs)).strip() or "你当前没有可用的外部行动。"
+
+

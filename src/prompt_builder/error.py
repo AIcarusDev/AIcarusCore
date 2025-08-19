@@ -1,4 +1,5 @@
 # src/prompt_builder/error.py
+from typing import Any
 
 
 class PromptBuilderError(Exception):
@@ -138,7 +139,7 @@ class ValidationError(PromptBuilderError):
         self,
         field_name: str,
         expected_type: str,
-        actual_value: any,
+        actual_value: Any,
         error_details: str | None = None,
     ) -> None:
         context = {
@@ -161,7 +162,7 @@ class ConfigurationError(PromptBuilderError):
     def __init__(
         self,
         config_key: str | None = None,
-        config_value: any | None = None,
+        config_value: Any | None = None,
         error_details: str | None = None,
     ) -> None:
         context = {}
@@ -216,3 +217,6 @@ __all__ = [
     "UserPromptBuildError",
     "ValidationError",
 ]
+
+
+

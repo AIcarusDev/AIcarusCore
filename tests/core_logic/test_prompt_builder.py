@@ -105,7 +105,60 @@ class TestPromptBuilderCurrentState:
         )
 
         # 3. 断言 (Assert)
-        assert '你当前正在 qq 群"未知群聊"中参与 qq 群聊' in result
+        assert '你当前正在 qq 群"未知群聊"中参与 qq 群聊，' in result
+        assert '你在该群的群名片是"测试机器人"' in result
+
+    async def test_get_current_state_group_chat_without_card(
+        self,
+        prompt_builder: ThoughtPromptBuilder,
+        mock_chat_session_manager: MagicMock,
+        mocker: MockerFixture,
+    ) -> None:
+        """测试场景：当机器人在群聊中没有群名片时，不应显示群名片部分."""
+        # 1. 准备 (Arrange)
+        mock_session = MagicMock()
+        mock_session.conversation_name = "AIcarus 核心开发群"
+        mock_session.conversation_type = "group"
+        mock_session.membership_status = "active"
+        # 模拟没有群名片的情况
+        mock_session.get_bot_profile = mocker.AsyncMock(return_value={"card": None})
+        mock_chat_session_manager.sessions = {"qq_group_12345": mock_session}
+
+        # 2. 执行 (Act)
+        result = await prompt_builder.system_prompt_parts_builder._get_current_state_block(
+            level="cellular", platform_id="qq", conv_id="group.12345"
+        )
+
+        # 3. 断言 (Assert)
+        assert '你当前正在 qq 群"AIcarus 核心开发群"中参与 qq 群聊。' in result
+        assert '你在该群的群名片是' not in result
+
+    async def test_get_current_state_group_chat_with_default_name_card(
+        self,
+        prompt_builder: ThoughtPromptBuilder,
+        mock_chat_session_manager: MagicMock,
+        mocker: MockerFixture,
+    ) -> None:
+        """测试场景：当群名片等于机器人的昵称时，不应显示群名片部分."""
+        # 1. 准备 (Arrange)
+        mock_session = MagicMock()
+        mock_session.conversation_name = "AIcarus 核心开发群"
+        mock_session.conversation_type = "group"
+        mock_session.membership_status = "active"
+        # 模拟群名片等于昵称的情况（说明没有特殊设置群名片）
+        mock_session.get_bot_profile = mocker.AsyncMock(
+            return_value={"card": "AIcarus", "nickname": "AIcarus"}
+            )
+        mock_chat_session_manager.sessions = {"qq_group_12345": mock_session}
+
+        # 2. 执行 (Act)
+        result = await prompt_builder.system_prompt_parts_builder._get_current_state_block(
+            level="cellular", platform_id="qq", conv_id="group.12345"
+        )
+
+        # 3. 断言 (Assert)
+        assert '你当前正在 qq 群"AIcarus 核心开发群"中参与 qq 群聊。' in result
+        assert '你在该群的群名片是' not in result
 
     async def test_get_current_state_temporary_chat_from_known_group(
         self,
@@ -317,3 +370,7 @@ class TestPromptBuilderInstantiationAndWiring:
 
         except Exception as e:
             pytest.fail(f"build_prompts_components failed after wiring dependencies: {e}")
+
+
+
+

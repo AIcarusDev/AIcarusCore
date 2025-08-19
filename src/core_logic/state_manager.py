@@ -43,9 +43,9 @@ class AIStateManager:
         self.action_log_service = action_log_service
         # GoalManager 现在是纯内存组件，不再需要 GoalStorageService
         self.goal_manager = GoalManager()
-        logger.info("AIStateManager (思想链版) 初始化完毕。")
+        logger.info("AIStateManager 初始化完毕。")
 
-    # <-- 修改点 2: 移除了 initialize 方法，因为它不再需要从数据库加载目标
+    # -- 修改点 2: 移除了 initialize 方法，因为它不再需要从数据库加载目标
 
     async def get_current_state_for_prompt(self) -> dict[str, str]:  # TODO：该方法可能废弃，待处理
         """从思想链获取最新的状态，构建Prompt需要的所有状态块."""
