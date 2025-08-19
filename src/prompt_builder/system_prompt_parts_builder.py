@@ -17,7 +17,11 @@ from src.prompt_templates.focus_chat_prompts import (
 )
 from src.prompt_templates.platform_prompts import PLATFORM_INPUT_XML_DESCRIPTION
 
-from .error import PromptBuilderError
+from .error import (
+    InvalidConversationIdError,
+    SessionManagerError,
+    SessionNotFoundError,
+)
 
 if TYPE_CHECKING:
     from src.action.action_handler import ActionHandler
@@ -129,7 +133,7 @@ class SystemPromptPartsBuilder:
     ) -> str:
         """构建当前状态块."""
         if not self.chat_session_manager:
-            raise PromptBuilderError("ChatSessionManager 尚未初始化。")
+            raise SessionManagerError("ChatSessionManager 尚未初始化。")
         if level == "core":
             return "你当前似乎没有干什么。"
 
@@ -140,17 +144,21 @@ class SystemPromptPartsBuilder:
             return "未知状态"
         try:
             if "." not in conv_id:
-                raise PromptBuilderError(f"无效的会话ID格式 '{conv_id}'。它必须是 'type.id' 格式。")
+                raise InvalidConversationIdError(
+                    f"无效的会话ID格式 '{conv_id}'。它必须是 'type.id' 格式。"
+                    )
             conv_type, actual_id = conv_id.split(".", 1)
             session_key = build_conversation_entity_uid(platform_id, conv_type, actual_id)
 
         except (ValueError, IndexError):
-            raise PromptBuilderError(f"无法从会话部分 '{conv_id}' 解析出类型和ID。") from None
+            raise InvalidConversationIdError(
+                f"无法从会话部分 '{conv_id}' 解析出类型和ID。"
+                ) from None
 
         session = self.chat_session_manager.sessions.get(session_key)
 
         if not session:
-            raise PromptBuilderError(f"找不到会话实体UID为 '{session_key}' 的活跃会话档案。")
+            raise SessionNotFoundError(f"找不到会话实体UID为 '{session_key}' 的活跃会话档案。")
 
         if session.membership_status == "left":
             return (
@@ -323,3 +331,6 @@ class SystemPromptPartsBuilder:
             if tool_descs:
                 descs.append("\n".join(tool_descs))
         return "\n".join(filter(None, descs)).strip() or "你当前没有可用的外部行动。"
+
+
+

@@ -6,7 +6,11 @@ from src.common.utils import build_conversation_entity_uid
 from src.focus_chat_mode.behavioral_guidance_generator import BehavioralGuidanceGenerator
 from src.focus_chat_mode.components import PromptComponents
 
-from .error import PromptBuilderError
+from .error import (
+    InvalidConversationIdError,
+    SessionManagerError,
+    SessionNotFoundError,
+)
 
 if TYPE_CHECKING:
     from src.common.unread_info_service.unread_info_service import UnreadInfoService
@@ -41,7 +45,7 @@ class ExternalInfoBuilder:
         external_info, meta_info, history_components, processed_stimuli = "", "", None, None
 
         if not self.chat_session_manager:
-            raise PromptBuilderError("会话管理器尚未准备就绪，无法构建外部信息块。")
+            raise SessionManagerError("会话管理器尚未准备就绪，无法构建外部信息块。")
 
         if level == "core":
             current_unread_summary = await self.unread_info_service.get_platform_summary()
@@ -61,19 +65,21 @@ class ExternalInfoBuilder:
         elif level == "cellular" and conv_id:
             try:
                 if "." not in conv_id:
-                    raise PromptBuilderError(
+                    raise InvalidConversationIdError(
                         f"无效的会话ID格式 '{conv_id}'。它必须是 'type.id' 格式。"
                     )
                 conv_type, actual_id = conv_id.split(".", 1)
                 session_key = build_conversation_entity_uid(platform_id, conv_type, actual_id)
             except (ValueError, IndexError):
-                raise PromptBuilderError(f"无法从会话部分 '{conv_id}' 解析出类型和ID。") from None
+                raise InvalidConversationIdError(
+                    f"无法从会话部分 '{conv_id}' 解析出类型和ID。"
+                ) from None
 
             if not session:
                 session = self.chat_session_manager.sessions.get(session_key)
 
             if not session:
-                raise PromptBuilderError(f"找不到会话实体UID为 '{session_key}' 的活跃会话档案。")
+                raise SessionNotFoundError(f"找不到会话实体UID为 '{session_key}' 的活跃会话档案。")
 
             bot_profile = await session.get_bot_profile()
             history_components, processed_stimuli = await format_chat_history_for_llm(
@@ -119,3 +125,7 @@ class ExternalInfoBuilder:
             meta_info = guidance_generator.generate_guidance()
 
         return external_info, meta_info, history_components, processed_stimuli
+
+
+
+
