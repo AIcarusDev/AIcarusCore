@@ -1,4 +1,6 @@
 # src/common/unread_info_service/unread_info_service.py
+import re
+import json
 from collections import defaultdict
 from typing import Any
 
@@ -118,12 +120,11 @@ class UnreadInfoService:
         all_my_bot_ids = set(self.self_bot_ids.values())
 
         for seg in event.get("content", []):
-            print(f"seg: {seg}")
+            if not isinstance(seg, dict):
+                continue
             seg_type = seg.get("type")
             if seg_type in ("at", "quote"):
                 target_user_id = str(seg.get("data", {}).get("user_id", ""))
-                print(f"target_user_id: {target_user_id}")
-                print(f"all_my_bot_ids: {all_my_bot_ids}")
                 if target_user_id in all_my_bot_ids:
                     return "<b>[有人@你]</b>" if seg_type == "at" else "<b>[有人回复你]</b>"
         return ""
@@ -180,13 +181,45 @@ class UnreadInfoService:
 
     # Helper 4: 从消息段列表构建内容预览
     async def _build_content_preview_from_segments(
-        self, content: list[dict], conv_doc: EntityDocument
+        self, content: list[dict] | str, conv_doc: EntityDocument
     ) -> str:
         """从事件的 content 字段（消息段列表）构建核心预览字符串."""
+        content_as_list = []
+        if isinstance(content, str):
+            try:
+                parsed_content = json.loads(content)
+                if isinstance(parsed_content, list):
+                    content_as_list = parsed_content
+                else:
+                    # --- [PROBE ENHANCEMENT] ---
+                    logger.warning(
+                        f"会话 '{conv_doc._key}' 的 'content' 字段是一个JSON字符串，但解析后不是列表: "
+                        f"Type={type(parsed_content)}, Content='{content[:200]}...'"
+                    )
+                    # --- [PROBE END] ---
+            except json.JSONDecodeError:
+                logger.warning(
+                    f"无法解析会话 '{conv_doc._key}' 的 'content' JSON字符串: '{content[:200]}...'"
+                )
+                # 尝试用正则表达式从损坏的字符串中提取文本
+                try:
+                    # 这个正则会查找所有 "text": "..." 的部分并提取其中的内容
+                    text_parts = re.findall(r'"text"\s*:\s*"([^"]*)"', content)
+                    if text_parts:
+                        # 如果找到了，就用它们来构建一个预览
+                        logger.debug(f"从损坏的JSON中成功提取到文本: {text_parts}")
+                        return "".join(text_parts).strip()
+                except Exception:
+                    # 如果正则也失败了，就放弃
+                    pass
+        elif isinstance(content, list):
+            content_as_list = content
+
         preview_parts = []
         text_buffer = []
-        for seg in content:
-            # 传递 conv_doc 上下文
+        for seg in content_as_list:
+            if not isinstance(seg, dict):
+                continue
             formatted_text = await self._format_segment_to_text(seg, conv_doc)
             if seg.get("type") == "text":
                 text_buffer.append(formatted_text)
@@ -214,25 +247,15 @@ class UnreadInfoService:
         self, event: dict, display_name: str, conv_doc: EntityDocument
     ) -> str:
         """生成消息预览内容，包含发送者名称和消息摘要 (重构版)."""
-        # 步骤 1: 使用卫语句处理特殊事件类型
         event_type = event.get("event_type", "")
         if event_type.endswith("user.poke"):
             return self._create_poke_preview(event, display_name)
 
-        # 步骤 2: 获取优先级标签 (@我/回复我)
         priority_tag = self._get_message_priority_tag(event)
-
-        # 步骤 3: 从消息段构建核心内容 (现在是 await 调用)
         content_list = event.get("content", [])
         raw_preview = await self._build_content_preview_from_segments(content_list, conv_doc)
-
-        # 步骤 4: 格式化并截断核心内容
         formatted_preview = self._format_and_truncate_preview(raw_preview)
-
-        # 步骤 5: 组合最终的预览字符串
         final_preview = f"{display_name}：{formatted_preview}"
-
-        # 如果有优先级标签，则加在最前面
         return f"{priority_tag} {final_preview}" if priority_tag else final_preview
 
     async def get_conversation_list_summary(
@@ -251,11 +274,8 @@ class UnreadInfoService:
             for c in all_active_convs
             if c.get("conv_doc") and c["conv_doc"].details.platform == platform_id
         ]
-        print(f"all_active_convs: {all_active_convs}")
 
         total_count = len(platform_convs)
-
-        # 如果没有找到任何会话，直接返回提示信息
         if not platform_convs:
             return (
                 f"<conversation_list>\n"
@@ -264,19 +284,14 @@ class UnreadInfoService:
             )
 
         summary_parts = ["<conversation_list>"]
-
-        # 1. 处理边界情况：总数小于等于页面大小
         if total_count <= page_size:
             summary_parts.append("--- 已经到顶了 ---")
             convs_to_display = platform_convs
             summary_parts.append("--- 没有更多会话 ---")
         else:
-            # 2. 计算分页和头尾提示
             start_index = scroll_offset
             end_index = start_index + page_size
             convs_to_display = platform_convs[start_index:end_index]
-
-            # 构造头部提示
             if start_index > 0:
                 summary_parts.append(
                     f"<!-- 提示：你可以使用 scroll(params='up') 来查看更多 -->\n"
@@ -284,7 +299,6 @@ class UnreadInfoService:
                 )
             else:
                 summary_parts.append("--- 已经到顶了 ---")
-
             remaining_count = total_count - end_index
             footer_text = (
                 f"--- 下方还有 {remaining_count} 条未展示的对话 ---\n"
@@ -292,45 +306,33 @@ class UnreadInfoService:
                 if remaining_count > 0
                 else "--- 已经到底了 ---"
             )
-        print(f"convs_to_display: {convs_to_display}")
         for item in convs_to_display:
             conv_doc = item["conv_doc"]
             latest_event = item["latest_event"]
             unread_count = item["unread_count"]
-
-            # `conv_doc.details` 是 ConversationDetails 对象，直接用 `.` 访问属性
             if not (
                 conv_doc
                 and hasattr(conv_doc, "details")
                 and isinstance(conv_doc.details, ConversationDetails)
             ):
-                continue  # 跳过无效的 conv_doc
-            print(f"conv_doc: {conv_doc}")
+                continue
             conv_details = conv_doc.details
             entity_uid = conv_doc._key
             is_temporary = conv_details.extra.get("is_temporary", False)
             conv_type = conv_details.type
-            sender_display_name = self._get_sender_display_name(latest_event, conv_type)
-
-            # 核心逻辑修正：根据会话类型决定名称
-            print(f"conv_details: {conv_details}")
+            sender_display_name = self._get_sender_display_name(latest_event, conv_doc)
             if conv_type == "group":
                 conv_name = conv_details.name or f"未知群聊({conv_details.conversation_id})"
-            else:  # private
+            else:
                 conv_name = conv_details.name or sender_display_name
-            # ========================== [FIX END] ==========================
-
             time_str = format_relative_time(latest_event.get("timestamp", 0))
-            # --- [MODIFIED] 调用现在是 await ---
             message_preview = await self._create_message_preview(
                 latest_event, sender_display_name, conv_doc
             )
-
             status_line = f"(时间：{time_str}/共 {unread_count} 条未读信息)"
             header = f"- [{'临时会话' if is_temporary else '用户名称'}]：{conv_name}"
             if conv_type == "group":
                 header = f"- [群名称]：{conv_name}"
-
             summary_parts.extend(
                 [
                     header,
@@ -340,10 +342,8 @@ class UnreadInfoService:
                     "",
                 ]
             )
-
         if "footer_text" in locals():
             summary_parts.append(footer_text)
-
         summary_parts.append("</conversation_list>")
         return "\n".join(summary_parts).strip()
 
@@ -352,37 +352,26 @@ class UnreadInfoService:
         conv_doc = item["conv_doc"]
         event_for_preview = item["latest_event"]
         unread_count = item["unread_count"]
-
         entity_uid = conv_doc._key
-
         if not (
             conv_doc
             and hasattr(conv_doc, "details")
             and isinstance(conv_doc.details, ConversationDetails)
         ):
             return []
-        print(f"conv_doc: {conv_doc}")
         conv_details = conv_doc.details
         conv_type = conv_details.type
         sender_name = self._get_sender_display_name(event_for_preview, conv_doc)
         is_temporary = conv_details.extra.get("is_temporary", False)
-
-        # 核心逻辑修正：根据会话类型决定名称
-        print(f"conv_details: {conv_details}")
         if conv_type == "group":
             conv_name = conv_details.name or f"未知群聊({conv_details.conversation_id})"
-        else:  # private
+        else:
             conv_name = conv_details.name or sender_name
-
         time_str = format_relative_time(event_for_preview.get("timestamp", 0))
-        # --- [MODIFIED] 调用现在是 await ---
         preview = await self._create_message_preview(event_for_preview, sender_name, conv_doc)
-
         header = f"- [{'临时会话' if is_temporary else '[用户名称]'}]：{conv_name}"
         if conv_type == "group":
             header = f"- [群名称]：{conv_name}"
-
-        # 生成单个会话的摘要文本列表
         return [
             header,
             f"  - [ID]：{entity_uid}",
@@ -409,8 +398,7 @@ class UnreadInfoService:
     ) -> list[str]:
         """辅助函数: 格式化单个平台的完整XML块."""
         section_parts = [f"<from_{platform}>"]
-        items.sort(key=lambda x: x["has_high_priority"], reverse=True)
-
+        items.sort(key=lambda x: x.get("has_high_priority", False), reverse=True)
         group_chats = [
             c
             for c in items
@@ -427,7 +415,6 @@ class UnreadInfoService:
             and isinstance(c["conv_doc"].details, ConversationDetails)
             and c["conv_doc"].details.type == "private"
         ]
-
         section_parts.extend(await self._format_chat_type_section("group", group_chats))
         section_parts.extend(await self._format_chat_type_section("private", private_chats))
         section_parts.append(f"</from_{platform}>")
@@ -438,11 +425,9 @@ class UnreadInfoService:
         all_active_convs = await self._get_recently_active_conversations_with_details(
             exclude_conversation_id
         )
-
         unread_convs = [item for item in all_active_convs if item.get("unread_count", 0) > 0]
         if not unread_convs:
             return "所有其他会话均无未读消息。"
-
         grouped_by_platform = defaultdict(list)
         for item in unread_convs:
             conv_doc = item.get("conv_doc")
@@ -458,7 +443,6 @@ class UnreadInfoService:
                     logger.warning(f"跳过一个缺少 platform 信息的 item: {item}")
             else:
                 logger.warning(f"跳过一个缺少 conv_doc 或 details 的 item: {item}")
-
         summary_parts = []
         for platform, items in grouped_by_platform.items():
             summary_parts.extend(await self._format_platform_section(platform, items))
@@ -472,7 +456,6 @@ class UnreadInfoService:
         unread_convs = [item for item in all_active_convs if item.get("unread_count", 0) > 0]
         if not unread_convs:
             return "所有平台均无新消息。"
-
         platforms_with_news = defaultdict(
             lambda: {"has_high_priority": False, "latest_timestamp": 0, "has_any_news": False}
         )
@@ -480,21 +463,19 @@ class UnreadInfoService:
             conv_doc = item.get("conv_doc")
             if not (conv_doc and conv_doc._key):
                 continue
-
             if (
                 hasattr(conv_doc, "details")
                 and isinstance(conv_doc.details, ConversationDetails)
                 and (platform := conv_doc.details.platform)
             ):
                 platforms_with_news[platform]["has_any_news"] = True
-                if item["has_high_priority"]:
+                if item.get("has_high_priority"):
                     platforms_with_news[platform]["has_high_priority"] = True
                 event_ts = item.get("latest_event", {}).get("timestamp", 0)
                 if event_ts > platforms_with_news[platform]["latest_timestamp"]:
                     platforms_with_news[platform]["latest_timestamp"] = event_ts
         if not platforms_with_news:
             return "所有平台均无新消息。"
-
         summary_lines = []
         for platform, info in sorted(platforms_with_news.items()):
             relative_time_str = format_relative_time(info["latest_timestamp"])
@@ -502,5 +483,4 @@ class UnreadInfoService:
                 summary_lines.append(f"[{relative_time_str}] 你的 '{platform}' 上似乎有人找你。")
             else:
                 summary_lines.append(f"[{relative_time_str}] 你的 '{platform}' 上似乎有未读消息。")
-
         return "\n".join(summary_lines) or "所有平台均无新消息。"

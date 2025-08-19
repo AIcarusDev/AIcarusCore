@@ -71,7 +71,11 @@ class EventStorageService:
                     ("image_analysis", "image-analysis-json"),
                 ]:
                     if val := event_doc_data.get(key):
-                        safe_val = json.dumps(val, ensure_ascii=False).replace('"', '\\"')
+                        # 1. 先序列化为 JSON 字符串
+                        json_string = json.dumps(val, ensure_ascii=False)
+                        # 2. 对 JSON 字符串本身进行转义，以安全地插入 TQL 查询
+                        #    必须先替换反斜杠，再替换双引号
+                        safe_val = json_string.replace('\\', '\\\\').replace('"', '\\"')
                         put_parts.append(f'has {attr} "{safe_val}"')
 
                 # 处理普通字符串属性
