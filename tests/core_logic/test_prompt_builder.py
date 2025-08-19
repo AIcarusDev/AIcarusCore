@@ -70,7 +70,7 @@ class TestPromptBuilderCurrentState:
         mock_chat_session_manager.sessions = {"qq_group_12345": mock_session}
 
         # 2. 执行 (Act)
-        result = await prompt_builder._get_current_state_block(
+        result = await prompt_builder.system_prompt_parts_builder._get_current_state_block(
             level="cellular", platform_id="qq", conv_id="group.12345"
         )
 
@@ -93,7 +93,7 @@ class TestPromptBuilderCurrentState:
         mock_chat_session_manager.sessions = {"qq_group_12345": mock_session}
 
         # 2. 执行 (Act)
-        result = await prompt_builder._get_current_state_block(
+        result = await prompt_builder.system_prompt_parts_builder._get_current_state_block(
             level="cellular", platform_id="qq", conv_id="group.12345"
         )
 
@@ -145,7 +145,7 @@ class TestPromptBuilderCurrentState:
         mock_entity_graph_service.get_entity_by_key.return_value = mock_group_entity
 
         # 2. 执行 (Act)
-        result = await prompt_builder._get_current_state_block(
+        result = await prompt_builder.system_prompt_parts_builder._get_current_state_block(
             level="cellular", platform_id="qq", conv_id="private.67890"
         )
 
@@ -168,7 +168,7 @@ class TestPromptBuilderCurrentState:
         mock_chat_session_manager.sessions = {"qq_group_54321": mock_session}
 
         # 2. 执行 (Act)
-        result = await prompt_builder._get_current_state_block(
+        result = await prompt_builder.system_prompt_parts_builder._get_current_state_block(
             level="cellular", platform_id="qq", conv_id="group.54321"
         )
 
@@ -186,7 +186,7 @@ class TestPromptBuilderCurrentState:
 
         # 2. 执行 & 断言 (Act & Assert)
         with pytest.raises(PromptBuilderError) as excinfo:
-            await prompt_builder._get_current_state_block(
+            await prompt_builder.system_prompt_parts_builder._get_current_state_block(
                 level="cellular", platform_id="qq", conv_id="group.nonexistent"
             )
 

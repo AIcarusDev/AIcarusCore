@@ -129,7 +129,7 @@ class SystemPromptPartsBuilder:
     ) -> str:
         """构建当前状态块."""
         if not self.chat_session_manager:
-            raise PromptBuilderError("...")
+            raise PromptBuilderError("ChatSessionManager 尚未初始化。")
         if level == "core":
             return "你当前似乎没有干什么。"
 
@@ -140,17 +140,17 @@ class SystemPromptPartsBuilder:
             return "未知状态"
         try:
             if "." not in conv_id:
-                raise PromptBuilderError("...")
+                raise PromptBuilderError(f"无效的会话ID格式 '{conv_id}'。它必须是 'type.id' 格式。")
             conv_type, actual_id = conv_id.split(".", 1)
             session_key = build_conversation_entity_uid(platform_id, conv_type, actual_id)
 
         except (ValueError, IndexError):
-            raise PromptBuilderError("...") from None
+            raise PromptBuilderError(f"无法从会话部分 '{conv_id}' 解析出类型和ID。") from None
 
         session = self.chat_session_manager.sessions.get(session_key)
 
         if not session:
-            raise PromptBuilderError("...")
+            raise PromptBuilderError(f"找不到会话实体UID为 '{session_key}' 的活跃会话档案。")
 
         if session.membership_status == "left":
             return (
