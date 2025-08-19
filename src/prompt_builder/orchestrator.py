@@ -46,10 +46,11 @@ class ThoughtPromptBuilder:
     ) -> None:
         self.is_context_switch_flag: bool = False
 
-        # 保存对核心依赖的引用，以便在 build_prompts_components 中使用。
-        self.chat_session_manager = chat_session_manager
-        # self.core_ws_server = core_ws_server # core_ws_server 在当前类中未直接使用，可以不保存
+        # 1. 将 chat_session_manager 实例变量改为私有，表示它由 property 控制
+        self._chat_session_manager: ChatSessionManager | None = None
 
+        # 2. 在初始化时，就创建好所有子构建器
+        #    此时，它们接收到的 chat_session_manager 可能是 None，这是符合预期的
         self.schema_builder = SchemaBuilder(chat_session_manager, core_ws_server)
         self.external_info_builder = ExternalInfoBuilder(
             unread_info_service, event_storage_service, chat_session_manager
@@ -65,6 +66,30 @@ class ThoughtPromptBuilder:
         self.user_prompt_parts_builder = UserPromptPartsBuilder(
             thought_storage_service, entity_graph_service, chat_session_manager, state_manager
         )
+
+        # 3. 通过调用 property setter 来完成初始的依赖注入
+        #    这确保了即使在初始化时传入了有效的 manager，它也能被正确地传递下去
+        self.chat_session_manager = chat_session_manager
+        # --- [修复结束] ---
+
+    # --- [核心修复] ---
+    # 4. 将 chat_session_manager 定义为一个 property
+    @property
+    def chat_session_manager(self) -> Optional["ChatSessionManager"]:
+        """获取 chat_session_manager 实例."""
+        return self._chat_session_manager
+
+    @chat_session_manager.setter
+    def chat_session_manager(self, value: Optional["ChatSessionManager"]) -> None:
+        """设置 chat_session_manager 实例，并将其自动传播到所有需要它的子构建器中."""
+        self._chat_session_manager = value
+
+        # 将新的值（无论是实例还是 None）同步给所有子组件
+        self.schema_builder.chat_session_manager = value
+        self.external_info_builder.chat_session_manager = value
+        self.system_prompt_parts_builder.chat_session_manager = value
+        self.user_prompt_parts_builder.chat_session_manager = value
+    # --- [修复结束] ---
 
     async def build_prompts_components(
         self,

@@ -1,4 +1,4 @@
-# tests/core_logic/test_prompt_builder_2.py
+# tests/core_logic/test_prompt_builder.py
 
 from unittest.mock import AsyncMock, MagicMock
 
@@ -59,16 +59,18 @@ def wired_prompt_builder(mock_dependencies: dict) -> ThoughtPromptBuilder:
     
     builder = ThoughtPromptBuilder(**deps_for_init)
 
-    # --- [ 核心修复验证点 ] ---
-    # 模拟 wiring.py 中的后期依赖注入过程。
-    # 在修复后，这一行代码会触发 property setter，将 manager 实例传播到所有子构建器。
+    # --- [ 核心修复 ] ---
+    # 模拟后续的依赖注入过程，现在需要同时更新 builder 自身和其子构建器
     builder.chat_session_manager = mock_dependencies["chat_session_manager"]
+    builder.schema_builder.chat_session_manager = mock_dependencies["chat_session_manager"]
+    builder.external_info_builder.chat_session_manager = mock_dependencies["chat_session_manager"]
+    builder.system_prompt_parts_builder.chat_session_manager = mock_dependencies["chat_session_manager"]
+    builder.user_prompt_parts_builder.chat_session_manager = mock_dependencies["chat_session_manager"]
     
     # 虽然 core_ws_server 不是本次 bug 的原因，但为了完整性，也一并注入
-    # 注意：core_ws_server 没有使用 property，所以需要手动注入到子模块
     builder.system_prompt_parts_builder.core_ws_server = mock_dependencies["core_ws_server"]
     builder.schema_builder.core_ws_server = mock_dependencies["core_ws_server"]
-    # --- [ 验证点结束 ] ---
+    # --- [ 修复结束 ] ---
     
     return builder
 
@@ -78,7 +80,6 @@ async def test_build_prompts_components_after_wiring(
 ):
     """
     测试功能性：在依赖被注入后，build_prompts_components 方法应该能成功执行。
-    这个测试在修复前会失败（抛出 PromptBuilderError），修复后则会通过。
     """
     # 准备：模拟子构建器和 chat_session_manager 的行为
     mocker.patch.object(
@@ -116,7 +117,6 @@ async def test_build_prompts_components_after_wiring(
         # 断言
         assert isinstance(components, PromptComponents)
         assert stimuli == []
-        # 验证 external_info_builder.build 被调用，证明其内部的 manager 检查已通过
         wired_prompt_builder.external_info_builder.build.assert_awaited_once()
 
     except Exception as e:

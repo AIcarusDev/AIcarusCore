@@ -38,7 +38,7 @@ def prompt_builder(
 ) -> ThoughtPromptBuilder:
     """创建一个 ThoughtPromptBuilder 实例，并注入所有必要的模拟依赖."""
     # 其他依赖项对于这个特定测试不重要，所以也用 MagicMock 简单模拟
-    return ThoughtPromptBuilder(
+    builder = ThoughtPromptBuilder(
         unread_info_service=mocker.MagicMock(),
         internal_info_builder=mocker.MagicMock(),
         event_storage_service=mocker.MagicMock(),
@@ -46,17 +46,18 @@ def prompt_builder(
         entity_graph_service=mock_entity_graph_service,
         action_handler=mocker.MagicMock(),
         state_manager=mocker.MagicMock(),
+        # 初始时传入 manager，以模拟真实场景
         chat_session_manager=mock_chat_session_manager,
         core_ws_server=mocker.MagicMock(),
     )
-
+    return builder
 
 
 class TestPromptBuilderCurrentState:
     """专门测试 `_get_current_state_block` 方法的测试类."""
 
     async def test_get_current_state_group_chat_with_name(
-        self, prompt_builder: ThoughtPromptBuilder, mock_chat_session_manager: MagicMock
+        self, prompt_builder: ThoughtPromptBuilder, mock_chat_session_manager: MagicMock, mocker: MockerFixture
     ) -> None:
         """测试场景：当在一个有名称的群聊中时，应正确显示群聊名称."""
         # 1. 准备 (Arrange)
@@ -65,8 +66,7 @@ class TestPromptBuilderCurrentState:
         mock_session.conversation_type = "group"
         mock_session.membership_status = "active"
         # get_bot_profile 是一个 async 方法，需要用 AsyncMock 模拟
-        mock_session.get_bot_profile = MagicMock(return_value=asyncio.Future())
-        mock_session.get_bot_profile.return_value.set_result({"card": "测试机器人"})
+        mock_session.get_bot_profile = mocker.AsyncMock(return_value={"card": "测试机器人"})
 
         mock_chat_session_manager.sessions = {"qq_group_12345": mock_session}
 
@@ -80,7 +80,7 @@ class TestPromptBuilderCurrentState:
         assert '你在该群的群名片是"测试机器人"' in result
 
     async def test_get_current_state_group_chat_without_name(
-        self, prompt_builder: ThoughtPromptBuilder, mock_chat_session_manager: MagicMock
+        self, prompt_builder: ThoughtPromptBuilder, mock_chat_session_manager: MagicMock, mocker: MockerFixture
     ) -> None:
         """测试场景：当群聊名称为 None 时，应使用 "未知群聊" 作为回退."""
         # 1. 准备 (Arrange)
@@ -88,9 +88,7 @@ class TestPromptBuilderCurrentState:
         mock_session.conversation_name = None  # 关键测试点
         mock_session.conversation_type = "group"
         mock_session.membership_status = "active"
-        mock_session.get_bot_profile = MagicMock(return_value=asyncio.Future())
-        mock_session.get_bot_profile.return_value.set_result({"card": "测试机器人"})
-
+        mock_session.get_bot_profile = mocker.AsyncMock(return_value={"card": "测试机器人"})
         mock_chat_session_manager.sessions = {"qq_group_12345": mock_session}
 
         # 2. 执行 (Act)
@@ -106,6 +104,7 @@ class TestPromptBuilderCurrentState:
         prompt_builder: ThoughtPromptBuilder,
         mock_chat_session_manager: MagicMock,
         mock_entity_graph_service: MagicMock,
+        mocker: MockerFixture,
     ) -> None:
         """测试场景：当在一个来自已知群聊的临时会话中，应正确显示源群聊的名称."""
         # 1. 准备 (Arrange)
@@ -123,12 +122,9 @@ class TestPromptBuilderCurrentState:
             "is_temporary": True,
             "source_group_id": "group-abc",
         }
-
-        mock_session.get_bot_profile = MagicMock(return_value=asyncio.Future())
-        mock_session.get_bot_profile.return_value.set_result(
-            {"user_id": "bot_id", "nickname": "AIcarus"}
+        mock_session.get_bot_profile = mocker.AsyncMock(
+            return_value={"user_id": "bot_id", "nickname": "AIcarus"}
         )
-
         mock_chat_session_manager.sessions = {"qq_private_67890": mock_session}
 
         # 模拟数据库返回的源群聊实体
@@ -140,7 +136,7 @@ class TestPromptBuilderCurrentState:
                 platform="qq",
                 conversation_id="group-abc",
                 type="group",
-                name="源群聊-聊天室",  # 关键测试点
+                name="源群聊-聊天室",
             ),
         )
         mock_entity_graph_service.get_entity_by_key.return_value = mock_group_entity
@@ -155,17 +151,15 @@ class TestPromptBuilderCurrentState:
         mock_entity_graph_service.get_entity_by_key.assert_awaited_once_with("qq_group_group-abc")
 
     async def test_get_current_state_exited_group(
-        self, prompt_builder: ThoughtPromptBuilder, mock_chat_session_manager: MagicMock
+        self, prompt_builder: ThoughtPromptBuilder, mock_chat_session_manager: MagicMock, mocker: MockerFixture
     ) -> None:
         """测试场景：当观察一个已退出的群聊时，应显示正确的状态描述."""
         # 1. 准备 (Arrange)
         mock_session = MagicMock()
         mock_session.conversation_name = "一个已经退出的群"
         mock_session.conversation_type = "group"
-        mock_session.membership_status = "left"  # 关键测试点
-        mock_session.get_bot_profile = MagicMock(return_value=asyncio.Future())
-        mock_session.get_bot_profile.return_value.set_result({})  # 在已退出的群里没有群名片
-
+        mock_session.membership_status = "left"
+        mock_session.get_bot_profile = mocker.AsyncMock(return_value={})
         mock_chat_session_manager.sessions = {"qq_group_54321": mock_session}
 
         # 2. 执行 (Act)
