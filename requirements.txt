@@ -15,3 +15,4 @@ numpy
 pypinyin
 ImageHash
 typedb-driver = "3.4.4"
+pyfakefs
