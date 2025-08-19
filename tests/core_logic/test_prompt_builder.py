@@ -51,6 +51,7 @@ def prompt_builder(
     )
 
 
+
 class TestPromptBuilderCurrentState:
     """专门测试 `_get_current_state_block` 方法的测试类."""
 

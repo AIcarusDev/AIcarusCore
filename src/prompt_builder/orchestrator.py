@@ -46,9 +46,6 @@ class ThoughtPromptBuilder:
     ) -> None:
         self.is_context_switch_flag: bool = False
 
-        if not chat_session_manager or not core_ws_server:
-            raise ValueError("ChatSessionManager and CoreWebsocketServer must be provided.")
-
         self.schema_builder = SchemaBuilder(chat_session_manager, core_ws_server)
         self.external_info_builder = ExternalInfoBuilder(
             unread_info_service, event_storage_service, chat_session_manager
