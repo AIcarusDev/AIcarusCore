@@ -77,7 +77,7 @@ async def test_get_recent_action_logs_handles_optional_error_info(
             insert $a isa action-log, has action-id "log1", has action-type "type1",
                    has timestamp 1000, has status "ok", has bot-id "bot", has action-platform "test";
             insert (source-platform: $p, sourced-action: $a) isa action-source;
-        """).resolve()
+        """).resolve()  # noqa: E501
 
         # 日志2：时间戳居中，有错误信息
         tx.query("""
@@ -94,7 +94,7 @@ async def test_get_recent_action_logs_handles_optional_error_info(
             insert $a isa action-log, has action-id "log3", has action-type "type3",
                    has timestamp 3000, has status "ok", has bot-id "bot", has action-platform "test";
             insert (source-platform: $p, sourced-action: $a) isa action-source;
-        """).resolve()
+        """).resolve()  # noqa: E501
         tx.commit()
 
     # 执行：获取最近的2条日志

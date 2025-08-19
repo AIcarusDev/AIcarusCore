@@ -77,12 +77,12 @@ async def test_find_or_create_profile_and_account_entity(
 
 
 class TestConversationEntity:
-    """专门测试会话实体（特别是群聊名称）的创建和更新逻辑。"""
+    """专门测试会话实体（特别是群聊名称）的创建和更新逻辑."""
 
     async def test_creates_group_with_name(
         self, entity_graph_service: EntityGraphService, db_connection: Driver
-    ):
-        """测试场景1 (Happy Path): 创建一个带有名称的群聊实体。"""
+    ) -> None:
+        """测试场景1 (Happy Path): 创建一个带有名称的群聊实体."""
         # 1. 准备 (Arrange)
         conv_id = "group1"
         platform = "qq"
@@ -99,15 +99,15 @@ class TestConversationEntity:
         assert entity is not None
         # 直接查询数据库，验证 display-name 属性是否被正确写入
         with db_connection.transaction(db_name, TransactionType.READ) as tx:
-            query = f'match $c isa conversation, has conversation-id "{conv_id}", has display-name $n; select $n;'
+            query = f'match $c isa conversation, has conversation-id "{conv_id}", has display-name $n; select $n;'  # noqa: E501
             answers = list(tx.query(query).resolve().as_concept_rows())
             assert len(answers) == 1
             assert answers[0].get("n").as_attribute().get_value() == name
 
     async def test_creates_group_without_name(
         self, entity_graph_service: EntityGraphService, db_connection: Driver
-    ):
-        """测试场景2 (Bug复现): 创建一个 name=None 的群聊实体。"""
+    ) -> None:
+        """测试场景2 (Bug复现): 创建一个 name=None 的群聊实体."""
         # 1. 准备 (Arrange)
         conv_id = "group2"
         platform = "qq"
@@ -124,15 +124,15 @@ class TestConversationEntity:
         # 直接查询数据库，验证 display-name 属性是否 *不存在*
         with db_connection.transaction(db_name, TransactionType.READ) as tx:
             # 这个查询会查找有 conv_id 但没有 display-name 的实体
-            query = f'match $c isa conversation, has conversation-id "{conv_id}"; not {{ $c has display-name $any_name; }}; select $c;'
+            query = f'match $c isa conversation, has conversation-id "{conv_id}"; not {{ $c has display-name $any_name; }}; select $c;'  # noqa: E501
             answers = list(tx.query(query).resolve().as_concept_rows())
             # 我们期望能找到这样一个实体，证明它被创建了但是是“无名”的
             assert len(answers) == 1
 
     async def test_updates_group_name_on_subsequent_call(
         self, entity_graph_service: EntityGraphService, db_connection: Driver
-    ):
-        """测试场景3 (更新路径): 先创建一个无名群聊，再用有名称的数据调用，验证其名称被更新。"""
+    ) -> None:
+        """测试场景3 (更新路径): 先创建一个无名群聊，再用有名称的数据调用，验证其名称被更新."""
         # 1. 准备 (Arrange) - 第一次调用，无名称
         conv_id = "group3"
         platform = "qq"
@@ -152,19 +152,19 @@ class TestConversationEntity:
         # 3. 断言 (Assert)
         # 直接查询数据库，验证 display-name 是否已成功更新
         with db_connection.transaction(db_name, TransactionType.READ) as tx:
-            query = f'match $c isa conversation, has conversation-id "{conv_id}", has display-name $n; select $n;'
+            query = f'match $c isa conversation, has conversation-id "{conv_id}", has display-name $n; select $n;'  # noqa: E501
             answers = list(tx.query(query).resolve().as_concept_rows())
             assert len(answers) == 1
             assert answers[0].get("n").as_attribute().get_value() == new_name
 
 
 class TestEntityGraphServiceFixes:
-    """测试 EntityGraphService 中被修复的 TypeQL 查询。"""
+    """测试 EntityGraphService 中被修复的 TypeQL 查询."""
 
     async def test_update_conversation_last_read_timestamp_upserts_correctly(
         self, entity_graph_service: EntityGraphService, db_connection: Driver
     ) -> None:
-        """测试 update_conversation_last_read_timestamp 方法能否正确地创建和更新时间戳。"""
+        """测试 update_conversation_last_read_timestamp 方法能否正确地创建和更新时间戳."""
         # 1. 准备 (Arrange)
         conv_id = "group_ts_test"
         platform = "qq"
@@ -179,7 +179,7 @@ class TestEntityGraphServiceFixes:
             tx.commit()
 
         def get_timestamp() -> int | None:
-            """辅助函数，用于从数据库查询当前的时间戳。"""
+            """辅助函数，用于从数据库查询当前的时间戳."""
             with db_connection.transaction(db_name, TransactionType.READ) as tx:
                 query = f"""
                 match

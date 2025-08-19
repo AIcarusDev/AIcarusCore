@@ -1,10 +1,10 @@
 # tests/llmrequest/test_real_api_integration.py
 
 import os
+
 import pytest
-import asyncio
+from pytest import MonkeyPatch
 from src.llmrequest.llm_client import LLMClient
-from src.llmrequest.core.models import APIKeyError
 
 # --- 测试配置 ---
 # 从环境变量中读取一个真实的、有效的Google Gemini API Key
@@ -18,16 +18,20 @@ REAL_OPENAI_API_KEY = os.getenv("REAL_OPENAI_API_KEY")
 
 # 使用pytest.mark.skipif来动态跳过测试
 # 如果没有提供真实API Key，测试会被跳过而不是失败
-requires_gemini_key = pytest.mark.skipif(not REAL_GEMINI_API_KEY, reason="需要设置 REAL_GEMINI_API_KEY 环境变量")
-requires_openai_key = pytest.mark.skipif(not REAL_OPENAI_API_KEY, reason="需要设置 REAL_OPENAI_API_KEY 环境变量")
+requires_gemini_key = pytest.mark.skipif(
+    not REAL_GEMINI_API_KEY, reason="需要设置 REAL_GEMINI_API_KEY 环境变量"
+)
+requires_openai_key = pytest.mark.skipif(
+    not REAL_OPENAI_API_KEY, reason="需要设置 REAL_OPENAI_API_KEY 环境变量"
+)
 
 pytestmark = pytest.mark.asyncio
 
 
 @requires_gemini_key
-async def test_google_gemini_real_api_call(monkeypatch):
-    """
-    集成测试：真实调用 Google Gemini API。
+async def test_google_gemini_real_api_call(monkeypatch: MonkeyPatch) -> None:
+    """集成测试：真实调用 Google Gemini API.
+
     这个测试会发出一个真实的网络请求。
     """
     # 1. 准备环境
@@ -47,7 +51,7 @@ async def test_google_gemini_real_api_call(monkeypatch):
             prompt="用一个词回答：天空是什么颜色的？",
             system_prompt=None,
             is_stream=False,
-            max_tokens=5 # 限制输出以节省token
+            max_tokens=5,  # 限制输出以节省token
         )
         print(f"[INFO] Received response from Gemini: {result}")
     except Exception as e:
@@ -65,13 +69,13 @@ async def test_google_gemini_real_api_call(monkeypatch):
 
 
 @requires_openai_key
-async def test_openai_compatible_real_api_call(monkeypatch):
-    """
-    集成测试：真实调用 OpenAI 兼容的 API (例如 Google 的兼容层)。
-    """
+async def test_openai_compatible_real_api_call(monkeypatch: MonkeyPatch) -> None:
+    """集成测试：真实调用 OpenAI 兼容的 API (例如 Google 的兼容层)."""
     # 1. 准备环境
     # 注意：这里我们使用 OPENAI 的 provider 名称，但 URL 指向 Google 的兼容层
-    monkeypatch.setenv("OPENAI_API_KEYS", f'["{REAL_OPENAI_API_KEY}"]') # 注意：Google兼容层用的是Google的Key
+    monkeypatch.setenv(
+        "OPENAI_API_KEYS", f'["{REAL_OPENAI_API_KEY}"]'
+    )  # 注意：Google兼容层用的是Google的Key
     monkeypatch.setenv("OPENAI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai")
 
     # 2. 初始化客户端
@@ -83,9 +87,9 @@ async def test_openai_compatible_real_api_call(monkeypatch):
     try:
         result = await client.make_request(
             prompt="用一个词回答：天空是什么颜色的？",
-            system_prompt="You are a helpful assistant.", # OpenAI 风格的 system prompt
+            system_prompt="You are a helpful assistant.",  # OpenAI 风格的 system prompt
             is_stream=False,
-            max_tokens=5
+            max_tokens=5,
         )
         print(f"[INFO] Received response from OpenAI-compatible API: {result}")
     except Exception as e:
@@ -101,10 +105,8 @@ async def test_openai_compatible_real_api_call(monkeypatch):
     assert "蓝" in result["text"], f"预期响应包含'蓝'，但实际为: '{result['text']}'"
 
 
-async def test_invalid_key_returns_permission_error(monkeypatch):
-    """
-    集成测试：使用一个无效的 Key 调用，预期返回权限错误，而不是 404。
-    """
+async def test_invalid_key_returns_permission_error(monkeypatch: MonkeyPatch) -> None:
+    """集成测试：使用一个无效的 Key 调用，预期返回权限错误，而不是 404."""
     # 1. 准备环境
     invalid_key = "invalid-api-key-for-testing"
     monkeypatch.setenv("GEMINI_API_KEYS", f'["{invalid_key}"]')
@@ -127,11 +129,11 @@ async def test_invalid_key_returns_permission_error(monkeypatch):
         pytest.fail(f"使用无效 Key 调用时不应直接抛出异常，而是返回错误字典: {e}")
     finally:
         await client.close()
-        
+
     # 4. 断言结果
     assert result is not None
     assert result.get("error") is True
-    
+
     # --- [BUG FIX] ---
     # 修正断言：Google API 对无效 Key 返回 400 (APIResponseError)，
     # 而不是 403 (PermissionDeniedError)。我们接受这个事实。

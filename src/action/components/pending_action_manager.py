@@ -361,10 +361,13 @@ class PendingActionManager:
         event_to_save["status"] = "read"
         conv_info = event_to_save.get("conversation_info")
         original_action_type = event_to_save.get("event_type", "")
-        if original_action_type.endswith(".send_message"):
-            if conv_info and isinstance(conv_info, dict):
-                conv_type = conv_info.get("type", "unknown")
-                event_to_save["event_type"] = f"message.{platform}.{conv_type}"
+        if (
+            original_action_type.endswith(".send_message")
+            and conv_info
+            and isinstance(conv_info, dict)
+        ):
+            conv_type = conv_info.get("type", "unknown")
+            event_to_save["event_type"] = f"message.{platform}.{conv_type}"
         # 从元数据中获取动机
         if metadata.motivation and metadata.motivation.strip():
             event_to_save["motivation"] = metadata.motivation

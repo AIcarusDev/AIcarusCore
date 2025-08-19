@@ -14,7 +14,7 @@ pytestmark = pytest.mark.asyncio
 
 @pytest.fixture
 def mock_chat_session_manager(mocker: MockerFixture) -> MagicMock:
-    """模拟 ChatSessionManager，它负责管理所有活跃的会话。"""
+    """模拟 ChatSessionManager，它负责管理所有活跃的会话."""
     mock = mocker.MagicMock()
     # 模拟 sessions 字典，测试用例将在这里填充模拟的会话
     mock.sessions = {}
@@ -23,7 +23,7 @@ def mock_chat_session_manager(mocker: MockerFixture) -> MagicMock:
 
 @pytest.fixture
 def mock_entity_graph_service(mocker: MockerFixture) -> MagicMock:
-    """模拟 EntityGraphService，它负责从数据库获取实体信息。"""
+    """模拟 EntityGraphService，它负责从数据库获取实体信息."""
     mock = mocker.MagicMock()
     # 我们将模拟 get_entity_by_key 方法，因为它在获取临时会话的源群聊名称时被调用
     mock.get_entity_by_key = mocker.AsyncMock()
@@ -36,7 +36,7 @@ def prompt_builder(
     mock_chat_session_manager: MagicMock,
     mock_entity_graph_service: MagicMock,
 ) -> ThoughtPromptBuilder:
-    """创建一个 ThoughtPromptBuilder 实例，并注入所有必要的模拟依赖。"""
+    """创建一个 ThoughtPromptBuilder 实例，并注入所有必要的模拟依赖."""
     # 其他依赖项对于这个特定测试不重要，所以也用 MagicMock 简单模拟
     return ThoughtPromptBuilder(
         unread_info_service=mocker.MagicMock(),
@@ -52,12 +52,12 @@ def prompt_builder(
 
 
 class TestPromptBuilderCurrentState:
-    """专门测试 `_get_current_state_block` 方法的测试类。"""
+    """专门测试 `_get_current_state_block` 方法的测试类."""
 
     async def test_get_current_state_group_chat_with_name(
         self, prompt_builder: ThoughtPromptBuilder, mock_chat_session_manager: MagicMock
-    ):
-        """测试场景：当在一个有名称的群聊中时，应正确显示群聊名称。"""
+    ) -> None:
+        """测试场景：当在一个有名称的群聊中时，应正确显示群聊名称."""
         # 1. 准备 (Arrange)
         mock_session = MagicMock()
         mock_session.conversation_name = "AIcarus 核心开发群"
@@ -80,8 +80,8 @@ class TestPromptBuilderCurrentState:
 
     async def test_get_current_state_group_chat_without_name(
         self, prompt_builder: ThoughtPromptBuilder, mock_chat_session_manager: MagicMock
-    ):
-        """测试场景：当群聊名称为 None 时，应使用 "未知群聊" 作为回退。"""
+    ) -> None:
+        """测试场景：当群聊名称为 None 时，应使用 "未知群聊" 作为回退."""
         # 1. 准备 (Arrange)
         mock_session = MagicMock()
         mock_session.conversation_name = None  # 关键测试点
@@ -105,8 +105,8 @@ class TestPromptBuilderCurrentState:
         prompt_builder: ThoughtPromptBuilder,
         mock_chat_session_manager: MagicMock,
         mock_entity_graph_service: MagicMock,
-    ):
-        """测试场景：当在一个来自已知群聊的临时会话中，应正确显示源群聊的名称。"""
+    ) -> None:
+        """测试场景：当在一个来自已知群聊的临时会话中，应正确显示源群聊的名称."""
         # 1. 准备 (Arrange)
         mock_session = MagicMock()
         mock_session.conversation_name = "张三"
@@ -155,8 +155,8 @@ class TestPromptBuilderCurrentState:
 
     async def test_get_current_state_exited_group(
         self, prompt_builder: ThoughtPromptBuilder, mock_chat_session_manager: MagicMock
-    ):
-        """测试场景：当观察一个已退出的群聊时，应显示正确的状态描述。"""
+    ) -> None:
+        """测试场景：当观察一个已退出的群聊时，应显示正确的状态描述."""
         # 1. 准备 (Arrange)
         mock_session = MagicMock()
         mock_session.conversation_name = "一个已经退出的群"
@@ -178,8 +178,8 @@ class TestPromptBuilderCurrentState:
 
     async def test_get_current_state_session_not_found_raises_error(
         self, prompt_builder: ThoughtPromptBuilder, mock_chat_session_manager: MagicMock
-    ):
-        """测试场景：当在细胞层级但找不到对应的会话实例时，应抛出异常。"""
+    ) -> None:
+        """测试场景：当在细胞层级但找不到对应的会话实例时，应抛出异常."""
         # 1. 准备 (Arrange)
         # 确保会话字典是空的
         mock_chat_session_manager.sessions = {}

@@ -5,7 +5,6 @@ import base64
 import io
 import mimetypes
 import os
-from typing import Any
 
 import aiohttp
 from PIL import Image
@@ -17,14 +16,15 @@ DEFAULT_IMAGE_COMPRESSION_TARGET_BYTES: int = 1 * 1024 * 1024
 DEFAULT_IMAGE_COMPRESSION_QUALITY_JPEG: int = 85
 DEFAULT_IMAGE_COMPRESSION_SCALE_MIN: float = 0.2
 
+
 class MediaProcessor:
     """Handles all media-related processing like downloading, encoding, and compression."""
-    
+
     def __init__(
         self,
         enable_compression: bool = True,
         compression_target_bytes: int = DEFAULT_IMAGE_COMPRESSION_TARGET_BYTES,
-    ):
+    ) -> None:
         self.enable_compression = enable_compression
         self.compression_target_bytes = compression_target_bytes
 
@@ -34,9 +34,25 @@ class MediaProcessor:
         mime_type_override: str | None,
         proxy_url: str | None,
     ) -> list[dict[str, str]]:
+        """Processes a list of media inputs by downloading, encoding, and determining MIME types.
+
+        Parameters
+        ----------
+        media_sources : list[str] | None
+            A list of media sources (URLs, file paths, or data URIs) to process.
+        mime_type_override : str | None
+            An optional MIME type to override the detected MIME type.
+        proxy_url : str | None
+            An optional proxy URL for downloading media.
+
+        Returns:
+        -------
+        list[dict[str, str]]
+            A list of dictionaries containing base64-encoded media data and their MIME types.
+        """
         if not media_sources:
             return []
-        
+
         async with aiohttp.ClientSession() as session:
             tasks = [
                 self._process_single_media_input(src, session, mime_type_override, proxy_url)
@@ -72,9 +88,14 @@ class MediaProcessor:
                         media_bytes = await response.read()
                         base64_media_data = base64.b64encode(media_bytes).decode("utf-8")
                         if not determined_mime_type:
-                            determined_mime_type = response.headers.get("Content-Type", "").split(";")[0].strip()
+                            determined_mime_type = (
+                                response.headers.get("Content-Type", "").split(";")[0].strip()
+                            )
                     else:
-                        logger.error(f"媒体文件获取失败 {media_path_or_url_or_data_uri}, 状态码: {response.status}")
+                        logger.error(
+                            f"媒体文件获取失败 {media_path_or_url_or_data_uri}, "
+                            f"状态码: {response.status}"
+                        )
                         return None
             elif os.path.exists(media_path_or_url_or_data_uri):
                 if not determined_mime_type:
@@ -91,7 +112,9 @@ class MediaProcessor:
 
             determined_mime_type = determined_mime_type or "application/octet-stream"
             if "/" not in determined_mime_type:
-                logger.warning(f"无效的MIME类型 '{determined_mime_type}'，将回退到 application/octet-stream。")
+                logger.warning(
+                    f"无效的MIME类型 '{determined_mime_type}'，将回退到 application/octet-stream。"
+                )
                 determined_mime_type = "application/octet-stream"
 
             return {"b64_data": base64_media_data, "mime_type": determined_mime_type}
@@ -99,10 +122,26 @@ class MediaProcessor:
             logger.exception(f"媒体处理过程中出错 {media_path_or_url_or_data_uri}: {e}")
             return None
 
-    async def compress_base64_image(self, base64_data: str, original_mime_type: str) -> tuple[str, str]:
+    async def compress_base64_image(
+        self, base64_data: str, original_mime_type: str
+    ) -> tuple[str, str]:
+        """Compresses a base64-encoded image to meet the target size.
+
+        Parameters
+        ----------
+        base64_data : str
+            The base64-encoded image data.
+        original_mime_type : str
+            The MIME type of the original image.
+
+        Returns:
+        -------
+        tuple[str, str]
+            A tuple containing the compressed base64-encoded image data and its MIME type.
+        """
         if not self.enable_compression:
             return base64_data, original_mime_type
-            
+
         try:
             image_bytes = base64.b64decode(base64_data)
             current_size_bytes = len(image_bytes)
@@ -111,7 +150,7 @@ class MediaProcessor:
                 return base64_data, original_mime_type
 
             img = Image.open(io.BytesIO(image_bytes))
-            
+
             original_width, original_height = img.size
             scale_factor = max(
                 DEFAULT_IMAGE_COMPRESSION_SCALE_MIN,
@@ -123,21 +162,30 @@ class MediaProcessor:
             output_buffer = io.BytesIO()
             save_params = {}
 
-            if img.mode in ("RGBA", "LA", "P") or (isinstance(img.info, dict) and "transparency" in img.info):
+            if img.mode in ("RGBA", "LA", "P") or (
+                isinstance(img.info, dict) and "transparency" in img.info
+            ):
                 final_mime_type = "image/png"
-                resized_img = img.convert("RGBA").resize((new_width, new_height), Image.Resampling.LANCZOS)
+                resized_img = img.convert("RGBA").resize(
+                    (new_width, new_height), Image.Resampling.LANCZOS
+                )
                 save_params = {"optimize": True}
                 resized_img.save(output_buffer, format="PNG", **save_params)
             else:
                 final_mime_type = "image/jpeg"
-                resized_img = img.convert("RGB").resize((new_width, new_height), Image.Resampling.LANCZOS)
+                resized_img = img.convert("RGB").resize(
+                    (new_width, new_height), Image.Resampling.LANCZOS
+                )
                 save_params = {"quality": DEFAULT_IMAGE_COMPRESSION_QUALITY_JPEG, "optimize": True}
                 resized_img.save(output_buffer, format="JPEG", **save_params)
-                
+
             compressed_bytes = output_buffer.getvalue()
             new_size_bytes = len(compressed_bytes)
 
-            logger.info(f"图像响应式压缩: {current_size_bytes / 1024:.1f}KB -> {new_size_bytes / 1024:.1f}KB")
+            logger.info(
+                f"图像响应式压缩: {current_size_bytes / 1024:.1f}KB "
+                f"-> {new_size_bytes / 1024:.1f}KB"
+            )
             return base64.b64encode(compressed_bytes).decode("utf-8"), final_mime_type
         except Exception as e:
             logger.error(f"响应式图像压缩失败: {e}", exc_info=True)

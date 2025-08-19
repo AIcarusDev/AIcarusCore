@@ -13,7 +13,7 @@ pytestmark = pytest.mark.asyncio
 
 @pytest.fixture
 def mock_entity_graph_service(mocker: MockerFixture) -> MagicMock:
-    """模拟 EntityGraphService。"""
+    """模拟 EntityGraphService."""
     mock = mocker.MagicMock()
     # 模拟 get_recently_active_conversation_entities_with_details 方法
     mock.get_recently_active_conversation_entities_with_details = mocker.AsyncMock()
@@ -27,7 +27,7 @@ def unread_info_service(
     mocker: MockerFixture,
     mock_entity_graph_service: MagicMock,
 ) -> UnreadInfoService:
-    """创建一个 UnreadInfoService 实例，并注入模拟依赖。"""
+    """创建一个 UnreadInfoService 实例，并注入模拟依赖."""
     # EventStorageService 在这个测试中不是关键，简单模拟即可
     mock_event_storage = mocker.MagicMock()
     return UnreadInfoService(
@@ -37,14 +37,15 @@ def unread_info_service(
 
 
 class TestUnreadInfoServiceSummaries:
-    """专门测试 UnreadInfoService 生成摘要的逻辑。"""
+    """专门测试 UnreadInfoService 生成摘要的逻辑."""
 
     async def test_group_summary_uses_fallback_name_when_none(
         self,
         unread_info_service: UnreadInfoService,
         mock_entity_graph_service: MagicMock,
-    ):
-        """测试场景 (复现BUG): 当数据库中的群聊实体没有名称时，
+    ) -> None:
+        """测试场景 (复现BUG): 当数据库中的群聊实体没有名称时.
+
         摘要应使用 '未知群聊(ID)' 作为回退。
         """
         # 1. 准备 (Arrange)
@@ -73,7 +74,7 @@ class TestUnreadInfoServiceSummaries:
         mock_unread_info = {"unread_count": 17, "has_high_priority": False}
 
         # 配置 mock service 的返回值
-        mock_entity_graph_service.get_recently_active_conversation_entities_with_details.return_value = [
+        mock_entity_graph_service.get_recently_active_conversation_entities_with_details.return_value = [  # noqa: E501
             {
                 "conv_doc": mock_conv_doc,
                 "latest_event": mock_latest_event,
@@ -102,8 +103,9 @@ class TestUnreadInfoServiceSummaries:
         self,
         unread_info_service: UnreadInfoService,
         mock_entity_graph_service: MagicMock,
-    ):
-        """测试场景 (正确路径): 当数据库中的群聊实体有名称时，
+    ) -> None:
+        """测试场景 (正确路径): 当数据库中的群聊实体有名称时，应优先使用该名称.
+
         摘要应优先使用该名称。
         """
         # 1. 准备 (Arrange)
@@ -132,7 +134,7 @@ class TestUnreadInfoServiceSummaries:
         mock_unread_info = {"unread_count": 5, "has_high_priority": True}
 
         # 配置 mock service 的返回值
-        mock_entity_graph_service.get_recently_active_conversation_entities_with_details.return_value = [
+        mock_entity_graph_service.get_recently_active_conversation_entities_with_details.return_value = [  # noqa: E501
             {
                 "conv_doc": mock_conv_doc,
                 "latest_event": mock_latest_event,
