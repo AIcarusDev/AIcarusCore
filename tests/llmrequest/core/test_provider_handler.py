@@ -3,7 +3,8 @@
 import re
 
 import pytest
-from src.llmrequest.core.provider_handler import GoogleApiHandler, OpenAIApiHandler
+from src.llmrequest.core.provider.google import GoogleApiHandler
+from src.llmrequest.core.provider.openai import OpenAIApiHandler
 
 # --- Fixtures ---
 

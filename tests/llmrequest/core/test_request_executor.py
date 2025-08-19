@@ -10,7 +10,7 @@ from src.llmrequest.core.models import (
     PermissionDeniedError,
     RateLimitError,
 )
-from src.llmrequest.core.provider_handler import ApiProviderHandler
+from src.llmrequest.core.provider.base import ApiProviderHandler
 from src.llmrequest.core.request_executor import RequestExecutor
 
 pytestmark = pytest.mark.asyncio
