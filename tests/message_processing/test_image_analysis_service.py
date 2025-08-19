@@ -3,6 +3,7 @@
 import asyncio
 import base64  # <-- 导入 base64 库
 import hashlib
+import json
 from typing import Any
 from unittest.mock import ANY, MagicMock
 
@@ -57,6 +58,26 @@ def analysis_service(
     return service
 
 
+@pytest.fixture
+def analysis_service_with_real_methods(
+    mocker: MockerFixture, mock_conn_manager: MagicMock, mock_cache_service: MagicMock
+) -> ImageAnalysisService:
+    """创建一个 ImageAnalysisService 实例，但只模拟 LLM 客户端和 CLIP 模型."""
+    service = ImageAnalysisService(mock_conn_manager, mock_cache_service)
+    
+    # 模拟 CLIP 模型 - 返回 numpy 数组格式的结果
+    import numpy as np
+    mock_clip_model = mocker.MagicMock()
+    mock_clip_model.encode.return_value = np.array([0.1, 0.2, 0.3])
+    mocker.patch.object(service, "_get_clip_model", return_value=mock_clip_model)
+    
+    # 模拟 Vision LLM 客户端
+    mock_llm_client = mocker.MagicMock()
+    mocker.patch.object(service, "_get_vision_llm_client", return_value=mock_llm_client)
+    
+    return service
+
+
 @pytest.mark.asyncio
 async def test_get_analysis_cache_hit(
     analysis_service: ImageAnalysisService, mock_cache_service: MagicMock
@@ -100,10 +121,6 @@ async def test_get_analysis_cache_miss_and_execute(
     assert result == expected_analysis_result
     # 验证核心分析方法被正确调用
     analysis_service._analyze_single_image_core.assert_awaited_once_with(fake_b64, fake_seg_data)
-    # 验证 save_analysis 被调用，并且是在 _analyze_single_image_core 内部完成的
-    # （因为我们模拟了 _analyze_single_image_core，所以这里不再直接断言 save_analysis）
-    # 如果需要更细粒度的测试，就需要模拟 _calculate_embedding 和 _generate_description
-    # 但当前的模拟粒度对于验证 get_analysis_result 的流程是足够的。
 
 
 @pytest.mark.asyncio
@@ -154,3 +171,268 @@ async def test_get_analysis_concurrent_wait(
     assert results[1] == expected_result
     # 核心断言：真正的分析方法只被调用了一次
     analysis_service._analyze_single_image_core.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_generate_description_success(
+    analysis_service_with_real_methods: ImageAnalysisService, mocker: MockerFixture
+) -> None:
+    """测试生成描述成功的情况."""
+    service = analysis_service_with_real_methods
+    mock_llm_client = service._get_vision_llm_client()
+    
+    # 模拟成功的 LLM 响应
+    expected_response = {"emotion": "happy", "description": "A cute cat sticker"}
+    mock_llm_client.make_llm_request = mocker.AsyncMock(return_value={
+        "text": json.dumps(expected_response)
+    })
+    
+    result = await service._generate_description("sticker", VALID_B64_STRING, "image/gif")
+    
+    assert result == expected_response
+    mock_llm_client.make_llm_request.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_generate_description_json_parse_failure(
+    analysis_service_with_real_methods: ImageAnalysisService, mocker: MockerFixture
+) -> None:
+    """测试 JSON 解析失败的情况."""
+    service = analysis_service_with_real_methods
+    mock_llm_client = service._get_vision_llm_client()
+    
+    # 模拟返回无效的 JSON 字符串
+    mock_llm_client.make_llm_request = mocker.AsyncMock(return_value={
+        "text": "invalid json {"
+    })
+    
+    result = await service._generate_description("sticker", VALID_B64_STRING, "image/gif")
+    
+    # 应该返回默认的错误响应
+    assert result == {"description": "分析失败或无返回"}
+    # 注意：由于日志输出到 stderr，我们无法使用 caplog.text 进行断言
+
+
+@pytest.mark.asyncio
+async def test_generate_description_non_dict_result(
+    analysis_service_with_real_methods: ImageAnalysisService, mocker: MockerFixture
+) -> None:
+    """测试 JSON 解析返回非字典类型的情况."""
+    service = analysis_service_with_real_methods
+    mock_llm_client = service._get_vision_llm_client()
+    
+    # 模拟返回非字典的 JSON（如列表）
+    mock_llm_client.make_llm_request = mocker.AsyncMock(return_value={
+        "text": '["list", "not", "dict"]'
+    })
+    
+    result = await service._generate_description("sticker", VALID_B64_STRING, "image/gif")
+    
+    # 应该返回默认的错误响应
+    assert result == {"description": "分析失败或无返回"}
+    # 注意：日志输出到 stderr，无法使用 caplog.text 进行断言
+
+
+@pytest.mark.asyncio
+async def test_generate_description_empty_response(
+    analysis_service_with_real_methods: ImageAnalysisService, mocker: MockerFixture
+) -> None:
+    """测试 LLM 返回空响应的情况."""
+    service = analysis_service_with_real_methods
+    mock_llm_client = service._get_vision_llm_client()
+    
+    # 模拟空响应
+    mock_llm_client.make_llm_request = mocker.AsyncMock(return_value={})
+    
+    result = await service._generate_description("sticker", VALID_B64_STRING, "image/gif")
+    
+    # 应该返回默认的错误响应
+    assert result == {"description": "分析失败或无返回"}
+
+
+@pytest.mark.asyncio
+async def test_generate_description_llm_exception(
+    analysis_service_with_real_methods: ImageAnalysisService, mocker: MockerFixture
+) -> None:
+    """测试 LLM 请求抛出异常的情况."""
+    service = analysis_service_with_real_methods
+    mock_llm_client = service._get_vision_llm_client()
+    
+    # 模拟 LLM 请求抛出异常
+    mock_llm_client.make_llm_request = mocker.AsyncMock(
+        side_effect=Exception("LLM service unavailable")
+    )
+    
+    result = await service._generate_description("sticker", VALID_B64_STRING, "image/gif")
+    
+    # 应该返回默认的错误响应
+    assert result == {"description": "分析时发生异常"}
+    # 注意：日志输出到 stderr，无法使用 caplog.text 进行断言
+
+
+@pytest.mark.asyncio
+async def test_calculate_embedding_success(
+    analysis_service_with_real_methods: ImageAnalysisService, mocker: MockerFixture
+) -> None:
+    """测试计算嵌入成功的情况."""
+    service = analysis_service_with_real_methods
+    mock_clip_model = service._get_clip_model()
+    
+    # 模拟成功的嵌入计算 - 返回 numpy 数组（.tolist() 会将其转换为列表）
+    import numpy as np
+    mock_clip_model.encode.return_value = np.array([0.1, 0.2, 0.3])
+    
+    result = await service._calculate_embedding(VALID_B64_STRING)
+    
+    assert result == [0.1, 0.2, 0.3]
+    mock_clip_model.encode.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_calculate_embedding_failure(
+    analysis_service_with_real_methods: ImageAnalysisService, mocker: MockerFixture
+) -> None:
+    """测试计算嵌入失败的情况."""
+    service = analysis_service_with_real_methods
+    mock_clip_model = service._get_clip_model()
+    
+    # 模拟嵌入计算抛出异常
+    mock_clip_model.encode.side_effect = Exception("CLIP model error")
+    
+    result = await service._calculate_embedding(VALID_B64_STRING)
+    
+    # 应该返回 None
+    assert result is None
+    # 注意：日志输出到 stderr，无法使用 caplog.text 进行断言
+
+
+@pytest.mark.asyncio
+async def test_analyze_single_image_core_embedding_failure(
+    analysis_service_with_real_methods: ImageAnalysisService, mocker: MockerFixture
+) -> None:
+    """测试核心分析中嵌入计算失败的情况."""
+    service = analysis_service_with_real_methods
+    mock_llm_client = service._get_vision_llm_client()
+    
+    # 模拟嵌入计算失败
+    mocker.patch.object(service, "_calculate_embedding", return_value=None)
+    
+    # 模拟成功的描述生成
+    mock_llm_client.make_llm_request = mocker.AsyncMock(return_value={
+        "text": json.dumps({"description": "A test image"})
+    })
+    
+    result = await service._analyze_single_image_core(VALID_B64_STRING, {"summary": "image"})
+    
+    # 应该包含 None 嵌入和成功的描述
+    assert result["embedding"] is None
+    assert result["details"]["description"] == "A test image"
+    assert result["type"] == "image"
+
+
+@pytest.mark.asyncio
+async def test_analyze_single_image_core_description_failure(
+    analysis_service_with_real_methods: ImageAnalysisService, mocker: MockerFixture
+) -> None:
+    """测试核心分析中描述生成失败的情况."""
+    service = analysis_service_with_real_methods
+    mock_clip_model = service._get_clip_model()
+    mock_llm_client = service._get_vision_llm_client()
+    
+    # 模拟成功的嵌入计算 - 返回 numpy 数组（.tolist() 会将其转换为列表）
+    import numpy as np
+    mock_clip_model.encode.return_value = np.array([0.1, 0.2, 0.3])
+    
+    # 模拟描述生成失败（返回空响应）
+    mock_llm_client.make_llm_request = mocker.AsyncMock(return_value={})
+    
+    result = await service._analyze_single_image_core(VALID_B64_STRING, {"summary": "image"})
+    
+    # 应该包含成功的嵌入和失败的描述
+    assert result["embedding"] == [0.1, 0.2, 0.3]
+    assert result["details"]["description"] == "分析失败或无返回"
+    assert result["type"] == "image"
+
+
+@pytest.mark.asyncio
+async def test_get_analysis_result_core_analysis_exception(
+    analysis_service: ImageAnalysisService, mocker: MockerFixture
+) -> None:
+    """测试核心分析抛出异常的情况."""
+    # 模拟核心分析抛出异常
+    analysis_service._analyze_single_image_core = mocker.AsyncMock(
+        side_effect=Exception("Analysis failed")
+    )
+    
+    result = await analysis_service.get_analysis_result(
+        VALID_B64_HASH, VALID_B64_STRING, {"summary": "image"}
+    )
+    
+    # 应该返回 None
+    assert result is None
+    # 注意：日志输出到 stderr，无法使用 caplog.text 进行断言
+
+
+@pytest.mark.asyncio
+async def test_concurrent_analysis_with_failure(
+    analysis_service: ImageAnalysisService, mocker: MockerFixture
+) -> None:
+    """测试并发分析中一个任务失败的情况."""
+    fake_hash = VALID_B64_HASH
+    fake_b64 = VALID_B64_STRING
+    
+    # 使用一个 Event 来控制分析流程
+    analysis_started = asyncio.Event()
+    
+    async def failing_core_analysis(*args: Any, **kwargs: Any) -> dict:
+        analysis_started.set()
+        await asyncio.sleep(0.1)
+        raise Exception("Analysis failed")
+    
+    mocker.patch.object(
+        analysis_service, "_analyze_single_image_core", side_effect=failing_core_analysis
+    )
+    
+    # 启动两个并发任务
+    task1 = asyncio.create_task(
+        analysis_service.get_analysis_result(fake_hash, fake_b64, {"summary": "image"})
+    )
+    await analysis_started.wait()
+    task2 = asyncio.create_task(
+        analysis_service.get_analysis_result(fake_hash, fake_b64, {"summary": "image"})
+    )
+    
+    # 两个任务都应该失败
+    results = await asyncio.gather(task1, task2, return_exceptions=True)
+    
+    # 两个结果都应该是 None（因为异常被捕获并返回 None）
+    assert results[0] is None
+    assert results[1] is None
+
+
+@pytest.mark.asyncio
+async def test_cache_service_exception(
+    analysis_service: ImageAnalysisService, mock_cache_service: MagicMock
+) -> None:
+    """测试缓存服务抛出异常的情况."""
+    # 模拟缓存服务抛出异常
+    mock_cache_service.get_analysis_by_hash.side_effect = Exception("Cache service error")
+    
+    result = await analysis_service.get_analysis_result(
+        VALID_B64_HASH, VALID_B64_STRING, {"summary": "image"}
+    )
+    
+    # 应该返回 None（因为异常被捕获并返回 None）
+    assert result is None
+    # 注意：日志输出到 stderr，无法使用 caplog.text 进行断言
+
+
+
+
+
+
+
+
+
+
+

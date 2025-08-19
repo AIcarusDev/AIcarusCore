@@ -88,36 +88,40 @@ class ImageAnalysisService:
         此方法会优先检查缓存，如果未命中，则会检查是否有正在进行的分析任务.
         如果没有，则会启动一个新的分析任务并等待其完成.
         """
-        # 1. 检查数据库缓存
-        cached_result = await self.cache_service.get_analysis_by_hash(
-            image_hash, version=self.CACHE_VERSION, ttl_seconds=self.CACHE_TTL_SECONDS
-        )
-        if cached_result:
-            return cached_result
-
-        # 2. 缓存未命中，进入等待或执行流程
-        async with self._pending_analysis_lock:
-            if image_hash in self._pending_analysis:
-                # 如果已经有其他任务在分析这张图，就一起等结果
-                logger.debug(f"图片 {image_hash[:10]}... 已有分析任务，加入等待队列。")
-                future = self._pending_analysis[image_hash]
-            else:
-                # 如果是第一个来的，就创建 Future，启动分析任务
-                logger.debug(f"图片 {image_hash[:10]}... 无分析任务，创建新的 Future 并启动分析。")
-                future = asyncio.Future()
-                self._pending_analysis[image_hash] = future
-                # 创建一个独立的任务去执行真正的分析，避免阻塞当前协程
-                task = asyncio.create_task(
-                    self._execute_analysis_and_set_future(image_hash, base64_data, seg_data, future)
-                )
-                self._background_tasks.add(task)
-                task.add_done_callback(self._background_tasks.discard)
-
         try:
-            # 等待 Future 被设置结果
-            return await future
+            # 1. 检查数据库缓存
+            cached_result = await self.cache_service.get_analysis_by_hash(
+                image_hash, version=self.CACHE_VERSION, ttl_seconds=self.CACHE_TTL_SECONDS
+            )
+            if cached_result:
+                return cached_result
+
+            # 2. 缓存未命中，进入等待或执行流程
+            async with self._pending_analysis_lock:
+                if image_hash in self._pending_analysis:
+                    # 如果已经有其他任务在分析这张图，就一起等结果
+                    logger.debug(f"图片 {image_hash[:10]}... 已有分析任务，加入等待队列。")
+                    future = self._pending_analysis[image_hash]
+                else:
+                    # 如果是第一个来的，就创建 Future，启动分析任务
+                    logger.debug(f"图片 {image_hash[:10]}... 无分析任务，创建新的 Future 并启动分析。")
+                    future = asyncio.Future()
+                    self._pending_analysis[image_hash] = future
+                    # 创建一个独立的任务去执行真正的分析，避免阻塞当前协程
+                    task = asyncio.create_task(
+                        self._execute_analysis_and_set_future(image_hash, base64_data, seg_data, future)
+                    )
+                    self._background_tasks.add(task)
+                    task.add_done_callback(self._background_tasks.discard)
+
+            try:
+                # 等待 Future 被设置结果
+                return await future
+            except Exception as e:
+                logger.error(f"等待图片 {image_hash[:10]}... 分析结果时发生错误: {e}")
+                return None
         except Exception as e:
-            logger.error(f"等待图片 {image_hash[:10]}... 分析结果时发生错误: {e}")
+            logger.error(f"获取图片 {image_hash[:10]}... 分析结果时发生缓存服务错误: {e}")
             return None
 
     async def _execute_analysis_and_set_future(
@@ -195,12 +199,17 @@ class ImageAnalysisService:
 
             raw_text = response.get("text") if response else None
             if raw_text and isinstance(raw_text, str):
+                # 记录原始响应以便调试
+                logger.debug(f"LLM 原始响应: {raw_text[:200]}...")
+
                 parsed_json = parse_llm_json_response(raw_text)
                 if isinstance(parsed_json, dict):
                     return parsed_json
+                else:
+                    logger.warning(f"JSON 解析结果不是字典: {type(parsed_json)}")
             return {"description": "分析失败或无返回"}
         except Exception as e:
-            logger.error(f"生成图片描述失败: {e}")
+            logger.error(f"生成图片描述失败: {e}", exc_info=True)
             return {"description": "分析时发生异常"}
 
     async def _analyze_single_image_core(self, base64_data: str, seg_data: dict) -> dict[str, Any]:
@@ -302,3 +311,5 @@ class ImageAnalysisService:
                 await self._worker_task
             self._worker_task = None
             logger.info("图像分析后台 Worker 已停止。")
+
+
