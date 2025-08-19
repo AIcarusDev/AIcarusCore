@@ -78,3 +78,8 @@ testpaths = ["tests"]
 
 # 这是一个异步项目，确保 pytest-asyncio 使用正确的模式
 asyncio_mode = "auto"
+
+# 注册自定义的 pytest 标记
+markers = [
+    "integration: 标记那些需要网络和真实 API Key 的集成测试"
+]

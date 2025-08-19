@@ -19,7 +19,7 @@ logger = get_logger(__name__)
 
 
 class LLMClient:
-    """新的、苗条的LLM客户端，作为所有LLM请求的统一入口。"""
+    """新的、苗条的LLM客户端，作为所有LLM请求的统一入口."""
 
     def __init__(
         self,
@@ -88,7 +88,7 @@ class LLMClient:
             return GoogleApiHandler(self.image_placeholder_pattern)
         if self.provider in ["OPENAI", "SILICONFLOW", "DEEPSEEK", "CHATANYWHERE"]:
             return OpenAIApiHandler(self.image_placeholder_pattern)
-        
+
         # 根据 base_url 推断
         if "googleapis.com" in self.base_url:
             return GoogleApiHandler(self.image_placeholder_pattern)
@@ -136,7 +136,7 @@ class LLMClient:
             if is_multimodal and image_inputs
             else None
         )
-        
+
         return await self.request_executor.execute_request(
             handler=self.handler,
             request_type=request_type,

@@ -7,8 +7,8 @@ from src.llmrequest.core.models import GenerationParams
 
 
 class ApiProviderHandler(ABC):
-    """
-    所有 API Provider Handler 的抽象基类。
+    """所有 API Provider Handler 的抽象基类.
+
     它定义了请求准备、响应解析和流式处理的统一接口。
     """
 
@@ -30,8 +30,7 @@ class ApiProviderHandler(ABC):
         text_to_embed: str | None,
         enable_google_search: bool,
     ) -> tuple[str, dict, dict, dict]:
-        """
-        准备 API 请求所需的所有数据。
+        """准备 API 请求所需的所有数据。.
 
         返回:
             一个元组 (path, params, headers, payload)。
@@ -42,22 +41,20 @@ class ApiProviderHandler(ABC):
     def parse_non_streaming_response(
         self, response_json: dict[str, Any], request_type: str
     ) -> dict[str, Any]:
-        """解析非流式的 API 响应。"""
+        """解析非流式的 API 响应."""
         pass
 
     @abstractmethod
     async def handle_streaming_response(
         self, response: Any, stream_chunk_delay: float
     ) -> dict[str, Any]:
-        """处理并解析流式的 API 响应。"""
+        """处理并解析流式的 API 响应."""
         pass
 
     def _interleave_text_and_images(
         self, prompt_text: str, processed_images: list[dict[str, str]]
     ) -> list[dict[str, Any]]:
-        """
-        一个通用的辅助函数，用于将文本和图片交错组合成 OpenAI Vision API 的格式。
-        """
+        """一个通用的辅助函数，用于将文本和图片交错组合成 OpenAI Vision API 的格式."""
         if not processed_images:
             return [{"type": "text", "text": prompt_text or ""}]
         if not prompt_text:

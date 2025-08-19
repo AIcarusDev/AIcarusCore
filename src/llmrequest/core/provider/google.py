@@ -32,6 +32,38 @@ class GoogleApiHandler(ApiProviderHandler):
         text_to_embed: str | None,
         enable_google_search: bool,
     ) -> tuple[str, dict, dict, dict]:
+        """Prepare the request data for Google API calls.
+
+        Parameters
+        ----------
+        model_name : str
+            The name of the model to use.
+        request_type : str
+            The type of request ("embedding", "tool_call", etc.).
+        is_streaming : bool
+            Whether the response should be streamed.
+        prompt : str | None
+            The user prompt for the model.
+        system_prompt : str | None
+            The system prompt for the model.
+        processed_images : list[dict[str, str]] | None
+            List of processed images to include in the request.
+        final_generation_config : GenerationParams
+            Generation configuration parameters.
+        tools : list[dict[str, Any]] | None
+            List of tools for function calling.
+        tool_choice : str | dict | None
+            Tool choice specification.
+        text_to_embed : str | None
+            Text to embed for embedding requests.
+        enable_google_search : bool
+            Whether to enable Google search.
+
+        Returns:
+        -------
+        tuple[str, dict, dict, dict]
+            The API endpoint path, query parameters, headers, and payload dictionary.
+        """
         headers = {"Content-Type": "application/json"}
         params = {}
         payload: dict[str, Any] = {}
@@ -86,6 +118,20 @@ class GoogleApiHandler(ApiProviderHandler):
     def parse_non_streaming_response(
         self, response_json: dict[str, Any], request_type: str
     ) -> dict[str, Any]:
+        """Parse the non-streaming response from the Google API.
+
+        Parameters
+        ----------
+        response_json : dict[str, Any]
+            The JSON response from the API.
+        request_type : str
+            The type of request ("embedding", "tool_call", etc.).
+
+        Returns:
+        -------
+        dict[str, Any]
+            A dictionary containing parsed text, tool calls, embedding, and the raw response.
+        """
         parsed = {
             "text": None,
             "tool_calls": None,
@@ -115,6 +161,20 @@ class GoogleApiHandler(ApiProviderHandler):
     async def handle_streaming_response(
         self, response: Any, stream_chunk_delay: float
     ) -> dict[str, Any]:
+        """Handle and parse a streaming response from the Google API.
+
+        Parameters
+        ----------
+        response : Any
+            The streaming response object from the API.
+        stream_chunk_delay : float
+            Delay in seconds between processing each chunk of streamed data.
+
+        Returns:
+        -------
+        dict[str, Any]
+            A dictionary containing the full concatenated text and an interruption flag.
+        """
         full_text = ""
         async for line_bytes in response.content:
             line = line_bytes.decode("utf-8").strip()
