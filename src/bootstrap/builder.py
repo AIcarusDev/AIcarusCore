@@ -167,6 +167,7 @@ class ServiceBuilder:
             state_manager=state_manager,
             chat_session_manager=None,
             thought_storage_service=db_services["thought_storage_service"],
+            entity_graph_service=db_services["entity_graph_service"],
             thought_generator=thought_generator,
             thought_persistor=thought_persistor,
             prompt_builder=prompt_builder,

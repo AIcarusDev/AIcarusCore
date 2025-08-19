@@ -25,6 +25,7 @@ from src.focus_chat_mode.components import PromptComponents
 from src.prompt_builder import PromptBuilderError, ThoughtPromptBuilder
 
 if TYPE_CHECKING:
+    from src.database.services.entity_graph_service import EntityGraphService
     from src.focus_chat_mode.chat_session import ChatSession
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 
@@ -47,6 +48,7 @@ class CoreLogic:
         state_manager: AIStateManager,
         chat_session_manager: "ChatSessionManager",
         thought_storage_service: ThoughtStorageService,
+        entity_graph_service: "EntityGraphService",
         thought_generator: ThoughtGenerator,
         thought_persistor: ThoughtPersistor,
         prompt_builder: ThoughtPromptBuilder,
@@ -62,6 +64,7 @@ class CoreLogic:
         self.thought_generator = thought_generator
         self.thought_persistor = thought_persistor
         self.thought_storage_service = thought_storage_service
+        self.entity_graph_service = entity_graph_service
         self.prompt_builder = prompt_builder
         self.stop_event = stop_event
         self.interruption_broker = interruption_broker
@@ -237,6 +240,14 @@ class CoreLogic:
             and (last_processed_ts_from_task > session.last_processed_timestamp)
         ):
             session.last_processed_timestamp = last_processed_ts_from_task
+            logger.info(
+                f"[{session.conversation_id}] 主任务完成，正在将最后已读时间戳 "
+                f"{last_processed_ts_from_task} 持久化到数据库..."
+            )
+            await self.entity_graph_service.update_conversation_last_read_timestamp(
+                conversation_entity_uid=session.conversation_id,
+                timestamp=last_processed_ts_from_task,
+            )
         if session:
             session.interruption_context = None
         self._last_interrupt_context_stimulus = None
