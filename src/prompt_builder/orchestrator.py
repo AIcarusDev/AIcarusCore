@@ -46,11 +46,14 @@ class ThoughtPromptBuilder:
     ) -> None:
         self.is_context_switch_flag: bool = False
 
-        # 1. 将 chat_session_manager 实例变量改为私有，表示它由 property 控制
+        # --- [核心修复 1/4] ---
+        # 将实例变量改为私有，表示它们由 property 控制
         self._chat_session_manager: ChatSessionManager | None = None
+        self._core_ws_server: CoreWebsocketServer | None = None
+        # --- [修复结束] ---
 
-        # 2. 在初始化时，就创建好所有子构建器
-        #    此时，它们接收到的 chat_session_manager 可能是 None，这是符合预期的
+        # 在初始化时，就创建好所有子构建器
+        # 此时，它们接收到的 chat_session_manager 和 core_ws_server 可能是 None，这是符合预期的
         self.schema_builder = SchemaBuilder(chat_session_manager, core_ws_server)
         self.external_info_builder = ExternalInfoBuilder(
             unread_info_service, event_storage_service, chat_session_manager
@@ -67,13 +70,13 @@ class ThoughtPromptBuilder:
             thought_storage_service, entity_graph_service, chat_session_manager, state_manager
         )
 
-        # 3. 通过调用 property setter 来完成初始的依赖注入
-        #    这确保了即使在初始化时传入了有效的 manager，它也能被正确地传递下去
+        # 通过调用 property setter 来完成初始的依赖注入
+        # 这确保了即使在初始化时传入了有效的值，它也能被正确地传递下去
         self.chat_session_manager = chat_session_manager
-        # --- [修复结束] ---
+        self.core_ws_server = core_ws_server
 
-    # --- [核心修复] ---
-    # 4. 将 chat_session_manager 定义为一个 property
+    # --- [核心修复 2/4] ---
+    # 将 chat_session_manager 定义为一个 property，保持现有逻辑
     @property
     def chat_session_manager(self) -> Optional["ChatSessionManager"]:
         """获取 chat_session_manager 实例."""
@@ -83,12 +86,27 @@ class ThoughtPromptBuilder:
     def chat_session_manager(self, value: Optional["ChatSessionManager"]) -> None:
         """设置 chat_session_manager 实例，并将其自动传播到所有需要它的子构建器中."""
         self._chat_session_manager = value
-
         # 将新的值（无论是实例还是 None）同步给所有子组件
         self.schema_builder.chat_session_manager = value
         self.external_info_builder.chat_session_manager = value
         self.system_prompt_parts_builder.chat_session_manager = value
         self.user_prompt_parts_builder.chat_session_manager = value
+    # --- [修复结束] ---
+
+    # --- [核心修复 3/4] ---
+    # 为 core_ws_server 添加同样的 property 和 setter 逻辑
+    @property
+    def core_ws_server(self) -> Optional["CoreWebsocketServer"]:
+        """获取 core_ws_server 实例."""
+        return self._core_ws_server
+
+    @core_ws_server.setter
+    def core_ws_server(self, value: Optional["CoreWebsocketServer"]) -> None:
+        """设置 core_ws_server 实例，并将其自动传播到所有需要它的子构建器中."""
+        self._core_ws_server = value
+        # 将新的值传播给需要它的子模块
+        self.schema_builder.core_ws_server = value
+        self.system_prompt_parts_builder.core_ws_server = value
     # --- [修复结束] ---
 
     async def build_prompts_components(
@@ -101,11 +119,14 @@ class ThoughtPromptBuilder:
         """构建提示组件."""
         current_level, current_platform_id, current_conv_id = parse_focus_path(focus_path)
 
+        # --- [核心修复 4/4] ---
+        # 现在可以直接安全地访问 self.chat_session_manager
         can_go_back = (
             self.chat_session_manager
             and self.chat_session_manager.focus_manager
             and len(self.chat_session_manager.focus_manager.focus_history) > 1
         )
+        # --- [修复结束] ---
 
         (
             external_info_block,
