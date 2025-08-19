@@ -14,7 +14,6 @@ from src.config import config
 from src.core_communication.core_ws_server import CoreWebsocketServer
 from src.core_logic.decision_dispatcher import process_llm_decision
 from src.core_logic.intrusive_thoughts import IntrusiveThoughtsGenerator
-from src.core_logic.prompt_builder import PromptBuilderError, ThoughtPromptBuilder
 from src.core_logic.sanitizer import LLMOutputSanitizer
 from src.core_logic.state_manager import AIStateManager
 from src.core_logic.thought_generator import ThoughtGenerator
@@ -23,6 +22,7 @@ from src.database import ThoughtStorageService
 from src.database.models import ThoughtChainDocument
 from src.domain.models import Stimulus
 from src.focus_chat_mode.components import PromptComponents
+from src.prompt_builder import PromptBuilderError, ThoughtPromptBuilder
 
 if TYPE_CHECKING:
     from src.focus_chat_mode.chat_session import ChatSession

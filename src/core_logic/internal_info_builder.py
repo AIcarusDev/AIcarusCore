@@ -6,8 +6,8 @@ from src.common.custom_logging.logging_config import get_logger
 from src.database.services.thought_storage_service import ThoughtStorageService
 
 if TYPE_CHECKING:
-    from src.core_logic.prompt_builder import ThoughtPromptBuilder
     from src.focus_chat_mode.chat_session import ChatSession
+    from src.prompt_builder import ThoughtPromptBuilder
 
 logger = get_logger(__name__)
 

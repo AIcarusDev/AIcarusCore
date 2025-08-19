@@ -24,7 +24,6 @@ from src.core_communication.event_receiver import EventReceiver
 from src.core_logic.consciousness_flow import CoreLogic
 from src.core_logic.internal_info_builder import InternalInfoBuilder
 from src.core_logic.intrusive_thoughts import IntrusiveThoughtsGenerator
-from src.core_logic.prompt_builder import ThoughtPromptBuilder
 from src.core_logic.state_manager import AIStateManager
 from src.core_logic.thought_generator import ThoughtGenerator
 from src.core_logic.thought_persistor import ThoughtPersistor
@@ -42,6 +41,7 @@ from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.message_processing.default_message_processor import DefaultMessageProcessor
 from src.message_processing.image_analysis_service import ImageAnalysisService
 from src.platform_builders.registry import platform_builder_registry
+from src.prompt_builder import ThoughtPromptBuilder
 
 logger = get_logger(__name__)
 
