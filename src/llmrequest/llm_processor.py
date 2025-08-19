@@ -2,15 +2,21 @@
 # LLM处理器模块，负责与语言模型进行交互并处理相关请求。
 
 import asyncio
+# --- [FIX START] ---
 from collections.abc import Callable, Coroutine
+# --- [FIX END] ---
 from typing import Any, Unpack
 
 from src.common.custom_logging.logging_config import (
     get_logger,
 )
 
-from .utils_model import APIKeyError, GenerationParams, LLMClientError, NetworkError
-from .utils_model import LLMClient as UnderlyingLLMClient
+# --- [FIX START] ---
+# 从新的 llm_client 导入主类
+from .llm_client import LLMClient as UnderlyingLLMClient
+# 从新的 core.models 导入异常和类型定义
+from .core.models import APIKeyError, GenerationParams, LLMClientError, NetworkError
+# --- [FIX END] ---
 
 # 获取日志记录器实例
 logger = get_logger(__name__)
