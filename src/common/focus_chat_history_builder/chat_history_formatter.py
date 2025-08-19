@@ -524,4 +524,3 @@ async def format_chat_history_for_llm(
         last_valid_text_message=formatter.last_valid_text_message,
     )
     return components, processed_stimuli
-    return components, processed_stimuli
