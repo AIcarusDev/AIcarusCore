@@ -24,10 +24,13 @@ def normalize_action_payload(action_payload: dict, current_platform_id: str) -> 
     if not action_payload or not isinstance(action_payload, dict):
         return {}
 
+    # 规则1：如果 payload 已经是规范格式 (顶层键是平台ID或'core')，直接返回
     all_platform_ids = platform_builder_registry.get_all_builders().keys()
     if any(key in all_platform_ids for key in action_payload) or "core" in action_payload:
+        logger.debug(f"动作负载已是规范格式，无需处理: {action_payload}")
         return action_payload
 
+    # 规则2：如果 payload 是扁平的，判断其动作是否为核心动作
     if (action_name := next(iter(action_payload), None)) and (
         core_builder := platform_builder_registry.get_builder("core")
     ):
@@ -38,6 +41,7 @@ def normalize_action_payload(action_payload: dict, current_platform_id: str) -> 
             logger.info(f"[探灯A] 扁平动作已规范化为: {normalized_payload}")
             return normalized_payload
 
+    # 规则3：如果不是核心动作，则假定为当前平台的动作
     logger.debug(f"检测到扁平的平台动作，将使用当前平台上下文 '{current_platform_id}' 进行规范化。")
     normalized_payload = {current_platform_id: action_payload}
     logger.info(f"[探灯A] 扁平动作已规范化为: {normalized_payload}")
@@ -130,50 +134,53 @@ async def _handle_external_action(
         logger.warning(f"动作负载在规范化后为空，无法处理: {action_payload}")
         return
 
-    # [FIX] 使用命名表达式简化赋值和条件判断
-    if (platform_key := next(iter(normalized_payload), None)) and (
-        platform_actions := normalized_payload.get(platform_key)
-    ):
-        action_name = (
-            next(iter(platform_actions), None) if isinstance(platform_actions, dict) else None
-        )
+    platform_key = next(iter(normalized_payload), None)
+    if not platform_key:
+        return
 
-        source_event_id = None
-        if processed_events_this_turn:
-            last_external_stimulus = next(
-                (s for s in reversed(processed_events_this_turn) if s.bot_id != s.sender_id), None
+    platform_actions = normalized_payload.get(platform_key)
+    action_name = next(iter(platform_actions), None) if isinstance(platform_actions, dict) else None
+
+    # 使用卫语句
+    # 如果是 send_message，处理完就直接返回，不再继续往下走。
+    if action_name == "send_message":
+        logger.info("检测到 [send_message] 动作，将执行发送并立即触发后续思考。")
+        if session:
+            await _handle_send_message_action(
+                session,
+                platform_actions.get("send_message", {}),
+                core_logic,
+                processed_events_this_turn,
             )
-            if last_external_stimulus:
-                source_event_id = last_external_stimulus.event_id
-
-        motivation_text = current_internal_state.get("intent") or current_internal_state.get(
-            "think", "无明确动机"
-        )
-        metadata = ActionMetadata(
-            motivation=motivation_text,
-            source_thought_id=source_thought_key,
-            source_event_id=source_event_id,
-        )
-
-        if action_name == "send_message":
-            logger.info("检测到 [send_message] 动作，将执行发送并立即触发后续思考。")
-            if session:
-                await _handle_send_message_action(
-                    session,
-                    platform_actions.get("send_message", {}),
-                    core_logic,
-                    processed_events_this_turn,
-                )
-            else:
-                logger.error("send_message 动作只能在专注会话中执行，但当前会话实例为空！")
         else:
-            logger.info(f"检测到 [即做即走类] 动作 ({platform_key}.{action_name})，将立即执行。")
-            await action_handler.process_action_flow(
-                action_id=source_action_id,
-                doc_key_for_updates=source_thought_key,
-                action_json=normalized_payload,
-                metadata=metadata,
-            )
+            logger.error("send_message 动作只能在专注会话中执行，但当前会话实例为空！")
+        return
+
+    logger.info(f"检测到 [即做即走类] 动作 ({platform_key}.{action_name})，将立即执行。")
+
+    source_event_id = None
+    if processed_events_this_turn:
+        last_external_stimulus = next(
+            (s for s in reversed(processed_events_this_turn) if s.bot_id != s.sender_id), None
+        )
+        if last_external_stimulus:
+            source_event_id = last_external_stimulus.event_id
+
+    motivation_text = current_internal_state.get("intent") or current_internal_state.get(
+        "think", "无明确动机"
+    )
+    metadata = ActionMetadata(
+        motivation=motivation_text,
+        source_thought_id=source_thought_key,
+        source_event_id=source_event_id,
+    )
+
+    await action_handler.process_action_flow(
+        action_id=source_action_id,
+        doc_key_for_updates=source_thought_key,
+        action_json=normalized_payload,
+        metadata=metadata,
+    )
 
 
 async def _handle_consciousness_control(

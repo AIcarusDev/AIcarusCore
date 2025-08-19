@@ -56,9 +56,13 @@ class IntelligentInterrupter:
         return 0.0
 
     def _calculate_contextual_scores(
-        self, message_text: str, current_vector: list[float], context_vector: list[float] | None
-    ) -> float:
-        """现在同时接收文本（用于关键词检查）和向量（用于语义计算）."""
+        self, current_vector: list[float], context_vector: list[float] | None
+    ) -> tuple[float, float]:
+        """计算上下文意外度和内容核心重要性分数.
+
+        Returns:
+            一个元组 (意外度分数, 内容重要性分数)。
+        """
         unexpectedness_score = self.semantic_markov_model.calculate_contextual_unexpectedness(
             current_vector=current_vector, previous_vector=context_vector
         )
@@ -77,9 +81,7 @@ class IntelligentInterrupter:
             importance_score = np.max(similarities) * 100
             logger.info(f"**[IIS-阶段二-B]** 内容核心重要性得分为: {importance_score:.2f}")
 
-        preliminary_score = self.alpha * unexpectedness_score + self.beta * importance_score
-        logger.info(f"**[IIS-阶段二-C]** 融合后的基础快感分数为: {preliminary_score:.2f}")
-        return preliminary_score
+        return unexpectedness_score, importance_score
 
     def _get_speaker_weight(self, speaker_id: str) -> float:
         weight = self.speaker_weights.get(speaker_id, self.speaker_weights.get("default", 1.0))
@@ -99,6 +101,7 @@ class IntelligentInterrupter:
         if context_stimulus and context_stimulus.embedding is None:
             logger.warning(f"上下文事件 {context_stimulus.event_id} 缺少向量，将作为无上下文处理。")
             context_stimulus = None
+
         message_text = new_stimulus.text_content
         speaker_id = new_stimulus.sender_id
 
@@ -114,27 +117,36 @@ class IntelligentInterrupter:
             logger.info("===== 结论: [不中断]！新事件无文本内容。=====")
             return False
 
-        current_vector = new_stimulus.embedding
-        context_vector = context_stimulus.embedding if context_stimulus else None
-
-        if not current_vector:
-            logger.warning(
-                f"事件 {new_stimulus.event_id} 缺少向量，无法进行上下文意外度评估。跳过。"
-            )
-            return False
-
+        # --- 阶段一：客观重要性检查 (霸道规则) ---
         objective_score = self._calculate_objective_importance(message_text)
         if objective_score >= 1.0:
             logger.info("===== 结论: [强制中断]！因为检测到客观重要性极高的关键词！ =====")
             return True
 
+        # --- 阶段二：上下文与内容评估 ---
+        current_vector = new_stimulus.embedding
+        context_vector = context_stimulus.embedding if context_stimulus else None
+
         if context_vector is None:
             logger.info("=== 结论: [不中断]！无有效上下文事件向量，无法计算上下文意外度。===")
             return False
 
-        preliminary_score = self._calculate_contextual_scores(
-            message_text, current_vector, context_vector
+        unexpectedness_score, importance_score = self._calculate_contextual_scores(
+            current_vector, context_vector
         )
+
+        # 增加第二层快速通道：如果内容本身极端重要，直接中断
+        if importance_score >= (self.objective_semantic_threshold * 100):
+            logger.info(
+                f"===== 结论: [强制中断]！内容核心重要性得分 {importance_score:.2f} "
+                f"超越了客观语义阈值 {self.objective_semantic_threshold * 100}！ ====="
+            )
+            return True
+
+        # --- 阶段三：权重加成与最终裁决 ---
+        preliminary_score = self.alpha * unexpectedness_score + self.beta * importance_score
+        logger.info(f"**[IIS-阶段二-C]** 融合后的基础快感分数为: {preliminary_score:.2f}")
+
         speaker_weight = self._get_speaker_weight(speaker_id)
         final_score = preliminary_score * speaker_weight
 
