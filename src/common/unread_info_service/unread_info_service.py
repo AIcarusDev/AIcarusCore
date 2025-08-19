@@ -1,11 +1,12 @@
 # src/common/unread_info_service/unread_info_service.py
-import re
 import json
+import re
 from collections import defaultdict
 from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
 from src.common.time_utils import format_relative_time
+from src.common.utils import build_conversation_entity_uid
 from src.database import EntityGraphService, EventStorageService
 from src.database.models import ConversationDetails, EntityDocument
 
@@ -148,36 +149,60 @@ class UnreadInfoService:
         if seg_type == "image":
             return "[动画表情]" if data.get("summary") == "sticker" else "[图片]"
         if seg_type == "at":
-            # 智能获取 @ 对象的名称
-            all_my_bot_ids = set(self.self_bot_ids.values())
-            target_id = data.get("user_id")
-
-            if str(target_id) in all_my_bot_ids:
-                # 是在 @ 机器人自己
-                platform_id = conv_doc.details.platform
-                # 1. 优先尝试获取群名片
-                presence_info = await self.entity_graph_service.get_self_presence_in_conversation(
-                    platform=platform_id, conversation_entity_uid=conv_doc._key
-                )
-                if presence_info and (card := presence_info.get("cardname")):
-                    return f"@{card}"
-
-                # 2. 其次尝试获取平台昵称
-                self_entity = await self.entity_graph_service.get_self_entity_by_platform(
-                    platform_id
-                )
-                if self_entity and (nickname := self_entity.get("details", {}).get("nickname")):
-                    return f"@{nickname}"
-
-                # 3. 如果都失败，这是一个严重问题，必须报错
-                logger.critical(
-                    f"逻辑错误！无法在会话 '{conv_doc._key}' 中获取机器人自身的群名片或昵称！"
-                )
-                return "@[数据错误：无法获取名称]"
-
-            # 如果 @ 的是其他人，保持原有逻辑
-            return data.get("display_name", f"@{target_id or '某人'}")
+            return await self._get_display_name_for_at_segment(data, conv_doc)
         return ""  # 其他未知类型暂时忽略
+
+    async def _get_display_name_for_at_segment(self, data: dict, conv_doc: EntityDocument) -> str:
+        """[新增辅助函数] 专门负责解析 @ 消息段，并从数据库获取准确的显示名称."""
+        target_id = data.get("user_id")
+        if not target_id:
+            return "@未知用户"
+
+        # Case 1: @全体成员
+        if target_id.lower() == "all":
+            return "@全体成员"
+
+        # Case 2: @机器人自己 (使用已有的、更精确的逻辑)
+        all_my_bot_ids = set(self.self_bot_ids.values())
+        if str(target_id) in all_my_bot_ids:
+            platform_id = conv_doc.details.platform
+            # 优先尝试获取群名片
+            presence_info = await self.entity_graph_service.get_self_presence_in_conversation(
+                platform=platform_id, conversation_entity_uid=conv_doc._key
+            )
+            if presence_info and (card := presence_info.get("cardname")):
+                return f"@{card}"
+            # 其次尝试获取平台昵称
+            self_entity = await self.entity_graph_service.get_self_entity_by_platform(platform_id)
+            if self_entity and (nickname := self_entity.get("details", {}).get("nickname")):
+                return f"@{nickname}"
+            # 最终回退
+            return f"@{self.self_bot_ids.get(platform_id, '我')}"
+
+        # Case 3: @其他用户 (这是关键的修复点)
+        # 尝试从数据库中查找这个用户的档案来获取名称
+        target_entity_uid = build_conversation_entity_uid(
+            conv_doc.details.platform,
+            "private",
+            str(target_id)
+            )
+        target_entity = await self.entity_graph_service.get_entity_by_key(target_entity_uid)
+
+        if target_entity and hasattr(target_entity.details, 'nickname'):
+            # 优先使用好友备注，其次是昵称
+            remark = getattr(target_entity.details, 'friend_remark', None)
+            nickname = getattr(target_entity.details, 'nickname', None)
+            if remark:
+                return f"@{remark}"
+            if nickname:
+                return f"@{nickname}"
+
+        # Case 4: 如果数据库查不到，或者协议里有 display_name，使用它作为回退
+        if display_name := data.get("display_name"):
+            return f"@{display_name}"
+
+        # 最终回退：显示原始ID
+        return f"@{target_id}"
 
     # Helper 4: 从消息段列表构建内容预览
     async def _build_content_preview_from_segments(
@@ -193,7 +218,7 @@ class UnreadInfoService:
                 else:
                     # --- [PROBE ENHANCEMENT] ---
                     logger.warning(
-                        f"会话 '{conv_doc._key}' 的 'content' 字段是一个JSON字符串，但解析后不是列表: "
+                        f"会话 '{conv_doc._key}' 的 'content' 字段是一个JSON字符串，但解析后不是列表: "  # noqa: E501
                         f"Type={type(parsed_content)}, Content='{content[:200]}...'"
                     )
                     # --- [PROBE END] ---
