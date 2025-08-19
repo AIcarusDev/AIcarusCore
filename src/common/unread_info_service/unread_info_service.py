@@ -182,16 +182,14 @@ class UnreadInfoService:
         # Case 3: @其他用户 (这是关键的修复点)
         # 尝试从数据库中查找这个用户的档案来获取名称
         target_entity_uid = build_conversation_entity_uid(
-            conv_doc.details.platform,
-            "private",
-            str(target_id)
-            )
+            conv_doc.details.platform, "private", str(target_id)
+        )
         target_entity = await self.entity_graph_service.get_entity_by_key(target_entity_uid)
 
-        if target_entity and hasattr(target_entity.details, 'nickname'):
+        if target_entity and hasattr(target_entity.details, "nickname"):
             # 优先使用好友备注，其次是昵称
-            remark = getattr(target_entity.details, 'friend_remark', None)
-            nickname = getattr(target_entity.details, 'nickname', None)
+            remark = getattr(target_entity.details, "friend_remark", None)
+            nickname = getattr(target_entity.details, "nickname", None)
             if remark:
                 return f"@{remark}"
             if nickname:

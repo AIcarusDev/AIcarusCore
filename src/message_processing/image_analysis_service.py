@@ -104,12 +104,16 @@ class ImageAnalysisService:
                     future = self._pending_analysis[image_hash]
                 else:
                     # 如果是第一个来的，就创建 Future，启动分析任务
-                    logger.debug(f"图片 {image_hash[:10]}... 无分析任务，创建新的 Future 并启动分析。")
+                    logger.debug(
+                        f"图片 {image_hash[:10]}... 无分析任务，创建新的 Future 并启动分析。"
+                    )
                     future = asyncio.Future()
                     self._pending_analysis[image_hash] = future
                     # 创建一个独立的任务去执行真正的分析，避免阻塞当前协程
                     task = asyncio.create_task(
-                        self._execute_analysis_and_set_future(image_hash, base64_data, seg_data, future)
+                        self._execute_analysis_and_set_future(
+                            image_hash, base64_data, seg_data, future
+                        )
                     )
                     self._background_tasks.add(task)
                     task.add_done_callback(self._background_tasks.discard)
@@ -311,5 +315,3 @@ class ImageAnalysisService:
                 await self._worker_task
             self._worker_task = None
             logger.info("图像分析后台 Worker 已停止。")
-
-

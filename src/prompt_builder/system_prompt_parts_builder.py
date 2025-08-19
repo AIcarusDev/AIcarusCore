@@ -146,14 +146,14 @@ class SystemPromptPartsBuilder:
             if "." not in conv_id:
                 raise InvalidConversationIdError(
                     f"无效的会话ID格式 '{conv_id}'。它必须是 'type.id' 格式。"
-                    )
+                )
             conv_type, actual_id = conv_id.split(".", 1)
             session_key = build_conversation_entity_uid(platform_id, conv_type, actual_id)
 
         except (ValueError, IndexError):
             raise InvalidConversationIdError(
                 f"无法从会话部分 '{conv_id}' 解析出类型和ID。"
-                ) from None
+            ) from None
 
         session = self.chat_session_manager.sessions.get(session_key)
 
@@ -331,6 +331,3 @@ class SystemPromptPartsBuilder:
             if tool_descs:
                 descs.append("\n".join(tool_descs))
         return "\n".join(filter(None, descs)).strip() or "你当前没有可用的外部行动。"
-
-
-

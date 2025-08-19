@@ -1,5 +1,6 @@
 # src/prompt_builder/error.py
 
+
 class PromptBuilderError(Exception):
     """当在 Prompt 构建过程中发生不可恢复的错误时抛出."""
 
@@ -29,11 +30,8 @@ class SessionNotFoundError(PromptBuilderError):
     """当找不到指定的会话时抛出."""
 
     def __init__(
-            self,
-            session_key: str,
-            platform_id: str | None = None,
-            conv_id: str | None = None
-            ) -> None:
+        self, session_key: str, platform_id: str | None = None, conv_id: str | None = None
+    ) -> None:
         context = {"session_key": session_key}
         if platform_id:
             context["platform_id"] = platform_id
@@ -49,7 +47,7 @@ class InvalidConversationIdError(PromptBuilderError):
     def __init__(self, conv_id: str, expected_format: str = "type.id") -> None:
         super().__init__(
             f"无效的会话ID格式 '{conv_id}'。它必须是 '{expected_format}' 格式。",
-            {"conv_id": conv_id, "expected_format": expected_format}
+            {"conv_id": conv_id, "expected_format": expected_format},
         )
 
 
@@ -57,11 +55,8 @@ class ExternalInfoBuildError(PromptBuilderError):
     """当构建外部信息块失败时抛出."""
 
     def __init__(
-            self,
-            level: str,
-            platform_id: str | None = None,
-            error_details: str | None = None
-            ) -> None:
+        self, level: str, platform_id: str | None = None, error_details: str | None = None
+    ) -> None:
         context = {"level": level}
         if platform_id:
             context["platform_id"] = platform_id
@@ -97,11 +92,8 @@ class SchemaBuildError(PromptBuilderError):
     """当构建响应schema失败时抛出."""
 
     def __init__(
-            self,
-            level: str,
-            platform_id: str | None = None,
-            error_details: str | None = None
-            ) -> None:
+        self, level: str, platform_id: str | None = None, error_details: str | None = None
+    ) -> None:
         context = {"level": level}
         if platform_id:
             context["platform_id"] = platform_id
@@ -130,15 +122,9 @@ class DependencyError(PromptBuilderError):
     """当依赖服务不可用或配置错误时抛出."""
 
     def __init__(
-            self,
-            service_name: str,
-            dependency_type: str = "service",
-            error_details: str | None = None
-            ) -> None:
-        context = {
-            "service_name": service_name,
-            "dependency_type": dependency_type
-        }
+        self, service_name: str, dependency_type: str = "service", error_details: str | None = None
+    ) -> None:
+        context = {"service_name": service_name, "dependency_type": dependency_type}
         if error_details:
             context["error_details"] = error_details
 
@@ -149,30 +135,35 @@ class ValidationError(PromptBuilderError):
     """当数据验证失败时抛出."""
 
     def __init__(
-            self,
-            field_name: str,
-            expected_type: str,
-            actual_value: any,
-            error_details: str | None = None
-            ) -> None:
+        self,
+        field_name: str,
+        expected_type: str,
+        actual_value: any,
+        error_details: str | None = None,
+    ) -> None:
         context = {
             "field_name": field_name,
             "expected_type": expected_type,
-            "actual_value": str(actual_value)
+            "actual_value": str(actual_value),
         }
         if error_details:
             context["error_details"] = error_details
 
         super().__init__(
             f"字段 '{field_name}' 验证失败，期望类型: {expected_type}，实际值: {actual_value}",
-            context
+            context,
         )
 
 
 class ConfigurationError(PromptBuilderError):
     """当配置相关错误发生时抛出."""
 
-    def __init__(self,config_key: str | None = None, config_value: any = None, error_details: str | None = None) -> None:
+    def __init__(
+        self,
+        config_key: str | None = None,
+        config_value: any = None,
+        error_details: str | None = None,
+    ) -> None:
         context = {}
         if config_key:
             context["config_key"] = config_key
@@ -193,7 +184,9 @@ class ConfigurationError(PromptBuilderError):
 class ResourceUnavailableError(PromptBuilderError):
     """当所需资源不可用时抛出."""
 
-    def __init__(self, resource_type: str, resource_id: str | None = None, error_details: str | None = None) -> None:
+    def __init__(
+        self, resource_type: str, resource_id: str | None = None, error_details: str | None = None
+    ) -> None:
         context = {"resource_type": resource_type}
         if resource_id:
             context["resource_id"] = resource_id

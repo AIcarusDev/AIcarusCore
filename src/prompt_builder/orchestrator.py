@@ -91,6 +91,7 @@ class ThoughtPromptBuilder:
         self.external_info_builder.chat_session_manager = value
         self.system_prompt_parts_builder.chat_session_manager = value
         self.user_prompt_parts_builder.chat_session_manager = value
+
     # --- [修复结束] ---
 
     # --- [核心修复 3/4] ---
@@ -107,6 +108,7 @@ class ThoughtPromptBuilder:
         # 将新的值传播给需要它的子模块
         self.schema_builder.core_ws_server = value
         self.system_prompt_parts_builder.core_ws_server = value
+
     # --- [修复结束] ---
 
     async def build_prompts_components(

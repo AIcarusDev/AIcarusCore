@@ -1,6 +1,5 @@
 # tests/core_logic/test_prompt_builder.py
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -60,7 +59,10 @@ class TestPromptBuilderCurrentState:
     """专门测试 `_get_current_state_block` 方法的测试类."""
 
     async def test_get_current_state_group_chat_with_name(
-        self, prompt_builder: ThoughtPromptBuilder, mock_chat_session_manager: MagicMock, mocker: MockerFixture
+        self,
+        prompt_builder: ThoughtPromptBuilder,
+        mock_chat_session_manager: MagicMock,
+        mocker: MockerFixture,
     ) -> None:
         """测试场景：当在一个有名称的群聊中时，应正确显示群聊名称."""
         # 1. 准备 (Arrange)
@@ -83,7 +85,10 @@ class TestPromptBuilderCurrentState:
         assert '你在该群的群名片是"测试机器人"' in result
 
     async def test_get_current_state_group_chat_without_name(
-        self, prompt_builder: ThoughtPromptBuilder, mock_chat_session_manager: MagicMock, mocker: MockerFixture
+        self,
+        prompt_builder: ThoughtPromptBuilder,
+        mock_chat_session_manager: MagicMock,
+        mocker: MockerFixture,
     ) -> None:
         """测试场景：当群聊名称为 None 时，应使用 "未知群聊" 作为回退."""
         # 1. 准备 (Arrange)
@@ -154,7 +159,10 @@ class TestPromptBuilderCurrentState:
         mock_entity_graph_service.get_entity_by_key.assert_awaited_once_with("qq_group_group-abc")
 
     async def test_get_current_state_exited_group(
-        self, prompt_builder: ThoughtPromptBuilder, mock_chat_session_manager: MagicMock, mocker: MockerFixture
+        self,
+        prompt_builder: ThoughtPromptBuilder,
+        mock_chat_session_manager: MagicMock,
+        mocker: MockerFixture,
     ) -> None:
         """测试场景：当观察一个已退出的群聊时，应显示正确的状态描述."""
         # 1. 准备 (Arrange)
@@ -213,8 +221,7 @@ def mock_dependencies(mocker: MockerFixture) -> dict:
 
 @pytest.fixture
 def wired_prompt_builder(mock_dependencies: dict) -> ThoughtPromptBuilder:
-    """
-    创建一个 ThoughtPromptBuilder 实例，并模拟“后期绑定/注入”的过程。
+    """创建一个 ThoughtPromptBuilder 实例，并模拟“后期绑定/注入”的过程。
     """
     deps_for_init = mock_dependencies.copy()
     deps_for_init["chat_session_manager"] = None
@@ -246,8 +253,7 @@ class TestPromptBuilderInstantiationAndWiring:
     """测试 ThoughtPromptBuilder 的实例化和依赖注入逻辑。"""
 
     def test_thought_prompt_builder_instantiation_with_none(self, mock_dependencies: dict):
-        """
-        测试核心修复：验证 ThoughtPromptBuilder 可以在 chat_session_manager
+        """测试核心修复：验证 ThoughtPromptBuilder 可以在 chat_session_manager
         和 core_ws_server 为 None 的情况下被成功实例化。
         """
         try:
@@ -268,8 +274,7 @@ class TestPromptBuilderInstantiationAndWiring:
     async def test_build_prompts_components_after_wiring(
         self, wired_prompt_builder: ThoughtPromptBuilder, mocker: MockerFixture
     ):
-        """
-        测试功能性：在依赖被注入后，build_prompts_components 方法应该能成功执行。
+        """测试功能性：在依赖被注入后，build_prompts_components 方法应该能成功执行。
         """
         # 准备：模拟子构建器和 chat_session_manager 的行为
         mocker.patch.object(

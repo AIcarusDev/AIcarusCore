@@ -125,7 +125,3 @@ class ExternalInfoBuilder:
             meta_info = guidance_generator.generate_guidance()
 
         return external_info, meta_info, history_components, processed_stimuli
-
-
-
-

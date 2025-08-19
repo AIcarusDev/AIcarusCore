@@ -35,9 +35,9 @@ def unread_info_service(
 
 
 class TestAtMentionHighlighting:
+    """专门测试 UnreadInfoService 中关于 @ 和回复的高亮及身份识别逻辑。
     """
-    专门测试 UnreadInfoService 中关于 @ 和回复的高亮及身份识别逻辑。
-    """
+
     PLATFORM = "qq"
     BOT_ID = "99999"
     BOT_NICKNAME = "AIcarus-QQ"
@@ -48,15 +48,17 @@ class TestAtMentionHighlighting:
     GROUP_ID = "654321"
     CONV_UID = f"{PLATFORM}_group_{GROUP_ID}"
 
-    def _get_expected_truncated_line(self, sender: str, raw_content: str, is_priority: bool = False) -> str:
+    def _get_expected_truncated_line(
+        self, sender: str, raw_content: str, is_priority: bool = False
+    ) -> str:
         """[最终修复版] 辅助函数，精确模拟生产代码的“先截断，后拼接”逻辑。"""
         # 1. 先对原始消息内容进行截断 (模拟 _format_and_truncate_preview)
-        processed_content = raw_content.replace('\n', ' ').strip()
+        processed_content = raw_content.replace("\n", " ").strip()
         if len(processed_content) > 20:
             truncated_content = f"{processed_content[:20]}..."
         else:
             truncated_content = processed_content
-        
+
         # 2. 然后再拼接发送者 (模拟 _create_message_preview)
         final_preview = f"{sender}：{truncated_content}"
 
@@ -70,8 +72,7 @@ class TestAtMentionHighlighting:
         unread_info_service: UnreadInfoService,
         mock_entity_graph_service: MockerFixture,
     ):
-        """
-        测试场景 [核心]：当机器人在群聊中被 @ 时
+        """测试场景 [核心]：当机器人在群聊中被 @ 时
         """
         # 1. 准备 (Arrange)
         mock_entity_graph_service.get_self_presence_in_conversation.return_value = {
@@ -85,7 +86,7 @@ class TestAtMentionHighlighting:
         mock_entity_graph_service.get_recently_active_conversation_entities_with_details.return_value = [
             self._create_mock_active_conversation(
                 at_target_id=self.BOT_ID,
-                message_text_parts=["你好啊 ", " 有个非常非常紧急的情况需要你处理"]
+                message_text_parts=["你好啊 ", " 有个非常非常紧急的情况需要你处理"],
             )
         ]
 
@@ -94,9 +95,7 @@ class TestAtMentionHighlighting:
 
         # 3. 断言 (Assert)
         expected_line = self._get_expected_truncated_line(
-            sender=self.OTHER_USER_NICKNAME,
-            raw_content=raw_message_content,
-            is_priority=True
+            sender=self.OTHER_USER_NICKNAME, raw_content=raw_message_content, is_priority=True
         )
         assert expected_line in summary
 
@@ -105,8 +104,7 @@ class TestAtMentionHighlighting:
         unread_info_service: UnreadInfoService,
         mock_entity_graph_service: MockerFixture,
     ):
-        """
-        测试场景 [核心修复验证]：当 @ 其他用户且消息很短时，不应截断。
+        """测试场景 [核心修复验证]：当 @ 其他用户且消息很短时，不应截断。
         """
         # 1. 准备 (Arrange)
         other_user_entity = EntityDocument(
@@ -117,17 +115,16 @@ class TestAtMentionHighlighting:
                 platform=self.PLATFORM,
                 platform_id=self.OTHER_USER_ID,
                 nickname=self.OTHER_USER_NICKNAME,
-                friend_remark=self.OTHER_USER_REMARK
-            )
+                friend_remark=self.OTHER_USER_REMARK,
+            ),
         )
         mock_entity_graph_service.get_entity_by_key.return_value = other_user_entity
-        
+
         # 文本较短，确保不会触发截断
         raw_message_content_short = f"@{self.OTHER_USER_REMARK} 快出来"
         mock_entity_graph_service.get_recently_active_conversation_entities_with_details.return_value = [
             self._create_mock_active_conversation(
-                at_target_id=self.OTHER_USER_ID,
-                message_text_parts=["", " 快出来"]
+                at_target_id=self.OTHER_USER_ID, message_text_parts=["", " 快出来"]
             )
         ]
 
@@ -138,10 +135,9 @@ class TestAtMentionHighlighting:
         expected_line_short = self._get_expected_truncated_line(
             sender=self.OTHER_USER_NICKNAME,
             raw_content=raw_message_content_short,
-            is_priority=False
+            is_priority=False,
         )
         assert expected_line_short in summary
-
 
     # --- 辅助方法 (保持不变) ---
     def _create_mock_active_conversation(
@@ -155,15 +151,16 @@ class TestAtMentionHighlighting:
             if message_text_parts[0]:
                 content.append({"type": "text", "data": {"text": message_text_parts[0]}})
         if reply_target_id:
-            content.append({
-                "type": "quote",
-                "data": {"user_id": reply_target_id, "message_id": "msg-to-reply"},
-            })
+            content.append(
+                {
+                    "type": "quote",
+                    "data": {"user_id": reply_target_id, "message_id": "msg-to-reply"},
+                }
+            )
         if at_target_id:
-            content.append({
-                "type": "at", 
-                "data": { "user_id": at_target_id, "display_name": "Unreliable Name"}
-            })
+            content.append(
+                {"type": "at", "data": {"user_id": at_target_id, "display_name": "Unreliable Name"}}
+            )
         if message_text_parts and len(message_text_parts) > 1:
             if message_text_parts[1]:
                 content.append({"type": "text", "data": {"text": message_text_parts[1]}})

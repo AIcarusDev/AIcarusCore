@@ -75,7 +75,7 @@ class EventStorageService:
                         json_string = json.dumps(val, ensure_ascii=False)
                         # 2. 对 JSON 字符串本身进行转义，以安全地插入 TQL 查询
                         #    必须先替换反斜杠，再替换双引号
-                        safe_val = json_string.replace('\\', '\\\\').replace('"', '\\"')
+                        safe_val = json_string.replace("\\", "\\\\").replace('"', '\\"')
                         put_parts.append(f'has {attr} "{safe_val}"')
 
                 # 处理普通字符串属性
