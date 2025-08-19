@@ -9,12 +9,12 @@ pytestmark = pytest.mark.asyncio
 
 @pytest.fixture
 def goal_manager() -> GoalManager:
-    """提供一个全新的 GoalManager 实例。"""
+    """提供一个全新的 GoalManager 实例."""
     return GoalManager()
 
 
-async def test_add_single_goal(goal_manager: GoalManager):
-    """测试添加单个目标。"""
+async def test_add_single_goal(goal_manager: GoalManager) -> None:
+    """测试添加单个目标."""
     # 准备
     goal_to_add = [{"goal": "学习 pytest", "reason": "为了写好测试"}]
 
@@ -29,8 +29,8 @@ async def test_add_single_goal(goal_manager: GoalManager):
     assert "[G1] 目标: 学习 pytest (原因: 为了写好测试)" in formatted_goals
 
 
-async def test_add_multiple_goals(goal_manager: GoalManager):
-    """测试并发添加多个目标。"""
+async def test_add_multiple_goals(goal_manager: GoalManager) -> None:
+    """测试并发添加多个目标."""
     # 准备
     goals_to_add = [
         {"goal": "目标A", "reason": "原因A"},
@@ -50,14 +50,16 @@ async def test_add_multiple_goals(goal_manager: GoalManager):
     assert "[G2]" in formatted_goals
 
 
-async def test_remove_goals(goal_manager: GoalManager):
-    """测试移除目标。"""
+async def test_remove_goals(goal_manager: GoalManager) -> None:
+    """测试移除目标."""
     # 准备
-    await goal_manager.add_goals([
-        {"goal": "目标A", "reason": "原因A"},
-        {"goal": "目标B", "reason": "原因B"},
-        {"goal": "目标C", "reason": "原因C"},
-    ])
+    await goal_manager.add_goals(
+        [
+            {"goal": "目标A", "reason": "原因A"},
+            {"goal": "目标B", "reason": "原因B"},
+            {"goal": "目标C", "reason": "原因C"},
+        ]
+    )
 
     # 执行
     removed_ids = await goal_manager.remove_goals(["G1", "G3"])
@@ -71,6 +73,6 @@ async def test_remove_goals(goal_manager: GoalManager):
     assert "[G3]" not in formatted_goals
 
 
-async def test_get_formatted_goals_when_empty(goal_manager: GoalManager):
-    """测试目标列表为空时，格式化输出为 'None'。"""
+async def test_get_formatted_goals_when_empty(goal_manager: GoalManager) -> None:
+    """测试目标列表为空时，格式化输出为 'None'."""
     assert goal_manager.get_formatted_goals() == "None"

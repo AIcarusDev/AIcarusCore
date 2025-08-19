@@ -11,7 +11,7 @@ pytestmark = pytest.mark.asyncio
 
 @pytest.fixture
 def mock_thought_storage(mocker: MockerFixture) -> MockerFixture:
-    """模拟 ThoughtStorageService。"""
+    """模拟 ThoughtStorageService."""
     mock = mocker.AsyncMock()
     # 让 save_thought_and_link 返回一个固定的 key，表示成功
     mock.save_thought_and_link.return_value = "saved_key_123"
@@ -20,32 +20,27 @@ def mock_thought_storage(mocker: MockerFixture) -> MockerFixture:
 
 @pytest.fixture
 def thought_persistor(mock_thought_storage: MockerFixture) -> ThoughtPersistor:
-    """创建 ThoughtPersistor 实例并注入模拟的存储服务。"""
+    """创建 ThoughtPersistor 实例并注入模拟的存储服务."""
     return ThoughtPersistor(thought_storage=mock_thought_storage)
 
 
 async def test_store_thought_creates_correct_document(
-    thought_persistor: ThoughtPersistor,
-    mock_thought_storage: MockerFixture
-):
-    """测试 store_thought 是否能正确地将 JSON 转换为 ThoughtChainDocument。"""
+    thought_persistor: ThoughtPersistor, mock_thought_storage: MockerFixture
+) -> None:
+    """测试 store_thought 是否能正确地将 JSON 转换为 ThoughtChainDocument."""
     # 准备
     thought_json = {
         "internal_state": {
             "mood": "愉快",
             "think": "这是一个测试想法。",
-            "intent": "验证持久化逻辑"
+            "intent": "验证持久化逻辑",
         },
-        "action": {
-            "core": {"do_nothing": {"motivation": "测试中"}}
-        }
+        "action": {"core": {"do_nothing": {"motivation": "测试中"}}},
     }
 
     # 执行
     saved_key, new_pearl = await thought_persistor.store_thought(
-        thought_json=thought_json,
-        source_type="test_source",
-        source_id="test_id_1"
+        thought_json=thought_json, source_type="test_source", source_id="test_id_1"
     )
 
     # 断言
