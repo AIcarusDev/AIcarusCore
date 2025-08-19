@@ -112,6 +112,7 @@ class ActionHandler:
         chat_session_manager: "ChatSessionManager",
         core_logic: "CoreLogic",
         sticker_service: "StickerService",
+        narrative_vectorizer: Any,
     ) -> None:
         """设置依赖服务."""
         self.thought_storage_service = thought_service
@@ -122,6 +123,7 @@ class ActionHandler:
         self.chat_session_manager = chat_session_manager
         self.core_logic = core_logic
         self.sticker_service = sticker_service
+        self.narrative_vectorizer = narrative_vectorizer
         self.pending_action_manager = PendingActionManager(
             action_log_service=action_log_service,
             thought_storage_service=thought_service,

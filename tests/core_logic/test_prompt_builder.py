@@ -5,8 +5,8 @@ from unittest.mock import MagicMock
 
 import pytest
 from pytest_mock import MockerFixture
-from src.core_logic.prompt_builder import PromptBuilderError, ThoughtPromptBuilder
 from src.database.models import ConversationDetails, EntityDocument
+from src.prompt_builder import PromptBuilderError, ThoughtPromptBuilder
 
 # 标记整个模块的所有测试都需要异步环境
 pytestmark = pytest.mark.asyncio

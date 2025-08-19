@@ -34,7 +34,7 @@ class EntityGraphService:
     def _update_account_nickname_if_changed_sync(
         self, tx: Transaction, account_uid: str, new_nickname: str
     ) -> None:
-        """如果提供的昵称与数据库中的不同，则更新它 (已修复)。"""
+        """如果提供的昵称与数据库中的不同，则更新它."""
         match_query = (
             f'match $a isa account, has account-uid "{account_uid}"; '
             f"{{ $a has nickname $n; }}; select $n;"
@@ -51,7 +51,7 @@ class EntityGraphService:
             # 最终修复：使用正确的 'delete has ... of ...' 语法
             delete_query = (
                 f'match $a isa account, has account-uid "{account_uid}"; '
-                f'$a has nickname $old_nick; '
+                f"$a has nickname $old_nick; "
                 f"delete has $old_nick of $a;"
             )
             tx.query(delete_query).resolve()
@@ -66,7 +66,7 @@ class EntityGraphService:
     def _update_conversation_name_if_changed_sync(
         self, tx: Transaction, conv_entity_uid: str, new_name: str | None
     ) -> None:
-        """如果提供的名称与数据库中的不同，则更新它 (已修复)。"""
+        """如果提供的名称与数据库中的不同，则更新它."""
         match_query = (
             f'match $c isa conversation, has conversation-uid "{conv_entity_uid}"; '
             f"{{ $c has display-name $n; }}; select $n;"
@@ -82,7 +82,7 @@ class EntityGraphService:
                 # 最终修复：使用正确的 'delete has ... of ...' 语法
                 delete_query = (
                     f'match $c isa conversation, has conversation-uid "{conv_entity_uid}"; '
-                    f'$c has display-name $old_name; '
+                    f"$c has display-name $old_name; "
                     f"delete has $old_name of $c;"
                 )
                 tx.query(delete_query).resolve()
@@ -735,9 +735,7 @@ class EntityGraphService:
         """获取自身在指定会话中的存在信息（如群名片、权限等）."""
         self_entity = await self.get_self_entity_by_platform(platform)
         if not self_entity or not self_entity.get("entity_uid"):
-            logger.warning(
-                f"在查询群内档案时，未能找到平台 '{platform}' 对应的自身实体UID。"
-            )
+            logger.warning(f"在查询群内档案时，未能找到平台 '{platform}' 对应的自身实体UID。")
             return None
         self_account_uid = self_entity["entity_uid"]
 
@@ -792,7 +790,7 @@ class EntityGraphService:
             return await asyncio.to_thread(db_read)
         except Exception as e:
             logger.error(
-                f"查询自身在会话 '{conversation_entity_uid}' 的存在信息时失败: {repr(e)}",
+                f"查询自身在会话 '{conversation_entity_uid}' 的存在信息时失败: {e!r}",
                 exc_info=True,
             )
             return None

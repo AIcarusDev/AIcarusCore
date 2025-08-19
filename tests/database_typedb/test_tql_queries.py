@@ -61,8 +61,7 @@ async def test_valid_query_succeeds(db_connection: Driver) -> None:
 
 
 class TestOptionalAttributeQueries:
-    """专门测试涉及可选属性查询的 TypeQL 语句，特别是验证 `try-catch` 到 `optional` 模式的修复。
-    """
+    """专门测试涉及可选属性查询的 TypeQL 语句，特别是验证 `try-catch` 到 `optional` 模式的修复。"""
 
     @pytest.mark.asyncio
     async def test_update_name_handles_optional_attribute(

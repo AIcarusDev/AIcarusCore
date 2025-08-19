@@ -1,16 +1,11 @@
-import asyncio
-import json
-import time
-import uuid
-from typing import Any
-
 import pytest
 from aicarus_protocols import UserInfo as ProtocolUserInfo
-from src.database.models import EntityDocument
 from src.database.services import EntityGraphService
+
 # --- [核心修复] ---
 # 导入缺失的 SELF_PROFILE_ID 常量
 from src.database.services.entity_graph_service import SELF_PROFILE_ID
+
 # --- [修复结束] ---
 from typedb.driver import Driver, TransactionType
 
@@ -180,9 +175,7 @@ class TestEntityGraphServiceFixes:
         # 在数据库中创建必要的 person 和 conversation 实体
         with db_connection.transaction(db_name, TransactionType.WRITE) as tx:
             tx.query(f'insert $p isa aic_self, has person-uid "{SELF_PROFILE_ID}";').resolve()
-            tx.query(
-                f'insert $c isa conversation, has conversation-uid "{conv_uid}";'
-            ).resolve()
+            tx.query(f'insert $c isa conversation, has conversation-uid "{conv_uid}";').resolve()
             tx.commit()
 
         def get_timestamp() -> int | None:
