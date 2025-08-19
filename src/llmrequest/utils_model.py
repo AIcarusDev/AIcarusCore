@@ -328,15 +328,26 @@ class LLMClient:
                     f"({self.env_provider_prefix}_BASE_URL) 加载Base URL。"
                 )
         self.base_url = self.base_url.rstrip("/")
-
-        if self.provider == "GEMINI" or ("googleapis.com" in self.base_url.lower()):
+        
+        # --- [BUG FIX START] ---
+        # 调整 API 风格判断逻辑，优先判断 provider 名称
+        if self.provider == "GEMINI":
             self.api_endpoint_style = "google"
             self.streaming_endpoint_path = DEFAULT_STREAMING_API_ENDPOINT_GOOGLE
             self.non_streaming_endpoint_path = DEFAULT_NON_STREAMING_API_ENDPOINT_GOOGLE
             self.embedding_endpoint_path = DEFAULT_EMBEDDING_ENDPOINT_GOOGLE
-        elif self.provider in ["OPENAI", "SILICONFLOW", "DEEPSEEK", "CHATANYWHERE"] or (
-            "openai" in self.base_url.lower()
-        ):
+        elif self.provider in ["OPENAI", "SILICONFLOW", "DEEPSEEK", "CHATANYWHERE"]:
+            self.api_endpoint_style = "openai"
+            self.streaming_endpoint_path = DEFAULT_CHAT_COMPLETIONS_ENDPOINT_OPENAI
+            self.non_streaming_endpoint_path = DEFAULT_CHAT_COMPLETIONS_ENDPOINT_OPENAI
+            self.embedding_endpoint_path = DEFAULT_EMBEDDINGS_ENDPOINT_OPENAI
+        # 如果 provider 名称不明确，则根据 base_url 进行回退判断
+        elif "googleapis.com" in self.base_url.lower():
+            self.api_endpoint_style = "google"
+            self.streaming_endpoint_path = DEFAULT_STREAMING_API_ENDPOINT_GOOGLE
+            self.non_streaming_endpoint_path = DEFAULT_NON_STREAMING_API_ENDPOINT_GOOGLE
+            self.embedding_endpoint_path = DEFAULT_EMBEDDING_ENDPOINT_GOOGLE
+        elif "openai" in self.base_url.lower():
             self.api_endpoint_style = "openai"
             self.streaming_endpoint_path = DEFAULT_CHAT_COMPLETIONS_ENDPOINT_OPENAI
             self.non_streaming_endpoint_path = DEFAULT_CHAT_COMPLETIONS_ENDPOINT_OPENAI
@@ -350,6 +361,7 @@ class LLMClient:
             self.streaming_endpoint_path = DEFAULT_CHAT_COMPLETIONS_ENDPOINT_OPENAI
             self.non_streaming_endpoint_path = DEFAULT_CHAT_COMPLETIONS_ENDPOINT_OPENAI
             self.embedding_endpoint_path = DEFAULT_EMBEDDINGS_ENDPOINT_OPENAI
+        # --- [BUG FIX END] ---
 
         _abandoned_keys_list = abandoned_keys_config if abandoned_keys_config is not None else []
         self.abandoned_keys_config = {str(k) for k in _abandoned_keys_list if str(k)}
@@ -623,13 +635,10 @@ class LLMClient:
         base64_media_data = None
         determined_mime_type = mime_type_override
         try:
-            # 将 "data:image" 泛化为 "data:"，以同时支持图片和视频
             if media_path_or_url_or_data_uri.startswith("data:"):
                 header, encoded_data = media_path_or_url_or_data_uri.split(",", 1)
-                # 从 header 中解析出真实的 MIME 类型
                 determined_mime_type = header.split(";")[0].split(":")[1]
                 base64_media_data = encoded_data
-                # [探针] 添加日志探针，明确打印出解析到的媒体类型
                 logger.debug(f"已从 Data URI 中解析到媒体，类型: {determined_mime_type}")
 
             elif media_path_or_url_or_data_uri.startswith(("http://", "https://")):
@@ -660,26 +669,24 @@ class LLMClient:
                 with open(media_path_or_url_or_data_uri, "rb") as media_file:
                     base64_media_data = base64.b64encode(media_file.read()).decode("utf-8")
             else:
-                # 优化日志信息
                 logger.error(f"媒体源未找到或无效: {media_path_or_url_or_data_uri[100:]}...")
                 return None
 
             if not base64_media_data:
                 return None
 
-            # 统一处理MIME类型，确保其有效性
             determined_mime_type = determined_mime_type or "application/octet-stream"
             if "/" not in determined_mime_type:
                 logger.warning(
                     f"无效的MIME类型 '{determined_mime_type}'，将回退到 application/octet-stream。"
                 )
                 determined_mime_type = "application/octet-stream"
-
-            # 图片压缩逻辑只对图片生效
-            if self.enable_image_compression and determined_mime_type.startswith("image/"):
-                base64_media_data, determined_mime_type = await self._compress_base64_image(
-                    base64_media_data, determined_mime_type
-                )
+            
+            # --- [BUG FIX] 移除这里的预压缩调用 ---
+            # if self.enable_image_compression and determined_mime_type.startswith("image/"):
+            #     base64_media_data, determined_mime_type = await self._compress_base64_image(
+            #         base64_media_data, determined_mime_type
+            #     )
 
             return {"b64_data": base64_media_data, "mime_type": determined_mime_type}
         except Exception as e:
@@ -1114,73 +1121,74 @@ class LLMClient:
             logger.critical(f"失败的Payload结构: {payload}")
             raise LLMClientError(f"Payload序列化失败: {e}") from e
 
-        http_response: aiohttp.ClientResponse | None = None
+        # --- [BUG FIX START] ---
+        # 核心修复：使用 async with 来正确处理 aiohttp 的请求和响应
         try:
-            http_response = await session.post(
+            async with session.post(
                 full_request_url,
                 headers=final_headers,
                 data=prepared_data,
                 params=request_params,
                 proxy=self.proxy_url,
                 timeout=120,
-            )
+            ) as http_response:
+                status_code = http_response.status
+                logger.debug(f"Request sent. Actual URL: {http_response.url}. Status: {status_code}")
 
-            status_code = http_response.status
-            logger.debug(f"Request sent. Actual URL: {http_response.url}. Status: {status_code}")
-
-            if 200 <= status_code < 300:
-                if is_streaming:
-                    return await self._handle_streaming_response_for_style(
-                        http_response,
-                        request_type,
-                        interruption_event,
-                    )
+                if 200 <= status_code < 300:
+                    if is_streaming:
+                        # 对于流式响应，我们将整个响应对象传递过去处理
+                        return await self._handle_streaming_response_for_style(
+                            http_response,
+                            request_type,
+                            interruption_event,
+                        )
+                    else:
+                        response_json = await http_response.json()
+                        return self._parse_non_streaming_response_for_style(response_json, request_type)
                 else:
-                    response_json = await http_response.json()
-                    return self._parse_non_streaming_response_for_style(response_json, request_type)
-            else:
-                response_text = await http_response.text()
-                key_info = (
-                    f"...{api_key[-4:]}" if api_key and len(api_key) > 4 else "INVALID_KEY_FORMAT"
-                )
-                if status_code == 413:
-                    raise PayloadTooLargeError("请求体过大 (413)", status_code, response_text)
-                if status_code == 400:
-                    logger.error(
-                        f"请求无效或参数错误 (400) - Key {key_info}. "
-                        f"Response: {response_text[:500]}"
+                    # 对于错误情况，先读取响应体再抛出异常
+                    response_text = await http_response.text()
+                    key_info = (
+                        f"...{api_key[-4:]}" if api_key and len(api_key) > 4 else "INVALID_KEY_FORMAT"
                     )
-                    # 抛出 APIResponseError，这样就不会触发外层逻辑将密钥禁用。
+                    if status_code == 413:
+                        raise PayloadTooLargeError("请求体过大 (413)", status_code, response_text)
+                    if status_code == 400:
+                        logger.error(
+                            f"请求无效或参数错误 (400) - Key {key_info}. "
+                            f"Response: {response_text[:500]}"
+                        )
+                        raise APIResponseError(
+                            f"请求无效或参数错误 (400) - Key {key_info}",
+                            status_code,
+                            response_text,
+                        )
+                    if status_code == 401:
+                        raise PermissionDeniedError(
+                            f"认证失败 (401) - Key {key_info}",
+                            status_code,
+                            response_text,
+                            key_identifier=api_key,
+                        )
+                    if status_code == 403:
+                        raise PermissionDeniedError(
+                            f"权限被拒绝 (403) - Key {key_info}",
+                            status_code,
+                            response_text,
+                            key_identifier=api_key,
+                        )
+                    if status_code == 429:
+                        raise RateLimitError(
+                            f"速率限制超出 (429) - Key {key_info}",
+                            status_code,
+                            response_text,
+                            key_identifier=api_key,
+                        )
                     raise APIResponseError(
-                        f"请求无效或参数错误 (400) - Key {key_info}",
-                        status_code,
-                        response_text,
+                        f"API错误 {status_code} - Key {key_info}", status_code, response_text
                     )
-                if status_code == 401:
-                    raise PermissionDeniedError(
-                        f"认证失败 (401) - Key {key_info}",
-                        status_code,
-                        response_text,
-                        key_identifier=api_key,
-                    )
-                if status_code == 403:
-                    raise PermissionDeniedError(
-                        f"权限被拒绝 (403) - Key {key_info}",
-                        status_code,
-                        response_text,
-                        key_identifier=api_key,
-                    )
-                if status_code == 429:
-                    raise RateLimitError(
-                        f"速率限制超出 (429) - Key {key_info}",
-                        status_code,
-                        response_text,
-                        key_identifier=api_key,
-                    )
-                raise APIResponseError(
-                    f"API错误 {status_code} - Key {key_info}", status_code, response_text
-                )
-
+        # --- [BUG FIX END] ---
         except (RateLimitError, PermissionDeniedError, PayloadTooLargeError, APIResponseError):
             raise
         except aiohttp.ClientProxyConnectionError as e:
@@ -1193,28 +1201,19 @@ class LLMClient:
         ) as e:
             logger.error(f"网络连接错误: {e}")
             raise NetworkError(f"网络连接错误: {e}", original_exception=e) from e
-        except TimeoutError as e:
+        except TimeoutError as e: # aiohttp.ClientError now includes TimeoutError
             logger.error("请求超时")
             raise NetworkError("请求超时", original_exception=e) from e
         except json.JSONDecodeError as e:
-            response_text_for_error = "N/A"
-            if http_response:
-                with contextlib.suppress(Exception):
-                    response_text_for_error = await http_response.text(errors="ignore")
-                    pass
-            logger.error(f"JSON解码错误: {e}. Response text: {response_text_for_error[:200]}")
-            raise APIResponseError(
-                f"无法解析API响应为JSON: {e}", response_text=response_text_for_error
-            ) from e
+            # 这个异常现在不太可能在这里被捕获，因为 .json() 的错误会在 aiohttp 内部被包装
+            logger.error(f"JSON解码错误: {e}")
+            raise APIResponseError(f"无法解析API响应为JSON: {e}") from e
         except aiohttp.ClientError as e:
             logger.exception(f"AIOHTTP客户端调用时发生意外错误: {e}")
             raise NetworkError(f"AIOHTTP客户端调用时发生意外错误: {e}", original_exception=e) from e
         except Exception as e:
             logger.exception("API调用时发生完全未预料的错误")
             raise LLMClientError(f"API调用时发生完全未预料的错误: {e}") from e
-        finally:
-            if http_response:
-                http_response.release()
 
     async def _execute_request_with_retries(
         self,
@@ -1267,329 +1266,147 @@ class LLMClient:
             for attempt_pass in range(max_retries + 1):
                 if interruption_event and interruption_event.is_set():
                     logger.info(f"请求执行在第 {attempt_pass + 1} 轮尝试前被中断信号中止。")
-                    message = (
-                        "Task was interrupted before an API call could be made in this attempt."
-                    )
                     return {
-                        "error": False,
-                        "interrupted": True,
-                        "full_text": "",
+                        "error": False, "interrupted": True, "full_text": "",
                         "streamed_text_summary": "Task interrupted before API call.",
-                        "finish_reason": "INTERRUPTED_BEFORE_CALL",
-                        "message": message,
+                        "finish_reason": "INTERRUPTED_BEFORE_CALL", "message": "Task was interrupted...",
                     }
 
                 current_time = time.time()
                 keys_to_reactivate = [
-                    k
-                    for k, expiry_ts in self._temporarily_disabled_keys_429.items()
+                    k for k, expiry_ts in self._temporarily_disabled_keys_429.items()
                     if expiry_ts <= current_time
                 ]
                 for k_active in keys_to_reactivate:
                     del self._temporarily_disabled_keys_429[k_active]
                     logger.info(f"密钥 ...{k_active[-4:]} 的429临时禁用已到期并解除。")
 
-                all_abandoned_permanently = self.abandoned_keys_config.union(
-                    self._abandoned_keys_runtime
-                )
-
+                all_abandoned_permanently = self.abandoned_keys_config.union(self._abandoned_keys_runtime)
                 available_keys_this_pass = [
-                    key
-                    for key in all_initial_keys
-                    if key not in all_abandoned_permanently
-                    and key not in self._temporarily_disabled_keys_429
+                    key for key in all_initial_keys
+                    if key not in all_abandoned_permanently and key not in self._temporarily_disabled_keys_429
                 ]
 
                 if not available_keys_this_pass:
-                    if (
-                        self._temporarily_disabled_keys_429
-                        and num_temp_disable_resets_done < allowed_temp_disable_resets
-                    ):
-                        logger.warning(
-                            f"在第 {attempt_pass + 1} 次尝试轮中， 所有可用密钥"
-                            "当前均处于429临时禁用状态。将清除临时禁用列表并重试 (已执行重置: "
-                            f"{num_temp_disable_resets_done}/{allowed_temp_disable_resets})。"
-                        )
+                    if self._temporarily_disabled_keys_429 and num_temp_disable_resets_done < allowed_temp_disable_resets:
+                        logger.warning(f"在第 {attempt_pass + 1} 次尝试轮中， 所有可用密钥当前均处于429临时禁用状态。将清除临时禁用列表并重试 (已执行重置: {num_temp_disable_resets_done}/{allowed_temp_disable_resets})。")
                         self._temporarily_disabled_keys_429.clear()
                         num_temp_disable_resets_done += 1
-                        available_keys_this_pass = [
-                            key for key in all_initial_keys if key not in all_abandoned_permanently
-                        ]
+                        available_keys_this_pass = [key for key in all_initial_keys if key not in all_abandoned_permanently]
                         if not available_keys_this_pass:
                             logger.error("清除临时禁用列表后，仍无任何可用API密钥。")
                             break
                     else:
-                        logger.error(
-                            f"在第 {attempt_pass + 1} 次尝试轮中，已无任何可用API密钥"
-                            f"（包括永久禁用和无法再重置的临时禁用）。"
-                        )
+                        logger.error(f"在第 {attempt_pass + 1} 次尝试轮中，已无任何可用API密钥（包括永久禁用和无法再重置的临时禁用）。")
                         break
 
                 random.shuffle(available_keys_this_pass)
-                logger.info(
-                    f"开始第 {attempt_pass + 1}/{max_retries + 1} 次请求尝试轮。 "
-                    f"本轮可用密钥数 (排除永久和临时禁用): {len(available_keys_this_pass)}"
-                )
-
+                logger.info(f"开始第 {attempt_pass + 1}/{max_retries + 1} 次请求尝试轮。 本轮可用密钥数 (排除永久和临时禁用): {len(available_keys_this_pass)}")
                 current_pass_last_exception: Exception | None = None
 
                 for key_idx, current_key in enumerate(available_keys_this_pass):
-                    key_display = (
-                        f"...{current_key[-4:]}"
-                        if current_key and len(current_key) > 4
-                        else "INVALID_KEY"
-                    )
+                    key_display = f"...{current_key[-4:]}" if current_key and len(current_key) > 4 else "INVALID_KEY"
                     try:
                         url_path, headers, payload = self._prepare_request_data_for_style(
-                            request_type=request_type,
-                            prompt=prompt,
-                            system_prompt=system_prompt,
-                            processed_images=current_processed_images,
-                            is_streaming=is_streaming,
-                            final_generation_config=current_generation_config,
-                            tools=tools,
-                            tool_choice=tool_choice,
-                            text_to_embed=text_to_embed,
-                            enable_google_search=enable_google_search,
+                            request_type=request_type, prompt=prompt, system_prompt=system_prompt,
+                            processed_images=current_processed_images, is_streaming=is_streaming,
+                            final_generation_config=current_generation_config, tools=tools, tool_choice=tool_choice,
+                            text_to_embed=text_to_embed, enable_google_search=enable_google_search,
                             enable_url_context=enable_url_context,
                         )
-                        logger.info(
-                            f"尝试轮 {attempt_pass + 1}/{max_retries + 1}, "
-                            f"密钥 {key_idx + 1}/{len(available_keys_this_pass)} "
-                            f"(ID: {key_display}): "
-                            f"类型: {request_type}, {'流式' if is_streaming else '非流式'}, "
-                            f"模型: {self.model_name}"
-                        )
+                        logger.info(f"尝试轮 {attempt_pass + 1}/{max_retries + 1}, 密钥 {key_idx + 1}/{len(available_keys_this_pass)} (ID: {key_display}): 类型: {request_type}, {'流式' if is_streaming else '非流式'}, 模型: {self.model_name}")
                         if system_prompt and request_type != "embedding":
-                            logger.info(
-                                f"  使用 System Prompt (前50字符): {system_prompt[:50]}"
-                                f"{'...' if len(system_prompt) > 50 else ''}"
-                            )
+                            logger.info(f"  使用 System Prompt (前50字符): {system_prompt[:50]}{'...' if len(system_prompt) > 50 else ''}")
 
                         result = await self._make_api_call_attempt(
-                            session,
-                            url_path,
-                            current_key,
-                            headers,
-                            payload,
-                            is_streaming,
-                            request_type,
-                            interruption_event,
+                            session, url_path, current_key, headers, payload, is_streaming, request_type, interruption_event
                         )
-
-                        # 处理非流式请求的结果
-                        if config.test_function.fallback_model_name != "":
-                            is_successful_call = not result.get("error") and not result.get(
-                                "interrupted"
-                            )
-                            is_non_streaming_text_request = (
-                                not is_streaming and request_type != "embedding"
-                            )
-                            is_text_content_none = result.get("text") is None
-
-                            if (
-                                is_successful_call
-                                and is_non_streaming_text_request
-                                and is_text_content_none
-                            ):
-                                fallback_model_name = (
-                                    config.test_function.fallback_model_name
-                                )  # 从配置中获取备用模型名称
-                                logger.warning(
-                                    f"密钥 {key_display} 的请求成功，但返回的 text 字段为 None。"
-                                    f"将使用备用模型 '{fallback_model_name}' 尝试一次。"
-                                )
-
-                                if self.model_name == fallback_model_name:
-                                    logger.error(
-                                        "当前模型已经是备用模型，但仍然返回空文本。为避免无限循环，将不再尝试。"
-                                    )
-                                    return result
-
-                                url_path_fallback, headers_fallback, payload_fallback = (
-                                    self._prepare_request_data_for_style(
-                                        request_type=request_type,
-                                        prompt=prompt,
-                                        system_prompt=system_prompt,
-                                        processed_images=current_processed_images,
-                                        is_streaming=is_streaming,
-                                        final_generation_config=current_generation_config,
-                                        tools=tools,
-                                        tool_choice=tool_choice,
-                                        text_to_embed=text_to_embed,
-                                        model_name_override=fallback_model_name,
-                                    )
-                                )
-
-                                logger.info(
-                                    f"正在使用备用模型 '{fallback_model_name}' 进行单次重试..."
-                                )
-                                try:
-                                    fallback_result = await self._make_api_call_attempt(
-                                        session,
-                                        url_path_fallback,
-                                        current_key,
-                                        headers_fallback,
-                                        payload_fallback,
-                                        is_streaming,
-                                        request_type,
-                                        interruption_event,
-                                    )
-                                    logger.info("备用模型调用完成。")
-                                    return fallback_result
-                                except Exception as e_fallback:
-                                    logger.error(f"备用模型调用失败: {e_fallback}", exc_info=True)
-                                    return result
-                            else:
-                                if result.get("interrupted"):
-                                    logger.info(
-                                        f"API调用在密钥 {key_display} 尝试期间被中断信号中止。"
-                                        f"将直接返回中断结果。"
-                                    )
-                                return result
-
-                        # 尝试修复无返回导致响应无处理状况
+                        
+                        # --- [BUG FIX] 移除不必要的备用模型逻辑，因为它会干扰重试流程的判断 ---
                         if result.get("interrupted"):
-                            logger.info(
-                                f"API调用在密钥 {key_display} 尝试期间被中断信号中止。"
-                                f"将直接返回中断结果。"
-                            )
-                            return result
+                            logger.info(f"API调用在密钥 {key_display} 尝试期间被中断信号中止。将直接返回中断结果。")
                         return result
 
                     except PermissionDeniedError as e_perm:
-                        logger.error(
-                            f"密钥 {key_display} 遇到权限拒绝 ({e_perm.status_code}): "
-                            f"{e_perm!s}. 将被永久标记为已弃用。"
-                        )
-                        if e_perm.key_identifier:
+                        logger.error(f"密钥 {key_display} 遇到权限拒绝 ({e_perm.status_code}): {e_perm!s}. 将被永久标记为已弃用。")
+                        if e_perm.key_identifier: # <-- [BUG FIX] 使用异常中的 identifier
                             self._abandoned_keys_runtime.add(e_perm.key_identifier)
                             if e_perm.key_identifier in self._temporarily_disabled_keys_429:
                                 del self._temporarily_disabled_keys_429[e_perm.key_identifier]
                         current_pass_last_exception = e_perm
 
                     except RateLimitError as e_rate:
-                        logger.warning(
-                            f"密钥 {key_display} 达到速率限制 ({e_rate.status_code}). "
-                            f"将被临时禁用 {self.rate_limit_disable_duration_seconds // 60} 分钟。"
-                        )
-                        if e_rate.key_identifier and self.rate_limit_disable_duration_seconds > 0:
-                            disable_until_ts = (
-                                time.time() + self.rate_limit_disable_duration_seconds
-                            )
-                            self._temporarily_disabled_keys_429[e_rate.key_identifier] = (
-                                disable_until_ts
-                            )
-                            ban_time = time.strftime(
-                                "%Y-%m-%d %H:%M:%S", time.localtime(disable_until_ts)
-                            )
+                        logger.warning(f"密钥 {key_display} 达到速率限制 ({e_rate.status_code}). 将被临时禁用 {self.rate_limit_disable_duration_seconds // 60} 分钟。")
+                        if e_rate.key_identifier and self.rate_limit_disable_duration_seconds > 0: # <-- [BUG FIX] 使用异常中的 identifier
+                            disable_until_ts = time.time() + self.rate_limit_disable_duration_seconds
+                            self._temporarily_disabled_keys_429[e_rate.key_identifier] = disable_until_ts
+                            ban_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(disable_until_ts))
                             logger.info(f"密钥 {key_display} 已被临时禁用直到 {ban_time}.")
                         current_pass_last_exception = e_rate
 
                     except PayloadTooLargeError as e_payload:
                         current_pass_last_exception = e_payload
-                        if (
-                            (
-                                request_type == "vision"
-                                or (request_type == "tool_call" and enable_multimodal)
-                            )
-                            and current_processed_images
-                            and not images_have_been_compression_attempted_this_call
-                            and self.enable_image_compression
-                        ):
-                            logger.info(
-                                "检测到 PayloadTooLargeError，尝试对当前图像集进行响应式压缩..."
-                            )
+                        if ((request_type == "vision" or (request_type == "tool_call" and enable_multimodal)) and current_processed_images and not images_have_been_compression_attempted_this_call and self.enable_image_compression):
+                            logger.info("检测到 PayloadTooLargeError，尝试对当前图像集进行响应式压缩...")
                             temp_compressed_images_data = []
                             any_image_compressed_reactively = False
                             for img_data_val in current_processed_images:
-                                compressed_b64, new_mime = await self._compress_base64_image(
-                                    img_data_val["b64_data"], img_data_val["mime_type"]
-                                )
+                                compressed_b64, new_mime = await self._compress_base64_image(img_data_val["b64_data"], img_data_val["mime_type"])
                                 if compressed_b64 != img_data_val["b64_data"]:
                                     any_image_compressed_reactively = True
-                                temp_compressed_images_data.append(
-                                    {"b64_data": compressed_b64, "mime_type": new_mime}
-                                )
-
+                                temp_compressed_images_data.append({"b64_data": compressed_b64, "mime_type": new_mime})
                             if any_image_compressed_reactively:
                                 current_processed_images = temp_compressed_images_data
                                 images_have_been_compression_attempted_this_call = True
-                                logger.info(
-                                    "响应式图像压缩已应用。将继续使用（可能）压缩后的图像尝试下一个（或相同的，如果适用）密钥。"
-                                )
+                                logger.info("响应式图像压缩已应用。将继续使用（可能）压缩后的图像尝试下一个（或相同的，如果适用）密钥。")
                             else:
-                                logger.info("响应式图像压缩未改变图像数据或未启用。")
+                                logger.info("响应式图像压缩未改变图像数据。")
                         else:
                             logger.warning("遇到PayloadTooLargeError，但无法或不再尝试图像压缩。")
-
                     except (NetworkError, APIResponseError, LLMClientError) as e_general:
-                        logger.warning(
-                            f"尝试轮 {attempt_pass + 1} (密钥 {key_display}) 失败，"
-                            f"错误类型 {type(e_general).__name__}: {e_general!s}"
-                        )
+                        logger.warning(f"尝试轮 {attempt_pass + 1} (密钥 {key_display}) 失败，错误类型 {type(e_general).__name__}: {e_general!s}")
                         current_pass_last_exception = e_general
-
                     except Exception as e_unexpected:
-                        logger.error(
-                            f"在尝试轮 {attempt_pass + 1} (密钥 {key_display}) "
-                            f"期间发生意外错误: {e_unexpected!s}",
-                            exc_info=True,
-                        )
+                        logger.error(f"在尝试轮 {attempt_pass + 1} (密钥 {key_display}) 期间发生意外错误: {e_unexpected!s}", exc_info=True)
                         current_pass_last_exception = e_unexpected
-
+                    
                     if key_idx < len(available_keys_this_pass) - 1:
-                        logger.warning(
-                            f"密钥 {key_display} 尝试失败。将尝试本轮中的下一个可用密钥。"
-                        )
+                        logger.warning(f"密钥 {key_display} 尝试失败。将尝试本轮中的下一个可用密钥。")
                     else:
                         logger.warning(f"密钥 {key_display} (本轮最后一个) 尝试失败。")
 
                 if current_pass_last_exception:
                     last_exception = current_pass_last_exception
+                
+                # --- [BUG FIX] 如果本轮所有key都失败了，就直接跳出，不再进行下一轮无意义的重试 ---
+                if len(available_keys_this_pass) > 0 and all(k in self._temporarily_disabled_keys_429 or k in self._abandoned_keys_runtime for k in available_keys_this_pass):
+                     logger.warning(f"第 {attempt_pass + 1} 次尝试轮中所有可用密钥均失败，提前结束重试。")
+                     break
 
                 if attempt_pass < max_retries:
                     wait_duration = INITIAL_RETRY_PASS_DELAY_SECONDS * (2**attempt_pass)
-                    last_error = (
-                        type(current_pass_last_exception).__name__
-                        if current_pass_last_exception
-                        else "未知或无可用密钥导致失败"
-                    )
-                    logger.warning(
-                        f"第 {attempt_pass + 1} 次请求尝试轮未成功。"
-                        f"等待 {wait_duration:.2f} 秒后进行下一次尝试轮 (如果适用)。"
-                        f"本轮最后遇到的错误: {last_error}"
-                    )
+                    last_error_name = type(current_pass_last_exception).__name__ if current_pass_last_exception else "未知或无可用密钥"
+                    logger.warning(f"第 {attempt_pass + 1} 次请求尝试轮未成功。等待 {wait_duration:.2f} 秒后进行下一次尝试轮 (如果适用)。本轮最后遇到的错误: {last_error_name}")
                     await asyncio.sleep(wait_duration)
                 elif attempt_pass == max_retries:
-                    last_error = (
-                        type(last_exception).__name__
-                        if last_exception
-                        else "未知或无可用密钥导致失败"
-                    )
-                    logger.error(
-                        f"已达到最大请求尝试轮数 ({max_retries + 1})，且最后一轮未成功。"
-                        f"最终错误: {last_error}"
-                    )
+                    last_error_name = type(last_exception).__name__ if last_exception else "未知或无可用密钥"
+                    logger.error(f"已达到最大请求尝试轮数 ({max_retries + 1})，且最后一轮未成功。最终错误: {last_error_name}")
 
             if last_exception:
-                if isinstance(
-                    last_exception, RateLimitError | PermissionDeniedError | PayloadTooLargeError
-                ):
-                    return {
-                        "error": True,
-                        "type": type(last_exception).__name__,
-                        "status_code": getattr(last_exception, "status_code", None),
-                        "message": f"所有API请求尝试轮均失败。最终错误: {last_exception!s}",
-                        "details": getattr(last_exception, "response_text", str(last_exception)),
-                    }
-                raise last_exception
+                # --- [BUG FIX] 最后的错误处理逻辑 ---
+                error_type = type(last_exception).__name__
+                status_code = getattr(last_exception, "status_code", None)
+                message = f"所有API请求尝试均失败。最终错误: {last_exception!s}"
+                details = getattr(last_exception, "response_text", str(last_exception))
+                
+                # 对于特定的、可恢复的网络或限速错误，返回一个结构化的错误字典
+                if isinstance(last_exception, (RateLimitError, PermissionDeniedError, PayloadTooLargeError, NetworkError, APIResponseError)):
+                    return {"error": True, "type": error_type, "status_code": status_code, "message": message, "details": details}
+                
+                # 对于其他所有未知异常，重新抛出，以便上层可以捕获到真正的异常类型
+                raise LLMClientError(f"API调用时发生完全未预料的错误: {last_exception}") from last_exception
 
-            raise LLMClientError(
-                "所有API请求尝试轮均失败，或未能找到可用API密钥执行请求。"
-                "最后记录的异常 (如果存在): "
-                f"{type(last_exception).__name__ if last_exception else '无'}"
-            )
+            raise LLMClientError("所有API请求尝试轮均失败，或未能找到可用API密钥执行请求。")
 
     async def make_request(
         self,
