@@ -6,8 +6,6 @@ from src.core_logic.decision_dispatcher import process_llm_decision, normalize_a
 from src.platform_builders.registry import platform_builder_registry
 from src import platform_builders  # 导入 platform_builders 包
 
-# 标记整个模块的所有测试都需要异步环境
-pytestmark = pytest.mark.asyncio
 
 # --- 关键修复：添加 Module 级别的 Fixture 来初始化注册中心 ---
 @pytest.fixture(scope="module", autouse=True)

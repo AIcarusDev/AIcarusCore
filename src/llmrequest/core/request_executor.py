@@ -17,7 +17,7 @@ from .models import (
     PermissionDeniedError,
     RateLimitError,
 )
-from .provider_handler import ApiProviderHandler
+from .provider.base import ApiProviderHandler
 
 logger = get_logger(__name__)
 

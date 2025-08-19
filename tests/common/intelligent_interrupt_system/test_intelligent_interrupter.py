@@ -6,8 +6,6 @@ from pytest_mock import MockerFixture
 from src.common.intelligent_interrupt_system.intelligent_interrupter import IntelligentInterrupter
 from src.domain.models import Stimulus
 
-# 标记整个模块的所有测试都需要异步环境
-pytestmark = pytest.mark.asyncio
 
 
 @pytest.fixture
