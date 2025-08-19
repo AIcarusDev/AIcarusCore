@@ -161,7 +161,7 @@ class ConfigurationError(PromptBuilderError):
     def __init__(
         self,
         config_key: str | None = None,
-        config_value: any = None,
+        config_value: any | None = None,
         error_details: str | None = None,
     ) -> None:
         context = {}

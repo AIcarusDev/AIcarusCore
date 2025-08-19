@@ -205,7 +205,7 @@ class TestPromptBuilderCurrentState:
 
 @pytest.fixture
 def mock_dependencies(mocker: MockerFixture) -> dict:
-    """一个集中的 Fixture，用于模拟 ThoughtPromptBuilder 的所有依赖项。"""
+    """一个集中的 Fixture，用于模拟 ThoughtPromptBuilder 的所有依赖项."""
     return {
         "unread_info_service": mocker.AsyncMock(),
         "internal_info_builder": mocker.AsyncMock(),
@@ -221,8 +221,7 @@ def mock_dependencies(mocker: MockerFixture) -> dict:
 
 @pytest.fixture
 def wired_prompt_builder(mock_dependencies: dict) -> ThoughtPromptBuilder:
-    """创建一个 ThoughtPromptBuilder 实例，并模拟“后期绑定/注入”的过程。
-    """
+    """创建一个 ThoughtPromptBuilder 实例，并模拟“后期绑定/注入”的过程."""
     deps_for_init = mock_dependencies.copy()
     deps_for_init["chat_session_manager"] = None
     deps_for_init["core_ws_server"] = None
@@ -250,12 +249,12 @@ def wired_prompt_builder(mock_dependencies: dict) -> ThoughtPromptBuilder:
 
 
 class TestPromptBuilderInstantiationAndWiring:
-    """测试 ThoughtPromptBuilder 的实例化和依赖注入逻辑。"""
+    """测试 ThoughtPromptBuilder 的实例化和依赖注入逻辑."""
 
-    def test_thought_prompt_builder_instantiation_with_none(self, mock_dependencies: dict):
+    def test_thought_prompt_builder_instantiation_with_none(self, mock_dependencies: dict) -> None:
         """测试核心修复：验证 ThoughtPromptBuilder 可以在 chat_session_manager
-        和 core_ws_server 为 None 的情况下被成功实例化。
-        """
+        和 core_ws_server 为 None 的情况下被成功实例化.
+        """  # noqa: D205
         try:
             deps_for_test = mock_dependencies.copy()
             deps_for_test["chat_session_manager"] = None
@@ -273,9 +272,8 @@ class TestPromptBuilderInstantiationAndWiring:
 
     async def test_build_prompts_components_after_wiring(
         self, wired_prompt_builder: ThoughtPromptBuilder, mocker: MockerFixture
-    ):
-        """测试功能性：在依赖被注入后，build_prompts_components 方法应该能成功执行。
-        """
+    ) -> None:
+        """测试功能性：在依赖被注入后，build_prompts_components 方法应该能成功执行."""
         # 准备：模拟子构建器和 chat_session_manager 的行为
         mocker.patch.object(
             wired_prompt_builder.external_info_builder,

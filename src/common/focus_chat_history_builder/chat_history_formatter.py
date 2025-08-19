@@ -77,7 +77,7 @@ class _ChatHistoryFormatter:
                 self.platform_id_to_uid_str[stimulus.sender_id] = uid_str
                 self.user_map[stimulus.sender_id] = {
                     "uid_str": uid_str,
-                    "nick": stimulus.sender_nickname or f"用户{stimulus.sender_id[:4]}",
+                    "nick": stimulus.sender_nickname or f"用户{stimulus.sender_id}",
                     "card": stimulus.sender_cardname or stimulus.sender_nickname,
                     "title": "",
                     "perm": "成员",
@@ -385,16 +385,31 @@ class _ChatHistoryFormatter:
         if not user_id:
             return f"引用/回复 未知用户(id:{msg_id})"
 
+        user_id_str = str(user_id)
+
         # 优先使用 user_map (这是单一事实来源) 来查找 Uid 字符串
-        # 这比依赖 platform_id_to_uid_str 更可靠
-        user_data = self.user_map.get(str(user_id))
+        user_data = self.user_map.get(user_id_str)
         if user_data and (uid_str := user_data.get("uid_str")):
             # 找到了用户，使用其内部ID (U1, U2...)
             user_display = uid_str
         else:
-            # 如果在当前上下文的 user_map 中找不到 (可能是引用了很早之前的消息)
-            # 我们提供一个明确的回退，而不是显示 "未知用户"
-            user_display = f"历史用户({str(user_id)[:6]}...)"
+            # 如果在当前上下文的 user_map 中找不到，动态添加到 user_map
+            # 计算新的 UID
+            existing_uids = [int(data["uid_str"][1:]) for data in self.user_map.values()]
+            new_uid_number = max(existing_uids) + 1 if existing_uids else 1
+            uid_str = f"U{new_uid_number}"
+
+            # 添加到映射表
+            self.platform_id_to_uid_str[user_id_str] = uid_str
+            self.user_map[user_id_str] = {
+                "uid_str": uid_str,
+                "nick": f"用户{user_id_str}",  # 使用默认昵称
+                "card": f"用户{user_id_str}",  # 使用默认名片
+                "title": "",
+                "perm": "成员",
+            }
+
+            user_display = uid_str
 
         return f"引用/回复 {user_display}(id:{msg_id})"
 
