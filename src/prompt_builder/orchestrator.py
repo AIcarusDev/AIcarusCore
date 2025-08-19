@@ -46,6 +46,10 @@ class ThoughtPromptBuilder:
     ) -> None:
         self.is_context_switch_flag: bool = False
 
+        # 保存对核心依赖的引用，以便在 build_prompts_components 中使用。
+        self.chat_session_manager = chat_session_manager
+        # self.core_ws_server = core_ws_server # core_ws_server 在当前类中未直接使用，可以不保存
+
         self.schema_builder = SchemaBuilder(chat_session_manager, core_ws_server)
         self.external_info_builder = ExternalInfoBuilder(
             unread_info_service, event_storage_service, chat_session_manager

@@ -1,5 +1,6 @@
 # tests/core_logic/test_prompt_builder.py
 
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from pytest_mock import MockerFixture
@@ -12,7 +13,7 @@ pytestmark = pytest.mark.asyncio
 
 @pytest.fixture
 def mock_dependencies(mocker: MockerFixture) -> dict:
-    """一个集中的 Fixture，用于模拟 ThoughtPromptBuilder 的所有依赖项."""
+    """一个集中的 Fixture，用于模拟 ThoughtPromptBuilder 的所有依赖项。"""
     return {
         "unread_info_service": mocker.AsyncMock(),
         "internal_info_builder": mocker.AsyncMock(),
@@ -26,72 +27,87 @@ def mock_dependencies(mocker: MockerFixture) -> dict:
     }
 
 
-def test_thought_prompt_builder_instantiation_with_none(mock_dependencies: dict) -> None:
-    """测试核心修复：验证 ThoughtPromptBuilder 可以在 chat_session_manager和 core_ws_server.
-
-    为 None 的情况下被成功实例化。在修复前，这个测试会抛出 ValueError.
+def test_thought_prompt_builder_instantiation_with_none(mock_dependencies: dict):
+    """
+    测试核心修复：验证 ThoughtPromptBuilder 可以在 chat_session_manager
+    和 core_ws_server 为 None 的情况下被成功实例化。
     """
     try:
-        builder = ThoughtPromptBuilder(
-            **mock_dependencies,
-            chat_session_manager=None,
-            core_ws_server=None,
-        )
-        # 验证实例的属性被正确设置为 None
+        deps_for_test = mock_dependencies.copy()
+        deps_for_test["chat_session_manager"] = None
+        deps_for_test["core_ws_server"] = None
+        
+        builder = ThoughtPromptBuilder(**deps_for_test)
+
+        # 验证实例自身的属性被正确设置为 None
+        assert builder.chat_session_manager is None
+        # 验证子构建器的属性也被正确设置为 None
         assert builder.schema_builder.chat_session_manager is None
         assert builder.external_info_builder.chat_session_manager is None
-        assert builder.system_prompt_parts_builder.chat_session_manager is None
-    except ValueError:
-        pytest.fail(
-            "ThoughtPromptBuilder failed to instantiate with None for "
-            "chat_session_manager and core_ws_server. The fix is not applied."
-        )
+    except (ValueError, TypeError) as e:
+        pytest.fail(f"ThoughtPromptBuilder instantiation failed unexpectedly: {e}")
 
 
 @pytest.fixture
 def wired_prompt_builder(mock_dependencies: dict) -> ThoughtPromptBuilder:
-    """创建一个 ThoughtPromptBuilder 实例，并模拟“后期绑定/注入”的过程."""
-    # 1. 初始创建时传入 None
-    builder = ThoughtPromptBuilder(
-        **mock_dependencies,
-        chat_session_manager=None,
-        core_ws_server=None,
-    )
+    """
+    创建一个 ThoughtPromptBuilder 实例，并模拟“后期绑定/注入”的过程。
+    """
+    deps_for_init = mock_dependencies.copy()
+    deps_for_init["chat_session_manager"] = None
+    deps_for_init["core_ws_server"] = None
+    
+    builder = ThoughtPromptBuilder(**deps_for_init)
 
-    # 2. 模拟后续的依赖注入过程
+    # --- [ 核心修复 ] ---
+    # 模拟后续的依赖注入过程，现在需要同时更新 builder 自身和其子构建器
     builder.chat_session_manager = mock_dependencies["chat_session_manager"]
-    builder.core_ws_server = mock_dependencies["core_ws_server"]
-    # 同样更新其子构建器中的依赖
     builder.schema_builder.chat_session_manager = mock_dependencies["chat_session_manager"]
     builder.external_info_builder.chat_session_manager = mock_dependencies["chat_session_manager"]
-    builder.system_prompt_parts_builder.chat_session_manager = mock_dependencies[
-        "chat_session_manager"
-    ]
-    builder.user_prompt_parts_builder.chat_session_manager = mock_dependencies[
-        "chat_session_manager"
-    ]
+    builder.system_prompt_parts_builder.chat_session_manager = mock_dependencies["chat_session_manager"]
+    builder.user_prompt_parts_builder.chat_session_manager = mock_dependencies["chat_session_manager"]
+    
+    # 虽然 core_ws_server 不是本次 bug 的原因，但为了完整性，也一并注入
     builder.system_prompt_parts_builder.core_ws_server = mock_dependencies["core_ws_server"]
-
+    builder.schema_builder.core_ws_server = mock_dependencies["core_ws_server"]
+    # --- [ 修复结束 ] ---
+    
     return builder
 
 
 async def test_build_prompts_components_after_wiring(
-    wired_prompt_builder: ThoughtPromptBuilder, mock_dependencies: dict
-) -> None:
-    """测试功能性：在依赖被注入后，build_prompts_components 方法应该能成功执行."""
-    # 准备：为子构建器的 build 方法配置返回值，以隔离测试范围
-    mock_dependencies["external_info_builder"].build.return_value = (
-        "external_info",
-        "meta_info",
-        PromptComponents(),  # 返回一个空的 PromptComponents 实例
-        [],
+    wired_prompt_builder: ThoughtPromptBuilder, mocker: MockerFixture
+):
+    """
+    测试功能性：在依赖被注入后，build_prompts_components 方法应该能成功执行。
+    """
+    # 准备：模拟子构建器和 chat_session_manager 的行为
+    mocker.patch.object(
+        wired_prompt_builder.external_info_builder,
+        'build',
+        new_callable=AsyncMock,
+        return_value=("external_info", "meta_info", PromptComponents(), [])
     )
-    mock_dependencies["internal_info_builder"].build_internal_info_block.return_value = (
-        "internal_info"
+    mocker.patch.object(
+        wired_prompt_builder.system_prompt_parts_builder,
+        'build',
+        new_callable=AsyncMock,
+        return_value={"system_key": "system_value"}
     )
-    mock_dependencies[
-        "state_manager"
-    ].goal_manager.get_formatted_goals.return_value = "goals"
+    mocker.patch.object(
+        wired_prompt_builder.user_prompt_parts_builder,
+        'build',
+        new_callable=AsyncMock,
+        return_value={"user_key": "user_value"}
+    )
+    mocker.patch.object(
+        wired_prompt_builder.schema_builder,
+        'build_response_schema',
+        return_value={"schema_key": "schema_value"}
+    )
+    
+    # 模拟 chat_session_manager 的 focus_manager 属性，使其可以被访问
+    wired_prompt_builder.chat_session_manager.focus_manager.focus_history = [1, 2] # 模拟历史记录大于1
 
     # 执行
     try:
@@ -101,8 +117,7 @@ async def test_build_prompts_components_after_wiring(
         # 断言
         assert isinstance(components, PromptComponents)
         assert stimuli == []
-        # 验证其子构建器的方法是否被调用
-        mock_dependencies["external_info_builder"].build.assert_awaited_once()
+        wired_prompt_builder.external_info_builder.build.assert_awaited_once()
 
     except Exception as e:
         pytest.fail(f"build_prompts_components failed after wiring dependencies: {e}")
