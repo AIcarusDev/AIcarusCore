@@ -128,7 +128,7 @@ class ChatSessionManager:
             # 理由：
             # 1. `conv_details` 是 ConversationDetails 对象，不是字典，`in` 操作会引发 TypeError。
             # 2. dataclass 定义已确保 `extra` 始终存在且为字典。
-            # 3. `membership_status` 不是 `ConversationDetails` 的属性，访问它会引发 AttributeError。
+            # 3. `membership_status` 不是 `ConversationDetails` 的属性，访问它会引发 AttributeError
             #    该属性应在创建 EnrichedConversationInfo 时从 extra 字典中读取。
             # ========================== [FIX END] ==========================
 

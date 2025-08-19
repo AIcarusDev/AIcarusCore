@@ -126,7 +126,7 @@ class EventStorageService:
         """
         if not image_hash:
             return None
-        query = f'match $e isa event, has content-json $cj; $cj like ".*{image_hash}.*"; $e has timestamp $ts; sort $ts desc; limit 1; select $e;'
+        query = f'match $e isa event, has content-json $cj; $cj like ".*{image_hash}.*"; $e has timestamp $ts; sort $ts desc; limit 1; select $e;'  # noqa: E501
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
         def db_read() -> dict[str, Any] | None:
@@ -195,7 +195,7 @@ class EventStorageService:
             Returns empty list if no events are found or if an error occurs.
         """
         event_type_filter = "message\\\\..*" if not fetch_all_event_types else ".*"
-        query = rf'match $e isa event, has conversation-info-json $ci; $ci like ".*\"conversation_id\": \"{conversation_id}\".*"; $e has event-type $et; $et like "{event_type_filter}"; $e has timestamp $ts; sort $ts desc; limit {limit}; select $e;'
+        query = rf'match $e isa event, has conversation-info-json $ci; $ci like ".*\"conversation_id\": \"{conversation_id}\".*"; $e has event-type $et; $et like "{event_type_filter}"; $e has timestamp $ts; sort $ts desc; limit {limit}; select $e;'  # noqa: E501
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
         def db_read() -> list[dict[str, Any]]:
@@ -252,10 +252,10 @@ class EventStorageService:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
                 for event_id in event_ids:
                     tx.query(
-                        f'match $e isa event, has event-id "{event_id}", has status $s; delete has $s of $e;'
+                        f'match $e isa event, has event-id "{event_id}", has status $s; delete has $s of $e;'  # noqa: E501
                     ).resolve()
                     tx.query(
-                        f'match $e isa event, has event-id "{event_id}"; insert $e has status "{new_status}";'
+                        f'match $e isa event, has event-id "{event_id}"; insert $e has status "{new_status}";'  # noqa: E501
                     ).resolve()
                 tx.commit()
             return True
@@ -280,7 +280,7 @@ class EventStorageService:
             vectors (list[float]) sorted by timestamp. Only includes conversations
             with 2 or more messages.
         """
-        query = r'match $event isa event, has event-type $type; $type like "message\\..*"; $event has embedding-json $embedding_json; $event has conversation-info-json $conv_info_json; $event has timestamp $ts; select $conv_info_json, $embedding_json, $ts;'
+        query = r'match $event isa event, has event-type $type; $type like "message\\..*"; $event has embedding-json $embedding_json; $event has conversation-info-json $conv_info_json; $event has timestamp $ts; select $conv_info_json, $embedding_json, $ts;'  # noqa: E501
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
         def db_read_and_group() -> list[list[list[float]]]:
@@ -349,9 +349,10 @@ class EventStorageService:
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
         def db_read() -> dict | None:
-            logger.debug(
-                f"[PROBE_F] Executing get_event_by_timestamp for conv_uid={conversation_uid}, ts={timestamp}"
-            )
+            # logger.debug(
+            #     f"[PROBE_F] Executing get_event_by_timestamp for conv_uid={conversation_uid}, "
+            #     f"ts={timestamp}"
+            # )
             with driver.transaction(db_name, TransactionType.READ) as tx:
                 answers = list(tx.query(query).resolve().as_concept_rows())
                 if answers and (eid_attr := answers[0].get("event_id")):
@@ -368,6 +369,7 @@ class EventStorageService:
         self, conversation_uid: str, self_bot_ids: dict[str, str]
     ) -> dict[str, Any]:
         """Get the count of unread messages and priority status for a conversation.
+
         This method has been refactored to use efficient aggregate queries,
         preventing gRPC message size limit errors.
 

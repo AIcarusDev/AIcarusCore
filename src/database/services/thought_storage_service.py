@@ -67,7 +67,7 @@ class ThoughtStorageService:
                 # 1. 获取上一个思想节点的 key
                 answers = list(
                     tx.query(
-                        f'match $p isa system-pointer, has pointer-name "{LATEST_THOUGHT_POINTER_KEY}"; $p has target-key $key; select $key;'
+                        f'match $p isa system-pointer, has pointer-name "{LATEST_THOUGHT_POINTER_KEY}"; $p has target-key $key; select $key;'  # noqa: E501
                     )
                     .resolve()
                     .as_concept_rows()
@@ -80,7 +80,7 @@ class ThoughtStorageService:
                 # 2. 构建属性插入部分
                 insert_parts = [
                     f'has thought-id "{new_key}"',
-                    f"has timestamp {int(datetime.datetime.fromisoformat(thought_data.timestamp).timestamp() * 1000)}",
+                    f"has timestamp {int(datetime.datetime.fromisoformat(thought_data.timestamp).timestamp() * 1000)}",  # noqa: E501
                     f'has mood "{thought_data.mood.replace('"', '\\"')}"',
                     f'has think "{thought_data.think.replace('"', '\\"')}"',
                 ]
@@ -94,7 +94,7 @@ class ThoughtStorageService:
                     insert_parts.append(f'has action-id "{thought_data.action_id}"')
                 if thought_data.action_payload:
                     insert_parts.append(
-                        f'has action-payload-json "{json.dumps(thought_data.action_payload, ensure_ascii=False).replace('"', '\\"')}"'
+                        f'has action-payload-json "{json.dumps(thought_data.action_payload, ensure_ascii=False).replace('"', '\\"')}"'  # noqa: E501
                     )
                 attributes_str = ",\n    ".join(insert_parts)
 
@@ -116,11 +116,11 @@ class ThoughtStorageService:
                 # 4. 原子性地更新指针
                 if last_thought_key:
                     tx.query(
-                        f'match $p isa system-pointer, has pointer-name "{LATEST_THOUGHT_POINTER_KEY}"; $p has target-key $old_key; delete has $old_key of $p; insert $p has target-key "{new_key}";'
+                        f'match $p isa system-pointer, has pointer-name "{LATEST_THOUGHT_POINTER_KEY}"; $p has target-key $old_key; delete has $old_key of $p; insert $p has target-key "{new_key}";'  # noqa: E501
                     ).resolve()
                 else:
                     tx.query(
-                        f'insert $p isa system-pointer, has pointer-name "{LATEST_THOUGHT_POINTER_KEY}", has target-key "{new_key}";'
+                        f'insert $p isa system-pointer, has pointer-name "{LATEST_THOUGHT_POINTER_KEY}", has target-key "{new_key}";'  # noqa: E501
                     ).resolve()
 
                 tx.commit()

@@ -61,13 +61,14 @@ async def test_valid_query_succeeds(db_connection: Driver) -> None:
 
 
 class TestOptionalAttributeQueries:
-    """专门测试涉及可选属性查询的 TypeQL 语句，特别是验证 `try-catch` 到 `optional` 模式的修复。"""
+    """专门测试涉及可选属性查询的 TypeQL 语句，特别是验证 `try-catch` 到 `optional` 模式的修复."""
 
     @pytest.mark.asyncio
     async def test_update_name_handles_optional_attribute(
         self, entity_graph_service: EntityGraphService, db_connection: Driver
     ) -> None:
-        """测试 get_or_create_conversation_entity 方法能否正确处理 display-name 的添加、更新和移除。
+        """测试 get_or_create_conversation_entity 方法能否正确处理 display-name 的添加、更新和移除.
+
         这个测试会间接触发已修复的 _update_conversation_name_if_changed_sync 方法。
         """
         # --- 1. 准备 (Arrange) ---
@@ -88,7 +89,7 @@ class TestOptionalAttributeQueries:
 
         # 验证：数据库中确实没有 display-name
         with db_connection.transaction(db_name, TransactionType.READ) as tx:
-            query_no_name = f'match $c isa conversation, has conversation-uid "{conv_uid}"; not {{ $c has display-name $any; }}; select $c;'
+            query_no_name = f'match $c isa conversation, has conversation-uid "{conv_uid}"; not {{ $c has display-name $any; }}; select $c;'  # noqa: E501
             answers_no_name = list(tx.query(query_no_name).resolve().as_concept_rows())
             assert len(answers_no_name) == 1, "创建无名会话失败"
 
@@ -99,7 +100,7 @@ class TestOptionalAttributeQueries:
 
         # 验证：名称已成功添加
         with db_connection.transaction(db_name, TransactionType.READ) as tx:
-            query_has_name = f'match $c isa conversation, has conversation-uid "{conv_uid}", has display-name $n; select $n;'
+            query_has_name = f'match $c isa conversation, has conversation-uid "{conv_uid}", has display-name $n; select $n;'  # noqa: E501
             answers_has_name = list(tx.query(query_has_name).resolve().as_concept_rows())
             assert len(answers_has_name) == 1
             assert answers_has_name[0].get("n").as_attribute().get_value() == initial_name
@@ -111,7 +112,7 @@ class TestOptionalAttributeQueries:
 
         # 验证：名称已成功更新
         with db_connection.transaction(db_name, TransactionType.READ) as tx:
-            query_updated_name = f'match $c isa conversation, has conversation-uid "{conv_uid}", has display-name $n; select $n;'
+            query_updated_name = f'match $c isa conversation, has conversation-uid "{conv_uid}", has display-name $n; select $n;'  # noqa: E501
             answers_updated_name = list(tx.query(query_updated_name).resolve().as_concept_rows())
             assert len(answers_updated_name) == 1
             assert answers_updated_name[0].get("n").as_attribute().get_value() == updated_name
@@ -123,7 +124,7 @@ class TestOptionalAttributeQueries:
 
         # 验证：名称已成功移除，回到初始状态
         with db_connection.transaction(db_name, TransactionType.READ) as tx:
-            query_removed_name = f'match $c isa conversation, has conversation-uid "{conv_uid}"; not {{ $c has display-name $any; }}; select $c;'
+            query_removed_name = f'match $c isa conversation, has conversation-uid "{conv_uid}"; not {{ $c has display-name $any; }}; select $c;'  # noqa: E501
             answers_removed_name = list(tx.query(query_removed_name).resolve().as_concept_rows())
             assert len(answers_removed_name) == 1, "移除名称失败"
 
@@ -139,7 +140,7 @@ async def _setup_presence_in_db(
     cardname: str | None,
     permission_level: str | None,
 ) -> None:
-    """一个辅助函数，用于在数据库中建立'账号'-'会话'的'成员'关系，并可选地添加属性。"""
+    """一个辅助函数，用于在数据库中建立'账号'-'会话'的'成员'关系，并可选地添加属性."""
     with db_connection.transaction(db_name, TransactionType.WRITE) as tx:
         # 确保基础实体存在
         # [FIX] 插入具体的 aic_self 类型，而不是抽象的 person 类型
@@ -147,7 +148,7 @@ async def _setup_presence_in_db(
         tx.query(f'insert $acc isa account, has account-uid "{self_account_uid}";').resolve()
         tx.query(f'insert $conv isa conversation, has conversation-uid "{conv_uid}";').resolve()
         tx.query(
-            f'match $p isa person, has person-uid "aic_person_0"; $acc isa account, has account-uid "{self_account_uid}"; insert (owner: $p, owned-account: $acc) isa identity-ownership;'
+            f'match $p isa person, has person-uid "aic_person_0"; $acc isa account, has account-uid "{self_account_uid}"; insert (owner: $p, owned-account: $acc) isa identity-ownership;'  # noqa: E501
         ).resolve()
 
         # 构建关系和属性的插入语句
@@ -172,7 +173,7 @@ async def _setup_presence_in_db(
 
 
 class TestEntityGraphServiceFixes:
-    """测试 EntityGraphService 中被修复的 TypeQL 查询。"""
+    """测试 EntityGraphService 中被修复的 TypeQL 查询."""
 
     async def test_get_self_presence_with_full_attributes(
         self,
@@ -180,7 +181,7 @@ class TestEntityGraphServiceFixes:
         db_connection: Driver,
         mocker: MockerFixture,
     ) -> None:
-        """场景1: 测试当 cardname 和 permission-level 都存在时的情况。"""
+        """场景1: 测试当 cardname 和 permission-level 都存在时的情况."""
         # 准备
         platform = "qq"
         self_account_uid = f"{platform}_bot123"
@@ -211,7 +212,7 @@ class TestEntityGraphServiceFixes:
         db_connection: Driver,
         mocker: MockerFixture,
     ) -> None:
-        """场景2: 测试当只有 permission-level 存在时的情况。"""
+        """场景2: 测试当只有 permission-level 存在时的情况."""
         platform = "qq"
         self_account_uid = f"{platform}_bot123"
         conv_uid = f"{platform}_group_abc"
@@ -239,7 +240,7 @@ class TestEntityGraphServiceFixes:
         db_connection: Driver,
         mocker: MockerFixture,
     ) -> None:
-        """场景3: 测试当关系存在但没有可选属性时，返回空字典。"""
+        """场景3: 测试当关系存在但没有可选属性时，返回空字典."""
         platform = "qq"
         self_account_uid = f"{platform}_bot123"
         conv_uid = f"{platform}_group_abc"
@@ -263,7 +264,7 @@ class TestEntityGraphServiceFixes:
         db_connection: Driver,
         mocker: MockerFixture,
     ) -> None:
-        """场景4: 测试当机器人不在群组中时，返回 None。"""
+        """场景4: 测试当机器人不在群组中时，返回 None."""
         platform = "qq"
         self_account_uid = f"{platform}_bot123"
         conv_uid = f"{platform}_group_abc"
@@ -287,7 +288,7 @@ class TestEntityGraphServiceFixes:
 
 
 class TestActionLogStorageServiceFixes:
-    """测试 ActionLogStorageService 中被修复的 TypeQL 查询。"""
+    """测试 ActionLogStorageService 中被修复的 TypeQL 查询."""
 
     async def test_update_action_log_overwrites_existing_attribute(
         self,
@@ -295,7 +296,7 @@ class TestActionLogStorageServiceFixes:
         entity_graph_service: EntityGraphService,
         db_connection: Driver,
     ) -> None:
-        """测试 update 查询是否能正确覆盖已存在的属性值。"""
+        """测试 update 查询是否能正确覆盖已存在的属性值."""
         service = action_log_storage_service
         db_name = service.conn_manager.database_name
         action_id = "action_overwrite_test"
@@ -315,14 +316,14 @@ class TestActionLogStorageServiceFixes:
         # 第一次更新
         await service.update_action_log_with_response(action_id, {"status": "running"})
         with db_connection.transaction(db_name, TransactionType.READ) as tx:
-            query = f'match $a isa action-log, has action-id "{action_id}"; $a has status $s; select $s;'
+            query = f'match $a isa action-log, has action-id "{action_id}"; $a has status $s; select $s;'  # noqa: E501
             answers = list(tx.query(query).resolve().as_concept_rows())
             assert answers[0].get("s").as_attribute().get_value() == "running"
 
         # 第二次更新（覆盖）
         await service.update_action_log_with_response(action_id, {"status": "completed"})
         with db_connection.transaction(db_name, TransactionType.READ) as tx:
-            query = f'match $a isa action-log, has action-id "{action_id}"; $a has status $s; select $s;'
+            query = f'match $a isa action-log, has action-id "{action_id}"; $a has status $s; select $s;'  # noqa
             answers = list(tx.query(query).resolve().as_concept_rows())
             assert answers[0].get("s").as_attribute().get_value() == "completed"
 

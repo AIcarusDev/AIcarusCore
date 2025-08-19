@@ -20,7 +20,7 @@ pytestmark = pytest.mark.asyncio
 
 @pytest.fixture
 def mock_entity_graph_service(mocker: MockerFixture) -> MagicMock:
-    """模拟 EntityGraphService，并预设其方法的返回值。"""
+    """模拟 EntityGraphService，并预设其方法的返回值."""
     mock = mocker.MagicMock()
     mock.find_or_create_profile_and_account_entity = mocker.AsyncMock(
         return_value=("profile_123", "qq_user_12345")
@@ -51,7 +51,7 @@ def mock_entity_graph_service(mocker: MockerFixture) -> MagicMock:
 def message_processor(
     mocker: MockerFixture, mock_entity_graph_service: MagicMock
 ) -> DefaultMessageProcessor:
-    """创建一个 DefaultMessageProcessor 实例，并注入所有模拟依赖。"""
+    """创建一个 DefaultMessageProcessor 实例，并注入所有模拟依赖."""
     return DefaultMessageProcessor(
         event_service=mocker.MagicMock(),
         entity_service=mock_entity_graph_service,
@@ -66,10 +66,8 @@ def message_processor(
 async def test_process_event_updates_conversation_name(
     message_processor: DefaultMessageProcessor,
     mock_entity_graph_service: MagicMock,
-):
-    """测试场景 (最终验证): 当处理一个带有群名的事件时，
-    应调用 update_presence_in_conversation 并正确传递群名。
-    """
+) -> None:
+    """测试: 当处理一个带有群名的事件时,应调用 update_presence_in_conversation 并正确传递群名."""
     # 1. 准备 (Arrange)
     group_name = "一个在事件中出现的群名"
     test_event = Event(
