@@ -343,7 +343,6 @@ class ThoughtPromptBuilder:
                 level, builder, core_builder, can_go_back=can_go_back
             ),
             "available_actions": self._get_actions_descriptions(level, builder, core_builder),
-            "self_prompt_block": await self._build_self_prompt_block(),
         }
 
     async def _build_user_prompt_blocks(
@@ -602,36 +601,6 @@ class ThoughtPromptBuilder:
             log_lines.append(f"- [{index_str}] {time_str} 专注于 {desc} (动机: {motivation})")
 
         return "\n".join(log_lines)
-
-    async def _build_self_prompt_block(self) -> str:
-        """构建 <self_prompt> 块，从工作区读取 self_prompt.md 文件.
-
-        如果文件不存在，就返回一个友好的提示.
-        """
-        if not self.action_handler:
-            logger.error(
-                "在读取 self_prompt.md 时，ThoughtPromptBuilder 的 action_handler 未被初始化！"
-            )
-            return "<!-- 错误：ActionHandler未初始化，无法读取 self_prompt.md -->"
-
-        try:
-            # 从工作区安全路径读取文件
-            workspace_root = self.action_handler._get_safe_workspace_root()
-            prompt_file_path = workspace_root / "self_prompt.md"
-
-            if prompt_file_path.exists() and prompt_file_path.is_file():
-                content = prompt_file_path.read_text(encoding="utf-8")
-                # 如果文件是空的，就返回一个友好的提示
-                if not content.strip():
-                    return "<!-- `self_prompt.md` 文件是空的，你可以在其中写入任何想让自己记住的设定或规则。 -->"  # noqa: E501
-                return content
-            else:
-                # 如果文件尚不存在，也返回一个友好的提示
-                return "<!-- `self_prompt.md` 文件尚不存在, 如希望编辑此处内容, 请在工作区根目录中创建并编辑该文件。 -->"  # noqa: E501
-        except Exception as e:
-            logger.error(f"读取 self_prompt.md 时发生意外错误: {e}", exc_info=True)
-            # 出错了也要返回一个友好的提示
-            return "<!-- 读取 self_prompt.md 时发生内部错误。 -->"
 
     async def _build_friend_request_block(self, platform_id: str) -> str:
         requests = await self.action_handler.entity_service.get_pending_friend_requests(platform_id)
