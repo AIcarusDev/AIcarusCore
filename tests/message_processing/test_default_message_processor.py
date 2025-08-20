@@ -67,7 +67,7 @@ async def test_process_event_updates_conversation_name(
     message_processor: DefaultMessageProcessor,
     mock_entity_graph_service: MagicMock,
 ) -> None:
-    """测试: 当处理一个带有群名的事件时,应调用 update_presence_in_conversation 并正确传递群名."""
+    """测试: 当处理一个带有群名的事件时,应调用 update_presence_in_conversation 但不再传递群名."""
     # 1. 准备 (Arrange)
     group_name = "一个在事件中出现的群名"
     test_event = Event(
@@ -81,25 +81,77 @@ async def test_process_event_updates_conversation_name(
     )
 
     # 2. 执行 (Act)
-    await message_processor._handle_event_persistence(
-        event=test_event, platform_id="qq", needs_persistence=False
+    await message_processor._associate_person_and_update_membership(
+        event=test_event, platform_id="qq"
     )
 
     # 3. 断言 (Assert)
+    # --- [修复] ---
+    # 移除 call 中的 conversation_name 参数
     sender_call = call(
         account_entity_uid="qq_user_12345",
         conversation_entity_uid="qq_group_654321",
         user_info=test_event.user_info,
-        conversation_name=group_name,
     )
 
     bot_call = call(
         account_entity_uid="qq_bot-999",
         conversation_entity_uid="qq_group_654321",
         user_info=UserInfo(user_id="bot-999", user_nickname=config.persona.bot_name),
-        conversation_name=group_name,
     )
+    # --- [修复结束] ---
 
     mock_entity_graph_service.update_presence_in_conversation.assert_has_calls(
         [sender_call, bot_call], any_order=True
     )
+
+async def test_private_chat_event_does_not_cause_double_name_update(
+    message_processor: DefaultMessageProcessor,
+    mock_entity_graph_service: MagicMock,
+) -> None:
+    """
+    测试场景 (Bug 2 修复验证): 处理一个私聊事件时，会话名称应该只被
+    get_or_create_conversation_entity 设置一次，而后续的
+    update_presence_in_conversation 调用不应再修改它。
+    """
+    # 1. 准备 (Arrange)
+    sender_nickname = "未來星織"
+    test_event = Event(
+        event_id="private-chat-event",
+        event_type="message.qq.private.friend",
+        time=1234567890,
+        bot_id="99999",
+        user_info=UserInfo(user_id="1321807442", user_nickname=sender_nickname),
+        conversation_info=ConversationInfo(
+            conversation_id="1321807442",
+            type="private",
+            name=sender_nickname, # 事件中自带的名称
+        ),
+        content=[],
+    )
+
+    # 2. 执行 (Act)
+    # 调用被测试的核心方法
+    await message_processor._associate_person_and_update_membership(
+        event=test_event, platform_id="qq"
+    )
+
+    # 3. 断言 (Assert)
+    # 验证 get_or_create_conversation_entity 被调用，并且传入了正确的名称
+    mock_entity_graph_service.get_or_create_conversation_entity.assert_awaited_once_with(
+        conversation_id='1321807442',
+        platform='qq',
+        conv_type='private',
+        name=sender_nickname
+    )
+
+    # 验证 update_presence_in_conversation 被调用了两次 (一次为发送者，一次为机器人)
+    assert mock_entity_graph_service.update_presence_in_conversation.await_count == 2
+
+    # 核心验证：检查所有对 update_presence_in_conversation 的调用，
+    # 确保它们的关键字参数中【没有】'conversation_name'。
+    # 这证明了我们已经将更新会话名称的职责从这个函数中移除了。
+    for call_args in mock_entity_graph_service.update_presence_in_conversation.call_args_list:
+        kwargs = call_args.kwargs
+        assert 'conversation_name' not in kwargs, \
+            f"不应在 update_presence_in_conversation 中传递 conversation_name，但却传入了: {kwargs}"

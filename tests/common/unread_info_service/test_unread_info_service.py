@@ -19,8 +19,11 @@ def mock_entity_graph_service(mocker: MockerFixture) -> MagicMock:
     mock.get_recently_active_conversation_entities_with_details = mocker.AsyncMock()
     # 模拟 get_conversations_by_platform 方法
     mock.get_conversations_by_platform = mocker.AsyncMock()
-    # 模拟 get_self_presence_in_conversation 方法
+    # --- [修复] ---
+    # 将需要被 await 的方法明确声明为 AsyncMock
     mock.get_self_presence_in_conversation = mocker.AsyncMock()
+    mock.get_self_entity_by_platform = mocker.AsyncMock()
+    # --- [修复结束] ---
     return mock
 
 
@@ -275,4 +278,72 @@ class TestUnreadInfoServiceSummaries:
         assert "共 0 条未读信息" not in summary
         assert "条未读信息" not in summary
         # 验证只显示时间
-        assert "(时间：2小时前)" in summary or "(时间：" in summary
+        assert "(时间：2年前)" in summary or "(时间：" in summary
+
+    async def test_self_message_shows_group_cardname_instead_of_placeholder(
+        self,
+        unread_info_service: UnreadInfoService,
+        mock_entity_graph_service: MagicMock,
+    ) -> None:
+        """
+        测试场景 (Bug 1 修复验证): 当最新消息是机器人自己发送时，
+        摘要应优先显示其在数据库中记录的【群名片】，而不是事件中缓存的通用昵称。
+        """
+        # 1. 准备 (Arrange)
+        group_id = "123456"
+        conv_uid = f"qq_group_{group_id}"
+        bot_id = "99999"
+        bot_group_cardname = "霜-Bot"  # <-- 这是我们期望看到的正确名称
+        bot_platform_nickname = "霜"
+
+        # 告知服务，机器人在qq平台的ID是'99999'
+        unread_info_service.update_self_bot_ids({"qq": bot_id})
+
+        # 模拟一个群聊实体
+        mock_conv_doc = EntityDocument(
+            _key=conv_uid,
+            entity_uid=conv_uid,
+            entity_type="conversation",
+            details=ConversationDetails(
+                platform="qq",
+                conversation_id=group_id,
+                type="group",
+                name="测试群",
+            ),
+        )
+
+        # 模拟一个由机器人自己发送的事件，注意这里的nickname是错误的占位符
+        mock_latest_event = {
+            "timestamp": 1678886400000,
+            "user_info": {"user_id": bot_id, "user_nickname": "AIcarus (Self)"},
+            "content": [{"type": "text", "data": {"text": "这是一条机器人自己发的消息"}}],
+        }
+
+        # 配置mock：当服务查询活跃会话时，返回我们构造的数据
+        mock_entity_graph_service.get_recently_active_conversation_entities_with_details.return_value = [
+            {
+                "conv_doc": mock_conv_doc,
+                "latest_event": mock_latest_event,
+                "unread_count": 1,
+                "has_high_priority": False,
+            }
+        ]
+        # 配置mock：当服务查询机器人在此群的身份时，返回正确的群名片
+        mock_entity_graph_service.get_self_presence_in_conversation.return_value = {
+            "cardname": bot_group_cardname
+        }
+        # 配置mock：当服务查询机器人的平台身份时，返回正确的主昵称
+        mock_entity_graph_service.get_self_entity_by_platform.return_value = {
+            "details": {"nickname": bot_platform_nickname}
+        }
+
+        # 2. 执行 (Act)
+        summary = await unread_info_service.get_conversation_list_summary(platform_id="qq")
+
+        # 3. 断言 (Assert)
+        # --- [修复] ---
+        # 移除多余的 "..."，因为测试消息长度不足20，不会被截断
+        assert f"{bot_group_cardname}：这是一条机器人自己发的消息" in summary
+        # --- [修复结束] ---
+        assert "AIcarus (Self)" not in summary
+        assert "我：" not in summary # 也不能是“我”
