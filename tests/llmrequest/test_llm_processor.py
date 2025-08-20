@@ -12,9 +12,9 @@ pytestmark = pytest.mark.asyncio
 
 @pytest.fixture
 def mock_config(mocker: MockerFixture) -> MockerFixture:
-    """
-    一个用于模拟全局 config 对象的 fixture。
-    通过 mocker.patch，我们可以精确控制测试期间 config 的行为。
+    """一个用于模拟全局 config 对象的 fixture.
+
+    通过 mocker.patch，我们可以精确控制测试期间 config 的行为.
     """
     # 我们 patch llm_processor 模块中导入的 config 对象
     mock = mocker.patch("src.llmrequest.llm_processor.config")
@@ -23,11 +23,11 @@ def mock_config(mocker: MockerFixture) -> MockerFixture:
 
 @pytest.fixture
 def mock_underlying_llm_client_class(mocker: MockerFixture) -> MockerFixture:
-    """
-    一个关键的 fixture，它模拟了整个 UnderlyingLLMClient *类*。
-    这使我们能够：
-    1. 控制由这个类创建的所有实例的行为。
-    2. 检查这个类的构造函数(__init__)被调用了多少次，以及用了什么参数。
+    """一个关键的 fixture，它模拟了整个 UnderlyingLLMClient *类*.
+
+    这使我们能够:
+    1. 控制由这个类创建的所有实例的行为.
+    2. 检查这个类的构造函数(__init__)被调用了多少次，以及用了什么参数.
     """
     # patch llm_processor 模块中导入的 UnderlyingLLMClient 类
     mock_class = mocker.patch("src.llmrequest.llm_processor.UnderlyingLLMClient")
@@ -49,17 +49,15 @@ def mock_underlying_llm_client_class(mocker: MockerFixture) -> MockerFixture:
 def processor_client(
     mock_underlying_llm_client_class: MockerFixture,
 ) -> ProcessorClient:
+    """创建一个被测对象 ProcessorClient 的实例.
+
+    它的依赖 UnderlyingLLMClient 已经被我们的 mock_underlying_llm_client_class fixture 替换掉了.
     """
-    创建一个被测对象 ProcessorClient 的实例。
-    它的依赖 UnderlyingLLMClient 已经被我们的 mock_underlying_llm_client_class fixture 替换掉了。
-    """
-    return ProcessorClient(
-        model={"provider": "test_provider", "name": "test-main-model"}
-    )
+    return ProcessorClient(model={"provider": "test_provider", "name": "test-main-model"})
 
 
 class TestLLMProcessorClientFallback:
-    """专门测试模型升避（Fallback）功能的测试类。"""
+    """专门测试模型升避（Fallback）功能的测试类."""
 
     async def test_fallback_is_triggered_on_empty_response(
         self,
@@ -67,9 +65,7 @@ class TestLLMProcessorClientFallback:
         mock_config: MockerFixture,
         mock_underlying_llm_client_class: MockerFixture,
     ) -> None:
-        """
-        测试核心场景：当主模型返回空文本且配置了备用模型时，应触发升避逻辑。
-        """
+        """测试核心场景：当主模型返回空文本且配置了备用模型时，应触发升避逻辑."""
         # 1. 准备 (Arrange)
         mock_config.test_function.fallback_model_name = "gpt-4o-fallback"
         mock_instance = mock_underlying_llm_client_class.return_value
@@ -83,14 +79,12 @@ class TestLLMProcessorClientFallback:
         # --- [修改结束] ---
 
         # 2. 执行 (Act)
-        result = await processor_client.make_llm_request(
-            prompt="test", is_stream=False
-        )
+        result = await processor_client.make_llm_request(prompt="test", is_stream=False)
 
         # 3. 断言 (Assert)
         assert result["text"] == "Fallback success!"
         assert mock_underlying_llm_client_class.call_count == 2
-        
+
         # --- [核心修改] ---
         # 验证 'make_request' 被调用了两次
         assert mock_instance.make_request.call_count == 2
@@ -108,24 +102,20 @@ class TestLLMProcessorClientFallback:
         mock_config: MockerFixture,
         mock_underlying_llm_client_class: MockerFixture,
     ) -> None:
-        """
-        测试场景：即使主模型返回空文本，但如果没有配置备用模型，则不应触发升避。
-        """
+        """测试场景：即使主模型返回空文本，但如果没有配置备用模型，则不应触发升避."""
         mock_config.test_function.fallback_model_name = ""
         mock_instance = mock_underlying_llm_client_class.return_value
-        
+
         # --- [核心修改] ---
         # 配置 'make_request' 的返回值
         mock_instance.make_request.return_value = {"text": "  ", "error": None}
         # --- [修改结束] ---
 
-        result = await processor_client.make_llm_request(
-            prompt="test", is_stream=False
-        )
+        result = await processor_client.make_llm_request(prompt="test", is_stream=False)
 
         assert result["text"].strip() == ""
         mock_underlying_llm_client_class.assert_called_once()
-        
+
         # --- [核心修改] ---
         # 验证 'make_request' 被调用了一次
         mock_instance.make_request.assert_awaited_once()
@@ -137,12 +127,10 @@ class TestLLMProcessorClientFallback:
         mock_config: MockerFixture,
         mock_underlying_llm_client_class: MockerFixture,
     ) -> None:
-        """
-        测试场景：如果主模型成功返回了非空文本，则不应触发升避。
-        """
+        """测试场景：如果主模型成功返回了非空文本，则不应触发升避."""
         mock_config.test_function.fallback_model_name = "gpt-4o-fallback"
         mock_instance = mock_underlying_llm_client_class.return_value
-        
+
         # --- [核心修改] ---
         # 配置 'make_request' 的返回值
         mock_instance.make_request.return_value = {
@@ -151,13 +139,11 @@ class TestLLMProcessorClientFallback:
         }
         # --- [修改结束] ---
 
-        result = await processor_client.make_llm_request(
-            prompt="test", is_stream=False
-        )
+        result = await processor_client.make_llm_request(prompt="test", is_stream=False)
 
         assert result["text"] == "Primary success!"
         mock_underlying_llm_client_class.assert_called_once()
-        
+
         # --- [核心修改] ---
         # 验证 'make_request' 被调用了一次
         mock_instance.make_request.assert_awaited_once()
@@ -169,12 +155,10 @@ class TestLLMProcessorClientFallback:
         mock_config: MockerFixture,
         mock_underlying_llm_client_class: MockerFixture,
     ) -> None:
-        """
-        测试场景：如果主模型调用时发生API错误，则不应触发升避，应直接返回错误。
-        """
+        """测试场景：如果主模型调用时发生API错误，则不应触发升避，应直接返回错误."""
         mock_config.test_function.fallback_model_name = "gpt-4o-fallback"
         mock_instance = mock_underlying_llm_client_class.return_value
-        
+
         # --- [核心修改] ---
         # 配置 'make_request' 的返回值
         mock_instance.make_request.return_value = {
@@ -184,14 +168,12 @@ class TestLLMProcessorClientFallback:
         }
         # --- [修改结束] ---
 
-        result = await processor_client.make_llm_request(
-            prompt="test", is_stream=False
-        )
+        result = await processor_client.make_llm_request(prompt="test", is_stream=False)
 
         assert result["error"] is True
         assert result["message"] == "API key invalid"
         mock_underlying_llm_client_class.assert_called_once()
-        
+
         # --- [核心修改] ---
         # 验证 'make_request' 被调用了一次
         mock_instance.make_request.assert_awaited_once()

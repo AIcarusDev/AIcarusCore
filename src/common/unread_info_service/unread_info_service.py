@@ -89,9 +89,11 @@ class UnreadInfoService:
                 # 群聊：优先从数据库查询群名片，其次使用事件中的昵称，最后回退
                 if platform and conv_doc and conv_doc._key:
                     # 查询数据库获取机器人在该群的群名片
-                    presence_info = await self.entity_graph_service.get_self_presence_in_conversation(
-                        platform=platform,
-                        conversation_entity_uid=conv_doc._key,
+                    presence_info = (
+                        await self.entity_graph_service.get_self_presence_in_conversation(
+                            platform=platform,
+                            conversation_entity_uid=conv_doc._key,
+                        )
                     )
                     if presence_info and (group_cardname := presence_info.get("cardname")):
                         return group_cardname
@@ -519,4 +521,3 @@ class UnreadInfoService:
             else:
                 summary_lines.append(f"[{relative_time_str}] 你的 '{platform}' 上似乎有未读消息。")
         return "\n".join(summary_lines) or "所有平台均无新消息。"
-

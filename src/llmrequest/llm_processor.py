@@ -6,9 +6,10 @@ import copy
 from collections.abc import Callable, Coroutine
 from typing import Any, Unpack
 
+from src.common.custom_logging.logging_config import get_logger
+
 # 导入全局配置，以便我们能访问 fallback_model_name
 from src.config import config
-from src.common.custom_logging.logging_config import get_logger
 
 # 从新的 core.models 导入异常和类型定义
 from .core.models import APIKeyError, GenerationParams, LLMClientError, NetworkError
@@ -296,6 +297,53 @@ class Client:
         response_schema: dict[str, Any] | None = None,
         **additional_generation_params: Unpack[GenerationParams],
     ) -> dict[str, Any]:
+        """Make a request to the LLM with specified parameters.
+
+        Parameters
+        ----------
+        prompt : str | None, optional
+            The main prompt text for the LLM request.
+        system_prompt : str | None, optional
+            System-level instructions for the LLM.
+        is_stream : bool
+            Whether to use streaming mode for the request.
+        task_id : str | None, optional
+            Unique identifier for streaming tasks (required when is_stream=True).
+        is_multimodal : bool, default False
+            Whether the request includes multimodal inputs.
+        image_inputs : list[str] | None, optional
+            List of image inputs for multimodal requests.
+        temp : float | None, optional
+            Temperature parameter for response generation.
+        max_tokens : int | None, optional
+            Maximum number of tokens in the response.
+        tools : list[dict[str, Any]] | None, optional
+            Available tools for function calling.
+        tool_choice : str | dict[str, Any] | None, optional
+            Tool selection strategy.
+        image_mime_type_override : str | None, optional
+            Override for image MIME type detection.
+        max_retries : int, default 3
+            Maximum number of retry attempts for failed requests.
+        text_to_embed : str | None, optional
+            Text to generate embeddings for (alternative to prompt).
+        use_google_search : bool, default False
+            Whether to enable Google search functionality.
+        response_schema : dict[str, Any] | None, optional
+            Schema for structured response validation.
+        **additional_generation_params : GenerationParams
+            Additional parameters for LLM generation.
+
+        Returns:
+        -------
+        dict[str, Any]
+            Response from the LLM containing generated text, embeddings, or error information.
+
+        Raises:
+        ------
+        ValueError
+            If required parameters are missing or invalid.
+        """
         logger.info(
             f"LLM Processor Client 收到 make_llm_request 调用: "
             f"流式={is_stream}, TaskID={task_id if task_id else 'N/A'}, "
@@ -314,7 +362,9 @@ class Client:
             if is_stream:
                 logger.warning("嵌入请求通常是非流式的。参数 'is_stream=True' 在此场景下将被忽略。")
             if prompt and prompt.strip():
-                logger.warning("同时提供了 'prompt' 和 'text_to_embed'；对于嵌入请求，'prompt' 将被忽略。")
+                logger.warning(
+                    "同时提供了 'prompt' 和 'text_to_embed'；对于嵌入请求，'prompt' 将被忽略。"
+                )
             if tools or image_inputs:
                 logger.warning("为嵌入请求提供了 'tools' 或 'image_inputs'；这些参数将被忽略。")
             if system_prompt:
@@ -376,7 +426,7 @@ class Client:
 
             # --- [核心修复 1/2] 增加日志以确认升避检查 ---
             logger.debug(f"主模型返回结果，准备进行升避检查。返回内容: {str(result)[:200]}...")
-            
+
             # --- [核心修复 2/2] 使用更安全的方式处理可能为 None 的 text 字段 ---
             should_fallback = (
                 not is_stream
@@ -412,17 +462,27 @@ class Client:
                         use_google_search=use_google_search,
                         **additional_generation_params,
                     )
-                    
+
                     logger.info(f"备用模型 '{fallback_model_name}' 调用完成。")
                     return fallback_result
 
                 except Exception as e:
-                    logger.error(f"尝试使用备用模型 '{fallback_model_name}' 时发生严重错误: {e}", exc_info=True)
+                    logger.error(
+                        f"尝试使用备用模型 '{fallback_model_name}' 时发生严重错误: {e}",
+                        exc_info=True,
+                    )
                     return result
-            
+
             return result
 
     async def interrupt_stream_task(self, task_id: str) -> None:
+        """中断指定的流式任务.
+
+        Parameters
+        ----------
+        task_id : str
+            要中断的流式任务的唯一标识符.
+        """
         logger.info(
             f"LLM Processor Client 尝试通过 _StreamingWorkflowManager 中断流式任务: {task_id}"
         )

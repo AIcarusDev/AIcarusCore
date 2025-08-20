@@ -196,14 +196,14 @@ class TestUnreadInfoServiceSummaries:
             "user_info": {
                 "user_id": bot_id,
                 "user_nickname": "AIcarus",
-                "user_cardname": "AIcarus (Self)"  # 事件中的群名片，但应该被数据库中的覆盖
+                "user_cardname": "AIcarus (Self)",  # 事件中的群名片，但应该被数据库中的覆盖
             },
             "content": [{"type": "text", "data": {"text": "我这就去看看资源站"}}],
         }
         mock_unread_info = {"unread_count": 1, "has_high_priority": False}
 
         # 配置 mock service 的返回值
-        mock_entity_graph_service.get_recently_active_conversation_entities_with_details.return_value = [
+        mock_entity_graph_service.get_recently_active_conversation_entities_with_details.return_value = [  # noqa: E501
             {
                 "conv_doc": mock_conv_doc,
                 "latest_event": mock_latest_event,
@@ -258,7 +258,7 @@ class TestUnreadInfoServiceSummaries:
         mock_unread_info = {"unread_count": 0, "has_high_priority": False}  # 未读数为0
 
         # 配置 mock service 的返回值
-        mock_entity_graph_service.get_recently_active_conversation_entities_with_details.return_value = [
+        mock_entity_graph_service.get_recently_active_conversation_entities_with_details.return_value = [  # noqa: E501
             {
                 "conv_doc": mock_conv_doc,
                 "latest_event": mock_latest_event,
