@@ -83,32 +83,33 @@ class UnreadInfoService:
         cardname = user_info.get("user_cardname")
         nickname = user_info.get("user_nickname")
 
-        # 情况A：自己发的
+        # --- [修复] ---
+        # 情况A：自己发的 (重写此逻辑块)
         if is_self_sender:
-            if conv_type == "group":
-                # 群聊：优先从数据库查询群名片，其次使用事件中的昵称，最后回退
-                if platform and conv_doc and conv_doc._key:
-                    # 查询数据库获取机器人在该群的群名片
-                    presence_info = (
-                        await self.entity_graph_service.get_self_presence_in_conversation(
-                            platform=platform,
-                            conversation_entity_uid=conv_doc._key,
-                        )
+            if platform and conv_doc and conv_doc._key:
+                # 统一获取机器人在该平台和会话中的身份信息
+                presence_info = (
+                    await self.entity_graph_service.get_self_presence_in_conversation(
+                        platform=platform,
+                        conversation_entity_uid=conv_doc._key,
                     )
+                )
+                self_entity = await self.entity_graph_service.get_self_entity_by_platform(platform)
+
+                # 1. 如果是群聊，优先使用群名片
+                if conv_type == "group":
                     if presence_info and (group_cardname := presence_info.get("cardname")):
                         return group_cardname
 
-                # 如果没有群名片，使用事件中的昵称
-                if isinstance(nickname, str) and nickname.strip():
-                    return nickname
-                return "我"
-            else:
-                # 私聊：好友备注 > 昵称 > 我
-                if isinstance(friend_remark, str) and friend_remark.strip():
-                    return friend_remark
-                if isinstance(nickname, str) and nickname.strip():
-                    return nickname
-                return "我"
+                # 2. 如果没有群名片，或不是群聊，使用平台主昵称
+                if self_entity and (
+                    platform_nickname := self_entity.get("details", {}).get("nickname")
+                ):
+                    return platform_nickname
+
+            # 3. 最终回退
+            return "我"
+        # --- [修复结束] ---
 
         # 情况B：他人发的（原有顺序整理）
         if isinstance(friend_remark, str) and friend_remark.strip():
