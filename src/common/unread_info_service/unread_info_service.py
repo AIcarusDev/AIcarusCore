@@ -44,15 +44,15 @@ class UnreadInfoService:
             )
         )
 
-    def _get_sender_display_name(self, event: dict, conv_doc: "EntityDocument") -> str:
-        """获取会话列表中“发送者”的显示名称.
+    async def _get_sender_display_name(self, event: dict, conv_doc: "EntityDocument") -> str:
+        """获取会话列表中"发送者"的显示名称.
 
         规则：
         1) 如果该条最新消息是自己（机器人）发的：
-            - 群聊：优先显示自己的 群名片（没有则用自己的 昵称），都没有时回退为“我”。
-            - 私聊：优先好友备注，其次昵称；都没有时回退“我”。
+            - 群聊：优先显示自己的 群名片（从数据库查询），其次昵称；都没有时回退为"我"。
+            - 私聊：优先好友备注，其次昵称；都没有时回退"我"。
         2) 他人消息：
-            - 先好友备注；群聊再看群名片；最后看昵称；都没有时回退“用户(后4位)”/“未知用户”。
+            - 先好友备注；群聊再看群名片；最后看昵称；都没有时回退"用户(后4位)"/"未知用户"。
         """
         event = event or {}
         user_info = (
@@ -66,7 +66,7 @@ class UnreadInfoService:
         )
         platform = getattr(details, "platform", None)
 
-        # 识别“是否自己发送”
+        # 识别"是否自己发送"
         current_sender_id = user_info.get("user_id") or user_info.get("id") or ""
         is_self_sender = bool(
             platform
@@ -86,9 +86,17 @@ class UnreadInfoService:
         # 情况A：自己发的
         if is_self_sender:
             if conv_type == "group":
-                # 群：群名片 > 昵称 > 我
-                if isinstance(cardname, str) and cardname.strip():
-                    return cardname
+                # 群聊：优先从数据库查询群名片，其次使用事件中的昵称，最后回退
+                if platform and conv_doc and conv_doc._key:
+                    # 查询数据库获取机器人在该群的群名片
+                    presence_info = await self.entity_graph_service.get_self_presence_in_conversation(
+                        platform=platform,
+                        conversation_entity_uid=conv_doc._key,
+                    )
+                    if presence_info and (group_cardname := presence_info.get("cardname")):
+                        return group_cardname
+
+                # 如果没有群名片，使用事件中的昵称
                 if isinstance(nickname, str) and nickname.strip():
                     return nickname
                 return "我"
@@ -343,7 +351,7 @@ class UnreadInfoService:
             entity_uid = conv_doc._key
             is_temporary = conv_details.extra.get("is_temporary", False)
             conv_type = conv_details.type
-            sender_display_name = self._get_sender_display_name(latest_event, conv_doc)
+            sender_display_name = await self._get_sender_display_name(latest_event, conv_doc)
             if conv_type == "group":
                 conv_name = conv_details.name or f"未知群聊({conv_details.conversation_id})"
             else:
@@ -352,7 +360,11 @@ class UnreadInfoService:
             message_preview = await self._create_message_preview(
                 latest_event, sender_display_name, conv_doc
             )
-            status_line = f"(时间：{time_str}/共 {unread_count} 条未读信息)"
+            # 优化：当未读数为0时，不显示未读信息部分
+            if unread_count > 0:
+                status_line = f"(时间：{time_str}/共 {unread_count} 条未读信息)"
+            else:
+                status_line = f"(时间：{time_str})"
             header = f"- [{'临时会话' if is_temporary else '用户名称'}]：{conv_name}"
             if conv_type == "group":
                 header = f"- [群名称]：{conv_name}"
@@ -384,7 +396,7 @@ class UnreadInfoService:
             return []
         conv_details = conv_doc.details
         conv_type = conv_details.type
-        sender_name = self._get_sender_display_name(event_for_preview, conv_doc)
+        sender_name = await self._get_sender_display_name(event_for_preview, conv_doc)
         is_temporary = conv_details.extra.get("is_temporary", False)
         if conv_type == "group":
             conv_name = conv_details.name or f"未知群聊({conv_details.conversation_id})"
@@ -507,3 +519,4 @@ class UnreadInfoService:
             else:
                 summary_lines.append(f"[{relative_time_str}] 你的 '{platform}' 上似乎有未读消息。")
         return "\n".join(summary_lines) or "所有平台均无新消息。"
+
