@@ -19,6 +19,8 @@ def mock_entity_graph_service(mocker: MockerFixture) -> MagicMock:
     mock.get_recently_active_conversation_entities_with_details = mocker.AsyncMock()
     # 模拟 get_conversations_by_platform 方法
     mock.get_conversations_by_platform = mocker.AsyncMock()
+    # 模拟 get_self_presence_in_conversation 方法
+    mock.get_self_presence_in_conversation = mocker.AsyncMock()
     return mock
 
 
@@ -158,3 +160,119 @@ class TestUnreadInfoServiceSummaries:
         # 新增断言：同样验证短消息不会被截断
         assert "测试用户：测试消息" in summary
         # --- [ADDED] ---
+
+    async def test_self_message_shows_group_cardname_instead_of_self(
+        self,
+        unread_info_service: UnreadInfoService,
+        mock_entity_graph_service: MagicMock,
+    ) -> None:
+        """测试场景：当机器人自己发送消息时，应该显示群名片而不是"AIcarus (Self)"."""
+        # 1. 准备 (Arrange)
+        group_id = "123456789"
+        conv_uid = f"qq_group_{group_id}"
+        group_name = "Aicarus 核心测试群"
+        bot_id = "99999"
+        group_cardname = "Aicarus-Bot"
+
+        # 更新机器人ID
+        unread_info_service.update_self_bot_ids({"qq": bot_id})
+
+        # 模拟群聊实体
+        mock_conv_doc = EntityDocument(
+            _key=conv_uid,
+            entity_uid=conv_uid,
+            entity_type="conversation",
+            details=ConversationDetails(
+                platform="qq",
+                conversation_id=group_id,
+                type="group",
+                name=group_name,
+            ),
+        )
+
+        # 模拟机器人自己发送的消息
+        mock_latest_event = {
+            "timestamp": 1678886400000,
+            "user_info": {
+                "user_id": bot_id,
+                "user_nickname": "AIcarus",
+                "user_cardname": "AIcarus (Self)"  # 事件中的群名片，但应该被数据库中的覆盖
+            },
+            "content": [{"type": "text", "data": {"text": "我这就去看看资源站"}}],
+        }
+        mock_unread_info = {"unread_count": 1, "has_high_priority": False}
+
+        # 配置 mock service 的返回值
+        mock_entity_graph_service.get_recently_active_conversation_entities_with_details.return_value = [
+            {
+                "conv_doc": mock_conv_doc,
+                "latest_event": mock_latest_event,
+                **mock_unread_info,
+            }
+        ]
+
+        # 模拟数据库查询返回群名片
+        mock_entity_graph_service.get_self_presence_in_conversation.return_value = {
+            "cardname": group_cardname
+        }
+
+        # 2. 执行 (Act)
+        summary = await unread_info_service.get_conversation_list_summary(platform_id="qq")
+
+        # 3. 断言 (Assert)
+        # 验证显示的是群名片而不是事件中的名称
+        assert f"{group_cardname}：我这就去看看资源站" in summary
+        assert "AIcarus (Self)" not in summary
+        assert "我：我这就去看看资源站" not in summary
+
+    async def test_no_unread_count_when_zero_unread_messages(
+        self,
+        unread_info_service: UnreadInfoService,
+        mock_entity_graph_service: MagicMock,
+    ) -> None:
+        """测试场景：当未读消息数为0时，不应该显示"共 0 条未读信息"."""
+        # 1. 准备 (Arrange)
+        group_id = "123456789"
+        conv_uid = f"qq_group_{group_id}"
+        group_name = "Aicarus 核心测试群"
+
+        # 模拟群聊实体
+        mock_conv_doc = EntityDocument(
+            _key=conv_uid,
+            entity_uid=conv_uid,
+            entity_type="conversation",
+            details=ConversationDetails(
+                platform="qq",
+                conversation_id=group_id,
+                type="group",
+                name=group_name,
+            ),
+        )
+
+        # 模拟消息
+        mock_latest_event = {
+            "timestamp": 1678886400000,
+            "user_info": {"user_nickname": "测试用户"},
+            "content": [{"type": "text", "data": {"text": "测试消息"}}],
+        }
+        mock_unread_info = {"unread_count": 0, "has_high_priority": False}  # 未读数为0
+
+        # 配置 mock service 的返回值
+        mock_entity_graph_service.get_recently_active_conversation_entities_with_details.return_value = [
+            {
+                "conv_doc": mock_conv_doc,
+                "latest_event": mock_latest_event,
+                **mock_unread_info,
+            }
+        ]
+
+        # 2. 执行 (Act)
+        summary = await unread_info_service.get_conversation_list_summary(platform_id="qq")
+
+        # 3. 断言 (Assert)
+        # 验证不显示未读信息部分
+        assert "(时间：" in summary
+        assert "共 0 条未读信息" not in summary
+        assert "条未读信息" not in summary
+        # 验证只显示时间
+        assert "(时间：2小时前)" in summary or "(时间：" in summary
