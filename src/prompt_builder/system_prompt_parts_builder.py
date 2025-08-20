@@ -177,8 +177,7 @@ class SystemPromptPartsBuilder:
                 return f'你当前正在 qq 群"{group_name}"中参与 qq 群聊。'
             else:
                 return (
-                    f'你当前正在 qq 群"{group_name}"中参与 qq 群聊，'
-                    f'你在该群的群名片是"{bot_card}"'
+                    f'你当前正在 qq 群"{group_name}"中参与 qq 群聊，你在该群的群名片是"{bot_card}"'
                 )
         is_temporary = session.conversation_info.extra.get("is_temporary", False)
 
@@ -339,5 +338,3 @@ class SystemPromptPartsBuilder:
             if tool_descs:
                 descs.append("\n".join(tool_descs))
         return "\n".join(filter(None, descs)).strip() or "你当前没有可用的外部行动。"
-
-

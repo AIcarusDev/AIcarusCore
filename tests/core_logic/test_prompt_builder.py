@@ -131,7 +131,7 @@ class TestPromptBuilderCurrentState:
 
         # 3. 断言 (Assert)
         assert '你当前正在 qq 群"AIcarus 核心开发群"中参与 qq 群聊。' in result
-        assert '你在该群的群名片是' not in result
+        assert "你在该群的群名片是" not in result
 
     async def test_get_current_state_group_chat_with_default_name_card(
         self,
@@ -148,7 +148,7 @@ class TestPromptBuilderCurrentState:
         # 模拟群名片等于昵称的情况（说明没有特殊设置群名片）
         mock_session.get_bot_profile = mocker.AsyncMock(
             return_value={"card": "AIcarus", "nickname": "AIcarus"}
-            )
+        )
         mock_chat_session_manager.sessions = {"qq_group_12345": mock_session}
 
         # 2. 执行 (Act)
@@ -158,7 +158,7 @@ class TestPromptBuilderCurrentState:
 
         # 3. 断言 (Assert)
         assert '你当前正在 qq 群"AIcarus 核心开发群"中参与 qq 群聊。' in result
-        assert '你在该群的群名片是' not in result
+        assert "你在该群的群名片是" not in result
 
     async def test_get_current_state_temporary_chat_from_known_group(
         self,
@@ -370,7 +370,3 @@ class TestPromptBuilderInstantiationAndWiring:
 
         except Exception as e:
             pytest.fail(f"build_prompts_components failed after wiring dependencies: {e}")
-
-
-
-
