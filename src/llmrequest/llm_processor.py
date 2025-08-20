@@ -2,12 +2,12 @@
 # LLM处理器模块，负责与语言模型进行交互并处理相关请求。
 
 import asyncio
-import copy  # --- [核心修复 1/2] 导入 copy 模块 ---
+import copy
 from collections.abc import Callable, Coroutine
 from typing import Any, Unpack
 
 # 导入全局配置，以便我们能访问 fallback_model_name
-from src import config
+from src.config import config
 from src.common.custom_logging.logging_config import get_logger
 
 # 从新的 core.models 导入异常和类型定义
@@ -374,10 +374,14 @@ class Client:
                 **additional_generation_params,
             )
 
+            # --- [核心修复 1/2] 增加日志以确认升避检查 ---
+            logger.debug(f"主模型返回结果，准备进行升避检查。返回内容: {str(result)[:200]}...")
+            
+            # --- [核心修复 2/2] 使用更安全的方式处理可能为 None 的 text 字段 ---
             should_fallback = (
                 not is_stream
                 and not result.get("error")
-                and not result.get("text", "").strip()
+                and not (result.get("text") or "").strip()
                 and config.test_function.fallback_model_name
             )
 
@@ -389,10 +393,7 @@ class Client:
                 )
 
                 try:
-                    # --- [核心修复 2/2] 使用 copy.deepcopy() ---
                     fallback_client_args = copy.deepcopy(self.underlying_client_constructor_args)
-                    # --- [修复结束] ---
-                    
                     fallback_client_args["model"]["name"] = fallback_model_name
                     fallback_client = UnderlyingLLMClient(**fallback_client_args)
 
