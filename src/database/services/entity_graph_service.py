@@ -243,14 +243,16 @@ class EntityGraphService:
             logger.error(f"获取自身所有平台实体信息时失败: {e}", exc_info=True)
             return []
 
+    # --- [修复] ---
+    # 移除了 conversation_name 参数
     async def update_presence_in_conversation(
         self,
         account_entity_uid: str,
         conversation_entity_uid: str,
         user_info: ProtocolUserInfo,
-        conversation_name: str | None,
     ) -> bool:
-        """更新用户在对话中的存在状态，并智能更新会话名称."""
+        """更新用户在对话中的存在状态."""
+        # --- [修复结束] ---
         cardname = (user_info.user_cardname or "").replace('"', '\\"')
         perm_level = (user_info.permission_level or "member").replace('"', '\\"')
         timestamp = int(time.time() * 1000)
@@ -282,10 +284,9 @@ class EntityGraphService:
                 """
                 tx.query(insert_membership_query).resolve()
 
-                # 步骤 2: 智能更新会话名称
-                self._update_conversation_name_if_changed_sync(
-                    tx, conversation_entity_uid, conversation_name
-                )
+                # --- [修复] ---
+                # 移除此处对会话名称的更新逻辑
+                # --- [修复结束] ---
 
                 tx.commit()
 
@@ -293,7 +294,7 @@ class EntityGraphService:
             await asyncio.to_thread(db_upsert_membership_and_name)
             return True
         except Exception as e:
-            logger.error(f"更新存在关系和会话名称时失败: {e}", exc_info=True)
+            logger.error(f"更新存在关系时失败: {e}", exc_info=True)
             return False
 
     async def get_or_create_platform_entity(
@@ -447,7 +448,6 @@ class EntityGraphService:
             )
             return False
 
-    # --- [FIX START] ---
     async def get_or_create_conversation_entity(
         self,
         conversation_id: str,
@@ -520,8 +520,6 @@ class EntityGraphService:
         except Exception as e:
             logger.error(f"获取或创建会话实体 '{conv_entity_uid}' 失败: {e}", exc_info=True)
             return None
-
-    # --- [FIX END] ---
 
     async def get_conversations_by_platform(self, platform_uid: str) -> dict:
         """Get all conversation UIDs for a specific platform.

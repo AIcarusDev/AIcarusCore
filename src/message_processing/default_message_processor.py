@@ -193,27 +193,24 @@ class DefaultMessageProcessor:
                 timestamp=event.time,
             )
 
-        # --- [FIX START] ---
-        # 移除了以下错误的代码块，因为它试图修改一个没有 'extra' 属性的协议对象。
-        # enriching a DTO at this stage is an architectural anti-pattern.
-        # entity_doc = await self.entity_service.get_entity_by_key(sender_account_uid)
-        # if entity_doc and hasattr(entity_doc.details, "friend_remark"):
-        #     remark = getattr(entity_doc.details, "friend_remark", None)
-        #     if remark:
-        #         if not sender_user_info.extra:
-        #             sender_user_info.extra = {}
-        #         sender_user_info.extra["friend_remark"] = remark
-        # --- [FIX END] ---
-
         if not (conv_info := event.conversation_info) or not conv_info.conversation_id:
             return sender_profile_id, sender_account_uid
+
+        # --- [修复] ---
+        # 修复私聊名称被错误覆盖的问题
+        # 确定私聊会话的正确名称应为对方的昵称
+        conversation_name_for_creation = conv_info.name
+        if conv_info.type == "private":
+            conversation_name_for_creation = sender_user_info.user_nickname
 
         conversation_entity = await self.entity_service.get_or_create_conversation_entity(
             conversation_id=str(conv_info.conversation_id),
             platform=platform_id,
             conv_type=conv_info.type,
-            name=conv_info.name,
+            name=conversation_name_for_creation, # <-- 使用修正后的名称
         )
+        # --- [修复结束] ---
+
         if not conversation_entity or not conversation_entity._key:
             logger.error(f"为事件 {event.event_id} 获取或创建 conversation_entity 失败。")
             return sender_profile_id, sender_account_uid
@@ -231,19 +228,15 @@ class DefaultMessageProcessor:
             participants_to_update[bot_account_uid] = bot_user_info
 
         for acc_uid, user_info_obj in participants_to_update.items():
-            conversation_name_for_this_update = conv_info.name
-            if conv_info.type == "private":
-                if acc_uid == sender_account_uid:
-                    conversation_name_for_this_update = config.persona.bot_name
-                else:
-                    conversation_name_for_this_update = sender_user_info.user_nickname
-
+            # --- [修复] ---
+            # 移除此处对 conversation_name 的重复、错误更新
             await self.entity_service.update_presence_in_conversation(
                 account_entity_uid=acc_uid,
                 conversation_entity_uid=conversation_entity_uid,
                 user_info=user_info_obj,
-                conversation_name=conversation_name_for_this_update,
+                # conversation_name=conversation_name_for_this_update, # <-- 移除此行
             )
+            # --- [修复结束] ---
 
         return sender_profile_id, sender_account_uid
 
@@ -286,16 +279,6 @@ class DefaultMessageProcessor:
                 f"收到会话实体 '{conversation_entity_uid}' 中祂的档案更新通知: "
                 f"'{update_type}' -> '{new_value}'"
             )
-
-            # 这里的 service 应该是 entity_graph_service
-            # success = await self.entity_service.update_bot_profile_in_conversation(
-            #     conversation_entity_uid=conversation_entity_uid,
-            #     update_type=update_type,
-            #     new_value=new_value,
-            # )
-            # if not success:
-            #     logger.error(f"通过服务层更新会话实体 '{conversation_entity_uid}' 档案失败。")
-            #     return
 
             session = (
                 self.qq_chat_session_manager.sessions.get(conversation_entity_uid)
