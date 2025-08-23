@@ -35,14 +35,13 @@ CORE_CYCLE_SYSTEM_PROMPT = """
 {current_state_block}
 </current_state>
 
-<attentional_trajectory>
-{attentional_trajectory_block}
-</attentional_trajectory>
+<deliberation_summary>
+{deliberation_summary_block}
+</deliberation_summary>
 
-<working_memory>
-<!-- 如果存在短期记忆，会在这里显示 -->
-{working_memory_block}
-</working_memory>
+<working_memories>
+{working_memories_block}
+</working_memories>
 
 <history_internal_info>
 {internal_info_block}

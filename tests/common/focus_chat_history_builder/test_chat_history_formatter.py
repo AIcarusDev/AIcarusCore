@@ -1,3 +1,5 @@
+# tests/common/focus_chat_history_builder/test_chat_history_formatter.py
+
 """测试聊天历史格式化器."""
 
 from unittest.mock import AsyncMock, Mock
@@ -9,10 +11,42 @@ from src.common.focus_chat_history_builder.chat_history_formatter import (
     _ChatHistoryFormatter,
     format_chat_history_for_llm,
 )
+from src.domain.models import Stimulus
 
 
 class TestChatHistoryFormatter:
     """测试聊天历史格式化器."""
+
+    # --- [新增测试用例] ---
+    def test_bot_motivation_is_not_rendered(self) -> None:
+        """测试：验证机器人自身发言的动机(motivation)不再被渲染到聊天记录中."""
+        # 准备
+        bot_stimulus = Stimulus(
+            event_id="bot-msg-1",
+            timestamp=1000,
+            platform="test",
+            bot_id="bot123",
+            text_content="这是机器人的一条消息",
+            sender_id="bot123",  # 发送者是机器人自己
+            motivation="这是一个测试动机", # 带有动机
+        )
+
+        formatter = _ChatHistoryFormatter(
+            session_stimuli=[bot_stimulus],
+            bot_profile={"user_id": "bot123", "nickname": "TestBot"},
+            conversation_type="group",
+            last_processed_timestamp=0,
+            is_first_turn=True,
+        )
+
+        # 执行
+        result_string = formatter._format_and_track_motivation(bot_stimulus, sender_uid="U0")
+
+        # 断言
+        # 核心断言：即使有动机，返回的字符串也必须是 None
+        assert result_string is None
+        # 验证内部状态被更新（这是一个副作用，可选测试）
+        assert formatter.last_displayed_bot_motive == "这是一个测试动机"
 
     def test_format_quote_segment_with_unknown_user(self) -> None:
         """测试格式化引用段时用户未知的情况."""

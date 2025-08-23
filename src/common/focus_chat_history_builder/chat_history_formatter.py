@@ -129,12 +129,8 @@ class _ChatHistoryFormatter:
         # 如果是机器人发言 (U0) 且有动机
         if sender_uid == "U0" and stimulus.motivation:
             # 无论如何都更新“上一个动机”的状态
-            current_motive = self.last_displayed_bot_motive
             self.last_displayed_bot_motive = stimulus.motivation
-            # 只有当动机与上一个不同时才显示
-            if stimulus.motivation != current_motive:
-                return f"    - [MOTIVE]: {stimulus.motivation}"
-            # 如果动机相同，则不返回任何内容（抑制重复显示）
+            # 直接返回None，因为动机现在由 working_memories 块处理
             return None
         else:
             # 如果发言者不是机器人，或机器人发言但无动机，则重置追踪器

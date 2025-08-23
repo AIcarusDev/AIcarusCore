@@ -137,8 +137,6 @@ class QQBuilder(BasePlatformBuilder):
         logger.warning(f"QQBuilder 的白名单和特殊名单里都没有这个动作: {action_name}")
         return None
 
-    # --- 下面是每个动作的具体“翻译”实现 ---
-
     def _build_generic_event(
         self,
         action_name: str,

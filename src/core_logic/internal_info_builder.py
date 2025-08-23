@@ -1,5 +1,4 @@
 # src/core_logic/internal_info_builder.py
-import json
 from typing import TYPE_CHECKING, Optional
 
 from src.common.custom_logging.logging_config import get_logger
@@ -80,43 +79,27 @@ class InternalInfoBuilder:
             lines.append(f"<intent>{self._escape_xml_text(intent)}</intent>")
         return lines
 
-    def _format_payload_as_json_string(self, payload: dict | None) -> str:
-        """专门解析action的“行动组”.
-
-        如果 payload 为空或不是字典，返回 "None" 字符串。
-        现在使用 CDATA 来包裹 JSON，避免过度转义。
-        """
-        if not payload or not isinstance(payload, dict):
-            return "None"
-        try:
-            # 检查是否是 do_nothing 动作
-            # 注意：这里的 payload 可能是 {"core": {"do_nothing": ...}} 或直接是 {"do_nothing": ...}
-            if payload.get("do_nothing") or payload.get("core", {}).get("do_nothing"):
-                return "None"
-
-            # 格式化 JSON 字符串
-            formatted_payload = json.dumps(payload, ensure_ascii=False)
-
-            # 使用 CDATA 块包裹，这是处理 XML 中大段文本的最佳实践
-            return f"<![CDATA[{formatted_payload}]]>"
-        except Exception as e:
-            logger.error(f"格式化 payload 为 JSON CDATA 时出错: {e}")
-            # 返回通用错误消息，避免暴露敏感数据
-            return "<![CDATA[[格式化错误]]]>"
-
     def _format_completed_action(self, action_payload: dict) -> str:
         """从完整的 payload 中提取 'action' 部分并格式化."""
         action_part = action_payload.get("action")
-        formatted_json = self._format_payload_as_json_string(action_part)
-        return f"<completed_action>{formatted_json}</completed_action>"
+        # 修改：不再返回JSON，只返回一个状态
+        status = (
+            "None"
+            if not action_part
+            or (
+                isinstance(action_part, dict)
+                and action_part.get("core", {}).get("do_nothing")
+            )
+            else "Executed"
+        )
+        return f'<completed_action status="{status}" />'
 
     def _format_completed_consciousness_control(self, action_payload: dict) -> str:
         """从完整的 payload 中提取 'consciousness_control' 部分并格式化."""
         control_part = action_payload.get("consciousness_control")
-        formatted_json = self._format_payload_as_json_string(control_part)
-        return (
-            f"<completed_consciousness_control>{formatted_json}</completed_consciousness_control>"
-        )
+        # 修改：不再返回JSON，只返回一个状态
+        status = "None" if not control_part else "Executed"
+        return f'<completed_consciousness_control status="{status}" />'
 
     async def _format_interruption(self, session: "ChatSession", user_map: dict | None) -> str:
         """格式化中断信息."""

@@ -1,3 +1,4 @@
+# src/database/services/thought_storage_service.py
 import asyncio
 import datetime
 import json
@@ -6,7 +7,7 @@ import uuid
 from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
-from typedb.driver import TransactionType
+from typedb.driver import Transaction, TransactionType
 
 from ..core.connection_manager import TypeDBConnectionManager
 from ..models import ThoughtChainDocument
@@ -132,6 +133,44 @@ class ThoughtStorageService:
             logger.error(f"思想链操作事务执行失败: {e}", exc_info=True)
             return None
 
+    def _reconstruct_thought_doc(
+        self, tx: Transaction, thought_id: str
+    ) -> dict[str, Any] | None:
+        """[Helper] 从数据库中根据 thought_id 重建单个完整的思想文档."""
+        query = f"""
+        match
+            $t isa thought-chain-node, has thought-id "{thought_id}";
+            $t has $attr;
+            $attr isa $attr_type;
+        select $attr, $attr_type;
+        """
+        answers = list(tx.query(query).resolve().as_concept_rows())
+        if not answers:
+            return None
+        doc = {}
+        for answer in answers:
+            attr_type_concept = answer.get("attr_type")
+            attr_concept = answer.get("attr")
+            if attr_type_concept and attr_concept:
+                label = attr_type_concept.as_attribute_type().get_label()
+                py_value = attr_concept.as_attribute().get_value()
+                key_map = {"thought-id": "_key", "action-payload-json": "action_payload"}
+                doc_key = key_map.get(label, label.replace("-", "_"))
+                if isinstance(py_value, str) and "json" in label:
+                    try:
+                        doc[doc_key] = json.loads(py_value)
+                    except json.JSONDecodeError:
+                        doc[doc_key] = py_value
+                else:
+                    doc[doc_key] = py_value
+        if "timestamp" in doc and isinstance(doc["timestamp"], int):
+            doc["timestamp"] = datetime.datetime.fromtimestamp(
+                doc["timestamp"] / 1000, tz=datetime.UTC
+            ).isoformat()
+        if doc and "thought_id" in doc:
+            doc["_key"] = doc["thought_id"]
+        return doc
+
     async def get_latest_thought_document(self) -> dict | None:
         """Get the latest thought document from the database.
 
@@ -142,53 +181,60 @@ class ThoughtStorageService:
             None otherwise. The dictionary includes fields like '_key', 'timestamp',
             'mood', 'think', and other thought-related attributes.
         """
-        # [FIXED] 修正了 TypeQL 语法，使用 '==' 来提取和匹配值
-        query = f"""
-        match
-            $p isa system-pointer, has pointer-name "{LATEST_THOUGHT_POINTER_KEY}";
-            $p has target-key $key_attr;
-            $key_attr == $key_value;
-            $t isa thought-chain-node, has thought-id $key_value;
-            $t has $attr;
-            $attr isa $attr_type;
-        select $attr, $attr_type;
-        """
+        query_pointer = f'match $p isa system-pointer, has pointer-name "{LATEST_THOUGHT_POINTER_KEY}"; $p has target-key $key; select $key;'  # noqa: E501
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
         def db_read() -> dict | None:
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                answers = list(tx.query(query).resolve().as_concept_rows())
+                answers = list(tx.query(query_pointer).resolve().as_concept_rows())
                 if not answers:
                     return None
-                doc = {}
-                for answer in answers:
-                    attr_type_concept = answer.get("attr_type")
-                    attr_concept = answer.get("attr")
-                    if attr_type_concept and attr_concept:
-                        label = attr_type_concept.as_attribute_type().get_label()
-                        py_value = attr_concept.as_attribute().get_value()
-                        key_map = {"thought-id": "_key", "action-payload-json": "action_payload"}
-                        doc_key = key_map.get(label, label.replace("-", "_"))
-                        if isinstance(py_value, str) and "json" in label:
-                            try:
-                                doc[doc_key] = json.loads(py_value)
-                            except json.JSONDecodeError:
-                                doc[doc_key] = py_value
-                        else:
-                            doc[doc_key] = py_value
-                if "timestamp" in doc and isinstance(doc["timestamp"], int):
-                    doc["timestamp"] = datetime.datetime.fromtimestamp(
-                        doc["timestamp"] / 1000, tz=datetime.UTC
-                    ).isoformat()
-                if doc and "thought_id" in doc:
-                    doc["_key"] = doc["thought_id"]
-                return doc
+                latest_key = answers[0].get("key").as_attribute().get_value()
+                return self._reconstruct_thought_doc(tx, latest_key)
 
         try:
             return await asyncio.to_thread(db_read)
         except Exception as e:
             logger.error(f"获取最新思想点时发生错误: {e}", exc_info=True)
             return None
+
+    async def get_recent_thought_documents(
+        self, limit: int = 8, max_age_seconds: int = 60
+    ) -> list[dict[str, Any]]:
+        """获取最近的N条或在指定时间内的思考记录，用于构建工作记忆."""
+        driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
+        current_ts_ms = int(time.time() * 1000)
+        min_ts = current_ts_ms - (max_age_seconds * 1000)
+
+        def db_read() -> list[dict[str, Any]]:
+            with driver.transaction(db_name, TransactionType.READ) as tx:
+                query = f"""
+                match
+                    $t isa thought-chain-node, has timestamp $ts;
+                    $ts > {min_ts};
+                sort $ts desc;
+                limit {limit};
+                select $t;
+                """
+                thought_concepts = [
+                    ans.get("t") for ans in tx.query(query).resolve().as_concept_rows()
+                ]
+
+                final_docs = []
+                for concept in thought_concepts:
+                    id_query = f"match $x iid {concept.get_iid()}, has thought-id $id; select $id;"
+                    id_answers = list(tx.query(id_query).resolve().as_concept_rows())
+                    if id_answers and (id_attr := id_answers[0].get("id")):
+                        thought_id = id_attr.as_attribute().get_value()
+                        if full_doc := self._reconstruct_thought_doc(tx, thought_id):
+                            final_docs.append(full_doc)
+                return final_docs
+
+        try:
+            return await asyncio.to_thread(db_read)
+        except Exception as e:
+            logger.error(f"获取近期思考文档失败: {e}", exc_info=True)
+            return []
 
     async def save_action_result_to_thought(self, thought_key: str, result_text: str) -> bool:
         """Save an action result to a specific thought document in the database.

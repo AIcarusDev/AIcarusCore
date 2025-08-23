@@ -1,9 +1,10 @@
 # src/prompt_builder/system_prompt_parts_builder.py
 import asyncio
+import json
 import re
 from typing import TYPE_CHECKING, Any, Optional
 
-from src.common.time_utils import format_relative_time_for_attention_log, get_formatted_time_for_llm
+from src.common.time_utils import get_formatted_time_for_llm
 from src.common.utils import build_conversation_entity_uid
 from src.config import config
 from src.database.models import ConversationDetails
@@ -63,8 +64,6 @@ class SystemPromptPartsBuilder:
         is_context_switch_flag: bool,
     ) -> dict[str, Any]:
         """构建并返回一个包含 System Prompt 所有组件的字典."""
-        import time  # Local import to avoid circular dependency at module level
-
         # --- Parallel Data Fetching ---
         internal_info_task = self.internal_info_builder.build_internal_info_block(
             is_context_switch=is_context_switch_flag,
@@ -73,21 +72,21 @@ class SystemPromptPartsBuilder:
         )
         platforms_task = self._get_available_platforms_block()
         state_task = self._get_current_state_block(level, platform_id, conv_id)
-        trajectory_task = self._build_attentional_trajectory_block(time)
         stickers_task = self._get_sticker_collection_block(platform_id)
+        memories_task = self._build_working_memories_block()
 
         (
             internal_info_block,
             available_platforms_block,
             current_state_block,
-            attentional_trajectory_block,
             sticker_collection_block,
+            working_memories_block,
         ) = await asyncio.gather(
-            internal_info_task, platforms_task, state_task, trajectory_task, stickers_task
+            internal_info_task, platforms_task, state_task, stickers_task, memories_task
         )
 
         # --- Synchronous Logic ---
-        working_memory_block = self._get_working_memory_block(session)
+        deliberation_summary_block = self._get_deliberation_summary_block(session)
         current_goals_block = self.state_manager.goal_manager.get_formatted_goals()
         core_builder = platform_builder_registry.get_builder("core")
         builder = platform_builder_registry.get_builder(platform_id)
@@ -99,8 +98,8 @@ class SystemPromptPartsBuilder:
             "sticker_collection_block": sticker_collection_block,
             "available_platforms_block": available_platforms_block,
             "current_state_block": current_state_block,
-            "attentional_trajectory_block": attentional_trajectory_block,
-            "working_memory_block": working_memory_block,
+            "deliberation_summary_block": deliberation_summary_block,
+            "working_memories_block": working_memories_block,
             "current_goals_block": current_goals_block,
             "behavior_guidelines_block": self._get_behavior_guidelines_block(level),
             "internal_info_block": internal_info_block,
@@ -202,46 +201,55 @@ class SystemPromptPartsBuilder:
             f"来自“{source_group_name}”群聊中“{session.conversation_name or '对方'}”的临时会话私聊"
         )
 
-    async def _build_attentional_trajectory_block(self, time_module: Any) -> str:
-        """构建注意力轨迹块."""
-        if not self.chat_session_manager or not hasattr(self.chat_session_manager, "focus_manager"):
+    async def _build_working_memories_block(self) -> str:
+        """构建 <working_memories> 块，包含最近的行动和意识控制历史."""
+        recent_thoughts = await self.state_manager.thought_service.get_recent_thought_documents(
+            limit=8, max_age_seconds=60
+        )
+
+        if not recent_thoughts:
             return ""
 
-        history = list(self.chat_session_manager.focus_manager.focus_history)
-        if not history:
-            return ""
-        log_lines = ["<!-- 这是你最近的注意力焦点历史 -->"]
+        memory_lines = [
+            '<working_memories scope="short_term_buffer" time_unit="cognitive_cycle" order="descending">',
+            '  <desc>以下是你的有印象/记得的，之前自己做的事，1代表上一轮，2代表上上一轮，以此类推。</desc>',
+        ]
 
-        history_len = len(history)
-        current_timestamp_ms = int(time_module.time() * 1000)
-        for i, entry in enumerate(reversed(history)):
-            if not isinstance(entry, dict):
+        for i, thought in enumerate(recent_thoughts):
+            payload = thought.get("action_payload")
+            if not payload:
                 continue
-            relative_index = (history_len - 1 - i) - (history_len - 1)
-            time_str = (
-                "当前"
-                if relative_index == 0
-                else format_relative_time_for_attention_log(
-                    entry.get("timestamp", 0), current_timestamp_ms
-                )
-            )
-            desc = await self.chat_session_manager.focus_manager._get_focus_description(entry)
-            motivation = entry.get("motivation", "未知动机")
-            log_lines.append(f"- [T{relative_index}] {time_str} 专注于 {desc} (动机: {motivation})")
-        return "\n".join(log_lines)
 
-    def _get_working_memory_block(self, session: Optional["ChatSession"]) -> str:
-        """构建工作记忆摘要块."""
+            # 移除 internal_state，因为它太大且与此处目的无关
+            payload.pop("internal_state", None)
+
+            try:
+                # 将整个 payload 序列化为 JSON 字符串
+                json_content = json.dumps(payload, ensure_ascii=False, indent=2)
+                memory_lines.append(f'  <memory cycle_ago="{i + 1}">')
+                memory_lines.append(f'    <![CDATA[\n{json_content}\n]]>')
+                memory_lines.append("  </memory>")
+            except (TypeError, ValueError):
+                continue
+
+        if len(memory_lines) == 2:  # 只有头和描述，没有实际内容
+            return ""
+
+        memory_lines.append("</working_memories>")
+        return "\n".join(memory_lines)
+
+    def _get_deliberation_summary_block(self, session: Optional["ChatSession"]) -> str:
+        """构建慢脑思考决策摘要块."""
         if session and session.working_memory:
             remaining = session.working_memory.get("remaining_turns", 0)
             if remaining > 0:
                 summary = session.working_memory.get("summary", "无内容。")
                 session.working_memory["remaining_turns"] -= 1
                 return (
-                    f"<!-- 以下是你“慢思考”后的决策摘要，将在 {remaining} 轮思考后遗忘 -->\n"
-                    f"<summary_from_deliberation>\n"
+                    f'<deliberation_summary duration="{remaining}_cycles">\n'
+                    f"<!-- 这是你“慢思考”后的决策摘要，将在 {remaining} 轮思考后遗忘 -->\n"
                     f"{summary}\n"
-                    f"</summary_from_deliberation>"
+                    f"</deliberation_summary>"
                 )
             else:
                 session.working_memory.clear()

@@ -1,6 +1,6 @@
 # tests/core_logic/test_prompt_builder.py
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pytest_mock import MockerFixture
@@ -52,8 +52,140 @@ def prompt_builder(
     return builder
 
 
-# --- Tests from original test_prompt_builder.py ---
+# --- [新增测试类] ---
+class TestWorkingMemoriesAndTrajectory:
+    """
+    测试与新的工作记忆系统和被废除的注意力轨迹相关的逻辑。
+    """
 
+    async def test_build_working_memories_block_formats_correctly(
+        self, prompt_builder: ThoughtPromptBuilder, mocker: MockerFixture
+    ) -> None:
+        """
+        测试 _build_working_memories_block 是否能根据数据库返回的
+        思考记录正确生成 XML 块。
+        """
+        # 1. 准备 (Arrange)
+        # 模拟数据库返回两条思考记录
+        mock_thoughts = [
+            {
+                "_key": "t1",
+                "action_payload": {
+                    "internal_state": {"mood": "curious", "think": "...", "intent": "..."},
+                    "consciousness_control": {"focus": {"target_id": "qq"}},
+                },
+            },
+            {
+                "_key": "t2",
+                "action_payload": {
+                    "internal_state": {"mood": "happy", "think": "...", "intent": "..."},
+                    "action": {"core": {"do_nothing": {}}},
+                },
+            },
+        ]
+        # Patch state_manager 内部的 thought_service
+        prompt_builder.system_prompt_parts_builder.state_manager.thought_service.get_recent_thought_documents = mocker.AsyncMock(
+            return_value=mock_thoughts
+        )
+
+        # 2. 执行 (Act)
+        result = await prompt_builder.system_prompt_parts_builder._build_working_memories_block()
+
+        # 3. 断言 (Assert)
+        assert result.startswith('<working_memories scope="short_term_buffer"')
+        assert result.endswith("</working_memories>")
+        assert '<memory cycle_ago="1">' in result
+        assert '<memory cycle_ago="2">' in result
+        # 验证 internal_state 已被移除
+        assert '"internal_state"' not in result
+        # 验证 consciousness_control 存在
+        assert '"consciousness_control"' in result
+        # 验证 action 存在
+        assert '"action"' in result
+
+    def test_attentional_trajectory_block_is_removed(self) -> None:
+        """
+        测试 _build_attentional_trajectory_block 方法和相关调用已被彻底移除。
+        """
+        # 验证方法本身不存在
+        assert not hasattr(
+            prompt_builder.system_prompt_parts_builder, "_build_attentional_trajectory_block"
+        )
+
+        # 验证 build 方法中不再有 trajectory_task
+        import inspect
+
+        build_source = inspect.getsource(prompt_builder.system_prompt_parts_builder.build)
+        assert "trajectory_task" not in build_source
+        assert "attentional_trajectory_block" not in build_source
+
+    async def test_build_prompts_components_assembles_new_blocks(
+        self, prompt_builder: ThoughtPromptBuilder, mocker: MockerFixture
+    ) -> None:
+        """
+        端到端测试：验证 build_prompts_components 返回的字典中
+        包含新的记忆块，且不包含旧的轨迹块。
+        """
+        # 1. 准备 (Arrange)
+        # 模拟所有子构建器的 build 方法
+        mocker.patch.object(
+            prompt_builder.system_prompt_parts_builder,
+            "_build_working_memories_block",
+            new_callable=AsyncMock,
+            return_value="<working_memories>...</working_memories>",
+        )
+        mocker.patch.object(
+            prompt_builder.system_prompt_parts_builder,
+            "_get_deliberation_summary_block",
+            return_value="<deliberation_summary>...</deliberation_summary>",
+        )
+        # 其他模拟，确保函数能跑通
+        mocker.patch.object(
+            prompt_builder.external_info_builder,
+            "build",
+            new_callable=AsyncMock,
+            return_value=("", "", PromptComponents(), []),
+        )
+        mocker.patch.object(
+            prompt_builder.system_prompt_parts_builder, "build", wraps=prompt_builder.system_prompt_parts_builder.build
+        )
+        mocker.patch.object(
+            prompt_builder.system_prompt_parts_builder, "internal_info_builder"
+        )
+        mocker.patch.object(
+            prompt_builder.system_prompt_parts_builder.internal_info_builder, "build_internal_info_block", new_callable=AsyncMock
+        )
+
+
+        # 2. 执行 (Act)
+        components, _ = await prompt_builder.build_prompts_components(
+            level="core", focus_path="core", session=None
+        )
+
+        # 3. 断言 (Assert)
+        system_blocks = components.system_prompt_blocks
+        assert "working_memories_block" in system_blocks
+        assert "deliberation_summary_block" in system_blocks
+        assert "attentional_trajectory_block" not in system_blocks
+        assert system_blocks["working_memories_block"] == "<working_memories>...</working_memories>"
+
+
+# --- [以下为原有测试，保持不变] ---
+
+@pytest.fixture
+def wired_prompt_builder(mock_dependencies: dict) -> ThoughtPromptBuilder:
+    """创建一个 ThoughtPromptBuilder 实例，并模拟“后期绑定/注入”的过程."""
+    deps_for_init = mock_dependencies.copy()
+    deps_for_init["chat_session_manager"] = None
+    deps_for_init["core_ws_server"] = None
+
+    builder = ThoughtPromptBuilder(**deps_for_init)
+    
+    # 模拟后续的依赖注入过程
+    builder.chat_session_manager = mock_dependencies["chat_session_manager"]
+    builder.core_ws_server = mock_dependencies["core_ws_server"]
+    
+    return builder
 
 class TestPromptBuilderCurrentState:
     """专门测试 `_get_current_state_block` 方法的测试类."""
@@ -93,7 +225,7 @@ class TestPromptBuilderCurrentState:
         """测试场景：当群聊名称为 None 时，应使用 "未知群聊" 作为回退."""
         # 1. 准备 (Arrange)
         mock_session = MagicMock()
-        mock_session.conversation_name = None  # 关键测试点
+        mock_session.conversation_name = None
         mock_session.conversation_type = "group"
         mock_session.membership_status = "active"
         mock_session.get_bot_profile = mocker.AsyncMock(return_value={"card": "测试机器人"})

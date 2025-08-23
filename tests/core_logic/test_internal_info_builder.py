@@ -27,9 +27,6 @@ def internal_info_builder(mock_thought_storage_service: MockerFixture) -> Intern
     return InternalInfoBuilder(thought_storage_service=mock_thought_storage_service)
 
 
-# (继续在 tests/core_logic/test_internal_info_builder.py 文件中添加)
-
-
 class TestInternalInfoBuilder:
     """测试 InternalInfoBuilder 的核心功能."""
 
@@ -48,20 +45,23 @@ class TestInternalInfoBuilder:
         # 断言
         assert "你刚刚开始思考，还没有任何内部状态历史" in result
 
-    async def test_build_block_with_completed_state_and_do_nothing(
+    # --- [修改后的测试用例] ---
+    async def test_completed_action_and_control_are_simplified(
         self,
         internal_info_builder: InternalInfoBuilder,
         mock_thought_storage_service: MockerFixture,
     ) -> None:
-        """场景2.1: 上一轮思考正常完成且动作为 do_nothing 时，completed_action 应为 None."""
+        """测试：验证上一轮的动作和意识控制不再输出详细JSON，
+        而是输出简化的状态标签.
+        """  # noqa: D205
         # 准备
         last_thought = {
-            "mood": "开心",
-            "think": "一切顺利",
-            "intent": "继续观察",
+            "mood": "行动中",
+            "think": "需要执行动作并转移焦点",
+            "intent": "多任务处理",
             "action_payload": {
-                # 这里的 action 负载就是 do_nothing
-                "action": {"core": {"do_nothing": {"motivation": "test"}}}
+                "action": {"core": {"web_search": {"query": "pytest"}}},
+                "consciousness_control": {"focus": {"target_id": "qq"}},
             },
         }
         mock_thought_storage_service.get_latest_thought_document.return_value = last_thought
@@ -71,23 +71,26 @@ class TestInternalInfoBuilder:
 
         # 断言
         assert '<snapshot time="T-1" status="COMPLETED">' in result
-        assert "<mood>开心</mood>" in result
+        assert "<mood>行动中</mood>" in result
+        # 验证动作块被简化
+        assert '<completed_action status="Executed" />' in result
+        # 验证意识控制块被简化
+        assert '<completed_consciousness_control status="Executed" />' in result
+        # 验证不再包含旧的 CDATA 格式
+        assert "<![CDATA[" not in result
 
-        # 对于 do_nothing 动作，我们期望 action 块的内容是 None
-        assert "<completed_action>None</completed_action>" in result
-
-    async def test_build_block_with_completed_state_and_real_action(
+    async def test_do_nothing_action_and_no_control_are_simplified_to_none(
         self,
         internal_info_builder: InternalInfoBuilder,
         mock_thought_storage_service: MockerFixture,
     ) -> None:
-        """场景2.2: 上一轮思考正常完成且有实际动作时，completed_action 应包含 JSON."""
+        """测试：当动作为 do_nothing 且没有意识控制时，状态应为 "None"."""
         # 准备
         last_thought = {
-            "mood": "行动中",
-            "think": "需要搜索信息",
-            "intent": "获取知识",
-            "action_payload": {"action": {"core": {"web_search": {"query": "pytest"}}}},
+            "mood": "平静",
+            "think": "无事可做",
+            "intent": "观察",
+            "action_payload": {"action": {"core": {"do_nothing": {"motivation": "test"}}}},
         }
         mock_thought_storage_service.get_latest_thought_document.return_value = last_thought
 
@@ -95,13 +98,8 @@ class TestInternalInfoBuilder:
         result = await internal_info_builder.build_internal_info_block(is_context_switch=False)
 
         # 断言
-        assert '<snapshot time="T-1" status="COMPLETED">' in result
-        assert "<mood>行动中</mood>" in result
-        # 这个断言现在是正确的，因为它对应一个真实动作
-        assert (
-            '<completed_action><![CDATA[{"core": {"web_search": {"query": "pytest"}}}]]></completed_action>'  # noqa: E501
-            in result
-        )
+        assert '<completed_action status="None" />' in result
+        assert '<completed_consciousness_control status="None" />' in result
 
     async def test_build_block_with_interrupted_state(
         self,
