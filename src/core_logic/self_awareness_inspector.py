@@ -198,7 +198,6 @@ async def _update_single_group_info(
             account_entity_uid=entity_uid,
             conversation_entity_uid=conversation_entity_uid,
             user_info=temp_user_info_for_edge,
-            conversation_name=group_profile.get("group_name"),
         )
 
     except Exception as e:

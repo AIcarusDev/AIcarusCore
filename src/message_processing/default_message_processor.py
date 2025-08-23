@@ -234,7 +234,6 @@ class DefaultMessageProcessor:
                 account_entity_uid=acc_uid,
                 conversation_entity_uid=conversation_entity_uid,
                 user_info=user_info_obj,
-                # conversation_name=conversation_name_for_this_update, # <-- 移除此行
             )
             # --- [修复结束] ---
 
