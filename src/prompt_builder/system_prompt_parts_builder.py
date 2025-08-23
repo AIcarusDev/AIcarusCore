@@ -210,32 +210,39 @@ class SystemPromptPartsBuilder:
         if not recent_thoughts:
             return ""
 
+        # FIX 1: 移除外层标签，模板中已有
         memory_lines = [
-            '<working_memories scope="short_term_buffer" time_unit="cognitive_cycle" order="descending">',  # noqa: E501
             '  <desc>以下是你的有印象/记得的，之前自己做的事。</desc>',
         ]
 
         for i, thought in enumerate(recent_thoughts):
             payload = thought.get("action_payload")
-            if not payload:
+
+            # FIX 2: 增强过滤逻辑，确保 payload 包含有效指令
+            if not payload or (
+                not payload.get("action") and not payload.get("consciousness_control")
+            ):
                 continue
 
             # 移除 internal_state，因为它太大且与此处目的无关
             payload.pop("internal_state", None)
 
+            # 再次检查，如果移除后只剩下 thought_id，也跳过
+            if set(payload.keys()) <= {"thought_id"}:
+                continue
+
             try:
-                # 将整个 payload 序列化为 JSON 字符串
-                json_content = json.dumps(payload, ensure_ascii=False)
+                # FIX 3: 使用 separators 参数生成最紧凑的单行 JSON
+                json_content = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
                 memory_lines.append(f'  <memory cycle_ago="{i + 1}">')
-                memory_lines.append(f'    <![CDATA[\n{json_content}\n]]>')
+                memory_lines.append(f'    <![CDATA[{json_content}]]>')
                 memory_lines.append("  </memory>")
             except (TypeError, ValueError):
                 continue
 
-        if len(memory_lines) == 2:  # 只有头和描述，没有实际内容
+        if len(memory_lines) == 1:  # 只有 <desc>，没有实际内容
             return ""
 
-        memory_lines.append("</working_memories>")
         return "\n".join(memory_lines)
 
     def _get_deliberation_summary_block(self, session: Optional["ChatSession"]) -> str:
@@ -345,3 +352,4 @@ class SystemPromptPartsBuilder:
             if tool_descs:
                 descs.append("\n".join(tool_descs))
         return "\n".join(filter(None, descs)).strip() or "你当前没有可用的外部行动。"
+    

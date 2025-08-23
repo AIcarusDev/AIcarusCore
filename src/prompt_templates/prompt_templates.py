@@ -39,7 +39,7 @@ CORE_CYCLE_SYSTEM_PROMPT = """
 {deliberation_summary_block}
 </deliberation_summary>
 
-<working_memories>
+<working_memories scope="short_term_buffer" time_unit="cognitive_cycle" order="descending">
 {working_memories_block}
 </working_memories>
 
