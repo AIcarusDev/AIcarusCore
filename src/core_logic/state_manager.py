@@ -4,7 +4,7 @@ from typing import Any, ClassVar
 
 from src.common.custom_logging.logging_config import get_logger
 from src.core_logic.goal_manager import GoalManager
-from src.database import ActionLogStorageService, ThoughtStorageService
+from src.database import ActionLogStorageService, GoalStorageService, ThoughtStorageService
 
 logger = get_logger(__name__)
 
@@ -36,16 +36,23 @@ class AIStateManager:
 
     # <-- 修改点 1: 移除了 goal_storage_service 参数
     def __init__(
-        self, thought_service: ThoughtStorageService, action_log_service: ActionLogStorageService
+        self,
+        thought_service: ThoughtStorageService,
+        action_log_service: ActionLogStorageService,
+        goal_storage_service: GoalStorageService
     ) -> None:
         """初始化需要 thought_storage_service 和 action_log_service 才能干活，哼."""
         self.thought_service = thought_service
         self.action_log_service = action_log_service
+        self.goal_manager = GoalManager(goal_storage_service)
         # GoalManager 现在是纯内存组件，不再需要 GoalStorageService
-        self.goal_manager = GoalManager()
         logger.info("AIStateManager 初始化完毕。")
 
     # -- 修改点 2: 移除了 initialize 方法，因为它不再需要从数据库加载目标
+
+    async def initialize(self) -> None:
+        """初始化所有需要异步加载的状态组件."""
+        await self.goal_manager.initialize()
 
     async def get_current_state_for_prompt(self) -> dict[str, str]:  # TODO：该方法可能废弃，待处理
         """从思想链获取最新的状态，构建Prompt需要的所有状态块."""

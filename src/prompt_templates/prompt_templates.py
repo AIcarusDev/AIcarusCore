@@ -85,7 +85,7 @@ JSON 对象包含三个顶级键: `"internal_state"`, `"consciousness_control"`,
 """
 CORE_CYCLE_USER_PROMPT = """
 
-<external_info time="T-0" status="CURRENT">
+<external_info cycle_ago="0" status="CURRENT">
 
 {action_response_block}
 

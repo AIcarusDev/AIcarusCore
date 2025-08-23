@@ -27,6 +27,11 @@ async def start_core_system() -> None:
         wire_dependencies(container)
         logger.info("核心服务依赖已成功连接。")
 
+        # 初始化有状态的服务 (如 GoalManager)
+        if container.state_manager:
+            await container.state_manager.initialize()
+            logger.info("状态管理器及其子组件 (如GoalManager) 已从数据库同步状态。")
+
         # 3. 启动核心服务
         # 启动WS服务器，它会开始接受连接并进行安检
         ws_task = asyncio.create_task(container.core_comm_layer.start(), name="CoreWSServer")

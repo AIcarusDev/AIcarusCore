@@ -80,7 +80,9 @@ class ServiceBuilder:
 
         action_handler = ActionHandler()
         state_manager = AIStateManager(
-            db_services["thought_storage_service"], db_services["action_log_service"]
+            thought_service=db_services["thought_storage_service"],
+            action_log_service=db_services["action_log_service"],
+            goal_storage_service=db_services["goal_storage_service"],
         )
 
         unread_info_service = UnreadInfoService(

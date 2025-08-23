@@ -47,18 +47,6 @@ class CoreBuilder(BasePlatformBuilder):
             },
             "required": ["target_id", "motivation"],
         },
-        "teleport_focus": {
-            "type": "object",
-            "description": "直接专注于指定的目标。",
-            "properties": {
-                "target_path": {
-                    "type": "string",
-                    "description": "要专注的绝对路径，必须是使用'.'作为分隔符的完整路径，例如`qq.qq_group_123456`。",
-                },
-                "motivation": {"type": "string"},
-            },
-            "required": ["target_path", "motivation"],
-        },
         "back": {
             "type": "object",
             "description": "将你的注意力拉回到`<attentional_trajectory>`中的上一个注意力焦点(T-1)。",
@@ -303,9 +291,6 @@ class CoreBuilder(BasePlatformBuilder):
         # back 和 jump_to_history 在任何层级都可用
         props["back"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["back"]
         props["jump_to_history"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["jump_to_history"]
-
-        # teleport_focus 也应该是全局可用的
-        props["teleport_focus"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["teleport_focus"]
 
         # 慢思考作为一种基础认知能力，在所有层级都应该可用
         props["deep_think"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["deep_think"]

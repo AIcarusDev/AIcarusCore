@@ -211,8 +211,8 @@ class SystemPromptPartsBuilder:
             return ""
 
         memory_lines = [
-            '<working_memories scope="short_term_buffer" time_unit="cognitive_cycle" order="descending">',
-            '  <desc>以下是你的有印象/记得的，之前自己做的事，1代表上一轮，2代表上上一轮，以此类推。</desc>',
+            '<working_memories scope="short_term_buffer" time_unit="cognitive_cycle" order="descending">',  # noqa: E501
+            '  <desc>以下是你的有印象/记得的，之前自己做的事。</desc>',
         ]
 
         for i, thought in enumerate(recent_thoughts):
@@ -225,7 +225,7 @@ class SystemPromptPartsBuilder:
 
             try:
                 # 将整个 payload 序列化为 JSON 字符串
-                json_content = json.dumps(payload, ensure_ascii=False, indent=2)
+                json_content = json.dumps(payload, ensure_ascii=False)
                 memory_lines.append(f'  <memory cycle_ago="{i + 1}">')
                 memory_lines.append(f'    <![CDATA[\n{json_content}\n]]>')
                 memory_lines.append("  </memory>")
@@ -247,7 +247,7 @@ class SystemPromptPartsBuilder:
                 session.working_memory["remaining_turns"] -= 1
                 return (
                     f'<deliberation_summary duration="{remaining}_cycles">\n'
-                    f"<!-- 这是你“慢思考”后的决策摘要，将在 {remaining} 轮思考后遗忘 -->\n"
+                    f"<!-- 这是你仔细思考后的总结，将在 {remaining} 轮思考后遗忘 -->\n"
                     f"{summary}\n"
                     f"</deliberation_summary>"
                 )
