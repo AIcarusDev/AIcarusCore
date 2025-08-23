@@ -233,8 +233,6 @@ class ChatSessionManager:
             "return",
             "back",
             "shift_focus",
-            "teleport_focus",
-            "jump_to_history",
         }
         if command not in known_commands:
             error_message = f"未知的意识控制指令: '{command}'。"

@@ -53,18 +53,6 @@ class CoreBuilder(BasePlatformBuilder):
             "properties": {"motivation": {"type": "string"}},
             "required": ["motivation"],
         },
-        "jump_to_history": {
-            "type": "object",
-            "description": "根据`<attentional_trajectory>`，直接回到由`history_index`指定的历史注意力焦点。",
-            "properties": {
-                "history_index": {
-                    "type": "integer",
-                    "description": "`<attentional_trajectory>`中的索引 (例如 T-2 的索引是 -2)。",
-                },
-                "motivation": {"type": "string"},
-            },
-            "required": ["history_index", "motivation"],
-        },
         "deep_think": {
             "title": "仔细想想",
             "type": "object",
@@ -288,9 +276,8 @@ class CoreBuilder(BasePlatformBuilder):
             props["return"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["return"]
             props["shift_focus"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["shift_focus"]
 
-        # back 和 jump_to_history 在任何层级都可用
+        # back 在任何层级都可用
         props["back"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["back"]
-        props["jump_to_history"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["jump_to_history"]
 
         # 慢思考作为一种基础认知能力，在所有层级都应该可用
         props["deep_think"] = self._CONSCIOUSNESS_CONTROLS_DEFINITIONS["deep_think"]

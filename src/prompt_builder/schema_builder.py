@@ -127,7 +127,6 @@ class SchemaBuilder:
         return action_props
 
     def _filter_navigation_controls(self, properties: dict[str, Any], can_go_back: bool) -> None:
-        """[Helper] 根据历史记录情况，过滤掉 'back' 和 'jump_to_history' 指令."""
+        """[Helper] 根据历史记录情况，过滤掉 'back' 指令."""
         if not can_go_back:
             properties.pop("back", None)
-            properties.pop("jump_to_history", None)

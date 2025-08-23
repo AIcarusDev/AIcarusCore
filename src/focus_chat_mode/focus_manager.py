@@ -53,8 +53,6 @@ class FocusManager:
             "return": self._handle_return,
             "back": self._handle_back,
             "shift_focus": self._handle_shift_focus,
-            "teleport_focus": self._handle_teleport_focus,
-            "jump_to_history": self._handle_jump_to_history,
         }
         logger.info("FocusManager 初始化完成。")
 
@@ -331,13 +329,6 @@ class FocusManager:
             logger.error(error_message)
             return False, error_message
 
-    async def _handle_teleport_focus(
-        self, params: dict, history_entry_base: dict
-    ) -> tuple[bool, str]:
-        """处理 'teleport_focus' 指令."""
-        if target_path := params.get("target_path"):
-            return await self._switch_focus(target_path, history_entry_base)
-        return False, "缺少 target_path 参数。"
 
     async def _handle_back(self, params: dict, history_entry_base: dict) -> tuple[bool, str]:
         """处理 'back' 指令."""
@@ -350,20 +341,3 @@ class FocusManager:
         except Exception as e:
             logger.error(f"处理 'back' 指令时发生错误: {e}")
             return False, f"处理 'back' 指令时发生错误: {e}"
-
-    async def _handle_jump_to_history(
-        self, params: dict, history_entry_base: dict
-    ) -> tuple[bool, str]:
-        """处理 'jump_to_history' 指令."""
-        try:
-            history_index = int(params.get("history_index", 0))
-            history_len = len(self.focus_history)
-            if not (-history_len <= history_index <= -1):
-                error_message = f"历史索引 T{history_index} 超出范围 [T-1, T-{history_len - 1}]。"
-                logger.error(error_message)
-                return False, error_message
-            target_entry = self.focus_history[history_index]
-            target_path = target_entry.get("target_path", "core")
-            return await self._switch_focus(target_path, history_entry_base)
-        except (IndexError, TypeError, ValueError) as e:
-            return False, f"处理 'jump_to_history' 时发生错误: {e}"

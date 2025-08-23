@@ -305,7 +305,6 @@ class SystemPromptPartsBuilder:
         available_controls = schema.get("properties", {})
         if not can_go_back:
             available_controls.pop("back", None)
-            available_controls.pop("jump_to_history", None)
         if level == "cellular":
             available_controls.pop("focus", None)
         descs = [
