@@ -423,11 +423,7 @@ class Client:
                 use_google_search=use_google_search,
                 **additional_generation_params,
             )
-
-            # --- [核心修复 1/2] 增加日志以确认升避检查 ---
             logger.debug(f"主模型返回结果，准备进行升避检查。返回内容: {str(result)[:200]}...")
-
-            # --- [核心修复 2/2] 使用更安全的方式处理可能为 None 的 text 字段 ---
             should_fallback = (
                 not is_stream
                 and not result.get("error")

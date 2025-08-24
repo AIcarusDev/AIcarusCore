@@ -19,11 +19,9 @@ def mock_entity_graph_service(mocker: MockerFixture) -> MagicMock:
     mock.get_recently_active_conversation_entities_with_details = mocker.AsyncMock()
     # 模拟 get_conversations_by_platform 方法
     mock.get_conversations_by_platform = mocker.AsyncMock()
-    # --- [修复] ---
     # 将需要被 await 的方法明确声明为 AsyncMock
     mock.get_self_presence_in_conversation = mocker.AsyncMock()
     mock.get_self_entity_by_platform = mocker.AsyncMock()
-    # --- [修复结束] ---
     return mock
 
 
@@ -97,10 +95,8 @@ class TestUnreadInfoServiceSummaries:
         # 确保摘要中没有出现 None 或者其他意外的字符串
         assert "None" not in summary
 
-        # --- [FIX START] ---
-        # 修复点：断言完整的、未被截断的短消息内容
+        # 断言完整的、未被截断的短消息内容
         assert "理塘最強伝說：因为抖音有哈基米音乐" in summary
-        # --- [FIX END] ---
 
         assert "17 条未读信息" in summary
 
@@ -285,7 +281,7 @@ class TestUnreadInfoServiceSummaries:
         unread_info_service: UnreadInfoService,
         mock_entity_graph_service: MagicMock,
     ) -> None:
-        """测试场景 (Bug 1 修复验证): 当最新消息是机器人自己发送时.
+        """测试场景: 当最新消息是机器人自己发送时.
 
         摘要应优先显示其在数据库中记录的【群名片】，而不是事件中缓存的通用昵称。
         """
@@ -341,9 +337,7 @@ class TestUnreadInfoServiceSummaries:
         summary = await unread_info_service.get_conversation_list_summary(platform_id="qq")
 
         # 3. 断言 (Assert)
-        # --- [修复] ---
         # 移除多余的 "..."，因为测试消息长度不足20，不会被截断
         assert f"{bot_group_cardname}：这是一条机器人自己发的消息" in summary
-        # --- [修复结束] ---
         assert "AIcarus (Self)" not in summary
         assert "我：" not in summary  # 也不能是“我”

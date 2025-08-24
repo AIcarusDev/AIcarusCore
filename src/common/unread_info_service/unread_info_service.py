@@ -83,7 +83,6 @@ class UnreadInfoService:
         cardname = user_info.get("user_cardname")
         nickname = user_info.get("user_nickname")
 
-        # --- [修复] ---
         # 情况A：自己发的 (重写此逻辑块)
         if is_self_sender:
             if platform and conv_doc and conv_doc._key:
@@ -110,7 +109,6 @@ class UnreadInfoService:
 
             # 3. 最终回退
             return "我"
-        # --- [修复结束] ---
 
         # 情况B：他人发的（原有顺序整理）
         if isinstance(friend_remark, str) and friend_remark.strip():
@@ -191,7 +189,7 @@ class UnreadInfoService:
             # 最终回退
             return f"@{self.self_bot_ids.get(platform_id, '我')}"
 
-        # Case 3: @其他用户 (这是关键的修复点)
+        # Case 3: @其他用户
         # 尝试从数据库中查找这个用户的档案来获取名称
         target_entity_uid = build_conversation_entity_uid(
             conv_doc.details.platform, "private", str(target_id)

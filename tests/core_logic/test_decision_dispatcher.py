@@ -1,4 +1,4 @@
-# tests/core_logic/test_decision_dispatcher.py (已修复并包含初始化 Fixture)
+# tests/core_logic/test_decision_dispatcher.py
 
 import pytest
 from pytest_mock import MockerFixture
@@ -7,7 +7,6 @@ from src.core_logic.decision_dispatcher import normalize_action_payload, process
 from src.platform_builders.registry import platform_builder_registry
 
 
-# --- 关键修复：添加 Module 级别的 Fixture 来初始化注册中心 ---
 @pytest.fixture(scope="module", autouse=True)
 def setup_registry_fixture() -> None:
     """这个 Fixture 会在当前测试模块的所有测试运行前自动执行一次.
@@ -131,7 +130,6 @@ async def test_dispatch_special_send_message_action(
         return_value=mock_message_builder_instance,
     )
 
-    # 关键修复：需要为 mock_dispatcher_dependencies 提供 current_focus_path
     # 否则在 _handle_external_action 中 parse_focus_path 会失败
     mock_dispatcher_dependencies["current_focus_path"] = "qq.group.12345"
 

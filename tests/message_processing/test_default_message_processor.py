@@ -6,13 +6,8 @@ import pytest
 from aicarus_protocols import ConversationInfo, Event, UserInfo
 from pytest_mock import MockerFixture
 from src.config import config
-
-# --- [FIX START] ---
-# 导入我们需要的真实数据模型，以便创建更逼真的模拟对象
 from src.database.models import ConversationDetails, EntityDocument
 from src.message_processing.default_message_processor import DefaultMessageProcessor
-
-# --- [FIX END] ---
 
 # 标记整个模块的所有测试都需要异步环境
 pytestmark = pytest.mark.asyncio
@@ -26,8 +21,7 @@ def mock_entity_graph_service(mocker: MockerFixture) -> MagicMock:
         return_value=("profile_123", "qq_user_12345")
     )
 
-    # --- [FIX START] ---
-    # 修复点：让 mock 返回一个真实的 EntityDocument 实例，而不是一个 dict
+    # 让 mock 返回一个真实的 EntityDocument 实例
     mock_entity_doc = EntityDocument(
         _key="qq_group_654321",
         entity_uid="qq_group_654321",
@@ -37,7 +31,6 @@ def mock_entity_graph_service(mocker: MockerFixture) -> MagicMock:
         ),
     )
     mock.get_or_create_conversation_entity = mocker.AsyncMock(return_value=mock_entity_doc)
-    # --- [FIX END] ---
 
     mock.update_presence_in_conversation = mocker.AsyncMock()
 
@@ -86,7 +79,6 @@ async def test_process_event_updates_conversation_name(
     )
 
     # 3. 断言 (Assert)
-    # --- [修复] ---
     # 移除 call 中的 conversation_name 参数
     sender_call = call(
         account_entity_uid="qq_user_12345",
@@ -99,7 +91,6 @@ async def test_process_event_updates_conversation_name(
         conversation_entity_uid="qq_group_654321",
         user_info=UserInfo(user_id="bot-999", user_nickname=config.persona.bot_name),
     )
-    # --- [修复结束] ---
 
     mock_entity_graph_service.update_presence_in_conversation.assert_has_calls(
         [sender_call, bot_call], any_order=True
@@ -110,7 +101,7 @@ async def test_private_chat_event_does_not_cause_double_name_update(
     message_processor: DefaultMessageProcessor,
     mock_entity_graph_service: MagicMock,
 ) -> None:
-    """测试场景 (Bug 2 修复验证).
+    """测试场景.
 
     处理一个私聊事件时，会话名称应该只被
     get_or_create_conversation_entity 设置一次，而后续的

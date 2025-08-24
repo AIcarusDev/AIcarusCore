@@ -75,9 +75,8 @@ def test_sanitize_at_and_text_in_send_message(sanitizer_instance: LLMOutputSanit
 
 
 def test_sanitize_reply_command_user_id(sanitizer_instance: LLMOutputSanitizer) -> None:
-    """[关键修复验证].
+    """测试: send_message 动作中，'reply' 指令的 message_id 字段不应被处理.
 
-    测试: send_message 动作中，'reply' 指令的 message_id 字段不应被处理，
     但如果未来 params 中包含 user_id (虽然目前协议没有，但为了健壮性)，它也应被替换为平台ID。
     (这个测试主要是为了验证新逻辑的通用性)
     """
@@ -114,10 +113,7 @@ def test_sanitize_reply_command_user_id(sanitizer_instance: LLMOutputSanitizer) 
 
 
 def test_sanitize_other_actions_with_user_id(sanitizer_instance: LLMOutputSanitizer) -> None:
-    """[关键修复验证].
-
-    测试: 其他需要 user_id 的动作（如 poke_user, delete_friend）也能被正确替换。.
-    """
+    """测试: 其他需要 user_id 的动作（如 poke_user, delete_friend）也能被正确替换."""
     input_json = {
         "action": {"qq": {"poke_user": {"target_user_id": "U1", "motivation": "提醒 U1"}}}
     }

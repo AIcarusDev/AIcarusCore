@@ -46,11 +46,9 @@ class ThoughtPromptBuilder:
     ) -> None:
         self.is_context_switch_flag: bool = False
 
-        # --- [核心修复 1/4] ---
         # 将实例变量改为私有，表示它们由 property 控制
         self._chat_session_manager: ChatSessionManager | None = None
         self._core_ws_server: CoreWebsocketServer | None = None
-        # --- [修复结束] ---
 
         # 在初始化时，就创建好所有子构建器
         # 此时，它们接收到的 chat_session_manager 和 core_ws_server 可能是 None，这是符合预期的
@@ -75,7 +73,6 @@ class ThoughtPromptBuilder:
         self.chat_session_manager = chat_session_manager
         self.core_ws_server = core_ws_server
 
-    # --- [核心修复 2/4] ---
     # 将 chat_session_manager 定义为一个 property，保持现有逻辑
     @property
     def chat_session_manager(self) -> Optional["ChatSessionManager"]:
@@ -92,9 +89,6 @@ class ThoughtPromptBuilder:
         self.system_prompt_parts_builder.chat_session_manager = value
         self.user_prompt_parts_builder.chat_session_manager = value
 
-    # --- [修复结束] ---
-
-    # --- [核心修复 3/4] ---
     # 为 core_ws_server 添加同样的 property 和 setter 逻辑
     @property
     def core_ws_server(self) -> Optional["CoreWebsocketServer"]:
@@ -109,7 +103,6 @@ class ThoughtPromptBuilder:
         self.schema_builder.core_ws_server = value
         self.system_prompt_parts_builder.core_ws_server = value
 
-    # --- [修复结束] ---
 
     async def build_prompts_components(
         self,
@@ -121,14 +114,12 @@ class ThoughtPromptBuilder:
         """构建提示组件."""
         current_level, current_platform_id, current_conv_id = parse_focus_path(focus_path)
 
-        # --- [核心修复 4/4] ---
         # 现在可以直接安全地访问 self.chat_session_manager
         can_go_back = (
             self.chat_session_manager
             and self.chat_session_manager.focus_manager
             and len(self.chat_session_manager.focus_manager.focus_history) > 1
         )
-        # --- [修复结束] ---
 
         (
             external_info_block,

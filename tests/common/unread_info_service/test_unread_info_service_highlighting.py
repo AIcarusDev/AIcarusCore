@@ -50,7 +50,7 @@ class TestAtMentionHighlighting:
     def _get_expected_truncated_line(
         self, sender: str, raw_content: str, is_priority: bool = False
     ) -> str:
-        """[最终修复版] 辅助函数，精确模拟生产代码的“先截断，后拼接”逻辑."""
+        """辅助函数，精确模拟生产代码的“先截断，后拼接”逻辑."""
         # 1. 先对原始消息内容进行截断 (模拟 _format_and_truncate_preview)
         processed_content = raw_content.replace("\n", " ").strip()
         if len(processed_content) > 20:
@@ -102,7 +102,7 @@ class TestAtMentionHighlighting:
         unread_info_service: UnreadInfoService,
         mock_entity_graph_service: MockerFixture,
     ) -> None:
-        """测试场景 [核心修复验证]：当 @ 其他用户且消息很短时，不应截断."""
+        """测试场景：当 @ 其他用户且消息很短时，不应截断."""
         # 1. 准备 (Arrange)
         other_user_entity = EntityDocument(
             _key=f"{self.PLATFORM}_private_{self.OTHER_USER_ID}",

@@ -1,12 +1,7 @@
 import pytest
 from aicarus_protocols import UserInfo as ProtocolUserInfo
 from src.database.services import EntityGraphService
-
-# --- [核心修复] ---
-# 导入缺失的 SELF_PROFILE_ID 常量
 from src.database.services.entity_graph_service import SELF_PROFILE_ID
-
-# --- [修复结束] ---
 from typedb.driver import Driver, TransactionType
 
 
@@ -159,7 +154,7 @@ class TestConversationEntity:
 
 
 class TestEntityGraphServiceFixes:
-    """测试 EntityGraphService 中被修复的 TypeQL 查询."""
+    """测试 EntityGraphService 中的 TypeQL 查询."""
 
     async def test_update_conversation_last_read_timestamp_upserts_correctly(
         self, entity_graph_service: EntityGraphService, db_connection: Driver

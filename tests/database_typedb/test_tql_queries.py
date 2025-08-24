@@ -61,7 +61,7 @@ async def test_valid_query_succeeds(db_connection: Driver) -> None:
 
 
 class TestOptionalAttributeQueries:
-    """专门测试涉及可选属性查询的 TypeQL 语句，特别是验证 `try-catch` 到 `optional` 模式的修复."""
+    """专门测试涉及可选属性查询的 TypeQL 语句."""
 
     @pytest.mark.asyncio
     async def test_update_name_handles_optional_attribute(
@@ -69,7 +69,7 @@ class TestOptionalAttributeQueries:
     ) -> None:
         """测试 get_or_create_conversation_entity 方法能否正确处理 display-name 的添加、更新和移除.
 
-        这个测试会间接触发已修复的 _update_conversation_name_if_changed_sync 方法。
+        这个测试会间接触发 _update_conversation_name_if_changed_sync 方法。
         """
         # --- 1. 准备 (Arrange) ---
         platform = "qq"
@@ -173,7 +173,7 @@ async def _setup_presence_in_db(
 
 
 class TestEntityGraphServiceFixes:
-    """测试 EntityGraphService 中被修复的 TypeQL 查询."""
+    """测试 EntityGraphService 中的 TypeQL 查询."""
 
     async def test_get_self_presence_with_full_attributes(
         self,
@@ -288,7 +288,7 @@ class TestEntityGraphServiceFixes:
 
 
 class TestActionLogStorageServiceFixes:
-    """测试 ActionLogStorageService 中被修复的 TypeQL 查询."""
+    """测试 ActionLogStorageService 中的 TypeQL 查询."""
 
     async def test_update_action_log_overwrites_existing_attribute(
         self,

@@ -120,7 +120,7 @@ class TestWorkingMemoriesAndTrajectory:
         result = await prompt_builder.system_prompt_parts_builder._build_working_memories_block()
 
         # 3. 断言 (Assert)
-        # 修复点：实现已经移除了外层标签，所以测试应该断言其以 <desc> 开头
+        # 测试应该断言其以 <desc> 开头
         assert result.startswith("  <desc>以下是你的有印象/记得的，之前自己做的事。</desc>")
         assert result.endswith("</memory>")  # 验证它以最后一个 memory 块结束
         assert '<memory cycle_ago="1">' in result
@@ -136,8 +136,6 @@ class TestWorkingMemoriesAndTrajectory:
         self, prompt_builder: ThoughtPromptBuilder
     ) -> None:
         """测试 _build_attentional_trajectory_block 方法和相关调用已被彻底移除."""
-        # 修复点：为测试方法注入 prompt_builder fixture
-
         # 验证方法本身不存在
         assert not hasattr(
             prompt_builder.system_prompt_parts_builder, "_build_attentional_trajectory_block"
@@ -185,12 +183,7 @@ class TestWorkingMemoriesAndTrajectory:
             wired_prompt_builder.system_prompt_parts_builder, "internal_info_builder"
         )
         wired_prompt_builder.system_prompt_parts_builder.internal_info_builder.build_internal_info_block = mocker.AsyncMock()  # noqa: E501
-
-        # --- [FIX for Failure] ---
-        # 核心修复：为 UserPromptPartsBuilder 的依赖 thought_storage 配置返回值
-        # 这样 _get_latest_action_context 就不会返回协程
         wired_prompt_builder.user_prompt_parts_builder.thought_storage.get_latest_thought_document.return_value = None  # noqa: E501
-        # --- [FIX END] ---
 
         # 2. 执行 (Act)
         components, _ = await wired_prompt_builder.build_prompts_components(
@@ -449,7 +442,7 @@ class TestPromptBuilderInstantiationAndWiring:
     """测试 ThoughtPromptBuilder 的实例化和依赖注入逻辑."""
 
     def test_thought_prompt_builder_instantiation_with_none(self, mock_dependencies: dict) -> None:
-        """测试核心修复：验证 ThoughtPromptBuilder 可以在 chat_session_manager
+        """测试：验证 ThoughtPromptBuilder 可以在 chat_session_manager
         和 core_ws_server 为 None 的情况下被成功实例化.
         """  # noqa: D205
         try:

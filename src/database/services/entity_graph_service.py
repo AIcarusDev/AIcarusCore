@@ -48,7 +48,7 @@ class EntityGraphService:
             return
 
         if old_nick is not None:
-            # 最终修复：使用正确的 'delete has ... of ...' 语法
+            # 使用正确的 'delete has ... of ...' 语法
             delete_query = (
                 f'match $a isa account, has account-uid "{account_uid}"; '
                 f"$a has nickname $old_nick; "
@@ -79,7 +79,7 @@ class EntityGraphService:
         if old_name != new_name:
             logger.info(f"会话 '{conv_entity_uid}' 名称已从 '{old_name}' 更新为 '{new_name}'。")
             if old_name is not None:
-                # 最终修复：使用正确的 'delete has ... of ...' 语法
+                # 使用正确的 'delete has ... of ...' 语法
                 delete_query = (
                     f'match $c isa conversation, has conversation-uid "{conv_entity_uid}"; '
                     f"$c has display-name $old_name; "
@@ -243,7 +243,6 @@ class EntityGraphService:
             logger.error(f"获取自身所有平台实体信息时失败: {e}", exc_info=True)
             return []
 
-    # --- [修复] ---
     # 移除了 conversation_name 参数
     async def update_presence_in_conversation(
         self,
@@ -252,7 +251,6 @@ class EntityGraphService:
         user_info: ProtocolUserInfo,
     ) -> bool:
         """更新用户在对话中的存在状态."""
-        # --- [修复结束] ---
         cardname = (user_info.user_cardname or "").replace('"', '\\"')
         perm_level = (user_info.permission_level or "member").replace('"', '\\"')
         timestamp = int(time.time() * 1000)
@@ -283,11 +281,6 @@ class EntityGraphService:
                         has timestamp {timestamp};
                 """
                 tx.query(insert_membership_query).resolve()
-
-                # --- [修复] ---
-                # 移除此处对会话名称的更新逻辑
-                # --- [修复结束] ---
-
                 tx.commit()
 
         try:
@@ -552,7 +545,7 @@ class EntityGraphService:
         return conversations
 
     async def get_entity_by_key(self, entity_uid: str) -> EntityDocument | None:
-        """通过实体 UID 获取实体信息 (已修复)."""
+        """通过实体 UID 获取实体信息."""
         if not entity_uid:
             return None
 
@@ -591,11 +584,7 @@ class EntityGraphService:
                     return None
 
                 platform_from_relation = answers[0].get("platform_uid").as_attribute().get_value()
-
-                # ========================= [FIX START] =========================
-                # 核心修复：创建一个从数据库属性到 dataclass 字段的映射
                 attr_to_field_map = {"display-name": "name"}
-                # ========================== [FIX END] ==========================
 
                 doc = {
                     "_key": entity_uid,

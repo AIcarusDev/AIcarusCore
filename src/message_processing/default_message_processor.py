@@ -196,8 +196,6 @@ class DefaultMessageProcessor:
         if not (conv_info := event.conversation_info) or not conv_info.conversation_id:
             return sender_profile_id, sender_account_uid
 
-        # --- [修复] ---
-        # 修复私聊名称被错误覆盖的问题
         # 确定私聊会话的正确名称应为对方的昵称
         conversation_name_for_creation = conv_info.name
         if conv_info.type == "private":
@@ -207,9 +205,8 @@ class DefaultMessageProcessor:
             conversation_id=str(conv_info.conversation_id),
             platform=platform_id,
             conv_type=conv_info.type,
-            name=conversation_name_for_creation,  # <-- 使用修正后的名称
+            name=conversation_name_for_creation,
         )
-        # --- [修复结束] ---
 
         if not conversation_entity or not conversation_entity._key:
             logger.error(f"为事件 {event.event_id} 获取或创建 conversation_entity 失败。")
@@ -228,14 +225,11 @@ class DefaultMessageProcessor:
             participants_to_update[bot_account_uid] = bot_user_info
 
         for acc_uid, user_info_obj in participants_to_update.items():
-            # --- [修复] ---
-            # 移除此处对 conversation_name 的重复、错误更新
             await self.entity_service.update_presence_in_conversation(
                 account_entity_uid=acc_uid,
                 conversation_entity_uid=conversation_entity_uid,
                 user_info=user_info_obj,
             )
-            # --- [修复结束] ---
 
         return sender_profile_id, sender_account_uid
 

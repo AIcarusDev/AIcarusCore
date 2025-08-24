@@ -90,7 +90,7 @@ class CoreWebsocketServer:
         if self.event_storage_service:
             try:
                 event_dict = system_event.to_dict()
-                event_dict["platform"] = adapter_id  # <--- 关键修复！
+                event_dict["platform"] = adapter_id
                 await self.event_storage_service.save_event_document(event_dict)
                 logger.info(f"已生成并存储系统事件: {event_content_text}")
             except Exception as e:
