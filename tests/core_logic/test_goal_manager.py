@@ -1,6 +1,7 @@
 # tests/core_logic/test_goal_manager.py
 
 import pytest
+from pytest_mock import MockerFixture
 from src.core_logic.goal_manager import GoalManager
 
 # 标记整个模块的所有测试都需要异步环境
@@ -8,9 +9,12 @@ pytestmark = pytest.mark.asyncio
 
 
 @pytest.fixture
-def goal_manager() -> GoalManager:
-    """提供一个全新的 GoalManager 实例."""
-    return GoalManager()
+def goal_manager(mocker: MockerFixture) -> GoalManager:
+    """提供一个全新的 GoalManager 实例，并注入一个模拟的 GoalStorageService."""
+    # 创建一个 GoalStorageService 的模拟对象
+    mock_goal_storage_service = mocker.AsyncMock()
+    # 将模拟对象传递给 GoalManager 的构造函数
+    return GoalManager(goal_storage_service=mock_goal_storage_service)
 
 
 async def test_add_single_goal(goal_manager: GoalManager) -> None:
