@@ -88,18 +88,19 @@ class UnreadInfoService:
         if is_self_sender:
             if platform and conv_doc and conv_doc._key:
                 # 统一获取机器人在该平台和会话中的身份信息
-                presence_info = (
-                    await self.entity_graph_service.get_self_presence_in_conversation(
-                        platform=platform,
-                        conversation_entity_uid=conv_doc._key,
-                    )
+                presence_info = await self.entity_graph_service.get_self_presence_in_conversation(
+                    platform=platform,
+                    conversation_entity_uid=conv_doc._key,
                 )
                 self_entity = await self.entity_graph_service.get_self_entity_by_platform(platform)
 
                 # 1. 如果是群聊，优先使用群名片
-                if conv_type == "group":
-                    if presence_info and (group_cardname := presence_info.get("cardname")):
-                        return group_cardname
+                if (
+                    conv_type == "group"
+                    and presence_info
+                    and (group_cardname := presence_info.get("cardname"))
+                ):
+                    return group_cardname
 
                 # 2. 如果没有群名片，或不是群聊，使用平台主昵称
                 if self_entity and (

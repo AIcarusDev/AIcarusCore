@@ -86,10 +86,7 @@ class InternalInfoBuilder:
         status = (
             "None"
             if not action_part
-            or (
-                isinstance(action_part, dict)
-                and action_part.get("core", {}).get("do_nothing")
-            )
+            or (isinstance(action_part, dict) and action_part.get("core", {}).get("do_nothing"))
             else "Executed"
         )
         return f'<completed_action status="{status}" />'

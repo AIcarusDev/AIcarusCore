@@ -285,8 +285,8 @@ class TestUnreadInfoServiceSummaries:
         unread_info_service: UnreadInfoService,
         mock_entity_graph_service: MagicMock,
     ) -> None:
-        """
-        测试场景 (Bug 1 修复验证): 当最新消息是机器人自己发送时，
+        """测试场景 (Bug 1 修复验证): 当最新消息是机器人自己发送时.
+
         摘要应优先显示其在数据库中记录的【群名片】，而不是事件中缓存的通用昵称。
         """
         # 1. 准备 (Arrange)
@@ -320,7 +320,7 @@ class TestUnreadInfoServiceSummaries:
         }
 
         # 配置mock：当服务查询活跃会话时，返回我们构造的数据
-        mock_entity_graph_service.get_recently_active_conversation_entities_with_details.return_value = [
+        mock_entity_graph_service.get_recently_active_conversation_entities_with_details.return_value = [  # noqa: E501
             {
                 "conv_doc": mock_conv_doc,
                 "latest_event": mock_latest_event,
@@ -346,4 +346,4 @@ class TestUnreadInfoServiceSummaries:
         assert f"{bot_group_cardname}：这是一条机器人自己发的消息" in summary
         # --- [修复结束] ---
         assert "AIcarus (Self)" not in summary
-        assert "我：" not in summary # 也不能是“我”
+        assert "我：" not in summary  # 也不能是“我”

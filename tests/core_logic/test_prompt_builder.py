@@ -1,6 +1,6 @@
 # tests/core_logic/test_prompt_builder.py
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from pytest_mock import MockerFixture
@@ -13,18 +13,21 @@ from src.focus_chat_mode.components import PromptComponents
 from src.platform_builders.registry import platform_builder_registry
 from src.prompt_builder import PromptBuilderError, ThoughtPromptBuilder
 
+
 # 添加一个模块级别的、自动执行的 Fixture 来初始化注册中心
 # 这将确保在本文件中所有测试运行之前，'core' builder 和其他 builder 都已被注册
 @pytest.fixture(scope="module", autouse=True)
 def setup_registry_fixture() -> None:
-    """
-    This fixture runs once per module, ensuring that the platform builder
-    registry is populated before any tests in this file run. This is crucial
-    for any test that indirectly relies on platform builders (like 'core').
+    """This fixture runs once per module, ensuring that the platform builder registry is populated.
+
+    This runs before any tests in this file and is crucial for any test that indirectly relies on
+    platform builders (like 'core').
     """
     if not platform_builder_registry.get_all_builders():
         print("\n--- Initializing Platform Builder Registry for test_prompt_builder.py ---")
         platform_builder_registry.discover_and_register_builders(platform_builders)
+
+
 # --- [FIX END] ---
 
 
@@ -57,7 +60,7 @@ def prompt_builder(
 ) -> ThoughtPromptBuilder:
     """创建一个 ThoughtPromptBuilder 实例，并注入所有必要的模拟依赖."""
     # 其他依赖项对于这个特定测试不重要，所以也用 MagicMock 简单模拟
-    
+
     # 当模拟 core_ws_server 时，必须将其中的 async 方法明确指定为 AsyncMock
     mock_ws_server = mocker.MagicMock()
     mock_ws_server.get_connected_platforms_info = mocker.AsyncMock(
@@ -74,23 +77,21 @@ def prompt_builder(
         state_manager=mocker.MagicMock(),
         # 初始时传入 manager，以模拟真实场景
         chat_session_manager=mock_chat_session_manager,
-        core_ws_server=mock_ws_server, # 使用我们配置好的 mock
+        core_ws_server=mock_ws_server,  # 使用我们配置好的 mock
     )
     return builder
 
 
 # --- [新增测试类] ---
 class TestWorkingMemoriesAndTrajectory:
-    """
-    测试与新的工作记忆系统和被废除的注意力轨迹相关的逻辑。
-    """
+    """测试与新的工作记忆系统和被废除的注意力轨迹相关的逻辑."""
 
     async def test_build_working_memories_block_formats_correctly(
         self, prompt_builder: ThoughtPromptBuilder, mocker: MockerFixture
     ) -> None:
-        """
-        测试 _build_working_memories_block 是否能根据数据库返回的
-        思考记录正确生成 XML 块。
+        """测试 _build_working_memories_block 是否能根据数据库返回的思考记录正确生成 XML 块.
+
+        验证方法能够从数据库获取思考记录并正确格式化为 XML 格式的工作记忆块。
         """
         # 1. 准备 (Arrange)
         # 模拟数据库返回两条思考记录
@@ -111,7 +112,7 @@ class TestWorkingMemoriesAndTrajectory:
             },
         ]
         # Patch state_manager 内部的 thought_service
-        prompt_builder.system_prompt_parts_builder.state_manager.thought_service.get_recent_thought_documents = mocker.AsyncMock(
+        prompt_builder.system_prompt_parts_builder.state_manager.thought_service.get_recent_thought_documents = mocker.AsyncMock(  # noqa: E501
             return_value=mock_thoughts
         )
 
@@ -120,8 +121,8 @@ class TestWorkingMemoriesAndTrajectory:
 
         # 3. 断言 (Assert)
         # 修复点：实现已经移除了外层标签，所以测试应该断言其以 <desc> 开头
-        assert result.startswith('  <desc>以下是你的有印象/记得的，之前自己做的事。</desc>')
-        assert result.endswith("</memory>") # 验证它以最后一个 memory 块结束
+        assert result.startswith("  <desc>以下是你的有印象/记得的，之前自己做的事。</desc>")
+        assert result.endswith("</memory>")  # 验证它以最后一个 memory 块结束
         assert '<memory cycle_ago="1">' in result
         assert '<memory cycle_ago="2">' in result
         # 验证 internal_state 已被移除
@@ -134,11 +135,9 @@ class TestWorkingMemoriesAndTrajectory:
     def test_attentional_trajectory_block_is_removed(
         self, prompt_builder: ThoughtPromptBuilder
     ) -> None:
-        """
-        测试 _build_attentional_trajectory_block 方法和相关调用已被彻底移除。
-        """
+        """测试 _build_attentional_trajectory_block 方法和相关调用已被彻底移除."""
         # 修复点：为测试方法注入 prompt_builder fixture
-        
+
         # 验证方法本身不存在
         assert not hasattr(
             prompt_builder.system_prompt_parts_builder, "_build_attentional_trajectory_block"
@@ -154,8 +153,8 @@ class TestWorkingMemoriesAndTrajectory:
     async def test_build_prompts_components_assembles_new_blocks(
         self, wired_prompt_builder: ThoughtPromptBuilder, mocker: MockerFixture
     ) -> None:
-        """
-        端到端测试：验证 build_prompts_components 返回的字典中
+        """端到端测试：验证 build_prompts_components 返回的字典中包含新的记忆块，且不包含旧的轨迹块.
+
         包含新的记忆块，且不包含旧的轨迹块。
         """
         # 1. 准备 (Arrange)
@@ -178,17 +177,19 @@ class TestWorkingMemoriesAndTrajectory:
             return_value=("", "", PromptComponents(), []),
         )
         mocker.patch.object(
-            wired_prompt_builder.system_prompt_parts_builder, "build", wraps=wired_prompt_builder.system_prompt_parts_builder.build
+            wired_prompt_builder.system_prompt_parts_builder,
+            "build",
+            wraps=wired_prompt_builder.system_prompt_parts_builder.build,
         )
         mocker.patch.object(
             wired_prompt_builder.system_prompt_parts_builder, "internal_info_builder"
         )
-        wired_prompt_builder.system_prompt_parts_builder.internal_info_builder.build_internal_info_block = mocker.AsyncMock()
+        wired_prompt_builder.system_prompt_parts_builder.internal_info_builder.build_internal_info_block = mocker.AsyncMock()  # noqa: E501
 
         # --- [FIX for Failure] ---
         # 核心修复：为 UserPromptPartsBuilder 的依赖 thought_storage 配置返回值
         # 这样 _get_latest_action_context 就不会返回协程
-        wired_prompt_builder.user_prompt_parts_builder.thought_storage.get_latest_thought_document.return_value = None
+        wired_prompt_builder.user_prompt_parts_builder.thought_storage.get_latest_thought_document.return_value = None  # noqa: E501
         # --- [FIX END] ---
 
         # 2. 执行 (Act)
@@ -202,16 +203,22 @@ class TestWorkingMemoriesAndTrajectory:
         assert "deliberation_summary_block" in system_blocks
         assert "attentional_trajectory_block" not in system_blocks
         assert system_blocks["working_memories_block"] == "<working_memories>...</working_memories>"
-        assert system_blocks["deliberation_summary_block"] == "<deliberation_summary>...</deliberation_summary>"
+        assert (
+            system_blocks["deliberation_summary_block"]
+            == "<deliberation_summary>...</deliberation_summary>"
+        )
 
 
 # --- [以下为原有测试，保持不变] ---
+
 
 @pytest.fixture
 def mock_dependencies(mocker: MockerFixture) -> dict:
     """一个集中的 Fixture，用于模拟 ThoughtPromptBuilder 的所有依赖项."""
     mock_ws_server = mocker.MagicMock()
-    mock_ws_server.get_connected_platforms_info = mocker.AsyncMock(return_value="mocked platforms from deps")
+    mock_ws_server.get_connected_platforms_info = mocker.AsyncMock(
+        return_value="mocked platforms from deps"
+    )
 
     return {
         "unread_info_service": mocker.AsyncMock(),
@@ -222,7 +229,7 @@ def mock_dependencies(mocker: MockerFixture) -> dict:
         "action_handler": mocker.MagicMock(),
         "state_manager": mocker.MagicMock(),
         "chat_session_manager": mocker.MagicMock(),
-        "core_ws_server": mock_ws_server, # 使用正确配置的 mock
+        "core_ws_server": mock_ws_server,  # 使用正确配置的 mock
     }
 
 
@@ -234,12 +241,13 @@ def wired_prompt_builder(mock_dependencies: dict) -> ThoughtPromptBuilder:
     deps_for_init["core_ws_server"] = None
 
     builder = ThoughtPromptBuilder(**deps_for_init)
-    
+
     # 模拟后续的依赖注入过程, 现在 setter 会自动处理子构建器
     builder.chat_session_manager = mock_dependencies["chat_session_manager"]
     builder.core_ws_server = mock_dependencies["core_ws_server"]
-    
+
     return builder
+
 
 class TestPromptBuilderCurrentState:
     """专门测试 `_get_current_state_block` 方法的测试类."""

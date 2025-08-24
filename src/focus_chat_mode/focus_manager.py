@@ -329,7 +329,6 @@ class FocusManager:
             logger.error(error_message)
             return False, error_message
 
-
     async def _handle_back(self, params: dict, history_entry_base: dict) -> tuple[bool, str]:
         """处理 'back' 指令."""
         try:

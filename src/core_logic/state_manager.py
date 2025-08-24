@@ -39,7 +39,7 @@ class AIStateManager:
         self,
         thought_service: ThoughtStorageService,
         action_log_service: ActionLogStorageService,
-        goal_storage_service: GoalStorageService
+        goal_storage_service: GoalStorageService,
     ) -> None:
         """初始化需要 thought_storage_service 和 action_log_service 才能干活，哼."""
         self.thought_service = thought_service

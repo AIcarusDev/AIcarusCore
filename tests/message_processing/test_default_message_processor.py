@@ -105,12 +105,14 @@ async def test_process_event_updates_conversation_name(
         [sender_call, bot_call], any_order=True
     )
 
+
 async def test_private_chat_event_does_not_cause_double_name_update(
     message_processor: DefaultMessageProcessor,
     mock_entity_graph_service: MagicMock,
 ) -> None:
-    """
-    测试场景 (Bug 2 修复验证): 处理一个私聊事件时，会话名称应该只被
+    """测试场景 (Bug 2 修复验证).
+
+    处理一个私聊事件时，会话名称应该只被
     get_or_create_conversation_entity 设置一次，而后续的
     update_presence_in_conversation 调用不应再修改它。
     """
@@ -125,7 +127,7 @@ async def test_private_chat_event_does_not_cause_double_name_update(
         conversation_info=ConversationInfo(
             conversation_id="1321807442",
             type="private",
-            name=sender_nickname, # 事件中自带的名称
+            name=sender_nickname,  # 事件中自带的名称
         ),
         content=[],
     )
@@ -139,10 +141,7 @@ async def test_private_chat_event_does_not_cause_double_name_update(
     # 3. 断言 (Assert)
     # 验证 get_or_create_conversation_entity 被调用，并且传入了正确的名称
     mock_entity_graph_service.get_or_create_conversation_entity.assert_awaited_once_with(
-        conversation_id='1321807442',
-        platform='qq',
-        conv_type='private',
-        name=sender_nickname
+        conversation_id="1321807442", platform="qq", conv_type="private", name=sender_nickname
     )
 
     # 验证 update_presence_in_conversation 被调用了两次 (一次为发送者，一次为机器人)
@@ -153,5 +152,6 @@ async def test_private_chat_event_does_not_cause_double_name_update(
     # 这证明了我们已经将更新会话名称的职责从这个函数中移除了。
     for call_args in mock_entity_graph_service.update_presence_in_conversation.call_args_list:
         kwargs = call_args.kwargs
-        assert 'conversation_name' not in kwargs, \
+        assert "conversation_name" not in kwargs, (
             f"不应在 update_presence_in_conversation 中传递 conversation_name，但却传入了: {kwargs}"
+        )

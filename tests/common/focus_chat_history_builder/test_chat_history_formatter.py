@@ -28,7 +28,7 @@ class TestChatHistoryFormatter:
             bot_id="bot123",
             text_content="这是机器人的一条消息",
             sender_id="bot123",  # 发送者是机器人自己
-            motivation="这是一个测试动机", # 带有动机
+            motivation="这是一个测试动机",  # 带有动机
         )
 
         formatter = _ChatHistoryFormatter(

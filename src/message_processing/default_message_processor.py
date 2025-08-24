@@ -207,7 +207,7 @@ class DefaultMessageProcessor:
             conversation_id=str(conv_info.conversation_id),
             platform=platform_id,
             conv_type=conv_info.type,
-            name=conversation_name_for_creation, # <-- 使用修正后的名称
+            name=conversation_name_for_creation,  # <-- 使用修正后的名称
         )
         # --- [修复结束] ---
 

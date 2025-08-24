@@ -133,9 +133,7 @@ class ThoughtStorageService:
             logger.error(f"思想链操作事务执行失败: {e}", exc_info=True)
             return None
 
-    def _reconstruct_thought_doc(
-        self, tx: Transaction, thought_id: str
-    ) -> dict[str, Any] | None:
+    def _reconstruct_thought_doc(self, tx: Transaction, thought_id: str) -> dict[str, Any] | None:
         """[Helper] 从数据库中根据 thought_id 重建单个完整的思想文档."""
         query = f"""
         match

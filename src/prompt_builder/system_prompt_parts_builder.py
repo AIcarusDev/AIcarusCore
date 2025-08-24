@@ -212,7 +212,7 @@ class SystemPromptPartsBuilder:
 
         # FIX 1: 移除外层标签，模板中已有
         memory_lines = [
-            '  <desc>以下是你的有印象/记得的，之前自己做的事。</desc>',
+            "  <desc>以下是你的有印象/记得的，之前自己做的事。</desc>",
         ]
 
         for i, thought in enumerate(recent_thoughts):
@@ -235,7 +235,7 @@ class SystemPromptPartsBuilder:
                 # FIX 3: 使用 separators 参数生成最紧凑的单行 JSON
                 json_content = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
                 memory_lines.append(f'  <memory cycle_ago="{i + 1}">')
-                memory_lines.append(f'    <![CDATA[{json_content}]]>')
+                memory_lines.append(f"    <![CDATA[{json_content}]]>")
                 memory_lines.append("  </memory>")
             except (TypeError, ValueError):
                 continue
@@ -352,4 +352,3 @@ class SystemPromptPartsBuilder:
             if tool_descs:
                 descs.append("\n".join(tool_descs))
         return "\n".join(filter(None, descs)).strip() or "你当前没有可用的外部行动。"
-    
