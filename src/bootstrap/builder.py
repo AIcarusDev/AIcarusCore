@@ -8,6 +8,9 @@ from typing import Protocol, runtime_checkable
 from src import platform_builders
 from src.action.action_handler import ActionHandler
 from src.action.services.sticker_service import StickerService
+from src.aicos.application_manager import ApplicationManager
+from src.aicos.state_generator import AICOSStateGenerator
+from src.aicos.window_manager import WindowManager
 from src.bootstrap.container import ServiceContainer
 from src.common.custom_logging.logging_config import get_logger
 from src.common.intelligent_interrupt_system.iis_main import IISBuilder
@@ -27,8 +30,6 @@ from src.core_logic.intrusive_thoughts import IntrusiveThoughtsGenerator
 from src.core_logic.state_manager import AIStateManager
 from src.core_logic.thought_generator import ThoughtGenerator
 from src.core_logic.thought_persistor import ThoughtPersistor
-
-# --- [心脏移植完成] 导入路径已更新为新的 src/database ---
 from src.database.core.connection_manager import TypeDBConnectionManager
 from src.database.services.action_log_storage_service import ActionLogStorageService
 from src.database.services.entity_graph_service import EntityGraphService
@@ -41,7 +42,7 @@ from src.llmrequest.llm_processor import Client as ProcessorClient
 from src.message_processing.default_message_processor import DefaultMessageProcessor
 from src.message_processing.image_analysis_service import ImageAnalysisService
 from src.platform_builders.registry import platform_builder_registry
-from src.prompt_builder import ThoughtPromptBuilder
+from src.prompt_builder.orchestrator import ThoughtPromptBuilder
 
 logger = get_logger(__name__)
 
@@ -65,6 +66,10 @@ class ServiceBuilder:
 
         db_services = await self._initialize_typedb_and_services()
 
+        # --- [第 1 步: 创建 AIC-OS 核心服务实例] ---
+        window_manager = WindowManager()
+        application_manager = ApplicationManager()
+
         sticker_service = StickerService(
             sticker_storage_service=db_services["sticker_storage_service"],
             event_storage_service=db_services["event_storage_service"],
@@ -85,22 +90,34 @@ class ServiceBuilder:
             goal_storage_service=db_services["goal_storage_service"],
         )
 
+        # --- [第 2 步: 将 AIC-OS 服务注入到新的依赖者中] ---
+
+        # 2a. 创建 AICOSStateGenerator 并注入其依赖
+        aicos_state_generator = AICOSStateGenerator(
+            window_manager=window_manager,
+            application_manager=application_manager,
+            entity_service=db_services["entity_graph_service"],
+        )
+
         unread_info_service = UnreadInfoService(
             db_services["event_storage_service"], db_services["entity_graph_service"]
         )
 
         internal_info_builder = InternalInfoBuilder(db_services["thought_storage_service"])
 
+        # 2b. 创建 ThoughtPromptBuilder 并注入其依赖
         prompt_builder = ThoughtPromptBuilder(
-            unread_info_service=unread_info_service,
+            # 新增依赖
+            aicos_state_generator=aicos_state_generator,
+            window_manager=window_manager,
+            application_manager=application_manager,
+            # 旧依赖
             internal_info_builder=internal_info_builder,
-            event_storage_service=db_services["event_storage_service"],
+            state_manager=state_manager,
             thought_storage_service=db_services["thought_storage_service"],
             entity_graph_service=db_services["entity_graph_service"],
-            action_handler=action_handler,
-            state_manager=state_manager,
-            chat_session_manager=None,
-            core_ws_server=None,
+            chat_session_manager=None, # 动态注入
+            core_ws_server=None, # 动态注入
         )
 
         internal_info_builder.prompt_builder = prompt_builder
@@ -164,6 +181,8 @@ class ServiceBuilder:
         immediate_thought_trigger = AsyncioEvent()
 
         core_logic = CoreLogic(
+            window_manager=window_manager,
+            application_manager=application_manager,
             core_comm_layer=core_comm_layer,
             action_handler_instance=action_handler,
             state_manager=state_manager,
@@ -180,6 +199,10 @@ class ServiceBuilder:
         )
 
         return ServiceContainer(
+            window_manager=window_manager,
+            application_manager=application_manager,
+            aicos_state_generator=aicos_state_generator,
+            schema_builder=prompt_builder.schema_builder,
             main_consciousness_llm_client=llm_clients["main_consciousness_llm_client"],
             summary_llm_client=llm_clients["summary_llm_client"],
             intrusive_thoughts_llm_client=llm_clients["intrusive_thoughts_llm_client"],
@@ -210,6 +233,7 @@ class ServiceBuilder:
             sticker_service=sticker_service,
             narrative_vectorizer=narrative_vectorizer,
             chat_session_manager=None,
+            config=config,
             goal_storage_service=db_services["goal_storage_service"],
         )
 

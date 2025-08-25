@@ -18,6 +18,7 @@ from .system_prompt_parts_builder import SystemPromptPartsBuilder
 from .user_prompt_parts_builder import UserPromptPartsBuilder
 
 if TYPE_CHECKING:
+    from src.aicos.application_manager import ApplicationManager
     from src.aicos.window_manager import WindowManager
     from src.core_communication.core_ws_server import CoreWebsocketServer
     from src.core_logic.internal_info_builder import InternalInfoBuilder
@@ -26,7 +27,6 @@ if TYPE_CHECKING:
     from src.database.services.thought_storage_service import ThoughtStorageService
     from src.focus_chat_mode.chat_session import ChatSession
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
-
 
 class ThoughtPromptBuilder:
     """[AIC-OS]构建思维提示的总编排器.
@@ -40,6 +40,7 @@ class ThoughtPromptBuilder:
         # 新增 AICOS 核心服务作为依赖
         aicos_state_generator: "AICOSStateGenerator",
         window_manager: "WindowManager",
+        application_manager: "ApplicationManager",
         # 旧的依赖，部分仍然需要
         internal_info_builder: "InternalInfoBuilder",
         state_manager: "AIStateManager",
@@ -59,15 +60,14 @@ class ThoughtPromptBuilder:
         self.system_prompt_parts_builder = SystemPromptPartsBuilder(
             internal_info_builder,
             state_manager,
-            chat_session_manager,
-            core_ws_server,
-            # action_handler, # AICOS 模式下，SystemPrompt不再需要直接访问ActionHandler
+            window_manager,
+            application_manager,
             entity_graph_service,
         )
         self.user_prompt_parts_builder = UserPromptPartsBuilder(
-            thought_storage_service, entity_graph_service, chat_session_manager, state_manager
+            thought_storage_service,
+            state_manager,
         )
-        # TODO: UserPromptPartsBuilder 和 SystemPromptPartsBuilder 也需要进行相应的 AIC-OS 适配改造
 
     async def build_prompts_components(
         self,

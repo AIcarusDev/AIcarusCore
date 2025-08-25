@@ -285,7 +285,14 @@ class EventStorageService:
             vectors (list[float]) sorted by timestamp. Only includes conversations
             with 2 or more messages.
         """
-        query = r'match $event isa event, has event-type $type; $type like "message\\..*"; $event has embedding-json $embedding_json; $event has conversation-info-json $conv_info_json; $event has timestamp $ts; select $conv_info_json, $embedding_json, $ts;'  # noqa: E501
+        query = (
+            r'match $event isa event, has event-type $type; '
+            r'$type like "message\\..*"; '
+            r'$event has embedding-json $embedding_json; '
+            r'$event has conversation-info-json $conv_info_json; '
+            r'$event has timestamp $ts; '
+            r'select $conv_info_json, $embedding_json, $ts;'
+        )
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
         def db_read_and_group() -> list[list[list[float]]]:
@@ -548,3 +555,26 @@ class EventStorageService:
         except Exception as e:
             logger.error(f"获取分页聊天记录失败 (UID: {conversation_uid}): {e}", exc_info=True)
             return [], 1, 1
+
+    async def get_event_text_summary(self, event_doc: dict) -> str:
+        """从事件文档中提取一个简短的文本摘要."""
+        if not event_doc:
+            return "[空消息]"
+
+        content = event_doc.get("content", [])
+        if not isinstance(content, list):
+            return "[消息格式错误]"
+
+        text_parts = []
+        for seg in content:
+            if seg.get("type") == "text":
+                text_parts.append(seg.get("data", {}).get("text", ""))
+            elif seg.get("type") == "image":
+                text_parts.append("[图片]")
+            # 可以根据需要添加对其他类型的处理
+
+        summary = "".join(text_parts).strip()
+        if not summary:
+            return "[非文本消息]"
+
+        return f"{summary[:30]}..." if len(summary) > 30 else summary

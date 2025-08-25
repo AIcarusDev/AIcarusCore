@@ -3,6 +3,8 @@ import time
 from xml.dom.minidom import parseString
 from xml.etree.ElementTree import Element, SubElement, tostring
 
+from src.common.custom_logging.logging_config import get_logger
+
 # 导入核心依赖
 from src.database.services.entity_graph_service import EntityGraphService
 
@@ -10,6 +12,7 @@ from .application_manager import ApplicationManager
 from .models import Window, WindowStatus
 from .window_manager import WindowManager
 
+logger = get_logger(__name__)
 
 class AICOSStateGenerator:
     """负责将 AIC-OS 的内部状态渲染成最终的 XML 字符串，并生成 UI 元素到内部实体的映射."""
@@ -188,68 +191,74 @@ class AICOSStateGenerator:
                 await self._render_conversation_window(window_node, window)
 
     async def _render_qq_conversation_list(self, window_node: Element, window: Window) -> None:
-        """[新核心逻辑] 专门渲染QQ会话列表窗口的动态内容."""
-        page = window.content_state.get("page", 1)
+        """[最终版] 专门渲染QQ会话列表窗口的动态内容."""
+        page = window.content_state.get('page', 1)
         page_size = 30 if window.status == WindowStatus.MAXIMIZE else 15
 
-        # 从数据库获取真实的会话列表数据
-        # 注意：这里需要一个新的 service 方法来获取分页数据
-        # conversations, total_pages = await self.entity_service.get_paged_conversations('qq', page, page_size)  # noqa: E501
-        # --- 模拟数据 ---
-        conversations = [
-            {
-                "uid": "qq_group_12345",
-                "name": "开发交流群",
-                "type": "group",
-                "unread": 3,
-                "latest_msg": "gemini：这个设计太棒了！",
-            },
-            {
-                "uid": "qq_private_54321",
-                "name": "未来星",
-                "type": "private",
-                "unread": 2,
-                "latest_msg": "收到了吗？",
-            },
-        ]
-        total_pages = 1
-        # --- 模拟结束 ---
+        # --- [核心修复] 从数据库获取真实的会话列表数据 ---
+        # 我们需要 bot_id 来正确计算未读数
+        bot_id = self.application_manager.get_self_bot_ids_map().get("qq")
+        if not bot_id:
+            logger.error("无法获取 QQ 的 bot_id，无法渲染会话列表。")
+            SubElement(window_node, 'error').text = "内部错误：无法获取机器人ID。"
+            return
 
-        list_node = SubElement(
-            window_node,
-            "conversation_list",
-            attrib={
-                "pagination": "true",
-                "page_current": str(page),
-                "page_total": str(total_pages),
-                "items_per_page": str(page_size),
-            },
+        # 调用服务层获取数据
+        # 注意：这里假设 entity_service 有一个获取分页会话的方法
+        # 我们需要先在 entity_service 中实现它
+        conversations, total_pages = await self.entity_service.get_paged_conversations(
+            platform_id='qq',
+            page=page,
+            page_size=page_size,
+            self_bot_ids={"qq": bot_id}
         )
 
-        for conv in conversations:
-            conv_ui_id = self._generate_ui_id("conv")
-            conv_node = SubElement(
-                list_node,
-                "conversation",
-                attrib={
-                    "id": conv_ui_id,
-                    "name": conv["name"],
-                    "type": conv["type"],
-                    "unread": str(conv["unread"]),
-                },
-            )
-            SubElement(conv_node, "desc").text = f"[最新消息]: {conv['latest_msg']}"
+        list_node = SubElement(window_node, 'conversation_list', attrib={
+            'pagination': 'true', 'page_current': str(page),
+            'page_total': str(total_pages), 'items_per_page': str(page_size)
+        })
 
-            enter_btn_id = self._generate_ui_id("btn")
+        if not conversations:
+            SubElement(list_node, 'desc').text = "没有会话。"
+            return
+
+        for conv_data in conversations:
+            conv_doc = conv_data.get("conv_doc")
+            latest_event = conv_data.get("latest_event")
+            unread_count = conv_data.get("unread_count", 0)
+
+            if not conv_doc or not latest_event:
+                continue
+
+            conv_uid = conv_doc._key
+            conv_name = conv_doc.details.name or "未知会话"
+            conv_type = conv_doc.details.type
+
+            # 使用 EventStorageService 的方法来获取最新消息的文本摘要
+            latest_msg_text = await self.entity_service.event_storage_service.get_event_text_summary(  # noqa: E501
+                latest_event
+            )
+
+            conv_ui_id = self._generate_ui_id('conv')
+            conv_node = SubElement(list_node, 'conversation', attrib={
+                'id': conv_ui_id, 'name': conv_name, 'type': conv_type, 'unread': str(unread_count)
+            })
+            SubElement(conv_node, 'desc').text = f"[最新消息]: {latest_msg_text}"
+
+            enter_btn_id = self._generate_ui_id('btn')
             SubElement(
                 conv_node,
-                "button",
-                attrib={"id": enter_btn_id, "name": "enter", "title": "进入会话"},
+                'button',
+                attrib={
+                    'id': enter_btn_id,
+                    'name': 'enter',
+                    'title': '进入会话'
+                }
             )
             self._ui_mapping[enter_btn_id] = {
-                "action_type": "click",
-                "action": "open_conversation_window",
-                "target_uid": conv["uid"],  # 映射到持久化的会话UID
+                'action_type': 'click',
+                'action': 'open_conversation_window',
+                'target_uid': conv_uid # <-- 现在这里是来自数据库的真实 UID！
             }
 
     async def _render_conversation_window(self, window_node: Element, window: Window) -> None:

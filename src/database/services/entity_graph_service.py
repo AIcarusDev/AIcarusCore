@@ -144,7 +144,7 @@ class EntityGraphService:
 
     async def create_new_profile_with_account_entity(
         self,
-        user_info: ProtocolUserInfo,
+        user_info: ProtocolUserInfo | dict,
         platform: str,
         is_self: bool = False,
     ) -> tuple[str | None, str | None]:
@@ -159,10 +159,24 @@ class EntityGraphService:
             tuple[str | None, str | None]: 包含 profile_id 和 account_uid 的元组。
                                             如果创建失败，则返回 (None, None)。
         """
+        user_id = user_info.get("user_id") if isinstance(user_info, dict) else user_info.user_id
+        nickname = (
+            user_info.get("user_nickname")
+            if isinstance(user_info, dict)
+            else user_info.user_nickname
+        )
+
+        if not user_id:
+            logger.error("传入的 user_info 中缺少 user_id，无法创建实体。")
+            return None, None
+
         profile_uid = SELF_PROFILE_ID if is_self else f"profile_{uuid.uuid4().hex[:12]}"
-        account_uid = f"{platform}_{user_info.user_id}"
-        nickname = (user_info.user_nickname or "").replace('"', '\\"')
-        platform_id_val = (user_info.user_id or "").replace('"', '\\"')
+        account_uid = f"{platform}_{user_id}"
+
+        # 使用已经提取出来的值
+        nickname_safe = (nickname or "").replace('"', '\\"')
+        platform_id_val = (user_id or "").replace('"', '\\"')
+
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.database_name
 
@@ -189,8 +203,8 @@ class EntityGraphService:
                     f'$plat isa platform, has platform-uid "{platform}"; '
                     f'insert $acc isa account, has account-uid "{account_uid}", '
                     f'has platform-id "{platform_id_val}", '
-                    f'has nickname "{nickname}", '
-                    f'has last-known-nickname "{nickname}"; '
+                    f'has nickname "{nickname_safe}", '
+                    f'has last-known-nickname "{nickname_safe}"; '
                     f"(owner: $p, owned-account: $acc) isa identity-ownership; "
                     f"(resident: $acc, host-platform: $plat) isa residency;"
                 ).resolve()
@@ -864,3 +878,28 @@ class EntityGraphService:
                 logger.error(f"处理会话 {conv_uid} 的详细信息时出错: {e}", exc_info=True)
 
         return active_convs_data
+
+    async def get_paged_conversations(
+        self, platform_id: str, page: int, page_size: int, self_bot_ids: dict
+    ) -> tuple[list[dict], int]:
+        """获取指定平台的分页会话列表，按最新活动时间排序."""
+        import math
+
+        all_active_convs = await self.get_recently_active_conversation_entities_with_details(
+            self_bot_ids=self_bot_ids
+        )
+
+        platform_convs = [
+            c for c in all_active_convs
+            if c.get("conv_doc") and c["conv_doc"].details.platform == platform_id
+        ]
+
+        total_items = len(platform_convs)
+        if total_items == 0:
+            return [], 1
+
+        total_pages = math.ceil(total_items / page_size)
+        start_index = (page - 1) * page_size
+        end_index = start_index + page_size
+
+        return platform_convs[start_index:end_index], total_pages

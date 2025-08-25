@@ -47,6 +47,9 @@ async def wire_dynamic_dependencies(container: ServiceContainer) -> None:
         else {}
     )
 
+    # 将 bot_ids_map 注入 ApplicationManager
+    container.application_manager.set_self_bot_ids_map(bot_ids_map)
+
     # 3. 创建并注入 ChatSessionManager
     if config.focus_chat_mode.enabled and container.focused_chat_llm_client:
         # 创建 ChatSessionManager

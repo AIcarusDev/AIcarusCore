@@ -8,12 +8,16 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from src.action.action_handler import ActionHandler
     from src.action.services.sticker_service import StickerService
+    from src.aicos.application_manager import ApplicationManager
+    from src.aicos.state_generator import AICOSStateGenerator
+    from src.aicos.window_manager import WindowManager
     from src.common.intelligent_interrupt_system.intelligent_interrupter import (
         IntelligentInterrupter,
     )
     from src.common.interruption_broker import InterruptionEventBroker
     from src.common.narrative_vectorizer.narrative_vectorizer import NarrativeVectorizer
     from src.common.unread_info_service.unread_info_service import UnreadInfoService
+    from src.config import AlcarusRootConfig
     from src.core_communication.core_ws_server import CoreWebsocketServer
     from src.core_logic.consciousness_flow import CoreLogic
     from src.core_logic.internal_info_builder import InternalInfoBuilder
@@ -35,6 +39,7 @@ if TYPE_CHECKING:
     from src.message_processing.default_message_processor import DefaultMessageProcessor
     from src.message_processing.image_analysis_service import ImageAnalysisService
     from src.prompt_builder import ThoughtPromptBuilder
+    from src.prompt_builder.schema_builder import SchemaBuilder
 
 
 @dataclass
@@ -49,6 +54,7 @@ class ServiceContainer:
     web_search_agent_client: ProcessorClient | None
     url_context_agent_client: ProcessorClient | None
     deliberation_llm_client: ProcessorClient | None
+    config: AlcarusRootConfig
 
     # 连接管理器
     conn_manager: TypeDBConnectionManager
@@ -76,10 +82,16 @@ class ServiceContainer:
     unread_info_service: UnreadInfoService
     interruption_broker: InterruptionEventBroker
     narrative_vectorizer: NarrativeVectorizer
+    schema_builder: SchemaBuilder
 
     # 通信与核心循环
     core_comm_layer: CoreWebsocketServer
     core_logic: CoreLogic
+
+    # --- [AIC-OS] 在容器定义中添加新的服务字段 ---
+    window_manager: WindowManager
+    application_manager: ApplicationManager
+    aicos_state_generator: AICOSStateGenerator
 
     # 专注聊天管理器 (特殊处理，因为它依赖安检)
     chat_session_manager: ChatSessionManager | None

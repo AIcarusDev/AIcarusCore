@@ -10,6 +10,15 @@ class ApplicationManager:
         # _applications 是唯一真实来源，存储所有“已安装”的应用
         # 实际项目中，这应该从数据库或配置文件加载
         self._applications: dict[str, Application] = {}
+        self._self_bot_ids_map: dict[str, str] = {}
+
+    def set_self_bot_ids_map(self, bot_ids_map: dict[str, str]) -> None:
+        """从外部注入 bot_id 映射."""
+        self._self_bot_ids_map = bot_ids_map
+
+    def get_self_bot_ids_map(self) -> dict[str, str]:
+        """获取 bot_id 映射."""
+        return self._self_bot_ids_map
 
     def load_installed_apps(self, apps: list[Application]) -> None:
         """加载系统“已安装”的所有应用."""

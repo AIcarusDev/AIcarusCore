@@ -110,7 +110,7 @@ class SystemPromptPartsBuilder:
         if not recent_thoughts:
             return ""
 
-        # FIX 1: 移除外层标签，模板中已有
+        # 移除外层标签，模板中已有
         memory_lines = [
             "  <desc>以下是你的有印象/记得的，之前自己做的事。</desc>",
         ]
@@ -118,7 +118,7 @@ class SystemPromptPartsBuilder:
         for i, thought in enumerate(recent_thoughts):
             payload = thought.get("action_payload")
 
-            # FIX 2: 增强过滤逻辑，确保 payload 包含有效指令
+            # 过滤逻辑，确保 payload 包含有效指令
             if not payload or (
                 not payload.get("external_action") and not payload.get("internal_action")
             ):
