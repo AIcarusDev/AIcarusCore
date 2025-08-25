@@ -1,6 +1,7 @@
 # src/database/services/event_storage_service.py
 import asyncio
 import json
+import math
 from typing import TYPE_CHECKING, Any
 
 from src.common.custom_logging.logging_config import get_logger
@@ -471,3 +472,79 @@ class EventStorageService:
         except Exception as e:
             logger.error(f"计算会话 {conversation_uid} 未读数失败: {e!r}", exc_info=True)
             return {"unread_count": 0, "has_high_priority": False}
+
+    async def get_paged_chat_history(
+        self, conversation_uid: str, page: int, page_size: int
+    ) -> tuple[list[dict], int, int]:
+        """获取分页的聊天记录.
+
+        Args:
+            conversation_uid: 会话的持久化 UID。
+            page: 要获取的页码 (从1开始)。
+            page_size: 每页的消息数量。
+
+        Returns:
+            一个元组: (消息列表, 当前页码, 总页数)。
+            消息列表按时间升序排列（旧消息在前）。
+        """
+        _, _, conv_native_id = parse_entity_uid(conversation_uid) or (None, None, None)
+        if not conv_native_id:
+            return [], 1, 1
+
+        driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
+
+        def db_read() -> tuple[list[dict], int, int]:
+            with driver.transaction(db_name, TransactionType.READ) as tx:
+                # 1. 先获取总数以计算总页数
+                count_query = f"""
+                match $e isa event, has conversation-info-json $ci;
+                $ci contains "\\"{conv_native_id}\\"";
+                reduce $count = count;
+                """
+                count_result = list(tx.query(count_query).resolve().as_concept_rows())
+                total_count = (
+                    count_result[0].get("count").as_value().get_integer() if count_result else 0
+                )
+
+                if total_count == 0:
+                    return [], 1, 1
+
+                total_pages = math.ceil(total_count / page_size)
+
+                # 2. 计算偏移量并获取分页数据
+                offset = (page - 1) * page_size
+
+                query = f"""
+                match $e isa event, has conversation-info-json $ci;
+                $ci contains "\\"{conv_native_id}\\"";
+                $e has timestamp $ts;
+                sort $ts desc; offset {offset}; limit {page_size};
+                select $e;
+                """
+
+                docs = []
+                for ans in list(tx.query(query).resolve().as_concept_rows()):
+                    if not (e_concept := ans.get("e")):
+                        continue
+                    eid_answers = list(
+                        tx.query(
+                            f"match $x iid {e_concept.get_iid()}, has event-id $id; select $id;"
+                        )
+                        .resolve()
+                        .as_concept_rows()
+                    )
+                    if eid_answers and (id_attr := eid_answers[0].get("id")):
+                        full_doc = self._get_full_event_doc_sync(
+                            tx, id_attr.as_attribute().get_value()
+                        )
+                        if full_doc:
+                            docs.append(full_doc)
+
+                # 3. 结果是按时间降序的，我们需要反转它，让UI上旧消息在上面
+                return list(reversed(docs)), page, total_pages
+
+        try:
+            return await asyncio.to_thread(db_read)
+        except Exception as e:
+            logger.error(f"获取分页聊天记录失败 (UID: {conversation_uid}): {e}", exc_info=True)
+            return [], 1, 1

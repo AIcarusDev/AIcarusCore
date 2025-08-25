@@ -1,7 +1,9 @@
 # src/prompt_builder/orchestrator.py
 from typing import TYPE_CHECKING, Any, Optional
 
-from src.common.utils import parse_focus_path
+# 导入新的 AIC-OS 模型和服务
+from src.aicos.models import WindowStatus
+from src.aicos.state_generator import AICOSStateGenerator
 from src.domain.models import Stimulus
 from src.focus_chat_mode.components import PromptComponents
 from src.prompt_templates import prompt_templates
@@ -11,167 +13,170 @@ from src.prompt_templates.deliberation_prompts import (
     DELIBERATION_USER_PROMPT,
 )
 
-from .external_info_builder import ExternalInfoBuilder
 from .schema_builder import SchemaBuilder
 from .system_prompt_parts_builder import SystemPromptPartsBuilder
 from .user_prompt_parts_builder import UserPromptPartsBuilder
 
 if TYPE_CHECKING:
-    from src.action.action_handler import ActionHandler
-    from src.common.unread_info_service.unread_info_service import UnreadInfoService
+    from src.aicos.window_manager import WindowManager
     from src.core_communication.core_ws_server import CoreWebsocketServer
     from src.core_logic.internal_info_builder import InternalInfoBuilder
     from src.core_logic.state_manager import AIStateManager
     from src.database.services.entity_graph_service import EntityGraphService
-    from src.database.services.event_storage_service import EventStorageService
     from src.database.services.thought_storage_service import ThoughtStorageService
     from src.focus_chat_mode.chat_session import ChatSession
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 
 
 class ThoughtPromptBuilder:
-    """构建思维提示的类."""
+    """[AIC-OS]构建思维提示的总编排器.
+
+    它协调所有子构建器，将 AIC-OS 的内部状态、历史信息和外部事件
+    整合成一个完整的、可供 LLM 理解的上下文。
+    """
 
     def __init__(
         self,
-        unread_info_service: "UnreadInfoService",
+        # 新增 AICOS 核心服务作为依赖
+        aicos_state_generator: "AICOSStateGenerator",
+        window_manager: "WindowManager",
+        # 旧的依赖，部分仍然需要
         internal_info_builder: "InternalInfoBuilder",
-        event_storage_service: "EventStorageService",
+        state_manager: "AIStateManager",
         thought_storage_service: "ThoughtStorageService",
         entity_graph_service: "EntityGraphService",
-        action_handler: "ActionHandler",
-        state_manager: "AIStateManager",
         chat_session_manager: Optional["ChatSessionManager"] = None,
         core_ws_server: Optional["CoreWebsocketServer"] = None,
     ) -> None:
         self.is_context_switch_flag: bool = False
 
-        # 将实例变量改为私有，表示它们由 property 控制
-        self._chat_session_manager: ChatSessionManager | None = None
-        self._core_ws_server: CoreWebsocketServer | None = None
+        # AIC-OS 核心服务
+        self.aicos_state_generator = aicos_state_generator
+        self.window_manager = window_manager
 
-        # 在初始化时，就创建好所有子构建器
-        # 此时，它们接收到的 chat_session_manager 和 core_ws_server 可能是 None，这是符合预期的
-        self.schema_builder = SchemaBuilder(chat_session_manager, core_ws_server)
-        self.external_info_builder = ExternalInfoBuilder(
-            unread_info_service, event_storage_service, chat_session_manager
-        )
+        # 子构建器
+        self.schema_builder = SchemaBuilder(window_manager)
         self.system_prompt_parts_builder = SystemPromptPartsBuilder(
             internal_info_builder,
             state_manager,
             chat_session_manager,
             core_ws_server,
-            action_handler,
+            # action_handler, # AICOS 模式下，SystemPrompt不再需要直接访问ActionHandler
             entity_graph_service,
         )
         self.user_prompt_parts_builder = UserPromptPartsBuilder(
             thought_storage_service, entity_graph_service, chat_session_manager, state_manager
         )
-
-        # 通过调用 property setter 来完成初始的依赖注入
-        # 这确保了即使在初始化时传入了有效的值，它也能被正确地传递下去
-        self.chat_session_manager = chat_session_manager
-        self.core_ws_server = core_ws_server
-
-    # 将 chat_session_manager 定义为一个 property，保持现有逻辑
-    @property
-    def chat_session_manager(self) -> Optional["ChatSessionManager"]:
-        """获取 chat_session_manager 实例."""
-        return self._chat_session_manager
-
-    @chat_session_manager.setter
-    def chat_session_manager(self, value: Optional["ChatSessionManager"]) -> None:
-        """设置 chat_session_manager 实例，并将其自动传播到所有需要它的子构建器中."""
-        self._chat_session_manager = value
-        # 将新的值（无论是实例还是 None）同步给所有子组件
-        self.schema_builder.chat_session_manager = value
-        self.external_info_builder.chat_session_manager = value
-        self.system_prompt_parts_builder.chat_session_manager = value
-        self.user_prompt_parts_builder.chat_session_manager = value
-
-    # 为 core_ws_server 添加同样的 property 和 setter 逻辑
-    @property
-    def core_ws_server(self) -> Optional["CoreWebsocketServer"]:
-        """获取 core_ws_server 实例."""
-        return self._core_ws_server
-
-    @core_ws_server.setter
-    def core_ws_server(self, value: Optional["CoreWebsocketServer"]) -> None:
-        """设置 core_ws_server 实例，并将其自动传播到所有需要它的子构建器中."""
-        self._core_ws_server = value
-        # 将新的值传播给需要它的子模块
-        self.schema_builder.core_ws_server = value
-        self.system_prompt_parts_builder.core_ws_server = value
-
+        # TODO: UserPromptPartsBuilder 和 SystemPromptPartsBuilder 也需要进行相应的 AIC-OS 适配改造
 
     async def build_prompts_components(
         self,
-        level: str,
-        focus_path: str | None,
-        session: Optional["ChatSession"] = None,
+        # handover_result 在 AIC-OS 模式下可能需要重新设计，暂时保留
         handover_result: dict | None = None,
-    ) -> tuple[PromptComponents, list[Stimulus] | None]:
-        """构建提示组件."""
-        current_level, current_platform_id, current_conv_id = parse_focus_path(focus_path)
+    ) -> tuple[PromptComponents, list[Stimulus] | None, dict]:
+        """构建所有 Prompt 组件，并返回 UI 映射表.
 
-        # 现在可以直接安全地访问 self.chat_session_manager
-        can_go_back = (
-            self.chat_session_manager
-            and self.chat_session_manager.focus_manager
-            and len(self.chat_session_manager.focus_manager.focus_history) > 1
-        )
+        这是在新架构下的核心入口方法。
+        """
+        # 1. 生成 AI 的“视觉世界”：XML 界面 和 UI 映射表
+        external_info_block, ui_mapping = await self.aicos_state_generator.build_current_state()
 
-        (
-            external_info_block,
-            meta_info_block,
-            history_components,
-            processed_stimuli,
-        ) = await self.external_info_builder.build(
-            current_level, current_platform_id, current_conv_id, session
-        )
+        # 2. 从 AI 的“视觉”中反向推断出当前的上下文状态
+        level, platform_id, conv_id, session = self._extract_context_from_ui()
 
+        # 3. 构建 System Prompt 的各个部分
+        # 注意: is_context_switch_flag 和 can_go_back 的逻辑需要适配新的窗口历史管理
         system_prompt_blocks = await self.system_prompt_parts_builder.build(
-            level=current_level,
-            platform_id=current_platform_id,
-            conv_id=current_conv_id,
+            level=level,
+            platform_id=platform_id,
+            conv_id=conv_id,
             session=session,
-            user_map=history_components.user_map if history_components else None,
-            can_go_back=can_go_back,
+            user_map=None,  # 在 AIC-OS 模式下，用户信息直接体现在 UI 中，不再需要独立的 user_map
+            can_go_back=False,  # TODO: 替换为基于 WindowManager 的历史记录判断
             is_context_switch_flag=self.is_context_switch_flag,
         )
 
+        # 4. 构建 User Prompt 的各个部分
+        # TODO: `processed_stimuli` 的概念需要重新审视。在 AIC-OS 中，"未读"的概念
+        #       体现在 UI 元素的 `unread` 属性上，而不是一个事件列表。
+        processed_stimuli = None
         user_prompt_blocks = await self.user_prompt_parts_builder.build(
             handover_result=handover_result,
-            meta_info_block=meta_info_block,
+            meta_info_block="",  # meta_info 也可以整合进 XML 的 <desc> 标签中
             external_info_block=external_info_block,
-            platform_id=current_platform_id,
-            level=current_level,
+            platform_id=platform_id,
+            level=level,
             session=session,
         )
 
+        # 5. [关键] 将 ui_mapping 传递给 SchemaBuilder 来生成动态 Schema
         response_schema = self.schema_builder.build_response_schema(
-            current_level, current_platform_id, current_conv_id, can_go_back=can_go_back
+            ui_mapping=ui_mapping,
         )
 
+        # 6. 组装所有零件
         prompt_components_obj = PromptComponents(
             system_prompt_blocks=system_prompt_blocks,
             user_prompt_blocks=user_prompt_blocks,
             response_schema=response_schema,
-            last_valid_text_message=history_components.last_valid_text_message
-            if history_components
-            else None,
-            image_references=history_components.image_references if history_components else [],
-            # Pass through context needed by other modules
-            user_map=history_components.user_map if history_components else {},
-            uid_str_to_platform_id_map=history_components.uid_str_to_platform_id_map
-            if history_components
-            else {},
+            # 以下字段在 AIC-OS 模式下可能不再需要，或需要新的实现方式
+            last_valid_text_message=None,
+            image_references=[],
+            user_map={},
+            uid_str_to_platform_id_map={},
         )
 
-        return prompt_components_obj, processed_stimuli
+        # 7. 返回所有产物，尤其是 ui_mapping，它将传递给 DecisionDispatcher
+        return prompt_components_obj, processed_stimuli, ui_mapping
+
+    def _extract_context_from_ui(
+        self,
+    ) -> tuple[str, str | None, str | None, Optional["ChatSession"]]:
+        """[新核心逻辑]通过分析 WindowManager 中的窗口状态，来确定 AI 当前的上下文.
+
+        这完全取代了旧的 focus_path 字符串机制。
+        """
+        # 1. 查找当前激活（z_order 最高且非最小化）的窗口
+        all_windows = self.window_manager.get_all_windows_sorted()
+        active_window = next(
+            (w for w in reversed(all_windows) if w.status != WindowStatus.MINIMIZE), None
+        )
+
+        if not active_window:
+            # 没有激活的窗口 -> AI 正在看桌面 -> core level
+            return "core", "core", None, None
+
+        # 2. 从激活的窗口信息中推断上下文
+        # 假设 window_class 的格式是 "type/subtype"，例如 "main/conversation_list"
+        window_class_parts = active_window.window_class.split("/")
+
+        if len(window_class_parts) > 1 and window_class_parts[0] == "main":
+            # 如果是应用主窗口 -> platform level
+            platform_id = active_window.parent_app_id  # 假设 parent_app_id 是平台ID
+            return "platform", platform_id, None, None
+
+        elif window_class_parts[0] == "conversation":
+            # 如果是会话窗口 -> cellular level
+            platform_id = active_window.parent_app_id
+
+            # 从窗口的 content_state 中获取持久化的会话 UID
+            conversation_uid = active_window.content_state.get("conversation_uid")
+            if not conversation_uid:
+                # 这是一个错误状态，但我们提供一个回退
+                return "platform", platform_id, None, None
+
+            # TODO: 需要从 ChatSessionManager 获取 session 实例
+            # session = self.chat_session_manager.sessions.get(conversation_uid)
+            session = None
+
+            return "cellular", platform_id, conversation_uid, session
+
+        # 默认回退到 core level
+        return "core", "core", None, None
 
     def finalize_prompts(self, components: PromptComponents) -> tuple[str, str, dict[str, Any]]:
         """最终化提示组件，生成系统和用户提示的字符串表示."""
+        # 注意：模板文件也需要进行相应的 AIC-OS 改造
         system_prompt = prompt_templates.CORE_CYCLE_SYSTEM_PROMPT.format(
             **components.system_prompt_blocks
         )
