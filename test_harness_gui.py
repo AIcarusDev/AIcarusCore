@@ -36,9 +36,13 @@ async def initialize_session_state() -> None:
     thought_storage = container.thought_storage_service
     internal_info_builder = container.internal_info_builder
     core_logic = container.core_logic
+    application_manager = container.application_manager
 
     # 2. 模拟安检后的 bot_ids (从我们的 seed_database.py 中获取)
     self_bot_ids_map = {"qq": "10001"}
+
+    # 将 bot_ids_map 同时注入到 ApplicationManager 和 ChatSessionManager
+    application_manager.set_self_bot_ids_map(self_bot_ids_map)
 
     # 3. 创建 ChatSessionManager 实例
     chat_session_manager = ChatSessionManager(
@@ -61,7 +65,7 @@ async def initialize_session_state() -> None:
 
     # 5. 将所有需要的服务实例存储在 session_state 中
     st.session_state.window_manager = container.window_manager
-    st.session_state.application_manager = container.application_manager
+    st.session_state.application_manager = application_manager
     st.session_state.aicos_state_generator = container.aicos_state_generator
     st.session_state.schema_builder = container.schema_builder
     st.session_state.action_handler = action_handler # 使用我们刚刚更新过的 action_handler
