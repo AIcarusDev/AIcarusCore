@@ -28,6 +28,7 @@ class AICOSStateGenerator:
         self.entity_service = entity_service
         self._ui_mapping: dict[str, dict] = {}
         self._id_counter = 0
+        self.is_connected = False
 
     def _generate_ui_id(self, prefix: str) -> str:
         self._id_counter += 1
@@ -42,6 +43,42 @@ class AICOSStateGenerator:
         """构建当前状态的 XML 和 UI 映射。这是该类的主要入口点."""
         self._ui_mapping = {}
         self._id_counter = 0
+
+        # 如果未连接，渲染一个简单的未连接状态
+        if not self.is_connected:
+            root = Element('AIC-OS', attrib={'connection': 'disconnected', 'lifecycle': 'stopped'})
+            SubElement(root, 'desc').text = "你尚未连接到你的设备。"
+
+            connect_btn_id = self._generate_ui_id('btn')
+            SubElement(
+                root, 'button',
+                attrib={'id': connect_btn_id, 'name': 'connect','title': '连接设备'}
+            )
+            self._ui_mapping[connect_btn_id] = {
+                'action_type': 'click',
+                'action': 'connect_device',
+                'target_uid': 'aicos-main' # 虚拟设备ID
+            }
+            desktop_node = root.find('desktop')
+            if desktop_node is not None:
+                system_tray_node = SubElement(desktop_node, 'system_tray')
+                disconnect_btn_id = self._generate_ui_id('btn')
+                SubElement(
+                    system_tray_node, 'button',
+                    attrib={
+                        'id': disconnect_btn_id,
+                        'name': 'disconnect',
+                        'title': '断开与设备的连接'
+                    }
+                )
+                self._ui_mapping[disconnect_btn_id] = {
+                    'action_type': 'click',
+                    'action': 'disconnect_device',
+                    'target_uid': 'aicos-main'
+                }
+
+            xml_string = self._pretty_print_xml(root)
+            return xml_string, self._ui_mapping
 
         root = Element("AIC-OS", attrib={"connection": "connected", "lifecycle": "running"})
         SubElement(root, "desc").text = "欢迎来到Aic-OS。一个为AI交互设计的轻量级操作系统。"
@@ -73,6 +110,9 @@ class AICOSStateGenerator:
         )
         running_apps = self.application_manager.get_running_apps()
 
+        # --- 定义不可关闭的核心进程 ---
+        core_processes = {"task_manager", "file_explorer"}
+
         # 始终显示系统核心进程
         SubElement(
             bg_processes_node,
@@ -86,16 +126,28 @@ class AICOSStateGenerator:
         )
 
         for app in running_apps:
+            # --- [核心修改] 跳过核心进程 ---
+            if app.name in core_processes:
+                continue
+            # -----------------------------
+
             proc_id = f"proc-{app.id}"
-            SubElement(
+            proc_node = SubElement(
                 bg_processes_node,
                 "process",
                 attrib={"id": proc_id, "name": app.name, "title": app.title},
             )
-            self._ui_mapping[proc_id] = {
-                "action_type": "terminatable",
-                "action": "stop_app",
-                "target_uid": app.id,
+
+            # --- [核心修改] 为非核心进程添加关闭按钮 ---
+            kill_btn_id = self._generate_ui_id('btn-kill')
+            SubElement(
+                proc_node, 'button',
+                attrib={'id': kill_btn_id, 'name': 'terminate_process', 'title': '结束进程'}
+            )
+            self._ui_mapping[kill_btn_id] = {
+                'action_type': 'click',
+                'action': 'kill_process',
+                'target_uid': app.id # 目标是应用ID
             }
 
     async def _render_desktop(self, parent_element: Element) -> None:

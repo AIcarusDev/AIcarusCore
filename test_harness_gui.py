@@ -148,7 +148,8 @@ async def main() -> None:
                             am,
                             action_handler,
                             csm,
-                            state_manager
+                            state_manager,
+                            aicos_state_generator=state_gen
                         )
                         st.rerun()
                 else:
@@ -185,7 +186,8 @@ async def main() -> None:
                             am,
                             action_handler,
                             csm,
-                            state_manager
+                            state_manager,
+                            aicos_state_generator=state_gen
                         )
                         st.rerun()
                 else:
@@ -217,7 +219,14 @@ async def main() -> None:
                             }
                         }
                         await process_aicos_decision(
-                            decision_json, ui_mapping, wm, am, action_handler, csm, state_manager
+                            decision_json,
+                            ui_mapping,
+                            wm,
+                            am,
+                            action_handler,
+                            csm,
+                            state_manager,
+                            aicos_state_generator=state_gen
                         )
                         st.rerun()
                 else:

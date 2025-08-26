@@ -183,6 +183,7 @@ class ServiceBuilder:
         core_logic = CoreLogic(
             window_manager=window_manager,
             application_manager=application_manager,
+            aicos_state_generator=aicos_state_generator,
             core_comm_layer=core_comm_layer,
             action_handler_instance=action_handler,
             state_manager=state_manager,

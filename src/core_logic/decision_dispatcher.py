@@ -8,6 +8,7 @@ from src.common.utils import parse_entity_uid
 if TYPE_CHECKING:
     from src.action.action_handler import ActionHandler
     from src.aicos.application_manager import ApplicationManager
+    from src.aicos.state_generator import AICOSStateGenerator
     from src.aicos.window_manager import WindowManager
     from src.core_logic.state_manager import AIStateManager
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
@@ -23,6 +24,7 @@ async def process_aicos_decision(
     action_handler: "ActionHandler",
     chat_session_manager: "ChatSessionManager",
     state_manager: "AIStateManager",
+    aicos_state_generator: "AICOSStateGenerator",
 ) -> None:
     """统一的、基于 GUI 隐喻的 LLM 决策分发器."""
     if not decision_json or not isinstance(decision_json, dict):
@@ -53,6 +55,7 @@ async def process_aicos_decision(
                 window_manager,
                 application_manager,
                 chat_session_manager,
+                aicos_state_generator
             )
 
         elif action_name == "send_message":
@@ -68,6 +71,7 @@ async def _handle_ui_interaction(
     window_manager: "WindowManager",
     application_manager: "ApplicationManager",
     chat_session_manager: "ChatSessionManager",
+    aicos_state_generator: "AICOSStateGenerator",
 ) -> None:
     """处理所有低阶 UI 交互动作 (click, double_click)."""
     target_id = params.get("target_id")
@@ -82,6 +86,25 @@ async def _handle_ui_interaction(
     logger.info(
         f"UI操作: '{action_name}({target_id})' -> 内部指令: '{internal_command}({target_uid})'"
     )
+    if internal_command == "connect_device":
+        aicos_state_generator.is_connected = True
+        logger.info("设备 AIC-OS 已连接。")
+    elif internal_command == "disconnect_device":
+        aicos_state_generator.is_connected = False
+        logger.info("设备 AIC-OS 已断开。")
+
+    elif internal_command == "kill_process":
+        # 1. 停止应用进程
+        application_manager.stop_app(target_uid)
+        logger.info(f"应用进程 '{target_uid}' 已被终止。")
+
+        # 2. 找到并关闭该应用的所有窗口
+        windows_to_close = [
+            w for w in window_manager.get_all_windows_sorted() if w.parent_app_id == target_uid
+        ]
+        for window in windows_to_close:
+            window_manager.close_window(window.id)
+        logger.info(f"已关闭属于应用 '{target_uid}' 的 {len(windows_to_close)} 个窗口。")
 
     if internal_command == "scroll_chat_window":
         direction = mapped_info.get("direction")

@@ -22,6 +22,7 @@ from src.focus_chat_mode.components import PromptComponents
 from src.prompt_builder import PromptBuilderError, ThoughtPromptBuilder
 
 if TYPE_CHECKING:
+    from src.aicos.state_generator import AICOSStateGenerator
     from src.aicos.application_manager import ApplicationManager
     from src.aicos.window_manager import WindowManager
     from src.core_communication.core_ws_server import CoreWebsocketServer
@@ -57,6 +58,7 @@ class CoreLogic:
         stop_event: threading.Event,
         interruption_broker: "InterruptionEventBroker",
         immediate_thought_trigger: asyncio.Event,
+        aicos_state_generator: "AICOSStateGenerator",
         intrusive_generator_instance: IntrusiveThoughtsGenerator | None = None,
     ) -> None:
         self.window_manager = window_manager
@@ -69,6 +71,7 @@ class CoreLogic:
         self.thought_persistor = thought_persistor
         self.thought_storage_service = thought_storage_service
         self.entity_graph_service = entity_graph_service
+        self.aicos_state_generator = aicos_state_generator
         self.prompt_builder = prompt_builder
         self.stop_event = stop_event
         self.interruption_broker = interruption_broker
@@ -87,8 +90,8 @@ class CoreLogic:
     # 但为了兼容性暂时保留
     def _get_current_session(self) -> Optional["ChatSession"]:
         if self.prompt_builder:
-             _, _, _, session = self.prompt_builder._extract_context_from_ui()
-             return session
+            _, _, _, session = self.prompt_builder._extract_context_from_ui()
+            return session
         return None
 
     async def _core_thinking_loop(self) -> None:
@@ -150,7 +153,8 @@ class CoreLogic:
             application_manager=self.application_manager,
             action_handler=self.action_handler_instance,
             chat_session_manager=self.chat_session_manager,
-            state_manager=self.state_manager
+            state_manager=self.state_manager,
+            aicos_state_generator=self.aicos_state_generator
         )
 
     async def _generate_and_persist_thought(
