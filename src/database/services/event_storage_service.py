@@ -286,12 +286,12 @@ class EventStorageService:
             with 2 or more messages.
         """
         query = (
-            r'match $event isa event, has event-type $type; '
+            r"match $event isa event, has event-type $type; "
             r'$type like "message\\..*"; '
-            r'$event has embedding-json $embedding_json; '
-            r'$event has conversation-info-json $conv_info_json; '
-            r'$event has timestamp $ts; '
-            r'select $conv_info_json, $embedding_json, $ts;'
+            r"$event has embedding-json $embedding_json; "
+            r"$event has conversation-info-json $conv_info_json; "
+            r"$event has timestamp $ts; "
+            r"select $conv_info_json, $embedding_json, $ts;"
         )
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 

@@ -890,7 +890,8 @@ class EntityGraphService:
         )
 
         platform_convs = [
-            c for c in all_active_convs
+            c
+            for c in all_active_convs
             if c.get("conv_doc") and c["conv_doc"].details.platform == platform_id
         ]
 

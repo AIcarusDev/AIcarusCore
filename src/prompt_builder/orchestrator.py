@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from src.focus_chat_mode.chat_session import ChatSession
     from src.focus_chat_mode.chat_session_manager import ChatSessionManager
 
+
 class ThoughtPromptBuilder:
     """[AIC-OS]构建思维提示的总编排器.
 

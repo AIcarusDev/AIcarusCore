@@ -55,7 +55,7 @@ async def process_aicos_decision(
                 window_manager,
                 application_manager,
                 chat_session_manager,
-                aicos_state_generator
+                aicos_state_generator,
             )
 
         elif action_name == "send_message":

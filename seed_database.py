@@ -29,6 +29,7 @@ ENTITY_TYPES_TO_DELETE = [
 ]
 # ---------------------------------------------
 
+
 async def clear_database(container: Any) -> bool | None:
     """清空数据库中的所有测试数据."""
     print("--- 正在清空数据库 ---")
@@ -84,7 +85,7 @@ async def seed_data(entity_service: EntityGraphService, event_service: EventStor
     print(
         f"  - 实体创建完毕: {self_account_uid}, {friend_a_uid}, "
         f"{private_conv_uid}, {group_conv_uid}"
-        )
+    )
 
     # 2. 注入私聊A的聊天记录 (3条)
     print("Step 2: 注入与 '未来星' 的私聊记录...")
@@ -92,29 +93,27 @@ async def seed_data(entity_service: EntityGraphService, event_service: EventStor
         {
             "sender_id": "20002",
             "sender_name": "未来星",
-            "content": "在吗？有个重要的事想跟你讨论。"
+            "content": "在吗？有个重要的事想跟你讨论。",
         },
-        {
-            "sender_id": "10001",
-            "sender_name": "霜",
-            "content": "在的，请讲。"
-        },
+        {"sender_id": "10001", "sender_name": "霜", "content": "在的，请讲。"},
         {
             "sender_id": "20002",
             "sender_name": "未来星",
-            "content": "就是关于AIC-OS重构的事情，我觉得我们应该..."
+            "content": "就是关于AIC-OS重构的事情，我觉得我们应该...",
         },
     ]
     for i, msg in enumerate(messages_private):
-        event = ProtocolEvent.from_dict({
-            "event_id": f"private_msg_{i}",
-            "event_type": "message.qq.private",
-            "time": int(time.time() * 1000) + i,
-            "bot_id": "10001",
-            "user_info": {"user_id": msg["sender_id"], "user_nickname": msg["sender_name"]},
-            "conversation_info": {"conversation_id": "20002", "type": "private"},
-            "content": [SegBuilder.text(msg["content"]).to_dict()]
-        })
+        event = ProtocolEvent.from_dict(
+            {
+                "event_id": f"private_msg_{i}",
+                "event_type": "message.qq.private",
+                "time": int(time.time() * 1000) + i,
+                "bot_id": "10001",
+                "user_info": {"user_id": msg["sender_id"], "user_nickname": msg["sender_name"]},
+                "conversation_info": {"conversation_id": "20002", "type": "private"},
+                "content": [SegBuilder.text(msg["content"]).to_dict()],
+            }
+        )
         event_dict = event.to_dict()
         event_dict["platform"] = "qq"
         await event_service.save_event_document(event_dict)
@@ -130,19 +129,18 @@ async def seed_data(entity_service: EntityGraphService, event_service: EventStor
     for i, msg in enumerate(messages_group):
         content_segs = [SegBuilder.text(msg["content"])]
         if "@" in msg["content"]:
-            content_segs = [
-                SegBuilder.text("收到！那我们加油干！"),
-                SegBuilder.at("10001", "霜")
-            ]
-        event = ProtocolEvent.from_dict({
-            "event_id": f"group_msg_{i}",
-            "event_type": "message.qq.group",
-            "time": int(time.time() * 1000) + 10 + i,
-            "bot_id": "10001",
-            "user_info": {"user_id": msg["sender_id"], "user_nickname": msg["sender_name"]},
-            "conversation_info": {"conversation_id": "30003", "type": "group"},
-            "content": [s.to_dict() for s in content_segs]
-        })
+            content_segs = [SegBuilder.text("收到！那我们加油干！"), SegBuilder.at("10001", "霜")]
+        event = ProtocolEvent.from_dict(
+            {
+                "event_id": f"group_msg_{i}",
+                "event_type": "message.qq.group",
+                "time": int(time.time() * 1000) + 10 + i,
+                "bot_id": "10001",
+                "user_info": {"user_id": msg["sender_id"], "user_nickname": msg["sender_name"]},
+                "conversation_info": {"conversation_id": "30003", "type": "group"},
+                "content": [s.to_dict() for s in content_segs],
+            }
+        )
         event_dict = event.to_dict()
         event_dict["platform"] = "qq"
         await event_service.save_event_document(event_dict)
@@ -154,7 +152,7 @@ async def seed_data(entity_service: EntityGraphService, event_service: EventStor
     )
     await entity_service.update_conversation_last_read_timestamp(
         group_conv_uid, time.time() * 1000 + 12
-        )
+    )
 
     print("--- 模拟数据注入完成 ---")
 
@@ -176,6 +174,7 @@ async def main() -> None:
     await seed_data(container.entity_graph_service, container.event_storage_service)
 
     await container.conn_manager.close_client()
+
 
 if __name__ == "__main__":
     asyncio.run(main())

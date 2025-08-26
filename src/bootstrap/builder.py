@@ -116,8 +116,8 @@ class ServiceBuilder:
             state_manager=state_manager,
             thought_storage_service=db_services["thought_storage_service"],
             entity_graph_service=db_services["entity_graph_service"],
-            chat_session_manager=None, # 动态注入
-            core_ws_server=None, # 动态注入
+            chat_session_manager=None,  # 动态注入
+            core_ws_server=None,  # 动态注入
         )
 
         internal_info_builder.prompt_builder = prompt_builder

@@ -22,8 +22,8 @@ from src.focus_chat_mode.components import PromptComponents
 from src.prompt_builder import PromptBuilderError, ThoughtPromptBuilder
 
 if TYPE_CHECKING:
-    from src.aicos.state_generator import AICOSStateGenerator
     from src.aicos.application_manager import ApplicationManager
+    from src.aicos.state_generator import AICOSStateGenerator
     from src.aicos.window_manager import WindowManager
     from src.core_communication.core_ws_server import CoreWebsocketServer
     from src.database.services.entity_graph_service import EntityGraphService
@@ -154,12 +154,11 @@ class CoreLogic:
             action_handler=self.action_handler_instance,
             chat_session_manager=self.chat_session_manager,
             state_manager=self.state_manager,
-            aicos_state_generator=self.aicos_state_generator
+            aicos_state_generator=self.aicos_state_generator,
         )
 
     async def _generate_and_persist_thought(
-        self,
-        prompt_components: PromptComponents
+        self, prompt_components: PromptComponents
     ) -> tuple[ThoughtChainDocument, str]:
         """生成思考，创建文档，并将其持久化."""
         system_prompt, user_prompt, response_schema = self.prompt_builder.finalize_prompts(
@@ -172,7 +171,7 @@ class CoreLogic:
             user_prompt=user_prompt,
             image_inputs=prompt_components.image_references,
             response_schema=response_schema,
-            focus_path=None, # 在 AIC-OS 模式下，focus_path 由 UI 状态隐式定义
+            focus_path=None,  # 在 AIC-OS 模式下，focus_path 由 UI 状态隐式定义
         )
         if not generated_thought_json:
             raise ThoughtGenerationError("LLM未能生成有效的思考JSON。")

@@ -8,6 +8,7 @@ from enum import Enum
 
 class WindowStatus(Enum):
     """窗口状态的枚举，指示窗口的当前状态."""
+
     NORMAL = "normal"
     MINIMIZE = "minimize"
     MAXIMIZE = "maximize"
@@ -15,6 +16,7 @@ class WindowStatus(Enum):
 
 class ApplicationLifecycle(Enum):
     """应用程序生命周期的枚举，指示应用的当前状态."""
+
     RUNNING = "running"
     STOPPED = "stopped"
 
