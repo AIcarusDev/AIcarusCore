@@ -47,10 +47,6 @@ CORE_CYCLE_SYSTEM_PROMPT = """
 {internal_info_block}
 </history_internal_info>
 
-<available_platforms>
-{available_platforms_block}
-</available_platforms>
-
 {sticker_collection_block}
 
 <behavior_guidelines>
@@ -85,17 +81,7 @@ JSON 对象包含三个顶级键: `"internal_state"`, `"internal_action"`, `"ext
 CORE_CYCLE_USER_PROMPT = """
 
 <external_info cycle_ago="0" status="CURRENT">
-
-{action_response_block}
-
-{command_feedback_block}
-
 {external_info_block}
-
-{friend_request_block}
-
-{meta_info_block}
-
 </external_info>
 
 <output_format>
