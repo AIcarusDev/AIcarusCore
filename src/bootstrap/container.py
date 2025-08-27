@@ -1,4 +1,5 @@
-# src/bootstrap/container.py
+# 文件路径: src/bootstrap/container.py
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -6,11 +7,7 @@ from typing import TYPE_CHECKING
 
 # 避免在类型提示时出现循环导入问题
 if TYPE_CHECKING:
-    from src.action.action_handler import ActionHandler
-    from src.action.services.sticker_service import StickerService
-    from src.aicos.application_manager import ApplicationManager
-    from src.aicos.state_generator import AICOSStateGenerator
-    from src.aicos.window_manager import WindowManager
+    from src.apps.qq.qq_chat_session_manager import ChatSessionManager
     from src.common.intelligent_interrupt_system.intelligent_interrupter import (
         IntelligentInterrupter,
     )
@@ -18,28 +15,36 @@ if TYPE_CHECKING:
     from src.common.narrative_vectorizer.narrative_vectorizer import NarrativeVectorizer
     from src.common.unread_info_service.unread_info_service import UnreadInfoService
     from src.config import AlcarusRootConfig
-    from src.core_communication.core_ws_server import CoreWebsocketServer
-    from src.core_logic.consciousness_flow import CoreLogic
-    from src.core_logic.internal_info_builder import InternalInfoBuilder
-    from src.core_logic.intrusive_thoughts import IntrusiveThoughtsGenerator
-    from src.core_logic.state_manager import AIStateManager
-    from src.core_logic.thought_generator import ThoughtGenerator
-    from src.core_logic.thought_persistor import ThoughtPersistor
-    from src.database.core.connection_manager import TypeDBConnectionManager
-    from src.database.services import (
+    from src.mind.abilities.deliberation_service import DeliberationService
+    from src.mind.abilities.information_retrieval_service import InformationRetrievalService
+    from src.mind.consciousness_flow import CoreLogic
+    from src.mind.goal_manager import GoalManager
+    from src.mind.internal_info_builder import InternalInfoBuilder
+    from src.mind.intrusive_thoughts import IntrusiveThoughtsGenerator
+    from src.mind.state_manager import AIStateManager
+    from src.mind.thought_generator import ThoughtGenerator
+    from src.mind.thought_persistor import ThoughtPersistor
+    from src.os.application_manager import ApplicationManager
+    from src.os.services.filesystem_service import FileSystemService
+    from src.os.state_generator import AICOSStateGenerator
+    from src.os.window_manager import WindowManager
+    from src.prompting.orchestrator import ThoughtPromptBuilder
+    from src.services.action.action_handler import ActionHandler
+    from src.services.action.services.sticker_service import StickerService
+    from src.services.core_communication.core_ws_server import CoreWebsocketServer
+    from src.services.database.core.connection_manager import TypeDBConnectionManager
+    from src.services.database.services import (
         ActionLogStorageService,
         EntityGraphService,
         EventStorageService,
         GoalStorageService,
+        ImageAnalysisCacheService,
         StickerStorageService,
         ThoughtStorageService,
     )
-    from src.focus_chat_mode.chat_session_manager import ChatSessionManager
-    from src.llmrequest.llm_processor import Client as ProcessorClient
-    from src.message_processing.default_message_processor import DefaultMessageProcessor
-    from src.message_processing.image_analysis_service import ImageAnalysisService
-    from src.prompt_builder import ThoughtPromptBuilder
-    from src.prompt_builder.schema_builder import SchemaBuilder
+    from src.services.llmrequest.llm_processor import Client as ProcessorClient
+    from src.services.perception.default_message_processor import DefaultMessageProcessor
+    from src.services.perception.image_analysis_service import ImageAnalysisService
 
 
 @dataclass
@@ -67,6 +72,7 @@ class ServiceContainer:
     image_analysis_service: ImageAnalysisService
     sticker_storage_service: StickerStorageService
     goal_storage_service: GoalStorageService
+    image_analysis_cache_service: ImageAnalysisCacheService
 
     # 业务逻辑与功能模块
     action_handler: ActionHandler
@@ -82,16 +88,23 @@ class ServiceContainer:
     unread_info_service: UnreadInfoService
     interruption_broker: InterruptionEventBroker
     narrative_vectorizer: NarrativeVectorizer
-    schema_builder: SchemaBuilder
+
+    # [修改] SchemaBuilder 现在是 ThoughtPromptBuilder 的一部分，这里不再需要独立字段
 
     # 通信与核心循环
     core_comm_layer: CoreWebsocketServer
     core_logic: CoreLogic
 
-    # --- [AIC-OS] 在容器定义中添加新的服务字段 ---
+    # [AIC-OS] 服务
     window_manager: WindowManager
     application_manager: ApplicationManager
     aicos_state_generator: AICOSStateGenerator
+
+    # [新] 能力与服务
+    filesystem_service: FileSystemService
+    info_retrieval_service: InformationRetrievalService
+    deliberation_service: DeliberationService
+    goal_manager: GoalManager
 
     # 专注聊天管理器 (特殊处理，因为它依赖安检)
     chat_session_manager: ChatSessionManager | None

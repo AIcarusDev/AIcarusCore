@@ -1,16 +1,13 @@
-# src/bootstrap/builder.py
+# 文件路径: src/bootstrap/builder.py
+
 import json
 import os
 from asyncio import Event as AsyncioEvent
 from threading import Event as ThreadingEvent
 from typing import Protocol, runtime_checkable
 
-from src import platform_builders
-from src.action.action_handler import ActionHandler
-from src.action.services.sticker_service import StickerService
-from src.aicos.application_manager import ApplicationManager
-from src.aicos.state_generator import AICOSStateGenerator
-from src.aicos.window_manager import WindowManager
+from src import apps
+from src.apps.registry import platform_builder_registry
 from src.bootstrap.container import ServiceContainer
 from src.common.custom_logging.logging_config import get_logger
 from src.common.intelligent_interrupt_system.iis_main import IISBuilder
@@ -21,38 +18,47 @@ from src.common.narrative_vectorizer.narrative_vectorizer import NarrativeVector
 from src.common.unread_info_service.unread_info_service import UnreadInfoService
 from src.config import config
 from src.config.aicarus_configs import ModelParams
-from src.core_communication.action_sender import ActionSender
-from src.core_communication.core_ws_server import CoreWebsocketServer
-from src.core_communication.event_receiver import EventReceiver
-from src.core_logic.consciousness_flow import CoreLogic
-from src.core_logic.internal_info_builder import InternalInfoBuilder
-from src.core_logic.intrusive_thoughts import IntrusiveThoughtsGenerator
-from src.core_logic.state_manager import AIStateManager
-from src.core_logic.thought_generator import ThoughtGenerator
-from src.core_logic.thought_persistor import ThoughtPersistor
-from src.database.core.connection_manager import TypeDBConnectionManager
-from src.database.services.action_log_storage_service import ActionLogStorageService
-from src.database.services.entity_graph_service import EntityGraphService
-from src.database.services.event_storage_service import EventStorageService
-from src.database.services.goal_storage_service import GoalStorageService
-from src.database.services.image_analysis_cache_service import ImageAnalysisCacheService
-from src.database.services.sticker_storage_service import StickerStorageService
-from src.database.services.thought_storage_service import ThoughtStorageService
-from src.llmrequest.llm_processor import Client as ProcessorClient
-from src.message_processing.default_message_processor import DefaultMessageProcessor
-from src.message_processing.image_analysis_service import ImageAnalysisService
-from src.platform_builders.registry import platform_builder_registry
-from src.prompt_builder.orchestrator import ThoughtPromptBuilder
+from src.mind.abilities.deliberation_service import DeliberationService
+from src.mind.abilities.information_retrieval_service import InformationRetrievalService
+from src.mind.consciousness_flow import CoreLogic
+from src.mind.goal_manager import GoalManager
+from src.mind.internal_info_builder import InternalInfoBuilder
+from src.mind.intrusive_thoughts import IntrusiveThoughtsGenerator
+from src.mind.state_manager import AIStateManager
+from src.mind.thought_generator import ThoughtGenerator
+from src.mind.thought_persistor import ThoughtPersistor
+from src.os.application_manager import ApplicationManager
+from src.os.services.filesystem_service import FileSystemService
+from src.os.state_generator import AICOSStateGenerator
+from src.os.window_manager import WindowManager
+from src.prompting.orchestrator import ThoughtPromptBuilder
+from src.services.action.action_handler import ActionHandler
+from src.services.action.services.sticker_service import StickerService
+from src.services.core_communication.action_sender import ActionSender
+from src.services.core_communication.core_ws_server import CoreWebsocketServer
+from src.services.core_communication.event_receiver import EventReceiver
+from src.services.database.core.connection_manager import TypeDBConnectionManager
+from src.services.database.services import (
+    ActionLogStorageService,
+    EntityGraphService,
+    EventStorageService,
+    GoalStorageService,
+    ImageAnalysisCacheService,
+    StickerStorageService,
+    ThoughtStorageService,
+)
+from src.services.llmrequest.llm_processor import Client as ProcessorClient
+from src.services.perception.default_message_processor import DefaultMessageProcessor
+from src.services.perception.image_analysis_service import ImageAnalysisService
 
 logger = get_logger(__name__)
 
 
 @runtime_checkable
 class Initializable(Protocol):
-    """一个协议，定义了初始化基础设施的方法."""
-
+    """定义了一个可初始化的协议，要求实现类提供初始化基础设施的方法."""
     async def initialize_infrastructure(self) -> None:
-        """初始化基础设施的方法."""
+        """Initialize the required infrastructure for the implementing service."""
         ...
 
 
@@ -60,78 +66,84 @@ class ServiceBuilder:
     """服务构建器，用于创建和配置核心服务容器."""
 
     async def build_container(self) -> ServiceContainer:
-        """构建并返回一个服务容器，包含所有核心服务和组件."""
-        platform_builder_registry.discover_and_register_builders(platform_builders)
+        """构建并配置服务容器，包括初始化LLM客户端、数据库服务等."""
+        platform_builder_registry.discover_and_register_builders(apps)
         llm_clients = self._initialize_llm_clients()
-
         db_services = await self._initialize_typedb_and_services()
 
-        # --- [第 1 步: 创建 AIC-OS 核心服务实例] ---
+        # [新] 创建新的能力/服务实例
+        filesystem_service = FileSystemService()
+        info_retrieval_service = InformationRetrievalService(
+            web_search_agent_client=llm_clients["web_search_agent_client"],
+            url_context_agent_client=llm_clients["url_context_agent_client"],
+        )
+        deliberation_service = DeliberationService(llm_clients["deliberation_llm_client"])
+        goal_manager = GoalManager(db_services["goal_storage_service"])
+
+        # OS 层服务
         window_manager = WindowManager()
         application_manager = ApplicationManager()
 
+        # 基础设施服务
+        action_sender = ActionSender()
         sticker_service = StickerService(
             sticker_storage_service=db_services["sticker_storage_service"],
             event_storage_service=db_services["event_storage_service"],
         )
-
         image_analysis_service = ImageAnalysisService(
-            db_services["conn_manager"],  # ImageAnalysisService 仍然可以使用新的conn_manager
-            db_services["image_analysis_cache_service"],
-        )
-        interrupt_model = await self._initialize_interrupt_model(
-            db_services["event_storage_service"]
+            db_services["conn_manager"], db_services["image_analysis_cache_service"]
         )
 
-        action_handler = ActionHandler()
+        # [修改] ActionHandler 的初始化
+        action_handler = ActionHandler(
+            filesystem_service=filesystem_service,
+            info_retrieval_service=info_retrieval_service,
+            thought_storage_service=db_services["thought_storage_service"],
+            event_storage_service=db_services["event_storage_service"],
+            action_log_service=db_services["action_log_service"],
+            action_sender=action_sender,
+            entity_service=db_services["entity_graph_service"],
+            sticker_service=sticker_service,
+        )
+
+        # Mind 层服务
         state_manager = AIStateManager(
             thought_service=db_services["thought_storage_service"],
             action_log_service=db_services["action_log_service"],
             goal_storage_service=db_services["goal_storage_service"],
         )
+        internal_info_builder = InternalInfoBuilder(db_services["thought_storage_service"])
 
-        # --- [第 2 步: 将 AIC-OS 服务注入到新的依赖者中] ---
-
-        # 2a. 创建 AICOSStateGenerator 并注入其依赖
+        # Prompting 层服务
         aicos_state_generator = AICOSStateGenerator(
             window_manager=window_manager,
             application_manager=application_manager,
             entity_service=db_services["entity_graph_service"],
         )
 
-        unread_info_service = UnreadInfoService(
-            db_services["event_storage_service"], db_services["entity_graph_service"]
-        )
-
-        internal_info_builder = InternalInfoBuilder(db_services["thought_storage_service"])
-
-        # 2b. 创建 ThoughtPromptBuilder 并注入其依赖
         prompt_builder = ThoughtPromptBuilder(
-            # 新增依赖
             aicos_state_generator=aicos_state_generator,
             window_manager=window_manager,
             application_manager=application_manager,
-            # 旧依赖
             internal_info_builder=internal_info_builder,
             state_manager=state_manager,
             thought_storage_service=db_services["thought_storage_service"],
             entity_graph_service=db_services["entity_graph_service"],
-            chat_session_manager=None,  # 动态注入
-            core_ws_server=None,  # 动态注入
+            filesystem_service=filesystem_service,
+            info_retrieval_service=info_retrieval_service,
+            goal_manager=goal_manager,
+            deliberation_service=deliberation_service,
         )
 
-        internal_info_builder.prompt_builder = prompt_builder
-        # summary_llm = (
-        #     llm_clients["summary_llm_client"] or llm_clients["main_consciousness_llm_client"]
-        # )
+        unread_info_service = UnreadInfoService(
+            db_services["event_storage_service"], db_services["entity_graph_service"]
+        )
         semantic_model = await self._get_semantic_model(db_services["event_storage_service"])
-
         narrative_vectorizer = NarrativeVectorizer(
             entity_service=db_services["entity_graph_service"],
             image_analysis_service=image_analysis_service,
             semantic_model=semantic_model,
         )
-
         interruption_broker = InterruptionEventBroker()
         await interruption_broker.start()
 
@@ -143,17 +155,14 @@ class ServiceBuilder:
             semantic_model=semantic_model,
             interruption_broker=interruption_broker,
             narrative_vectorizer=narrative_vectorizer,
-            qq_chat_session_manager=None,
         )
 
-        action_sender = ActionSender()
-        action_handler.web_search_agent_client = llm_clients["web_search_agent_client"]
-        action_handler.url_context_agent_client = llm_clients["url_context_agent_client"]
         event_receiver = EventReceiver(
             event_handler_callback=message_processor.process_event,
             action_handler_instance=action_handler,
             adapter_clients_info=action_sender.adapter_clients_info,
         )
+
         core_comm_layer = CoreWebsocketServer(
             host=config.server.host,
             port=config.server.port,
@@ -164,7 +173,6 @@ class ServiceBuilder:
             entity_service=db_services["entity_graph_service"],
             unread_info_service=unread_info_service,
         )
-        prompt_builder.core_ws_server = core_comm_layer
 
         stop_event = ThreadingEvent()
         intrusive_generator = None
@@ -178,7 +186,6 @@ class ServiceBuilder:
 
         thought_generator = ThoughtGenerator(llm_clients["main_consciousness_llm_client"])
         thought_persistor = ThoughtPersistor(db_services["thought_storage_service"])
-        immediate_thought_trigger = AsyncioEvent()
 
         core_logic = CoreLogic(
             window_manager=window_manager,
@@ -187,23 +194,24 @@ class ServiceBuilder:
             core_comm_layer=core_comm_layer,
             action_handler_instance=action_handler,
             state_manager=state_manager,
-            chat_session_manager=None,
-            thought_storage_service=db_services["thought_storage_service"],
-            entity_graph_service=db_services["entity_graph_service"],
             thought_generator=thought_generator,
-            thought_persistor=thought_persistor,
             prompt_builder=prompt_builder,
             stop_event=stop_event,
-            immediate_thought_trigger=immediate_thought_trigger,
+            immediate_thought_trigger=AsyncioEvent(),
             intrusive_generator_instance=intrusive_generator,
             interruption_broker=interruption_broker,
+            chat_session_manager=None, # Will be wired later
+            thought_storage_service=db_services["thought_storage_service"],
+            entity_graph_service=db_services["entity_graph_service"],
+            thought_persistor=thought_persistor
         )
 
+        # 构建 IIS 模型
+        intelligent_interrupter = await self._initialize_interrupt_model(
+            db_services["event_storage_service"]
+            )
+
         return ServiceContainer(
-            window_manager=window_manager,
-            application_manager=application_manager,
-            aicos_state_generator=aicos_state_generator,
-            schema_builder=prompt_builder.schema_builder,
             main_consciousness_llm_client=llm_clients["main_consciousness_llm_client"],
             summary_llm_client=llm_clients["summary_llm_client"],
             intrusive_thoughts_llm_client=llm_clients["intrusive_thoughts_llm_client"],
@@ -211,31 +219,39 @@ class ServiceBuilder:
             web_search_agent_client=llm_clients["web_search_agent_client"],
             url_context_agent_client=llm_clients["url_context_agent_client"],
             deliberation_llm_client=llm_clients["deliberation_llm_client"],
+            config=config,
             conn_manager=db_services["conn_manager"],
             event_storage_service=db_services["event_storage_service"],
             thought_storage_service=db_services["thought_storage_service"],
             action_log_service=db_services["action_log_service"],
-            image_analysis_service=image_analysis_service,
             entity_graph_service=db_services["entity_graph_service"],
+            image_analysis_service=image_analysis_service,
+            sticker_storage_service=db_services["sticker_storage_service"],
+            goal_storage_service=db_services["goal_storage_service"],
+            image_analysis_cache_service=db_services["image_analysis_cache_service"],
             action_handler=action_handler,
-            intelligent_interrupter=interrupt_model,
+            sticker_service=sticker_service,
+            intelligent_interrupter=intelligent_interrupter,
             internal_info_builder=internal_info_builder,
             intrusive_generator=intrusive_generator,
             message_processor=message_processor,
             prompt_builder=prompt_builder,
             state_manager=state_manager,
-            interruption_broker=interruption_broker,
             thought_generator=thought_generator,
             thought_persistor=thought_persistor,
             unread_info_service=unread_info_service,
+            interruption_broker=interruption_broker,
+            narrative_vectorizer=narrative_vectorizer,
             core_comm_layer=core_comm_layer,
             core_logic=core_logic,
-            sticker_storage_service=db_services["sticker_storage_service"],
-            sticker_service=sticker_service,
-            narrative_vectorizer=narrative_vectorizer,
+            window_manager=window_manager,
+            application_manager=application_manager,
+            aicos_state_generator=aicos_state_generator,
+            filesystem_service=filesystem_service,
+            info_retrieval_service=info_retrieval_service,
+            deliberation_service=deliberation_service,
+            goal_manager=goal_manager,
             chat_session_manager=None,
-            config=config,
-            goal_storage_service=db_services["goal_storage_service"],
         )
 
     def _initialize_llm_clients(self) -> dict:

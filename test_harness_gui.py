@@ -2,12 +2,12 @@
 import asyncio
 
 import streamlit as st
-from src.aicos.models import Application
+from src.apps.qq.qq_chat_session_manager import ChatSessionManager
 
 # --- 导入所有需要的 AIC-OS 核心服务 ---
 from src.bootstrap.builder import ServiceBuilder
-from src.core_logic.decision_dispatcher import process_aicos_decision
-from src.focus_chat_mode.chat_session_manager import ChatSessionManager
+from src.os.decision_dispatcher import process_aicos_decision
+from src.os.models import Application
 
 # --- Streamlit 页面配置 ---
 st.set_page_config(layout="wide", page_title="AIC-OS Interactive Test Harness")
