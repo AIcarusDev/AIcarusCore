@@ -38,7 +38,7 @@ class RequestExecutor:
         model_name: str,
         request_type: str,
         is_streaming: bool,
-        prompt: str | None,
+        prompt_parts: list[dict],
         system_prompt: str | None,
         processed_images: list[dict[str, str]] | None,
         generation_params: GenerationParams,
@@ -122,7 +122,7 @@ class RequestExecutor:
                         model_name,
                         request_type,
                         is_streaming,
-                        prompt,
+                        prompt_parts,
                         system_prompt,
                         images_for_request,
                         generation_params,
@@ -202,13 +202,10 @@ class RequestExecutor:
         request_type: str,
         stream_chunk_delay: float,
     ) -> dict[str, Any]:
-        # --- [BUG FIX] ---
         # 正确的 URL 构建逻辑
         full_request_url = f"{self.base_url}{path}"
         final_headers = headers.copy()
         final_params = params.copy()
-        # --- [BUG FIX END] ---
-
         # Inject API key based on provider style
         if "Authorization" in final_headers:
             final_headers["Authorization"] = final_headers["Authorization"].format(api_key=api_key)

@@ -100,7 +100,7 @@ class LLMClient:
 
     async def make_request(
         self,
-        prompt: str,
+        prompt_parts: list[dict],
         system_prompt: str | None,
         is_stream: bool,
         is_multimodal: bool = False,
@@ -141,7 +141,7 @@ class LLMClient:
             handler=self.handler,
             request_type=request_type,
             is_streaming=is_stream,
-            prompt=prompt,
+            prompt=prompt_parts,
             system_prompt=system_prompt,
             processed_images=processed_images,
             generation_params=generation_params,
