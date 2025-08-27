@@ -1,11 +1,11 @@
-# src/llmrequest/core/provider/openai.py
+# src/services/llmrequest/core/provider/openai.py
 import asyncio
 import json
 from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
-from src.llmrequest.core.models import GenerationParams
-from src.llmrequest.core.provider.base import ApiProviderHandler
+from src.services.llmrequest.core.models import GenerationParams
+from src.services.llmrequest.core.provider.base import ApiProviderHandler
 
 logger = get_logger(__name__)
 
@@ -22,9 +22,8 @@ class OpenAIApiHandler(ApiProviderHandler):
         model_name: str,
         request_type: str,
         is_streaming: bool,
-        prompt: str | None,
+        prompt_parts: list[dict],
         system_prompt: str | None,
-        processed_images: list[dict[str, str]] | None,
         final_generation_config: GenerationParams,
         tools: list[dict[str, Any]] | None,
         tool_choice: str | dict | None,
@@ -93,8 +92,20 @@ class OpenAIApiHandler(ApiProviderHandler):
                     messages.append({"role": "system", "content": system_prompt})
 
             # 2. 支持图文混排
-            content = self._interleave_text_and_images(prompt or "", processed_images or [])
-            messages.append({"role": "user", "content": content})
+            user_content_parts = []
+            for part in prompt_parts:
+                if "text" in part:
+                    user_content_parts.append({"type": "text", "text": part["text"]})
+                elif "inline_data" in part:
+                    # 将我们的内部格式转换为 OpenAI Vision API 格式
+                    image_data = part["inline_data"]
+                    user_content_parts.append({
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{image_data['mime_type']};base64,{image_data['data']}"
+                        }
+                    })
+            messages.append({"role": "user", "content": user_content_parts})
 
             payload = {"model": model_name, "messages": messages}
             if is_streaming:

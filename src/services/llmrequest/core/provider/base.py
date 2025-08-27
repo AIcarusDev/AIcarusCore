@@ -3,7 +3,7 @@ import re
 from abc import ABC, abstractmethod
 from typing import Any
 
-from src.llmrequest.core.models import GenerationParams
+from src.services.llmrequest.core.models import GenerationParams
 
 
 class ApiProviderHandler(ABC):
