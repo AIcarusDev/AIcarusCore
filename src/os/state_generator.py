@@ -59,9 +59,12 @@ class AICOSStateGenerator:
         reparsed = parseString(rough_string)
         return reparsed.toprettyxml(indent="  ", encoding="utf-8").decode()
 
-    async def build_current_state(self) -> tuple[str, dict[str, dict]]:
+    async def build_current_state(
+        self, image_collector: list[dict] | None = None
+    ) -> tuple[str, dict[str, dict]]:
         """构建当前状态的 XML 和 UI 映射."""
         self._ui_mapping = {}
+        image_collector = image_collector if image_collector is not None else []
 
         if not self.is_connected:
             return self._render_disconnected_state()
@@ -73,7 +76,7 @@ class AICOSStateGenerator:
 
         base_path = ["aicos"]
         self._render_background_processes(root, [*base_path, "task_manager"])
-        await self._render_desktop(root, [*base_path, "desktop"])
+        await self._render_desktop(root, [*base_path, "desktop"], image_collector)
 
         xml_string = self._pretty_print_xml(root)
         return xml_string, self._ui_mapping
@@ -146,7 +149,9 @@ class AICOSStateGenerator:
                 "target_uid": app.id,
             }
 
-    async def _render_desktop(self, parent_element: Element, current_path: list[str]) -> None:
+    async def _render_desktop(
+        self, parent_element: Element, current_path: list[str], image_collector: list[dict]
+    ) -> None:
         """渲染桌面，包括快捷方式、窗口和系统托盘."""
         desktop_node = SubElement(
             parent_element, "desktop", attrib={"name": "desktop", "parent": "uti-002"}
@@ -175,7 +180,7 @@ class AICOSStateGenerator:
         for window in self.window_manager.get_all_windows_sorted():
             # 为每个窗口创建一个基于其稳定ID的路径
             window_path = [*current_path, "window_" + self._encode_id_part(window.id)]
-            await self._render_window_frame(windows_node, window_path, window)
+            await self._render_window_frame(windows_node, window_path, window, image_collector)
 
         # 在桌面渲染系统托盘和断开连接按钮
         system_tray_node = SubElement(desktop_node, "system_tray", attrib={"name": "system_tray"})
@@ -193,7 +198,11 @@ class AICOSStateGenerator:
         }
 
     async def _render_window_frame(
-        self, parent_element: Element, current_path: list[str], window: Window
+        self,
+        parent_element: Element,
+        current_path: list[str],
+        window: Window,
+        image_collector: list[dict]
     ) -> None:
         """此方法负责渲染窗口的通用外框和控件，内容部分委托给应用渲染器."""
         window_node = SubElement(
@@ -279,6 +288,7 @@ class AICOSStateGenerator:
                     event_service=self.event_service,
                     ui_mapping=self._ui_mapping,
                     generate_semantic_id=self._generate_semantic_id,
+                    image_collector=image_collector,
                 )
             else:
                 app_name = app.name if app else "未知"

@@ -11,3 +11,4 @@ class PromptComponents:
     system_prompt_blocks: dict[str, Any] = field(default_factory=dict)
     user_prompt_blocks: dict[str, Any] = field(default_factory=dict)
     response_schema: dict[str, Any] = field(default_factory=dict)
+    image_references: list[dict] = field(default_factory=list)

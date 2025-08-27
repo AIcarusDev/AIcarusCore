@@ -33,10 +33,17 @@ class QQBuilder(BasePlatformBuilder):
         event_service: EventStorageService,
         ui_mapping: dict,
         generate_semantic_id: callable,
+        image_collector: list[dict],
     ) -> None:
         """实现基类的渲染接口，委托给QQWindowRenderer处理."""
         renderer = QQWindowRenderer(entity_service, event_service, ui_mapping, generate_semantic_id)
-        await renderer.render_content(parent_element, current_path, window, bot_ids_map)
+        await renderer.render_content(
+            parent_element,
+            current_path,
+            window,
+            bot_ids_map,
+            image_collector
+        )
 
     def get_action_definitions(self) -> dict:
         """定义 QQ 平台的所有动作."""

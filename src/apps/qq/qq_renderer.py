@@ -29,14 +29,21 @@ class QQWindowRenderer:
         self._generate_semantic_id = generate_semantic_id
 
     async def render_content(
-        self, parent_element: Element, current_path: list[str], window: Window, bot_ids_map: dict
+        self,
+        parent_element: Element,
+        current_path: list[str],
+        window: Window,
+        bot_ids_map: dict,
+        image_collector: list[dict]
     ) -> None:
         """根据窗口类型，分发到具体的渲染方法."""
         if window.window_class == "main/conversation_list":
+            # 会话列表窗口不处理图片，直接传递空的收集器
             await self._render_conversation_list(parent_element, current_path, window, bot_ids_map)
         elif window.window_class == "conversation":
+            # 聊天窗口需要处理图片，传递收集器
             await self._render_conversation_window(
-                parent_element, current_path, window, bot_ids_map
+                parent_element, current_path, window, bot_ids_map, image_collector
             )
 
     async def _render_conversation_list(
@@ -109,16 +116,19 @@ class QQWindowRenderer:
             }
 
     async def _render_conversation_window(
-        self, window_node: Element, current_path: list[str], window: Window, bot_ids_map: dict
+        self,
+        window_node: Element,
+        current_path: list[str],
+        window: Window,
+        bot_ids_map: dict,
+        image_collector: list[dict]
     ) -> None:
-        # [移动并重构] 此方法逻辑从 AICOSStateGenerator 移动至此，并进行了大幅增强
-
         conversation_uid = window.content_state.get("conversation_uid")
         if not conversation_uid:
             SubElement(window_node, "error").text = "无法加载聊天记录：未指定会话ID。"
             return
 
-        # ==================== 增强方案: 自我认知 ====================
+        # 自我认知
         platform, _, _ = parse_entity_uid(conversation_uid)
         bot_id = bot_ids_map.get(platform)
 
@@ -180,10 +190,10 @@ class QQWindowRenderer:
         for msg in messages:
             msg_sender_id = msg.get("user_info", {}).get("user_id")
 
-            # ==================== 增强方案: "发言方向"自我识别 ====================
+            # "发言方向"自我识别
             align = "right" if str(msg_sender_id) == str(bot_id) else "left"
 
-            # [优化] 移除多余的 name 属性
+            # 移除多余的 name 属性
             msg_node = SubElement(
                 list_node,
                 "div",
@@ -199,7 +209,7 @@ class QQWindowRenderer:
             SubElement(msg_node, "timestamp").text = timestamp
 
             content_node = SubElement(msg_node, "content")
-            await self._render_rich_content(content_node, msg.get("content", []))
+            await self._render_rich_content(content_node, msg.get("content", []), image_collector)
 
         # 渲染向下滚动按钮
         if current_page < total_pages:
@@ -223,33 +233,51 @@ class QQWindowRenderer:
         action_bar_node = SubElement(window_node, "action_bar")
         SubElement(action_bar_node, "desc").text = "你可以使用 send_message 动作来回复。"
 
-    async def _render_rich_content(self, content_node: Element, segments: list[dict]) -> None:
-        """[新增] 渲染富文本消息内容，处理文本、图片、引用等."""
+    async def _render_rich_content(
+            self,
+            content_node: Element,
+            segments: list[dict],
+            image_collector: list[dict]
+        ) -> None:
+        """渲染富文本消息内容，处理文本、图片、引用等."""
         for seg in segments:
             seg_type = seg.get("type")
             data = seg.get("data", {})
             if seg_type == "text":
-                # 直接将文本附加到父元素的文本内容中
                 if content_node.text:
                     content_node.text += data.get("text", "")
                 else:
                     content_node.text = data.get("text", "")
             elif seg_type == "image":
-                # TODO: ImageAnalysisService 集成
-                # 目前先用占位符，未来可以从数据库获取分析结果
-                description = "一张图片"
-                if data.get("summary") == "sticker":
-                    description = "一个表情包"
+                base64_data = data.get("base64")
+                if not base64_data:
+                    continue
 
-                SubElement(
-                    content_node,
-                    "media",
-                    attrib={
-                        "type": "image",
-                        "hash": data.get("hash", "unknown"),
-                        "description": description,
-                    },
-                )
+                # 1. 确定占位符文本，区分图片和动画表情
+                is_sticker = data.get("summary") == "sticker"
+                placeholder_prefix = "[动画表情" if is_sticker else "[图片"
+
+                # 2. 生成唯一的占位符ID (从1开始)
+                placeholder_id = len(image_collector) + 1
+                placeholder_text = f"{placeholder_prefix}_{placeholder_id}]"
+
+                # 3. 收集图像数据和元信息
+                image_info = {
+                    "id": placeholder_id,
+                    "placeholder": placeholder_text, # 存储占位符本身，方便后续查找
+                    "mime_type": data.get("mime_type", "image/png"),
+                    "data": base64_data
+                }
+                image_collector.append(image_info)
+
+                # 4. 在XML中直接将占位符作为文本内容添加
+                # 我们不再需要 <media> 标签，因为占位符本身已经足够说明问题
+                # 这也让XML更干净，更接近真实客户端的显示
+                if content_node.text:
+                    content_node.text += placeholder_text
+                else:
+                    content_node.text = placeholder_text
+
             elif seg_type == "quote":
                 # TODO: 需要通过 message_id 从 event_service 查询被引用的消息详情
                 # 为了简化，暂时使用 data 中的信息

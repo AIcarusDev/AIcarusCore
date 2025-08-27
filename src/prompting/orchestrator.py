@@ -77,7 +77,10 @@ class ThoughtPromptBuilder:
         handover_result: dict | None = None,
     ) -> tuple[PromptComponents, list[Stimulus] | None, dict]:
         """构建所有 Prompt 组件，并返回 UI 映射表."""
-        external_info_block, ui_mapping = await self.aicos_state_generator.build_current_state()
+        image_collector = []
+        external_info_block, ui_mapping = await self.aicos_state_generator.build_current_state(
+            image_collector=image_collector
+        )
 
         _, _, _, session = self._extract_context_from_ui()
 
@@ -98,6 +101,7 @@ class ThoughtPromptBuilder:
             system_prompt_blocks=system_prompt_blocks,
             user_prompt_blocks=user_prompt_blocks,
             response_schema=response_schema,
+            image_references=image_collector
         )
 
         return prompt_components_obj, None, ui_mapping

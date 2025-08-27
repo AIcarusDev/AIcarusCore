@@ -1,4 +1,4 @@
-# src/core_logic/thought_generator.py
+# 文件路径: src/mind/thought_generator.py
 import json
 import re
 import uuid
@@ -32,7 +32,7 @@ class ThoughtGenerator:
         self,
         system_prompt: str,
         user_prompt: str,
-        image_inputs: list[str],
+        image_references: list[dict],  # 接收收集到的图片数据
         response_schema: dict[str, Any] | None = None,
         focus_path: str | None = None,
     ) -> dict[str, Any] | None:
@@ -44,7 +44,7 @@ class ThoughtGenerator:
         Args:
             system_prompt (str): 系统提示，用于指导 LLM 的行为和思考方式.
             user_prompt (str): 用户提示，包含用户的输入或问题.
-            image_inputs (list[str]): 可选的图像输入列表，用于多模态处理.
+            image_references (list[dict]): 可选的图像引用列表，用于多模态处理.
             response_schema (dict[str, Any] | None): 可选的响应模式定义，用于指导 LLM 的输出格式.
             focus_path (str | None): 可选的注意力焦点路径，用于指定当前思考的上下文.
 
@@ -64,7 +64,8 @@ class ThoughtGenerator:
         )
         # 3. 在日志中使用这个净化后的版本
         logger.debug(f"--- [SYSTEM PROMPT] ---\n{prompt_for_logging}")
-        logger.debug(f"--- [USER PROMPT] ---\n{user_prompt}")
+        # 注意：user_prompt 包含占位符，将在下面处理
+        logger.debug(f"--- [USER PROMPT (with placeholders)] ---\n{user_prompt}")
 
         if response_schema:
             try:
@@ -77,19 +78,68 @@ class ThoughtGenerator:
         else:
             logger.debug("--- [JSON SCHEMA] --- \nNone")
 
+        if image_references:
+            logger.debug(f"--- [IMAGE REFERENCES ({len(image_references)})] ---")
+            for img_ref in image_references:
+                logger.debug(
+                    f"  - ID: {img_ref['id']}, "
+                    f"Placeholder: {img_ref['placeholder']}, MIME: {img_ref['mime_type']}"
+                )
+
         logger.debug("=" * 41 + " END OF DEBUG " + "=" * 41)
 
+
+        # --- 2. 构建图文混合的 parts 列表 ---
+        user_prompt_parts = []
+        if not image_references:
+            # 如果没有图片，行为和以前一样，是纯文本
+            user_prompt_parts.append({"text": user_prompt})
+        else:
+            # 如果有图片，执行精巧的“分裂-插入”逻辑
+            # 1. 构建一个正则表达式，用于查找所有占位符
+            # e.g., r"(\[图片_1\]|\[动画表情_2\]|...)"
+            placeholder_pattern_str = "|".join(
+                re.escape(img['placeholder']) for img in image_references
+            )
+            placeholder_pattern = re.compile(f"({placeholder_pattern_str})")
+
+            # 2. 创建一个从占位符文本到图像数据的映射，方便快速查找
+            image_map = {img['placeholder']: img for img in image_references}
+
+            # 3. 分割文本
+            text_fragments = placeholder_pattern.split(user_prompt)
+
+            # 4. 重新组装成 parts 列表
+            for fragment in text_fragments:
+                if not fragment:
+                    continue
+
+                if fragment in image_map:
+                    # 如果这个片段是我们的占位符，就插入图片数据
+                    image_data = image_map[fragment]
+                    user_prompt_parts.append({
+                        "inline_data": {
+                            "mime_type": image_data["mime_type"],
+                            "data": image_data["data"]
+                        }
+                    })
+                else:
+                    # 否则，它就是普通的文本片段
+                    user_prompt_parts.append({"text": fragment})
+
+        # --- 3. 调用LLM客户端 ---
         try:
+            # 将 user_prompt_parts 传递给 LLM 客户端
             response_data = await self.llm_client.make_llm_request(
-                prompt=user_prompt,
+                prompt_parts=user_prompt_parts,  # 使用 parts 列表
                 system_prompt=system_prompt,
                 is_stream=False,
-                image_inputs=image_inputs or None,
-                is_multimodal=bool(image_inputs),
+                is_multimodal=bool(image_references),
                 use_google_search=False,
                 response_schema=response_schema,
             )
 
+            # --- 4. 后续的响应处理逻辑  ---
             if response_data.get("error"):
                 logger.error(f"LLM调用失败: {response_data.get('message', '未知错误')}")
                 return None

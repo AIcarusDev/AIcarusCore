@@ -1,11 +1,11 @@
-# src/llmrequest/core/provider/google.py
+# src/services/llmrequest/core/provider/google.py
 import asyncio
 import json
 from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
-from src.llmrequest.core.models import GenerationParams
-from src.llmrequest.core.provider.base import ApiProviderHandler
+from src.services.llmrequest.core.models import GenerationParams
+from src.services.llmrequest.core.provider.base import ApiProviderHandler
 
 logger = get_logger(__name__)
 
@@ -16,15 +16,16 @@ DEFAULT_EMBEDDING_ENDPOINT_GOOGLE: str = ":embedContent"
 
 
 class GoogleApiHandler(ApiProviderHandler):
-    """Handler for Google API requests."""
+    """Handler for Google API requests ."""
 
     def prepare_request_data(
         self,
         model_name: str,
         request_type: str,
         is_streaming: bool,
-        prompt: str | None,
+        prompt_parts: list[dict], # <-- [修改] 接收 parts 列表
         system_prompt: str | None,
+        # processed_images 参数不再直接使用，因为信息已在 prompt_parts 中
         processed_images: list[dict[str, str]] | None,
         final_generation_config: GenerationParams,
         tools: list[dict[str, Any]] | None,
@@ -65,20 +66,22 @@ class GoogleApiHandler(ApiProviderHandler):
             The API endpoint path, query parameters, headers, and payload dictionary.
         """
         headers = {"Content-Type": "application/json"}
-        params = {}
+        params = {"key": "{api_key}"} # Gemini API key in params
         payload: dict[str, Any] = {}
 
         if request_type == "embedding":
-            path = f"/models/{model_name.strip('/')}{DEFAULT_EMBEDDING_ENDPOINT_GOOGLE}"
-            parts = [{"text": text_to_embed}] if text_to_embed else []
-            payload = {"content": {"parts": parts}}
+            # --- Embedding 逻辑保持不变 ---
+            path = f"/v1beta/models/{model_name.strip('/')}{DEFAULT_EMBEDDING_ENDPOINT_GOOGLE}"
+            content = {"parts": [{"text": text_to_embed}]} if text_to_embed else []
+            payload = {"model": f"models/{model_name}", "content": content}
         else:
+            # --- Chat/Vision 逻辑修改 ---
             endpoint = (
                 DEFAULT_STREAMING_API_ENDPOINT_GOOGLE
                 if is_streaming
                 else DEFAULT_NON_STREAMING_API_ENDPOINT_GOOGLE
             )
-            path = f"/models/{model_name.strip('/')}{endpoint}"
+            path = f"/v1beta/models/{model_name.strip('/')}{endpoint}"
             payload = {
                 "safetySettings": [
                     {"category": c, "threshold": "BLOCK_NONE"}
@@ -100,9 +103,9 @@ class GoogleApiHandler(ApiProviderHandler):
             if system_prompt:
                 payload["system_instruction"] = {"parts": [{"text": system_prompt}]}
 
-            interleaved = self._interleave_text_and_images(prompt or "", processed_images or [])
-            user_content_parts = self._format_content(interleaved)
-
+            # 直接使用传入的 prompt_parts 构建 contents
+            # _format_content 辅助方法将确保其格式正确
+            user_content_parts = self._format_content(prompt_parts)
             payload["contents"] = [{"role": "user", "parts": user_content_parts}]
 
             active_tools = []
@@ -203,3 +206,15 @@ class GoogleApiHandler(ApiProviderHandler):
             mime_type = header.split(";")[0].split(":")[1]
             return {"inline_data": {"mime_type": mime_type, "data": encoded_data}}
         return {}
+
+    #  _format_content 辅助方法，用于将我们的内部 parts 格式转换为 Gemini API 格式
+    def _format_content(self, internal_parts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """将内部的 parts 列表转换为 Gemini API 期望的格式."""
+        api_parts = []
+        for part in internal_parts:
+            if "text" in part:
+                api_parts.append({"text": part["text"]})
+            elif "inline_data" in part:
+                # 我们的 'inline_data' 结构已经与 Gemini API 期望的结构一致
+                api_parts.append({"inline_data": part["inline_data"]})
+        return api_parts

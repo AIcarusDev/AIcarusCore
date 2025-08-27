@@ -26,6 +26,7 @@ class BasePlatformBuilder(ABC):
         event_service: EventStorageService,
         ui_mapping: dict,
         generate_semantic_id: callable,
+        image_collector: list[dict],
     ) -> None:
         """一个抽象方法，用于渲染特定平台窗口的内容.
 
