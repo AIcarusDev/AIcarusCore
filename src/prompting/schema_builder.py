@@ -60,11 +60,11 @@ class SchemaBuilder:
                         "mood": {"type": "string", "description": "你当前的情绪状态和原因。"},
                         "think": {
                             "type": "string",
-                            "description": "你对当前所有情况的详细思考过程。"
+                            "description": "你对当前所有情况的详细思考过程。",
                         },
                         "intent": {
                             "type": "string",
-                            "description": "你当前最直接的、短期的意图或打算。"
+                            "description": "你当前最直接的、短期的意图或打算。",
                         },
                     },
                     "required": ["mood", "think", "intent"],
@@ -163,13 +163,7 @@ class SchemaBuilder:
                             "properties": {
                                 "command": {
                                     "type": "string",
-                                    "enum": [
-                                        "reply",
-                                        "at",
-                                        "text",
-                                        "sticker",
-                                        "send_and_break"
-                                    ]
+                                    "enum": ["reply", "at", "text", "sticker", "send_and_break"],
                                 },
                                 "params": {"type": "object"},
                             },

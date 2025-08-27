@@ -215,8 +215,7 @@ class ActionHandler:
                 result_text = await asyncio.to_thread(self.filesystem_service.edit_file, params)
             elif action_name == "get_aggregated_content":
                 result_text = await asyncio.to_thread(
-                    self.filesystem_service.get_aggregated_content,
-                    params
+                    self.filesystem_service.get_aggregated_content, params
                 )
             elif action_name == "delete_file":
                 result_text = await asyncio.to_thread(self.filesystem_service.delete_file, params)
@@ -412,6 +411,7 @@ class ActionHandler:
             bot_id_for_log = "error_missing_bot_id"
 
         from src.services.database.models import ActionLogDocument
+
         action_doc = ActionLogDocument(
             _key=core_action_id,
             action_type=event_type,
@@ -446,4 +446,3 @@ class ActionHandler:
             action_to_send=action_to_send,
             metadata=metadata,
         )
-

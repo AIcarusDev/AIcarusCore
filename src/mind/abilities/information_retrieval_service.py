@@ -27,7 +27,8 @@ class InformationRetrievalService:
         """返回此服务提供的所有动作的 JSON Schema 定义."""
         return {
             "web_search": {
-                "type": "object", "description": "进行一次互联网搜索，以获取外部信息。",
+                "type": "object",
+                "description": "进行一次互联网搜索，以获取外部信息。",
                 "properties": {"query": {"type": "string"}, "motivation": {"type": "string"}},
                 "required": ["query", "motivation"],
             },
@@ -58,8 +59,6 @@ class InformationRetrievalService:
             prompt=user_prompt, system_prompt=system_prompt, is_stream=False, use_google_search=True
         )
         return response.get("text", "搜索失败或未返回任何信息。")
-
-
 
     async def summarize_url(self, params: dict) -> str:
         """访问指定的URL并返回总结结果."""

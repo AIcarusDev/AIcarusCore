@@ -44,7 +44,7 @@ async def wire_dynamic_dependencies(container: ServiceContainer) -> None:
             internal_info_builder=container.internal_info_builder,
             entity_graph_service=container.entity_graph_service,
             core_logic=container.core_logic,
-            deliberation_service=container.deliberation_service # 注入 deliberation_service
+            deliberation_service=container.deliberation_service,  # 注入 deliberation_service
         )
         container.chat_session_manager = chat_session_manager
         logger.info("ChatSessionManager 实例已创建。")
@@ -54,12 +54,12 @@ async def wire_dynamic_dependencies(container: ServiceContainer) -> None:
         container.action_handler.set_dynamic_dependencies(
             chat_session_manager=chat_session_manager,
             core_logic=container.core_logic,
-            trigger_event=container.core_logic.immediate_thought_trigger
+            trigger_event=container.core_logic.immediate_thought_trigger,
         )
         container.message_processor.qq_chat_session_manager = chat_session_manager
         logger.info(
             "已将 ChatSessionManager 注入到 CoreLogic, ActionHandler, 和 MessageProcessor。"
-            )
+        )
 
     container.unread_info_service.update_self_bot_ids(bot_ids_map)
     logger.info("UnreadInfoService 的 Bot ID Map 已更新。")

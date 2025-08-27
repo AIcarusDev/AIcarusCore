@@ -7,6 +7,7 @@ if TYPE_CHECKING:
     from src.mind.state_manager import AIStateManager
     from src.services.database.services.thought_storage_service import ThoughtStorageService
 
+
 class UserPromptPartsBuilder:
     """[AIC-OS 重构版]负责构建填充 User Prompt 模板所需的所有部分."""
 

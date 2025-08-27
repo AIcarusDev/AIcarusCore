@@ -85,7 +85,6 @@ class ChatSessionManager:
                 )
                 return None
 
-
             conv_details = conv_entity_doc.details
             bot_id_for_session = self.self_bot_ids_map.get(conv_details.platform)
             if not bot_id_for_session:

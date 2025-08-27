@@ -45,7 +45,7 @@ async def process_aicos_decision(
             chat_session_manager,
             current_internal_state,
             window_manager,
-            application_manager
+            application_manager,
         )
 
     # 2. 处理外部动作
@@ -59,8 +59,13 @@ async def process_aicos_decision(
         # 路由到不同的处理器
         if action_name in ["click", "double_click"]:
             await _handle_ui_interaction(
-                action_name, action_params, ui_mapping, window_manager, application_manager,
-                chat_session_manager, aicos_state_generator
+                action_name,
+                action_params,
+                ui_mapping,
+                window_manager,
+                application_manager,
+                chat_session_manager,
+                aicos_state_generator,
             )
         elif action_name == "send_message":
             await _handle_send_message(
@@ -80,8 +85,9 @@ async def process_aicos_decision(
                 action_id=f"action_{uuid.uuid4().hex[:6]}",
                 doc_key_for_updates=temp_thought_id,
                 action_json=action_json_for_handler,
-                metadata=ActionMetadata(motivation=motivation)
+                metadata=ActionMetadata(motivation=motivation),
             )
+
 
 async def _handle_ui_interaction(
     action_name: str,
@@ -130,8 +136,10 @@ async def _handle_ui_interaction(
             current_page = window.content_state.get("page", 1)
             total_pages = window.content_state.get("total_pages", 1)
             new_page = (
-                max(1, current_page - 1) if direction == "up"
-                else min(total_pages, current_page + 1) if direction == "down"
+                max(1, current_page - 1)
+                if direction == "up"
+                else min(total_pages, current_page + 1)
+                if direction == "down"
                 else current_page
             )
             if new_page != current_page:
@@ -180,7 +188,7 @@ async def _handle_ui_interaction(
                 window_manager.open_window(main_window)
 
     elif internal_command == "open_conversation_window":
-        app_id = "app-001" # Hardcoded QQ app ID
+        app_id = "app-001"  # Hardcoded QQ app ID
         if not application_manager.is_running(app_id):
             application_manager.start_app(app_id)
 
@@ -196,6 +204,7 @@ async def _handle_ui_interaction(
             window_manager.open_window(conv_window)
         else:
             logger.error(f"无法为 '{target_uid}' 创建会话窗口，获取会话失败。")
+
 
 async def _handle_send_message(
     params: dict,
@@ -266,7 +275,7 @@ async def _handle_internal_action(
     chat_session_manager: "ChatSessionManager",
     current_internal_state: dict,
     window_manager: "WindowManager",
-    application_manager: "ApplicationManager"
+    application_manager: "ApplicationManager",
 ) -> None:
     """处理所有内部动作 (deep_think, manage_goals)."""
     action_name = next(iter(internal_action), None)

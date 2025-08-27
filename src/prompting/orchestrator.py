@@ -50,7 +50,7 @@ class ThoughtPromptBuilder:
         self.aicos_state_generator = aicos_state_generator
         self.window_manager = window_manager
         self.application_manager = application_manager
-        self.chat_session_manager = chat_session_manager # Still needed for session access
+        self.chat_session_manager = chat_session_manager  # Still needed for session access
         self.core_ws_server = core_ws_server
 
         self.schema_builder = SchemaBuilder(
@@ -58,7 +58,7 @@ class ThoughtPromptBuilder:
             filesystem_service,
             info_retrieval_service,
             goal_manager,
-            deliberation_service
+            deliberation_service,
         )
         self.system_prompt_parts_builder = SystemPromptPartsBuilder(
             internal_info_builder,

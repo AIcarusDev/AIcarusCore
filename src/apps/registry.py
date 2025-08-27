@@ -2,11 +2,11 @@
 
 import importlib
 import inspect
-import pkgutil
 from pathlib import Path
 from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
+
 # [修复] 导入路径已修正
 from src.services.action.components.base_builder import BasePlatformBuilder
 
@@ -20,7 +20,7 @@ class PlatformBuilderRegistry:
         self._builders: dict[str, BasePlatformBuilder] = {}
 
     def discover_and_register_builders(self, package: Any) -> None:
-        """[重构版] 自动扫描 apps 目录下的所有子目录，寻找 builder.py 并注册。"""
+        """自动扫描 apps 目录下的所有子目录，寻找 builder.py 并注册."""
         logger.info("应用注册中心：正在扫描 apps 目录以发现所有应用...")
         apps_dir = Path(package.__path__[0])
 
@@ -36,7 +36,7 @@ class PlatformBuilderRegistry:
             module_name = f"{package.__name__}.{app_path.name}.builder"
             try:
                 module = importlib.import_module(module_name)
-                for item_name, item in inspect.getmembers(module, inspect.isclass):
+                for _item_name, item in inspect.getmembers(module, inspect.isclass):
                     if issubclass(item, BasePlatformBuilder) and item is not BasePlatformBuilder:
                         instance = item()
                         platform_id = instance.platform_id
@@ -52,15 +52,15 @@ class PlatformBuilderRegistry:
         logger.info(f"应用注册完成，目前共有 {len(self._builders)} 个应用在岗。")
 
     def get_builder(self, platform_id: str) -> BasePlatformBuilder | None:
-        """根据平台ID，获取一个应用构建器。"""
+        """根据平台ID，获取一个应用构建器."""
         return self._builders.get(platform_id)
 
     def get_all_builders(self) -> dict[str, BasePlatformBuilder]:
-        """返回所有已注册的应用构建器实例。"""
+        """返回所有已注册的应用构建器实例."""
         return self._builders.copy()
 
     def get_all_action_definitions(self) -> dict[str, Any]:
-        """获取所有已注册应用提供的动作定义。"""
+        """获取所有已注册应用提供的动作定义."""
         all_definitions = {}
         for platform_id, builder in self._builders.items():
             all_definitions[platform_id] = {
@@ -69,6 +69,7 @@ class PlatformBuilderRegistry:
                 "properties": builder.get_action_definitions(),
             }
         return all_definitions
+
 
 # 创建一个全局的单例
 platform_builder_registry = PlatformBuilderRegistry()

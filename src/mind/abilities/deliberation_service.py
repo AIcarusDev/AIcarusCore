@@ -31,7 +31,7 @@ class DeliberationService:
     def get_actions_schema(self) -> dict:
         """返回此服务提供的所有动作的 JSON Schema 定义."""
         return {
-                "deep_think": {
+            "deep_think": {
                 "title": "仔细想想",
                 "type": "object",
                 "description": "进行理性的深度思考，在遇到陌生、复杂、抽象问题，或高风险的决策时使用。",  # noqa: E501

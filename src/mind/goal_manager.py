@@ -55,7 +55,7 @@ class GoalManager:
     def get_actions_schema(self) -> dict:
         """返回此服务提供的所有动作的 JSON Schema 定义."""
         return {
-                "manage_goals": {
+            "manage_goals": {
                 "title": "目标管理",
                 "type": "object",
                 "description": "管理你的短期目标，对应你的`<current_goals>`块。",
@@ -72,7 +72,7 @@ class GoalManager:
                                     "properties": {
                                         "goal": {
                                             "type": "string",
-                                            "description": "目标本身的描述。"
+                                            "description": "目标本身的描述。",
                                         },
                                         "reason": {
                                             "type": "string",

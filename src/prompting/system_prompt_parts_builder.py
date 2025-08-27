@@ -111,7 +111,7 @@ class SystemPromptPartsBuilder:
             payload = thought.get("action_payload")
             if not payload or (
                 not payload.get("external_action") and not payload.get("internal_action")
-                ):
+            ):
                 continue
 
             payload.pop("internal_state", None)
@@ -133,7 +133,7 @@ class SystemPromptPartsBuilder:
 
     def _get_deliberation_summary_block(self, session: Optional["ChatSession"]) -> str:
         """构建慢脑思考决策摘要块."""
-        if session and hasattr(session, 'working_memory') and session.working_memory:
+        if session and hasattr(session, "working_memory") and session.working_memory:
             remaining = session.working_memory.get("remaining_turns", 0)
             if remaining > 0:
                 summary = session.working_memory.get("summary", "无内容。")

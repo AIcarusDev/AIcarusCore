@@ -1,13 +1,14 @@
 # src/aicos/state_generator.py
 import re
-import time
 from xml.dom.minidom import parseString
 from xml.etree.ElementTree import Element, SubElement, tostring
 
+from src.apps.registry import platform_builder_registry
 from src.common.custom_logging.logging_config import get_logger
 
 # 导入核心依赖
 from src.services.database.services.entity_graph_service import EntityGraphService
+from src.services.database.services.event_storage_service import EventStorageService
 
 from .application_manager import ApplicationManager
 from .models import Window, WindowStatus
@@ -17,7 +18,7 @@ logger = get_logger(__name__)
 
 
 class AICOSStateGenerator:
-    """[最终版] 负责将 AIC-OS 的内部状态渲染成最终的 XML 字符串.
+    """负责将 AIC-OS 的内部状态渲染成最终的 XML 字符串.
 
     并生成 UI 元素到内部实体的映射。
     使用基于稳定 `name` 的、带编码的、确定性语义化ID生成方案。
@@ -28,10 +29,12 @@ class AICOSStateGenerator:
         window_manager: WindowManager,
         application_manager: ApplicationManager,
         entity_service: EntityGraphService,
+        event_service: EventStorageService,
     ) -> None:
         self.window_manager = window_manager
         self.application_manager = application_manager
         self.entity_service = entity_service
+        self.event_service = event_service
         self._ui_mapping: dict[str, dict] = {}
         self.is_connected = False
         # 预编译正则表达式以提高性能
@@ -192,7 +195,7 @@ class AICOSStateGenerator:
     async def _render_window_frame(
         self, parent_element: Element, current_path: list[str], window: Window
     ) -> None:
-        """渲染窗口的通用外框和控件."""
+        """此方法负责渲染窗口的通用外框和控件，内容部分委托给应用渲染器."""
         window_node = SubElement(
             parent_element,
             "window",
@@ -202,11 +205,10 @@ class AICOSStateGenerator:
                 "class": window.window_class,
                 "title": window.title,
                 "status": window.status.value,
-                "name": self._encode_id_part(window.id),
             },
         )
 
-        controls_node = SubElement(window_node, "controls", attrib={"name": "controls"})
+        controls_node = SubElement(window_node, "controls")
         controls_path = [*current_path, "controls"]
 
         if window.status == WindowStatus.MINIMIZE:
@@ -257,180 +259,28 @@ class AICOSStateGenerator:
             "target_uid": window.id,
         }
 
+        # 委托渲染
         if window.status != WindowStatus.MINIMIZE:
-            if window.window_class == "main/conversation_list":
-                await self._render_qq_conversation_list(window_node, current_path, window)
-            elif window.window_class == "conversation":
-                await self._render_conversation_window(window_node, current_path, window)
-
-    async def _render_qq_conversation_list(
-        self, window_node: Element, current_path: list[str], window: Window
-    ) -> None:
-        """渲染QQ会话列表窗口的动态内容."""
-        page = window.content_state.get("page", 1)
-        page_size = 30 if window.status == WindowStatus.MAXIMIZE else 15
-
-        bot_id = self.application_manager.get_self_bot_ids_map().get("qq")
-        if not bot_id:
-            logger.error("无法获取 QQ 的 bot_id，无法渲染会话列表。")
-            SubElement(window_node, "error", name="error").text = "内部错误：无法获取机器人ID。"
-            return
-
-        conversations, total_pages = await self.entity_service.get_paged_conversations(
-            platform_id="qq", page=page, page_size=page_size, self_bot_ids={"qq": bot_id}
-        )
-
-        list_node = SubElement(
-            window_node,
-            "conversation_list",
-            attrib={
-                "name": "conversation_list",
-                "pagination": "true",
-                "page_current": str(page),
-                "page_total": str(total_pages),
-                "items_per_page": str(page_size),
-            },
-        )
-        list_path = [*current_path, "conversation_list"]
-
-        if not conversations:
-            SubElement(list_node, "desc", name="empty_desc").text = "没有会话。"
-            return
-
-        for conv_data in conversations:
-            conv_doc = conv_data.get("conv_doc")
-            if not conv_doc:
-                continue
-
-            conv_uid = conv_doc._key
-            conv_name = conv_doc.details.name or "未知会话"
-
-            conv_path = [*list_path, conv_name]
-            conv_node = SubElement(
-                list_node,
-                "conversation",
-                attrib={
-                    "name": conv_name,
-                    "title": conv_name,
-                    "type": conv_doc.details.type,
-                    "unread": str(conv_data.get("unread_count", 0)),
-                },
+            app = next(
+                (
+                    a
+                    for a in self.application_manager.get_all_apps()
+                    if a.id == window.parent_app_id
+                ),
+                None,
             )
-
-            latest_msg_text = (
-                await self.entity_service.event_storage_service.get_event_text_summary(
-                    conv_data.get("latest_event")
+            if app and (builder := platform_builder_registry.get_builder(app.name)):
+                await builder.render_window_content(
+                    parent_element=window_node,
+                    current_path=current_path,
+                    window=window,
+                    bot_ids_map=self.application_manager.get_self_bot_ids_map(),
+                    entity_service=self.entity_service,
+                    event_service=self.event_service,
+                    ui_mapping=self._ui_mapping,
+                    generate_semantic_id=self._generate_semantic_id,
                 )
-            )
-            SubElement(
-                conv_node, "desc", name="latest_message"
-            ).text = f"[最新消息]: {latest_msg_text}"
-
-            enter_btn_id = self._generate_semantic_id([*conv_path, "enter_button"])
-            SubElement(
-                conv_node,
-                "button",
-                attrib={"id": enter_btn_id, "name": "enter", "title": "进入会话"},
-            )
-            self._ui_mapping[enter_btn_id] = {
-                "action_type": "click",
-                "action": "open_conversation_window",
-                "target_uid": conv_uid,
-            }
-
-    async def _render_conversation_window(
-        self, window_node: Element, current_path: list[str], window: Window
-    ) -> None:
-        """渲染单个聊天窗口的动态内容，包括分页的聊天记录."""
-        page = window.content_state.get("page", 1)
-        page_size = 30 if window.status == WindowStatus.MAXIMIZE else 15
-        conversation_uid = window.content_state.get("conversation_uid")
-
-        if not conversation_uid:
-            SubElement(window_node, "error", name="error").text = "无法加载聊天记录：未指定会话ID。"
-            return
-
-        (
-            messages,
-            current_page,
-            total_pages,
-        ) = await self.entity_service.event_storage_service.get_paged_chat_history(
-            conversation_uid, page, page_size
-        )
-        window.content_state["total_pages"] = total_pages
-
-        list_node = SubElement(
-            window_node,
-            "list",
-            attrib={
-                "name": "chat_history",
-                "pagination": "true",
-                "page_current": str(current_page),
-                "page_total": str(total_pages),
-                "items_per_page": str(page_size),
-            },
-        )
-        list_path = [*current_path, "chat_history"]
-
-        if current_page > 1:
-            scroll_up_id = self._generate_semantic_id([*list_path, "scroll_up_button"])
-            SubElement(
-                list_node,
-                "button",
-                attrib={"id": scroll_up_id, "name": "scroll_up", "title": "向上滚动查看更早的消息"},
-            )
-            self._ui_mapping[scroll_up_id] = {
-                "action_type": "click",
-                "action": "scroll_chat_window",
-                "target_uid": window.id,
-                "direction": "up",
-            }
-
-        for msg in messages:
-            sender_name = msg.get("user_info", {}).get("user_nickname", "未知用户")
-            timestamp = time.strftime("%H:%M:%S", time.localtime(msg.get("timestamp", 0) / 1000))
-            content_text = "".join(
-                [
-                    s.get("data", {}).get("text", "")
-                    for s in msg.get("content", [])
-                    if s.get("type") == "text"
-                ]
-            )
-
-            msg_node = SubElement(
-                list_node,
-                "div",
-                attrib={
-                    "class": "message",
-                    "id": msg.get("event_id"),
-                    "name": f"message_{msg.get('event_id')}",
-                },
-            )
-            SubElement(msg_node, "sender", name="sender").text = sender_name
-            SubElement(msg_node, "timestamp", name="timestamp").text = timestamp
-            SubElement(msg_node, "content", name="content").text = (
-                content_text if content_text else "[非文本消息]"
-            )
-
-        if current_page < total_pages:
-            scroll_down_id = self._generate_semantic_id([*list_path, "scroll_down_button"])
-            SubElement(
-                list_node,
-                "button",
-                attrib={
-                    "id": scroll_down_id,
-                    "name": "scroll_down",
-                    "title": "向下滚动查看最新的消息",
-                },
-            )
-            self._ui_mapping[scroll_down_id] = {
-                "action_type": "click",
-                "action": "scroll_chat_window",
-                "target_uid": window.id,
-                "direction": "down",
-            }
-
-        action_bar_node = SubElement(window_node, "action_bar", name="action_bar")
-        SubElement(
-            action_bar_node, "desc", name="desc"
-        ).text = "你可以使用 send_message 动作来回复。"
+            else:
+                app_name = app.name if app else "未知"
+                message = f"应用 '{app_name}' 没有提供内容渲染器。"
+                SubElement(window_node, "content").text = message

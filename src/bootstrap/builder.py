@@ -57,6 +57,7 @@ logger = get_logger(__name__)
 @runtime_checkable
 class Initializable(Protocol):
     """定义了一个可初始化的协议，要求实现类提供初始化基础设施的方法."""
+
     async def initialize_infrastructure(self) -> None:
         """Initialize the required infrastructure for the implementing service."""
         ...
@@ -119,6 +120,7 @@ class ServiceBuilder:
             window_manager=window_manager,
             application_manager=application_manager,
             entity_service=db_services["entity_graph_service"],
+            event_service=db_services["event_storage_service"],
         )
 
         prompt_builder = ThoughtPromptBuilder(
@@ -200,16 +202,16 @@ class ServiceBuilder:
             immediate_thought_trigger=AsyncioEvent(),
             intrusive_generator_instance=intrusive_generator,
             interruption_broker=interruption_broker,
-            chat_session_manager=None, # Will be wired later
+            chat_session_manager=None,  # Will be wired later
             thought_storage_service=db_services["thought_storage_service"],
             entity_graph_service=db_services["entity_graph_service"],
-            thought_persistor=thought_persistor
+            thought_persistor=thought_persistor,
         )
 
         # 构建 IIS 模型
         intelligent_interrupter = await self._initialize_interrupt_model(
             db_services["event_storage_service"]
-            )
+        )
 
         return ServiceContainer(
             main_consciousness_llm_client=llm_clients["main_consciousness_llm_client"],
