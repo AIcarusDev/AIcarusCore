@@ -103,10 +103,8 @@ class AICOSStateGenerator:
         SubElement(applications_node, "application", id="app-001", name="qq", title="QQ")
 
     def _render_background_processes(
-            self,
-            parent_element: Element,
-            current_path: list[str]
-            ) -> None:
+        self, parent_element: Element, current_path: list[str]
+    ) -> None:
         """渲染后台进程列表，并为非核心进程添加关闭按钮."""
         bg_processes_node = SubElement(
             parent_element,
@@ -415,9 +413,7 @@ class AICOSStateGenerator:
             )
 
         if current_page < total_pages:
-            scroll_down_id = self._generate_semantic_id(
-                [*list_path, "scroll_down_button"]
-            )
+            scroll_down_id = self._generate_semantic_id([*list_path, "scroll_down_button"])
             SubElement(
                 list_node,
                 "button",

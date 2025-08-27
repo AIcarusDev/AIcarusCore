@@ -64,7 +64,6 @@ class ChatSessionManager:
 
         logger.info("ChatSessionManager 初始化完成。")
 
-
     async def get_or_create_session(self, conversation_entity_uid: str) -> ChatSession | None:
         """根据会话实体的UID获取或创建ChatSession.
 
@@ -132,9 +131,7 @@ class ChatSessionManager:
 
             return new_session
 
-    async def deactivate_session(
-        self, conversation_entity_uid: str
-    ) -> None:
+    async def deactivate_session(self, conversation_entity_uid: str) -> None:
         """当聊天窗口关闭时，执行清理工作，例如将会话的最后已读时间戳持久化."""
         async with self.lock:
             if session := self.sessions.pop(conversation_entity_uid, None):
