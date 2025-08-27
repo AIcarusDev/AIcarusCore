@@ -35,7 +35,6 @@ class ChatSessionManager:
         self,
         config: FocusChatModeSettings,
         llm_client: LLMProcessorClient,
-        # deliberation_llm_client 依赖已移除
         event_storage: EventStorageService,
         action_handler: ActionHandler,
         self_bot_ids_map: dict[str, str],
@@ -56,12 +55,8 @@ class ChatSessionManager:
         self.intelligent_interrupter = intelligent_interrupter
         self.entity_graph_service = entity_graph_service
         self.core_logic = core_logic
-
         self.sessions: dict[str, ChatSession] = {}
         self.lock = asyncio.Lock()
-
-        # DeliberationService 现在由 DecisionDispatcher 在需要时直接使用，或通过服务容器获取
-        # self.deliberation_service = ...
 
         logger.info("ChatSessionManager 初始化完成。")
 

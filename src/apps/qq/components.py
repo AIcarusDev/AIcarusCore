@@ -1,21 +1,13 @@
-# src/focus_chat_mode/components.py
+# 文件路径: src/apps/qq/components.py
+
 from dataclasses import dataclass, field
 from typing import Any
 
 
 @dataclass
 class PromptComponents:
-    """一个性感的数据容器，把所有Prompt零件都紧紧锁住."""
+    """一个数据容器，存放构建 Prompt 所需的各个部分."""
 
     system_prompt_blocks: dict[str, Any] = field(default_factory=dict)
     user_prompt_blocks: dict[str, Any] = field(default_factory=dict)
-    last_valid_text_message: str | None = None
-    uid_str_to_platform_id_map: dict[str, str] = field(default_factory=dict)
-    user_map: dict[str, dict[str, Any]] = field(default_factory=dict)
-    processed_event_ids: list[str] = field(default_factory=list)
-    image_references: list[str] = field(default_factory=list)
-    conversation_name: str | None = None
-    conversation_info_block: str = ""
-    user_list_block: str = ""
-    chat_history_log_block: str = ""
     response_schema: dict[str, Any] = field(default_factory=dict)

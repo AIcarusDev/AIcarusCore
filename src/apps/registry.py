@@ -7,7 +7,7 @@ from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
 
-# [修复] 导入路径已修正
+# 导入路径已修正
 from src.services.action.components.base_builder import BasePlatformBuilder
 
 logger = get_logger(__name__)

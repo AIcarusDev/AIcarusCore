@@ -1,4 +1,3 @@
-# src/focus_chat_mode/chat_session.py
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -9,8 +8,6 @@ from src.services.database import EnrichedConversationInfo
 from src.services.database.services.event_storage_service import EventStorageService
 from src.services.database.services.thought_storage_service import ThoughtStorageService
 from src.services.llmrequest.llm_processor import Client as LLMProcessorClient
-
-from .behavioral_guidance_generator import BehavioralGuidanceGenerator
 
 if TYPE_CHECKING:
     from src.common.intelligent_interrupt_system.intelligent_interrupter import (
@@ -63,10 +60,6 @@ class ChatSession:
         self.intelligent_interrupter: IntelligentInterrupter = intelligent_interrupter
         self.thought_storage_service: ThoughtStorageService = thought_storage_service
         self.entity_graph_service = entity_graph_service  # 存储服务实例
-
-        # --- 功能组件初始化 ---
-        self.guidance_generator = BehavioralGuidanceGenerator(self)
-        self.membership_status: str = conversation_info.extra.get("membership_status", "active")
 
         # --- 会话运行时状态 ---
         self.last_processed_timestamp: float = (
@@ -137,6 +130,7 @@ class ChatSession:
 
     def reset_consecutive_bot_message_count(self) -> None:
         """一个专门重置连续发言计数器的方法."""
+        # 该方法当前已废弃，未来可能可用
         if self.consecutive_bot_messages_count > 0:
             logger.debug(f"[{self.conversation_id}] 检测到他人发言，重置连续发言计数器。")
             self.consecutive_bot_messages_count = 0
@@ -147,3 +141,4 @@ class ChatSession:
         # 在这里可以添加其他需要清理的逻辑，比如保存最终状态等
         # 目前主要逻辑在 deactivate_session 中，这里作为一个预留接口
         logger.info(f"[{self.conversation_id}] 关闭清理完成。")
+
