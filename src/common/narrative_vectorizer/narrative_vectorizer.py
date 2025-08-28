@@ -7,8 +7,8 @@ from src.common.custom_logging.logging_config import get_logger
 from src.common.intelligent_interrupt_system.models import SemanticModel
 
 if TYPE_CHECKING:
-    from src.database.services.entity_graph_service import EntityGraphService
-    from src.message_processing.image_analysis_service import ImageAnalysisService
+    from src.services.database.services.entity_graph_service import EntityGraphService
+    from src.services.perception.image_analysis_service import ImageAnalysisService
 
 logger = get_logger(__name__)
 

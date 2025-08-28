@@ -6,7 +6,7 @@ from pathlib import Path
 
 from src.common.custom_logging.logging_config import get_logger
 from src.common.intelligent_interrupt_system.models import SemanticMarkovModel, SemanticModel
-from src.database.services.event_storage_service import EventStorageService
+from src.services.database.services.event_storage_service import EventStorageService
 
 logger = get_logger(__name__)
 
