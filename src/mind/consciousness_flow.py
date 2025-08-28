@@ -11,7 +11,6 @@ from src.common.interruption_broker import InterruptionEventBroker
 from src.config import config
 from src.domain.models import Stimulus
 from src.mind.intrusive_thoughts import IntrusiveThoughtsGenerator
-from src.mind.sanitizer import LLMOutputSanitizer
 from src.mind.state_manager import AIStateManager
 from src.mind.thought_generator import ThoughtGenerator
 from src.mind.thought_persistor import ThoughtPersistor
@@ -23,6 +22,7 @@ from src.services.database import ThoughtStorageService
 from src.services.database.models import ThoughtChainDocument
 
 if TYPE_CHECKING:
+    from src.bootstrap.container import ServiceContainer
     from src.os.application_manager import ApplicationManager
     from src.os.apps.qq.qq_chat_session import ChatSession
     from src.os.apps.qq.qq_chat_session_manager import ChatSessionManager
@@ -80,6 +80,7 @@ class CoreLogic:
         self.intrusive_generator_instance = intrusive_generator_instance
         self.thinking_loop_task: asyncio.Task | None = None
         self._last_interrupt_context_stimulus: Stimulus | None = None
+        self.container: ServiceContainer | None = None  # 用于接收容器自身的引用
         logger.info(f"{self.__class__.__name__} 已创建 (AIC-OS 适配版)")
 
     def trigger_immediate_thought_cycle(self) -> None:
@@ -135,7 +136,6 @@ class CoreLogic:
             new_thought_pearl, saved_key = await self._generate_and_persist_thought(
                 prompt_components
             )
-            # [修复] 如果LLM没有返回决策，则直接结束本轮循环
             if not new_thought_pearl or not new_thought_pearl.action_payload:
                 logger.info("本轮思考未产生任何决策，进入下一周期。")
                 return
@@ -144,20 +144,15 @@ class CoreLogic:
             logger.error(f"核心思考过程失败，中止本轮循环: {e}")
             return
 
-        # [修复] 确保 chat_session_manager 存在
-        if not self.chat_session_manager:
-            logger.error("ChatSessionManager 未初始化，无法执行决策分发！")
+        # [核心修正] 移除对 chat_session_manager 的检查，并传递 container
+        if not self.container:
+            logger.critical("ServiceContainer 未注入到 CoreLogic，无法执行决策分发！")
             return
 
         await process_aicos_decision(
             decision_json=new_thought_pearl.action_payload,
             ui_mapping=ui_mapping,
-            window_manager=self.window_manager,
-            application_manager=self.application_manager,
-            action_handler=self.action_handler_instance,
-            chat_session_manager=self.chat_session_manager,
-            state_manager=self.state_manager,
-            aicos_state_generator=self.aicos_state_generator,
+            container=self.container, # <--- 传递整个容器
         )
 
     async def _generate_and_persist_thought(
@@ -179,16 +174,8 @@ class CoreLogic:
         if not generated_thought_json:
             raise ThoughtGenerationError("LLM未能生成有效的思考JSON。")
 
-        sanitizer = LLMOutputSanitizer(
-            user_map=prompt_components.user_map,
-            uid_str_to_platform_id_map=prompt_components.uid_str_to_platform_id_map,
-        )
-        sanitized_thought_json = sanitizer.sanitize(generated_thought_json)
-
-        if generated_thought_json != sanitized_thought_json:
-            logger.warning("LLM输出被拦截且修正")
-            logger.debug(f"修正前: {generated_thought_json}")
-            logger.debug(f"修正后: {sanitized_thought_json}")
+        # 暂时禁用 Sanitizer，因为它依赖于旧的 U0, U1 用户映射系统
+        sanitized_thought_json = generated_thought_json
 
         saved_key, new_thought_pearl = await self.thought_persistor.store_thought(
             thought_json=sanitized_thought_json,

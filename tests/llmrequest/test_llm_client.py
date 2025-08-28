@@ -7,10 +7,10 @@ from unittest.mock import AsyncMock
 import pytest
 from pytest import MonkeyPatch
 from pytest_mock import MockerFixture
-from src.llmrequest.core.models import (
+from src.services.llmrequest.core.models import (
     APIKeyError,
 )
-from src.llmrequest.llm_client import LLMClient
+from src.services.llmrequest.llm_client import LLMClient
 
 # --- Fixtures ---
 

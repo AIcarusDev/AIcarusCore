@@ -7,16 +7,16 @@ from typing import TYPE_CHECKING, Any
 from aicarus_protocols import find_seg_by_type
 from src.common.custom_logging.logging_config import get_logger
 from src.common.utils import build_conversation_entity_uid, parse_focus_path
-from src.database import (
+from src.domain.models import ActionMetadata, ActionResult
+from src.services.database import (
     ActionLogStorageService,
     ThoughtStorageService,
 )
-from src.database.models import ActionLogDocument
-from src.database.services.event_storage_service import EventStorageService
-from src.domain.models import ActionMetadata, ActionResult
+from src.services.database.models import ActionLogDocument
+from src.services.database.services.event_storage_service import EventStorageService
 
 if TYPE_CHECKING:
-    from src.action.action_handler import ActionHandler
+    from src.services.action.action_handler import ActionHandler
 
 logger = get_logger(__name__)
 

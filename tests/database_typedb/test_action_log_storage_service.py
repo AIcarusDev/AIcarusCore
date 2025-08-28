@@ -1,6 +1,6 @@
 import pytest
-from src.database.models import ActionLogDocument
-from src.database.services import ActionLogStorageService, EntityGraphService
+from src.services.database.models import ActionLogDocument
+from src.services.database.services import ActionLogStorageService, EntityGraphService
 from typedb.driver import Driver, TransactionType
 
 

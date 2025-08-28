@@ -1,5 +1,5 @@
 import pytest
-from src.database.services import EntityGraphService, StickerStorageService
+from src.services.database.services import EntityGraphService, StickerStorageService
 
 
 @pytest.mark.asyncio

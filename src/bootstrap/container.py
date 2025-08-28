@@ -24,7 +24,6 @@ if TYPE_CHECKING:
     from src.mind.thought_generator import ThoughtGenerator
     from src.mind.thought_persistor import ThoughtPersistor
     from src.os.application_manager import ApplicationManager
-    from src.os.apps.qq.qq_chat_session_manager import ChatSessionManager
     from src.os.services.filesystem_service import FileSystemService
     from src.os.state_generator import AICOSStateGenerator
     from src.os.window_manager import WindowManager
@@ -105,6 +104,3 @@ class ServiceContainer:
     info_retrieval_service: InformationRetrievalService
     deliberation_service: DeliberationService
     goal_manager: GoalManager
-
-    # 专注聊天管理器 (特殊处理，因为它依赖安检)
-    chat_session_manager: ChatSessionManager | None

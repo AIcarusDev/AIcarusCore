@@ -4,14 +4,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pytest_mock import MockerFixture
-from src.llmrequest.core.models import (
+from src.services.llmrequest.core.models import (
     APIKeyManager,
     NetworkError,
     PermissionDeniedError,
     RateLimitError,
 )
-from src.llmrequest.core.provider.base import ApiProviderHandler
-from src.llmrequest.core.request_executor import RequestExecutor
+from src.services.llmrequest.core.provider.base import ApiProviderHandler
+from src.services.llmrequest.core.request_executor import RequestExecutor
 
 pytestmark = pytest.mark.asyncio
 

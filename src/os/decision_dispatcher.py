@@ -6,9 +6,12 @@ from typing import TYPE_CHECKING
 from src.common.custom_logging.logging_config import get_logger
 from src.common.utils import parse_entity_uid
 from src.domain.models import ActionMetadata
+from src.os.apps.registry import platform_builder_registry
 from src.os.models import Window, WindowStatus
 
 if TYPE_CHECKING:
+    from src.bootstrap.container import ServiceContainer
+    from src.mind.abilities.deliberation_service import DeliberationService
     from src.mind.state_manager import AIStateManager
     from src.os.application_manager import ApplicationManager
     from src.os.apps.qq.qq_chat_session_manager import ChatSessionManager
@@ -22,18 +25,21 @@ logger = get_logger(__name__)
 async def process_aicos_decision(
     decision_json: dict | None,
     ui_mapping: dict,
-    window_manager: "WindowManager",
-    application_manager: "ApplicationManager",
-    action_handler: "ActionHandler",
-    chat_session_manager: "ChatSessionManager",
-    state_manager: "AIStateManager",
-    aicos_state_generator: "AICOSStateGenerator",
+    container: "ServiceContainer",
 ) -> None:
     """统一的、基于 GUI 隐喻的 LLM 决策分发器."""
     if not decision_json or not isinstance(decision_json, dict):
         return
 
     logger.info(f"AIC-OS 决策分发器处理决策: {decision_json}")
+
+    # 从容器中按需获取服务
+    window_manager = container.window_manager
+    application_manager = container.application_manager
+    action_handler = container.action_handler
+    state_manager = container.state_manager
+    aicos_state_generator = container.aicos_state_generator
+    deliberation_service = container.deliberation_service
 
     current_internal_state = decision_json.get("internal_state", {})
 
@@ -42,51 +48,70 @@ async def process_aicos_decision(
         await _handle_internal_action(
             internal_action,
             state_manager,
-            chat_session_manager,
             current_internal_state,
             window_manager,
-            application_manager,
+            deliberation_service,
+            container,
         )
 
     # 2. 处理外部动作
     if external_action := decision_json.get("external_action"):
-        action_name = next(iter(external_action), None)
-        if not action_name:
-            return
-        action_params = external_action[action_name]
-        motivation = action_params.get("motivation", "由 AI 核心决策发起")
+        # 解析 innate 动作
+        if innate_action := external_action.get("innate"):
+            action_name = next(iter(innate_action), None)
+            if not action_name:
+                return
+            action_params = innate_action[action_name]
 
-        # 路由到不同的处理器
-        if action_name in ["click", "double_click"]:
-            await _handle_ui_interaction(
-                action_name,
-                action_params,
-                ui_mapping,
-                window_manager,
-                application_manager,
-                chat_session_manager,
-                aicos_state_generator,
-            )
-        elif action_name == "send_message":
-            await _handle_send_message(
-                action_params, window_manager, action_handler, chat_session_manager
-            )
-        else:
-            # [新] 兜底逻辑，处理所有非 UI 的外部动作 (web_search, read_file 等)
-            logger.info(f"检测到核心能力动作 '{action_name}'，交由 ActionHandler 处理。")
+            if action_name == "connect":
+                if action_params.get("device_name") == "AIC-OS":
+                    aicos_state_generator.is_connected = True
+                    logger.info("设备 AIC-OS 已连接。")
+            else:
+                motivation = action_params.get("motivation", "由 AI 核心决策发起")
+                temp_thought_id = f"thought_for_{action_name}_{uuid.uuid4().hex[:6]}"
+                action_json_for_handler = {"core": {action_name: action_params}}
+                await action_handler.process_action_flow(
+                    action_id=f"action_{uuid.uuid4().hex[:6]}",
+                    doc_key_for_updates=temp_thought_id,
+                    action_json=action_json_for_handler,
+                    metadata=ActionMetadata(motivation=motivation),
+                )
+        # 解析 AIC-OS 交互动作
+        elif aicos_interaction := external_action.get("AIC-OS"):
+            # 按需获取 ChatSessionManager (只有在 AIC-OS 交互中才可能需要)
+            qq_builder = platform_builder_registry.get_builder("qq")
+            chat_session_manager = qq_builder.get_session_manager(container) if qq_builder else None
 
-            # ActionHandler 的 process_action_flow 需要一个 thought_id 来更新结果
-            # 在这里我们没有真实的 thought, 所以生成一个临时的
-            temp_thought_id = f"thought_for_{action_name}_{uuid.uuid4().hex[:6]}"
-
-            action_json_for_handler = {"core": {action_name: action_params}}
-
-            await action_handler.process_action_flow(
-                action_id=f"action_{uuid.uuid4().hex[:6]}",
-                doc_key_for_updates=temp_thought_id,
-                action_json=action_json_for_handler,
-                metadata=ActionMetadata(motivation=motivation),
-            )
+            # 解析基础交互
+            if base_interaction := aicos_interaction.get("base"):
+                action_name = next(iter(base_interaction), None)
+                if not action_name:
+                    return
+                action_params = base_interaction[action_name]
+                if action_name in ["click", "double_click"]:
+                    await _handle_ui_interaction(
+                        action_name,
+                        action_params,
+                        ui_mapping,
+                        window_manager,
+                        application_manager,
+                        chat_session_manager,
+                        aicos_state_generator,
+                    )
+            # 解析 QQ 交互
+            elif qq_interaction := aicos_interaction.get("qq"):
+                action_name = next(iter(qq_interaction), None)
+                if not action_name:
+                    return
+                action_params = qq_interaction[action_name]
+                if action_name == "send_message":
+                    await _handle_send_message(
+                        action_params,
+                        window_manager,
+                        action_handler,
+                        chat_session_manager,
+                    )
 
 
 async def _handle_ui_interaction(
@@ -95,7 +120,7 @@ async def _handle_ui_interaction(
     ui_mapping: dict,
     window_manager: "WindowManager",
     application_manager: "ApplicationManager",
-    chat_session_manager: "ChatSessionManager",
+    chat_session_manager: "ChatSessionManager" | None,
     aicos_state_generator: "AICOSStateGenerator",
 ) -> None:
     """处理所有低阶 UI 交互动作 (click, double_click)."""
@@ -112,10 +137,7 @@ async def _handle_ui_interaction(
         f"UI操作: '{action_name}({target_id})' -> 内部指令: '{internal_command}({target_uid})'"
     )
 
-    if internal_command == "connect_device":
-        aicos_state_generator.is_connected = True
-        logger.info("设备 AIC-OS 已连接。")
-    elif internal_command == "disconnect_device":
+    if internal_command == "disconnect_device":
         aicos_state_generator.is_connected = False
         logger.info("设备 AIC-OS 已断开。")
 
@@ -188,6 +210,10 @@ async def _handle_ui_interaction(
                 window_manager.open_window(main_window)
 
     elif internal_command == "open_conversation_window":
+        if not chat_session_manager:
+            logger.error("无法打开会话窗口：ChatSessionManager 不可用。")
+            return
+
         app_id = "app-001"  # Hardcoded QQ app ID
         if not application_manager.is_running(app_id):
             application_manager.start_app(app_id)
@@ -210,9 +236,13 @@ async def _handle_send_message(
     params: dict,
     window_manager: "WindowManager",
     action_handler: "ActionHandler",
-    chat_session_manager: "ChatSessionManager",
+    chat_session_manager: "ChatSessionManager" | None,
 ) -> None:
     """处理高阶的 send_message 动作."""
+    if not chat_session_manager:
+        logger.error("无法发送消息：ChatSessionManager 不可用。")
+        return
+
     target_window_id = params.get("target_window_id")
     steps = params.get("steps")
     motivation = params.get("motivation", "由AIC-OS MessageBuilder发起")
@@ -272,10 +302,10 @@ async def _handle_send_message(
 async def _handle_internal_action(
     internal_action: dict,
     state_manager: "AIStateManager",
-    chat_session_manager: "ChatSessionManager",
     current_internal_state: dict,
     window_manager: "WindowManager",
-    application_manager: "ApplicationManager",
+    deliberation_service: "DeliberationService",
+    container: "ServiceContainer",
 ) -> None:
     """处理所有内部动作 (deep_think, manage_goals)."""
     action_name = next(iter(internal_action), None)
@@ -293,11 +323,17 @@ async def _handle_internal_action(
             await goal_manager.remove_goals(remove_params.get("goal_ids", []))
 
     elif action_name == "deep_think":
-        if not chat_session_manager:
-            logger.error("ChatSessionManager 未初始化，无法处理 deep_think 动作。")
+        deliberation_result = await deliberation_service.execute(
+            pipeline_params=params,
+            current_internal_state=current_internal_state,
+        )
+
+        if not deliberation_result:
+            logger.error("慢思考 (deep_think) 执行失败或未返回任何决议。")
             return
 
-        # [修复] 尝试从激活窗口获取 session
+        logger.info(f"慢思考决议已生成: {deliberation_result.get('summary')}")
+
         active_window = next(
             (
                 w
@@ -306,12 +342,23 @@ async def _handle_internal_action(
             ),
             None,
         )
-        session = None
+
         if active_window and active_window.window_class == "conversation":
             conv_uid = active_window.content_state.get("conversation_uid")
             if conv_uid:
-                session = await chat_session_manager.get_or_create_session(conv_uid)
-
-        await chat_session_manager.deliberation_service.execute(
-            pipeline_params=params, current_internal_state=current_internal_state, session=session
-        )
+                qq_builder = platform_builder_registry.get_builder("qq")
+                if qq_builder:
+                    chat_session_manager = qq_builder.get_session_manager(container)
+                    session = await chat_session_manager.get_or_create_session(conv_uid)
+                    if session:
+                        session.working_memory = {
+                            "summary": deliberation_result.get("summary"),
+                            "remaining_turns": deliberation_result.get("memory_duration", 2),
+                        }
+                        logger.info(
+                            f"[{session.conversation_id}] 慢思考决议已存入当前会话的工作记忆。"
+                        )
+        else:
+            logger.info(
+                "慢思考在非聊天上下文中完成，决议摘要未存入特定会话。"
+                )

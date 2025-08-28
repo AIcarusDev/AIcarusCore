@@ -3,8 +3,8 @@ from collections.abc import AsyncGenerator, Generator
 from pathlib import Path
 
 import pytest
-from src.database.core.connection_manager import TypeDBConnectionManager
-from src.database.services import (
+from src.services.database.core.connection_manager import TypeDBConnectionManager
+from src.services.database.services import (
     ActionLogStorageService,
     EntityGraphService,
     EventStorageService,

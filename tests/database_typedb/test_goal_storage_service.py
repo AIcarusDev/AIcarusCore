@@ -1,6 +1,6 @@
 import pytest
-from src.database.models import GoalDocument
-from src.database.services import GoalStorageService
+from src.services.database.models import GoalDocument
+from src.services.database.services import GoalStorageService
 
 
 @pytest.mark.asyncio

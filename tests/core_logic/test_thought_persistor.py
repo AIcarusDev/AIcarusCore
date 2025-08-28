@@ -2,8 +2,8 @@
 
 import pytest
 from pytest_mock import MockerFixture
-from src.core_logic.thought_persistor import ThoughtPersistor
-from src.database.models import ThoughtChainDocument
+from src.mind.thought_persistor import ThoughtPersistor
+from src.services.database.models import ThoughtChainDocument
 
 # 标记整个模块的所有测试都需要异步环境
 pytestmark = pytest.mark.asyncio

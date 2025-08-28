@@ -1,9 +1,8 @@
-# src/focus_chat_mode/deliberation_service.py
-from typing import TYPE_CHECKING, Any
+# 文件路径: src/mind/abilities/deliberation_service.py
+
+from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
-
-# 导入你的 JSON 解析工具
 from src.common.json_parser.json_parser import parse_llm_json_response
 from src.common.time_utils import get_formatted_time_for_llm
 from src.config import config
@@ -14,19 +13,15 @@ from src.prompting.templates.deliberation_prompts import (
 )
 from src.services.llmrequest.llm_processor import Client as LLMProcessorClient
 
-if TYPE_CHECKING:
-    from src.os.apps.qq.qq_chat_session import ChatSession
-
-
 logger = get_logger(__name__)
 
 
 class DeliberationService:
-    """负责执行一次性的、同步阻塞的内部辩论（慢思考）流程."""
+    """负责执行一次性的、纯粹的慢思考流程."""
 
     def __init__(self, deliberation_llm_client: LLMProcessorClient) -> None:
         self.deliberation_llm_client = deliberation_llm_client
-        logger.info("DeliberationService 初始化完成。")
+        logger.info("慢思考服务初始化完成。")
 
     def get_actions_schema(self) -> dict:
         """返回此服务提供的所有动作的 JSON Schema 定义."""
@@ -65,18 +60,15 @@ class DeliberationService:
         self,
         pipeline_params: dict,
         current_internal_state: dict,
-        session: "ChatSession | None",
     ) -> dict[str, Any] | None:
-        """执行内部辩论流程.
+        """执行慢思考流程，直接返回结果.
 
         Args:
-            pipeline_params (dict): LLM返回的 'deep_think' 指令的参数。
-            current_internal_state (dict): 当前的核心内部状态 (mood, think, intent)。
-            session (ChatSession | None): 当前的会话实例，用于更新工作记忆。
+            pipeline_params: LLM返回的 'deep_think' 指令的参数。
+            current_internal_state: 当前的核心内部状态 (mood, think, intent)。
 
         Returns:
-            dict | None: 一个包含新内部状态 (mood, think, intent) 的字典，如果成功。
-                        否则返回 None。
+            一个包含完整决议 (resolution) 的字典，如果成功。否则返回 None。
         """
         try:
             opinions_block_lines = []
@@ -120,37 +112,20 @@ class DeliberationService:
                 response_schema=DELIBERATION_RESPONSE_SCHEMA,
             )
 
-            # 1. 检查原始响应是否有错误
             if not raw_llm_response or raw_llm_response.get("error"):
                 logger.error(f"慢思考LLM调用失败: {raw_llm_response}")
                 return None
 
-            # 2. 从 'text' 字段中提取 JSON 字符串并进行解析
             deliberation_result_json = parse_llm_json_response(raw_llm_response.get("text"))
 
-            # 3. 使用解析后的 JSON 对象进行验证
             if not deliberation_result_json or "resolution" not in deliberation_result_json:
                 logger.error(
                     f"慢思考LLM返回结果格式不正确或解析失败: {raw_llm_response.get('text')}"
                 )
                 return None
 
-            resolution = deliberation_result_json["resolution"]
-            if session:
-                session.working_memory = {
-                    "summary": resolution.get("summary"),
-                    "remaining_turns": resolution.get("memory_duration", 2),
-                }
-                logger.info(
-                    f"[{session.conversation_id}] 慢思考决议已生成，工作记忆已更新。"
-                    f"摘要将在接下来的 {session.working_memory['remaining_turns']} 轮思考中保持。"
-                )
-
-            return {
-                "mood": resolution.get("final_mood"),
-                "think": resolution.get("final_think"),
-                "intent": resolution.get("final_intent"),
-            }
+            # 直接返回 resolution 字典
+            return deliberation_result_json.get("resolution")
 
         except Exception as e:
             logger.error(f"执行“慢思考”决策管线时发生严重错误: {e}", exc_info=True)

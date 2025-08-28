@@ -1,7 +1,7 @@
 import time
 
 import pytest
-from src.database.services import EntityGraphService, EventStorageService
+from src.services.database.services import EntityGraphService, EventStorageService
 from typedb.driver import Driver, TransactionType
 
 

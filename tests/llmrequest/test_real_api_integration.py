@@ -4,7 +4,7 @@ import os
 
 import pytest
 from pytest import MonkeyPatch
-from src.llmrequest.llm_client import LLMClient
+from src.services.llmrequest.llm_client import LLMClient
 
 # --- 测试配置 ---
 # 从环境变量中读取一个真实的、有效的Google Gemini API Key

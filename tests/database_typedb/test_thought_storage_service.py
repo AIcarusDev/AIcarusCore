@@ -3,8 +3,8 @@
 import datetime
 
 import pytest
-from src.database.models import ThoughtChainDocument
-from src.database.services import ThoughtStorageService
+from src.services.database.models import ThoughtChainDocument
+from src.services.database.services import ThoughtStorageService
 
 
 @pytest.mark.asyncio

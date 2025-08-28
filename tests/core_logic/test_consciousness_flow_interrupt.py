@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 from pytest_mock import MockerFixture
 from src.core_logic.consciousness_flow import CoreLogic, ThoughtGenerationError
-from src.database.models import ThoughtChainDocument
+from src.services.database.models import ThoughtChainDocument
 from src.domain.models import Stimulus
 from src.focus_chat_mode.components import PromptComponents
 from src.prompt_builder import PromptBuilderError

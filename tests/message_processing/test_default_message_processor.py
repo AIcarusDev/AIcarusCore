@@ -6,8 +6,8 @@ import pytest
 from aicarus_protocols import ConversationInfo, Event, UserInfo
 from pytest_mock import MockerFixture
 from src.config import config
-from src.database.models import ConversationDetails, EntityDocument
-from src.message_processing.default_message_processor import DefaultMessageProcessor
+from src.services.database.models import ConversationDetails, EntityDocument
+from src.services.perception.default_message_processor import DefaultMessageProcessor
 
 # 标记整个模块的所有测试都需要异步环境
 pytestmark = pytest.mark.asyncio

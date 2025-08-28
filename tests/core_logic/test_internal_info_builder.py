@@ -2,8 +2,8 @@
 
 import pytest
 from pytest_mock import MockerFixture
-from src.core_logic.internal_info_builder import InternalInfoBuilder
 from src.domain.models import Stimulus
+from src.mind.internal_info_builder import InternalInfoBuilder
 
 # 标记整个模块的所有测试都需要异步环境
 pytestmark = pytest.mark.asyncio

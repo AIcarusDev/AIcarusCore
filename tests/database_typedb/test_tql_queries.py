@@ -2,8 +2,8 @@ from collections.abc import AsyncGenerator
 
 import pytest
 from pytest_mock import MockerFixture
-from src.database.models import ActionLogDocument
-from src.database.services import ActionLogStorageService, EntityGraphService
+from src.services.database.models import ActionLogDocument
+from src.services.database.services import ActionLogStorageService, EntityGraphService
 from typedb.driver import Driver, TransactionType
 
 # 标记整个模块的所有测试都需要异步环境

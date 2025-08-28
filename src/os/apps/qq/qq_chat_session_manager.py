@@ -1,3 +1,5 @@
+# src/os/apps/qq/qq_chat_session_manager.py
+
 import asyncio
 import time
 from typing import TYPE_CHECKING, Optional

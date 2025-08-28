@@ -1,7 +1,7 @@
 # tests/core_logic/test_sanitizer.py
 
 import pytest
-from src.core_logic.sanitizer import LLMOutputSanitizer
+from src.mind.sanitizer import LLMOutputSanitizer
 
 
 # 使用 pytest.fixture 来创建可复用的测试设置

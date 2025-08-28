@@ -1,21 +1,54 @@
 # 文件路径: src/apps/qq/builder.py
+from __future__ import annotations
 
 import time
 import uuid
+from typing import TYPE_CHECKING
 from xml.etree.ElementTree import Element
 
 from aicarus_protocols import Event, Seg
 from src.os.models import Window
+from src.os.window_manager import WindowManager
 from src.services.action.components.base_builder import BasePlatformBuilder
-from src.services.database.services.entity_graph_service import EntityGraphService
-from src.services.database.services.event_storage_service import EventStorageService
 
-# 导入QQ专属的渲染器和依赖
+from .qq_chat_session_manager import ChatSessionManager
 from .qq_renderer import QQWindowRenderer
+
+if TYPE_CHECKING:
+    from src.bootstrap.container import ServiceContainer
+    from src.services.database.services.entity_graph_service import EntityGraphService
+    from src.services.database.services.event_storage_service import EventStorageService
 
 
 class QQBuilder(BasePlatformBuilder):
     """QQ 平台的构建器，负责向 Core 注册 QQAdapter 的能力."""
+
+    def __init__(self) -> None:
+        """初始化 QQBuilder."""
+        # 缓存 ChatSessionManager 实例
+        self._session_manager_instance: ChatSessionManager | None = None
+
+    def get_session_manager(self, container: ServiceContainer) -> ChatSessionManager:
+        """按需创建并返回 ChatSessionManager 的单例.
+
+        这是实现懒加载的核心。
+        """
+        if self._session_manager_instance is None:
+            # 只有在第一次被请求时，才创建实例
+            self._session_manager_instance = ChatSessionManager(
+                config=container.config, # 传递整个 config 对象
+                llm_client=container.focused_chat_llm_client,
+                deliberation_service=container.deliberation_service,
+                event_storage=container.event_storage_service,
+                action_handler=container.action_handler,
+                self_bot_ids_map=container.application_manager.get_self_bot_ids_map(),
+                intelligent_interrupter=container.intelligent_interrupter,
+                entity_graph_service=container.entity_graph_service,
+                thought_storage_service=container.thought_storage_service,
+                internal_info_builder=container.internal_info_builder,
+                core_logic=container.core_logic,
+            )
+        return self._session_manager_instance
 
     @property
     def platform_id(self) -> str:
@@ -45,7 +78,7 @@ class QQBuilder(BasePlatformBuilder):
             image_collector
         )
 
-    def get_action_definitions(self) -> dict:
+    def get_action_definitions(self, window_manager: WindowManager) -> dict:
         """定义 QQ 平台的所有动作."""
         # 这个方法现在只定义了 send_message
         # 其他如 get_list 等，会由 AIC-OS 的 UI 交互自动生成

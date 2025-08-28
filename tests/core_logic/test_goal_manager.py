@@ -2,7 +2,7 @@
 
 import pytest
 from pytest_mock import MockerFixture
-from src.core_logic.goal_manager import GoalManager
+from src.mind.goal_manager import GoalManager
 
 # 标记整个模块的所有测试都需要异步环境
 pytestmark = pytest.mark.asyncio

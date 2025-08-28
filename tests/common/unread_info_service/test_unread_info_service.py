@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 from pytest_mock import MockerFixture
 from src.common.unread_info_service.unread_info_service import UnreadInfoService
-from src.database.models import ConversationDetails, EntityDocument
+from src.services.database.models import ConversationDetails, EntityDocument
 
 # 标记整个模块的所有测试都需要异步环境
 pytestmark = pytest.mark.asyncio

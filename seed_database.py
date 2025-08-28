@@ -8,7 +8,7 @@ from aicarus_protocols import SegBuilder
 from aicarus_protocols import UserInfo as ProtocolUserInfo
 from src.bootstrap.builder import ServiceBuilder
 from src.common.utils import build_conversation_entity_uid
-from src.database import EntityGraphService, EventStorageService
+from src.services.database import EntityGraphService, EventStorageService
 from typedb.driver import TransactionType
 
 # --- [新增] 定义所有需要被清空的实体类型 ---

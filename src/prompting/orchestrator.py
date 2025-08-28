@@ -4,8 +4,8 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from src.domain.models import Stimulus
 from src.os.apps.qq.components import PromptComponents
+from src.os.apps.registry import platform_builder_registry
 from src.os.models import WindowStatus
-from src.os.state_generator import AICOSStateGenerator
 from src.prompting.schema_builder import SchemaBuilder
 from src.prompting.system_prompt_parts_builder import SystemPromptPartsBuilder
 from src.prompting.templates import prompt_templates
@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from src.os.apps.qq.qq_chat_session import ChatSession
     from src.os.apps.qq.qq_chat_session_manager import ChatSessionManager
     from src.os.services.filesystem_service import FileSystemService
+    from src.os.state_generator import AICOSStateGenerator
     from src.os.window_manager import WindowManager
     from src.services.core_communication.core_ws_server import CoreWebsocketServer
     from src.services.database.services.entity_graph_service import EntityGraphService
@@ -28,7 +29,7 @@ if TYPE_CHECKING:
 
 
 class ThoughtPromptBuilder:
-    """[AIC-OS]构建思维提示的总编排器."""
+    """[最终版] 构建思维提示的总编排器和 Schema 构建总指挥."""
 
     def __init__(
         self,
@@ -50,16 +51,18 @@ class ThoughtPromptBuilder:
         self.aicos_state_generator = aicos_state_generator
         self.window_manager = window_manager
         self.application_manager = application_manager
-        self.chat_session_manager = chat_session_manager  # Still needed for session access
+        self.chat_session_manager = chat_session_manager
         self.core_ws_server = core_ws_server
 
-        self.schema_builder = SchemaBuilder(
-            window_manager,
-            filesystem_service,
-            info_retrieval_service,
-            goal_manager,
-            deliberation_service,
-        )
+        # [修改] 注入所有 Schema 提供者服务
+        self.filesystem_service = filesystem_service
+        self.info_retrieval_service = info_retrieval_service
+        self.goal_manager = goal_manager
+        self.deliberation_service = deliberation_service
+
+        # [修改] SchemaBuilder 现在是无依赖的纯工具
+        self.schema_builder = SchemaBuilder()
+
         self.system_prompt_parts_builder = SystemPromptPartsBuilder(
             internal_info_builder,
             state_manager,
@@ -71,6 +74,99 @@ class ThoughtPromptBuilder:
             thought_storage_service,
             state_manager,
         )
+
+    def _build_response_schema(self, ui_mapping: dict[str, Any]) -> dict[str, Any]:
+        """[新增] Schema 构建的总指挥方法."""
+        schema_parts = {}
+
+        # 1. 定义固有的 internal_state
+        schema_parts["internal_state"] = {
+            "type": "object",
+            "description": "你的内心状态，这是你思考的核心。",
+            "properties": {
+                "mood": {"type": "string", "description": "你当前的情绪状态和原因。"},
+                "think": {"type": "string", "description": "你对当前所有情况的详细思考过程。"},
+                "intent": {"type": "string", "description": "你当前最直接的、短期的意图或打算。"},
+            },
+            "required": ["mood", "think", "intent"],
+        }
+
+        # 2. 收集并组装 internal_action
+        internal_action_properties = {}
+        internal_action_properties.update(self.goal_manager.get_actions_schema())
+        internal_action_properties.update(self.deliberation_service.get_actions_schema())
+        if internal_action_properties:
+            schema_parts["internal_action"] = {
+                "type": "object",
+                "description": "内部的，心理的动作。",
+                "properties": internal_action_properties,
+                "maxProperties": 1,
+            }
+
+        # 3. 收集并组装 external_action (分层结构)
+        external_action_properties = self._build_external_action_schema(ui_mapping)
+        if external_action_properties:
+            schema_parts["external_action"] = {
+                "type": "object",
+                "description": "与外部世界交互的动作。",
+                "properties": external_action_properties,
+                "maxProperties": 1,
+            }
+
+        # 4. 调用纯粹的组装器完成最后工作
+        return self.schema_builder.assemble(schema_parts)
+
+    def _build_external_action_schema(self, ui_mapping: dict) -> dict:
+        """[新增] 聚合所有外部动作提供者的 Schema."""
+        external_actions = {}
+
+        # 收集 innate actions
+        innate_actions = {}
+        innate_actions.update(self.info_retrieval_service.get_actions_schema())
+        innate_actions.update(self.filesystem_service.get_actions_schema())
+        if not self.aicos_state_generator.is_connected:
+            innate_actions["connect"] = {
+                "type": "object", "description": "连接属于你的设备，可以进行工作或社交。",
+                "properties": {
+                    "device_name": {"type": "string", "enum": ["AIC-OS"]},
+                    "motivation": {"type": "string"},
+                }, "required": ["device_name", "motivation"],
+            }
+        if innate_actions:
+            external_actions["innate"] = {
+                "type": "object", "description": "你的先天能力。",
+                "properties": innate_actions, "maxProperties": 1,
+            }
+
+        # 收集 AIC-OS actions
+        if self.aicos_state_generator.is_connected:
+            aicos_interactions = self._build_aicos_interaction_schema(ui_mapping)
+            if aicos_interactions:
+                external_actions["AIC-OS"] = {
+                    "type": "object", "description": "与 AIC-OS 系统的交互动作。",
+                    "properties": aicos_interactions, "maxProperties": 1,
+                }
+        return external_actions
+
+    def _build_aicos_interaction_schema(self, ui_mapping: dict) -> dict:
+        """聚合所有 AIC-OS 交互的 Schema."""
+        aicos_properties = {}
+        base_interactions = self.aicos_state_generator.build_base_interaction_schema(ui_mapping)
+        if base_interactions:
+            aicos_properties["base"] = {
+                "type": "object", "description": "通用的 AIC-OS 界面操作。",
+                "properties": base_interactions,
+            }
+
+        for platform_id, builder in platform_builder_registry.get_all_builders().items():
+            app_schema = builder.get_actions_schema(self.window_manager)
+            if app_schema:
+                aicos_properties[platform_id] = {
+                    "type": "object",
+                    "description": f"与 {builder.platform_id.upper()} 应用窗口的交互。",
+                    "properties": app_schema,
+                }
+        return aicos_properties
 
     async def build_prompts_components(
         self,
@@ -95,7 +191,8 @@ class ThoughtPromptBuilder:
             session=session,
         )
 
-        response_schema = self.schema_builder.build_response_schema(ui_mapping=ui_mapping)
+        # [修改] 调用自身的新方法来构建 Schema
+        response_schema = self._build_response_schema(ui_mapping=ui_mapping)
 
         prompt_components_obj = PromptComponents(
             system_prompt_blocks=system_prompt_blocks,
@@ -109,7 +206,6 @@ class ThoughtPromptBuilder:
     def _extract_context_from_ui(
         self,
     ) -> tuple[str, str | None, str | None, Optional["ChatSession"]]:
-        """通过分析 WindowManager 中的窗口状态，来确定 AI 当前的上下文."""
         all_windows = self.window_manager.get_all_windows_sorted()
         active_window = next(
             (w for w in reversed(all_windows) if w.status != WindowStatus.MINIMIZE), None
@@ -119,8 +215,6 @@ class ThoughtPromptBuilder:
             return "core", "core", None, None
 
         window_class_parts = active_window.window_class.split("/")
-
-        # [修复] 应用的 ID 应该从 parent_app_id 获取
         app = self.application_manager.get_all_apps()
         parent_app = next((a for a in app if a.id == active_window.parent_app_id), None)
         platform_id = parent_app.name if parent_app else "unknown"
@@ -135,8 +229,6 @@ class ThoughtPromptBuilder:
 
             session = None
             if self.chat_session_manager:
-                # [修复] 应该使用 await get_or_create_session
-                # 但为了避免阻塞，这里我们只尝试获取已存在的 session
                 session = self.chat_session_manager.sessions.get(conversation_uid)
 
             return "cellular", platform_id, conversation_uid, session
@@ -144,7 +236,7 @@ class ThoughtPromptBuilder:
         return "core", "core", None, None
 
     def finalize_prompts(self, components: PromptComponents) -> tuple[str, str, dict[str, Any]]:
-        """最终化提示组件，生成系统和用户提示的字符串表示."""
+        """将所有 Prompt 组件格式化为最终的字符串."""
         system_prompt = prompt_templates.CORE_CYCLE_SYSTEM_PROMPT.format(
             **components.system_prompt_blocks
         )

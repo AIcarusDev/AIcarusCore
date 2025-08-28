@@ -1,4 +1,5 @@
 # 文件路径: src/services/action/action_handler.py
+from __future__ import annotations
 
 import asyncio
 import time
@@ -41,10 +42,8 @@ class ActionHandler:
 
     def __init__(
         self,
-        # 新注入的能力服务
-        filesystem_service: "FileSystemService",
-        info_retrieval_service: "InformationRetrievalService",
-        # 保持原有的依赖
+        filesystem_service: FileSystemService,
+        info_retrieval_service: InformationRetrievalService,
         thought_storage_service: ThoughtStorageService,
         event_storage_service: EventStorageService,
         action_log_service: ActionLogStorageService,
@@ -233,10 +232,6 @@ class ActionHandler:
         if self.immediate_thought_trigger:
             logger.info(f"核心动作 '{action_name}' 完成，立即触发新一轮思考。")
             self.immediate_thought_trigger.set()
-
-    # --- 以下方法保持不变，无需修改 ---
-    # _get_id_from_params, _get_id_from_session, _normalize_id_string, _resolve_target_id
-    # _execute_platform_action_flow, execute_simple_action, _execute_platform_action
 
     def _get_id_from_params(self, action_name: str, params: dict) -> str | None:
         """根据动作名称，从参数字典中提取目标ID字符串."""

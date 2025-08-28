@@ -6,7 +6,6 @@ from asyncio import Event as AsyncioEvent
 from threading import Event as ThreadingEvent
 from typing import Protocol, runtime_checkable
 
-from src import apps
 from src.bootstrap.container import ServiceContainer
 from src.common.custom_logging.logging_config import get_logger
 from src.common.intelligent_interrupt_system.iis_main import IISBuilder
@@ -26,6 +25,7 @@ from src.mind.intrusive_thoughts import IntrusiveThoughtsGenerator
 from src.mind.state_manager import AIStateManager
 from src.mind.thought_generator import ThoughtGenerator
 from src.mind.thought_persistor import ThoughtPersistor
+from src.os import apps
 from src.os.application_manager import ApplicationManager
 from src.os.apps.registry import platform_builder_registry
 from src.os.services.filesystem_service import FileSystemService
@@ -358,7 +358,7 @@ class ServiceBuilder:
         return clients
 
     async def _initialize_typedb_and_services(self) -> dict:
-        """[心脏移植完成] 初始化 TypeDB 连接和所有核心数据服务."""
+        """初始化 TypeDB 连接和所有核心数据服务."""
         # 从环境变量中读取数据库配置
         db_config_dict = {
             "host": os.getenv("TYPEDB_HOST", "localhost:1729"),
@@ -366,7 +366,6 @@ class ServiceBuilder:
             "username": os.getenv("TYPEDB_USER", "admin"),
             "password": os.getenv("TYPEDB_PASSWORD", "password"),
         }
-        # 现在从 src/database/core/connection_manager.py 导入
         conn_manager = await TypeDBConnectionManager.get_instance(db_config_dict)
 
         if not conn_manager or not conn_manager.get_driver():
@@ -378,7 +377,7 @@ class ServiceBuilder:
         # 2. 创建依赖于其他服务的服务，并手动注入
         entity_graph_service = EntityGraphService(
             conn_manager=conn_manager,
-            event_storage_service=event_storage_service,  # <-- 在这里注入！
+            event_storage_service=event_storage_service,
         )
         event_storage_service.set_entity_graph_service(entity_graph_service)
 

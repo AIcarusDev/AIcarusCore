@@ -7,8 +7,8 @@ from typing import Any
 from src.common.custom_logging.logging_config import get_logger
 from src.common.time_utils import format_relative_time
 from src.common.utils import build_conversation_entity_uid
-from src.database import EntityGraphService, EventStorageService
-from src.database.models import ConversationDetails, EntityDocument
+from src.services.database import EntityGraphService, EventStorageService
+from src.services.database.models import ConversationDetails, EntityDocument
 
 logger = get_logger(__name__)
 

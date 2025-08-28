@@ -107,7 +107,7 @@ class AllModelPurposesConfig(ConfigBase):
     """URL 上下文代理模型，用于访问特定网址并总结内容."""
 
     deliberation: ModelParams | None = None
-    """“慢思考”辩论模型，用于内部决策审查."""
+    """“慢思考”模型，用于复杂决策."""
 
     image_analysis: ModelParams | None = None
     """图像分析模型，用于处理图像内容的分析和描述."""
@@ -171,14 +171,6 @@ class InnerConfig(ConfigBase):
 
     protocol_version: str = "1.5.0"
     """Aicarus-Message-Protocol 标准通信协议版本号，确保与客户端和其他服务兼容."""
-
-
-@dataclass
-class FocusChatModeSettings(ConfigBase):
-    """专注聊天模式的设置."""
-
-    enabled: bool = True
-    """是否允许AI进入底层会话"""
 
 
 @dataclass
@@ -272,9 +264,6 @@ class AlcarusRootConfig(ConfigBase):
     intrusive_thoughts_module_settings: IntrusiveThoughtsSettings
     llm_models: AllModelPurposesConfig | None = field(default_factory=AllModelPurposesConfig)
     test_function: TestFunctionConfig = field(default_factory=TestFunctionConfig)
-    focus_chat_mode: FocusChatModeSettings = field(
-        default_factory=FocusChatModeSettings
-    )  # 新增专注聊天配置
     logging: LoggingSettings = field(default_factory=LoggingSettings)
     server: ServerSettings = field(default_factory=ServerSettings)
     interrupt_model: InterruptModelConfig = field(default_factory=InterruptModelConfig)

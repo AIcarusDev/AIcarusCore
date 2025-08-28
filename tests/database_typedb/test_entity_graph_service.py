@@ -1,7 +1,7 @@
 import pytest
 from aicarus_protocols import UserInfo as ProtocolUserInfo
-from src.database.services import EntityGraphService
-from src.database.services.entity_graph_service import SELF_PROFILE_ID
+from src.services.database.services import EntityGraphService
+from src.services.database.services.entity_graph_service import SELF_PROFILE_ID
 from typedb.driver import Driver, TransactionType
 
 

@@ -1,5 +1,5 @@
 import pytest
-from src.database.services import ImageAnalysisCacheService
+from src.services.database.services import ImageAnalysisCacheService
 
 
 @pytest.mark.asyncio

@@ -4,7 +4,7 @@ import pytest
 from pytest_mock import MockerFixture
 
 # 导入我们需要测试的目标类
-from src.llmrequest.llm_processor import Client as ProcessorClient
+from src.services.llmrequest.llm_processor import Client as ProcessorClient
 
 # 标记此文件中所有测试都为异步
 pytestmark = pytest.mark.asyncio
