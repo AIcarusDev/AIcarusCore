@@ -12,11 +12,11 @@ from src.common.custom_logging.logging_config import get_logger
 from src.common.image_utils import calculate_perceptual_hash
 from src.config import config
 from src.config.config_paths import PROJECT_ROOT
-from src.database import EventStorageService
-from src.database.services.sticker_storage_service import StickerStorageService
+from src.services.database import EventStorageService
+from src.services.database.services.sticker_storage_service import StickerStorageService
 
 if TYPE_CHECKING:
-    from src.database.services.sticker_storage_service import StickerStorageService
+    from src.services.database.services.sticker_storage_service import StickerStorageService
 
 logger = get_logger(__name__)
 

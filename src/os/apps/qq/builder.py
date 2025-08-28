@@ -6,11 +6,11 @@ from xml.etree.ElementTree import Element
 
 from aicarus_protocols import Event, Seg
 from src.os.models import Window
-from src.services.action.components.base_builder import BasePlatformBuilder  # [修改] 修正导入路径
+from src.services.action.components.base_builder import BasePlatformBuilder
 from src.services.database.services.entity_graph_service import EntityGraphService
 from src.services.database.services.event_storage_service import EventStorageService
 
-# [新增] 导入QQ专属的渲染器和依赖
+# 导入QQ专属的渲染器和依赖
 from .qq_renderer import QQWindowRenderer
 
 
@@ -22,7 +22,7 @@ class QQBuilder(BasePlatformBuilder):
         """返回平台ID."""
         return "qq"
 
-    # [新增] 实现渲染器接口
+    # 实现渲染器接口
     async def render_window_content(
         self,
         parent_element: Element,

@@ -1,4 +1,3 @@
-# src/focus_chat_mode/chat_session_manager.py
 import asyncio
 import time
 from typing import TYPE_CHECKING, Optional

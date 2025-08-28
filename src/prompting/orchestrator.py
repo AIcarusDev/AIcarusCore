@@ -2,8 +2,8 @@
 
 from typing import TYPE_CHECKING, Any, Optional
 
-from src.apps.qq.components import PromptComponents
 from src.domain.models import Stimulus
+from src.os.apps.qq.components import PromptComponents
 from src.os.models import WindowStatus
 from src.os.state_generator import AICOSStateGenerator
 from src.prompting.schema_builder import SchemaBuilder
@@ -12,14 +12,14 @@ from src.prompting.templates import prompt_templates
 from src.prompting.user_prompt_parts_builder import UserPromptPartsBuilder
 
 if TYPE_CHECKING:
-    from src.apps.qq.qq_chat_session import ChatSession
-    from src.apps.qq.qq_chat_session_manager import ChatSessionManager
     from src.mind.abilities.deliberation_service import DeliberationService
     from src.mind.abilities.information_retrieval_service import InformationRetrievalService
     from src.mind.goal_manager import GoalManager
     from src.mind.internal_info_builder import InternalInfoBuilder
     from src.mind.state_manager import AIStateManager
     from src.os.application_manager import ApplicationManager
+    from src.os.apps.qq.qq_chat_session import ChatSession
+    from src.os.apps.qq.qq_chat_session_manager import ChatSessionManager
     from src.os.services.filesystem_service import FileSystemService
     from src.os.window_manager import WindowManager
     from src.services.core_communication.core_ws_server import CoreWebsocketServer

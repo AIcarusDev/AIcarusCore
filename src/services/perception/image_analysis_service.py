@@ -9,13 +9,13 @@ from typing import Any
 
 from PIL import Image
 from sentence_transformers import SentenceTransformer
-from src.action.components.llm_client_factory import LLMClientFactory
 from src.common.custom_logging.logging_config import get_logger
 from src.common.json_parser.json_parser import parse_llm_json_response
-from src.database import CoreDBCollections, TypeDBConnectionManager
-from src.database.services.image_analysis_cache_service import ImageAnalysisCacheService
-from src.llmrequest.llm_processor import Client as LLMProcessorClient
-from src.prompt_templates.image_analysis import IMAGE_ANALYSIS_PROMPT, STICKER_ANALYSIS_PROMPT
+from src.prompting.templates.image_analysis import IMAGE_ANALYSIS_PROMPT, STICKER_ANALYSIS_PROMPT
+from src.services.action.components.llm_client_factory import LLMClientFactory
+from src.services.database import CoreDBCollections, TypeDBConnectionManager
+from src.services.database.services.image_analysis_cache_service import ImageAnalysisCacheService
+from src.services.llmrequest.llm_processor import Client as LLMProcessorClient
 
 logger = get_logger(__name__)
 

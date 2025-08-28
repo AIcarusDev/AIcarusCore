@@ -6,7 +6,6 @@ import threading
 import traceback
 from typing import TYPE_CHECKING, Optional
 
-from src.apps.qq.components import PromptComponents
 from src.common.custom_logging.logging_config import get_logger
 from src.common.interruption_broker import InterruptionEventBroker
 from src.config import config
@@ -16,6 +15,7 @@ from src.mind.sanitizer import LLMOutputSanitizer
 from src.mind.state_manager import AIStateManager
 from src.mind.thought_generator import ThoughtGenerator
 from src.mind.thought_persistor import ThoughtPersistor
+from src.os.apps.qq.components import PromptComponents
 from src.os.decision_dispatcher import process_aicos_decision
 from src.prompting import PromptBuilderError, ThoughtPromptBuilder
 from src.services.action.action_handler import ActionHandler
@@ -23,9 +23,9 @@ from src.services.database import ThoughtStorageService
 from src.services.database.models import ThoughtChainDocument
 
 if TYPE_CHECKING:
-    from src.apps.qq.qq_chat_session import ChatSession
-    from src.apps.qq.qq_chat_session_manager import ChatSessionManager
     from src.os.application_manager import ApplicationManager
+    from src.os.apps.qq.qq_chat_session import ChatSession
+    from src.os.apps.qq.qq_chat_session_manager import ChatSessionManager
     from src.os.state_generator import AICOSStateGenerator
     from src.os.window_manager import WindowManager
     from src.services.core_communication.core_ws_server import CoreWebsocketServer

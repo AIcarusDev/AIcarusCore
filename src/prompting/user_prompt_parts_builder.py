@@ -3,8 +3,8 @@
 from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
-    from src.apps.qq.qq_chat_session import ChatSession
     from src.mind.state_manager import AIStateManager
+    from src.os.apps.qq.qq_chat_session import ChatSession
     from src.services.database.services.thought_storage_service import ThoughtStorageService
 
 

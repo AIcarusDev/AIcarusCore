@@ -12,9 +12,9 @@ from src.prompting.templates.aicarus_rule import AICARUS_RULE
 from src.prompting.templates.core_prompts import CORE_BEHAVIOR_GUIDELINES
 
 if TYPE_CHECKING:
-    from src.apps.qq.qq_chat_session import ChatSession
     from src.mind.internal_info_builder import InternalInfoBuilder
     from src.mind.state_manager import AIStateManager
+    from src.os.apps.qq.qq_chat_session import ChatSession
     from src.services.database.services.entity_graph_service import EntityGraphService
 
 

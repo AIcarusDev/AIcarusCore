@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 
 # 避免在类型提示时出现循环导入问题
 if TYPE_CHECKING:
-    from src.apps.qq.qq_chat_session_manager import ChatSessionManager
     from src.common.intelligent_interrupt_system.intelligent_interrupter import (
         IntelligentInterrupter,
     )
@@ -25,6 +24,7 @@ if TYPE_CHECKING:
     from src.mind.thought_generator import ThoughtGenerator
     from src.mind.thought_persistor import ThoughtPersistor
     from src.os.application_manager import ApplicationManager
+    from src.os.apps.qq.qq_chat_session_manager import ChatSessionManager
     from src.os.services.filesystem_service import FileSystemService
     from src.os.state_generator import AICOSStateGenerator
     from src.os.window_manager import WindowManager

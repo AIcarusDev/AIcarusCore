@@ -3,10 +3,8 @@ import re
 from xml.dom.minidom import parseString
 from xml.etree.ElementTree import Element, SubElement, tostring
 
-from src.apps.registry import platform_builder_registry
 from src.common.custom_logging.logging_config import get_logger
-
-# 导入核心依赖
+from src.os.apps.registry import platform_builder_registry
 from src.services.database.services.entity_graph_service import EntityGraphService
 from src.services.database.services.event_storage_service import EventStorageService
 

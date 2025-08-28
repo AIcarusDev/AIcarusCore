@@ -15,7 +15,7 @@ from src.prompting.templates.deliberation_prompts import (
 from src.services.llmrequest.llm_processor import Client as LLMProcessorClient
 
 if TYPE_CHECKING:
-    from ...apps.qq.qq_chat_session import ChatSession
+    from src.os.apps.qq.qq_chat_session import ChatSession
 
 
 logger = get_logger(__name__)

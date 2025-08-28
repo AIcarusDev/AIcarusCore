@@ -5,7 +5,7 @@ from src.common.custom_logging.logging_config import get_logger
 from src.services.database.services.thought_storage_service import ThoughtStorageService
 
 if TYPE_CHECKING:
-    from src.apps.qq.qq_chat_session import ChatSession
+    from src.os.apps.qq.qq_chat_session import ChatSession
     from src.prompting import ThoughtPromptBuilder
 
 logger = get_logger(__name__)

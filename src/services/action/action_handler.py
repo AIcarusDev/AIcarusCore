@@ -5,10 +5,10 @@ import time
 import uuid
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from src.apps.registry import platform_builder_registry
 from src.common.custom_logging.logging_config import get_logger
 from src.common.utils import parse_entity_uid
 from src.domain.models import ActionMetadata, ActionResult
+from src.os.apps.registry import platform_builder_registry
 from src.services.action.components.pending_action_manager import PendingActionManager
 from src.services.action.services.sticker_service import StickerService
 from src.services.core_communication.action_sender import ActionSender
@@ -20,9 +20,9 @@ from src.services.database import (
 )
 
 if TYPE_CHECKING:
-    from src.apps.qq.qq_chat_session_manager import ChatSessionManager
     from src.mind.abilities.information_retrieval_service import InformationRetrievalService
     from src.mind.consciousness_flow import CoreLogic
+    from src.os.apps.qq.qq_chat_session_manager import ChatSessionManager
     from src.os.services.filesystem_service import FileSystemService
 
 

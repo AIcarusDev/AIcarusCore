@@ -1,9 +1,9 @@
 # 文件路径: src/bootstrap/wiring.py
 
-from src.apps.qq.qq_chat_session_manager import ChatSessionManager
 from src.bootstrap.container import ServiceContainer
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
+from src.os.apps.qq.qq_chat_session_manager import ChatSessionManager
 
 logger = get_logger(__name__)
 

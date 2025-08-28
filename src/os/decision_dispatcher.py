@@ -9,9 +9,9 @@ from src.domain.models import ActionMetadata
 from src.os.models import Window, WindowStatus
 
 if TYPE_CHECKING:
-    from src.apps.qq.qq_chat_session_manager import ChatSessionManager
     from src.mind.state_manager import AIStateManager
     from src.os.application_manager import ApplicationManager
+    from src.os.apps.qq.qq_chat_session_manager import ChatSessionManager
     from src.os.state_generator import AICOSStateGenerator
     from src.os.window_manager import WindowManager
     from src.services.action.action_handler import ActionHandler

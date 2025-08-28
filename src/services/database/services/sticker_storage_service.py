@@ -3,7 +3,7 @@ import time
 from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
-from src.database.utils import compare_phashes
+from src.services.database.utils import compare_phashes
 from typedb.driver import Transaction, TransactionType, TypeDBDriverException
 
 from ..core.connection_manager import TypeDBConnectionManager

@@ -8,7 +8,7 @@ from src.common.custom_logging.logging_config import get_logger
 from websockets.server import WebSocketServerProtocol
 
 if TYPE_CHECKING:
-    from src.action.action_handler import ActionHandler
+    from src.services.action.action_handler import ActionHandler
 
 logger = get_logger(__name__)
 

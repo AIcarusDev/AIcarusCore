@@ -7,7 +7,6 @@ from threading import Event as ThreadingEvent
 from typing import Protocol, runtime_checkable
 
 from src import apps
-from src.apps.registry import platform_builder_registry
 from src.bootstrap.container import ServiceContainer
 from src.common.custom_logging.logging_config import get_logger
 from src.common.intelligent_interrupt_system.iis_main import IISBuilder
@@ -28,6 +27,7 @@ from src.mind.state_manager import AIStateManager
 from src.mind.thought_generator import ThoughtGenerator
 from src.mind.thought_persistor import ThoughtPersistor
 from src.os.application_manager import ApplicationManager
+from src.os.apps.registry import platform_builder_registry
 from src.os.services.filesystem_service import FileSystemService
 from src.os.state_generator import AICOSStateGenerator
 from src.os.window_manager import WindowManager

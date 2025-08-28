@@ -12,19 +12,19 @@ from src.common.interruption_broker import InterruptionEventBroker
 from src.common.narrative_vectorizer.narrative_vectorizer import NarrativeVectorizer
 from src.common.utils import build_conversation_entity_uid
 from src.config import config
-from src.database import (
+from src.domain.models import Stimulus
+from src.os.apps.qq.qq_chat_session_manager import ChatSessionManager
+from src.services.database import (
     ActionLogStorageService,
     EntityGraphService,
 )
-from src.database.services.event_storage_service import EventStorageService
-from src.domain.models import Stimulus
-from src.focus_chat_mode.chat_session_manager import ChatSessionManager
-from src.message_processing.image_analysis_service import ImageAnalysisService
+from src.services.database.services.event_storage_service import EventStorageService
+from src.services.perception.image_analysis_service import ImageAnalysisService
 from websockets.server import WebSocketServerProtocol
 
 if TYPE_CHECKING:
-    from src.core_communication.core_ws_server import CoreWebsocketServer
-    from src.core_logic.consciousness_flow import CoreLogic as CoreLogicFlow
+    from src.mind.consciousness_flow import CoreLogic as CoreLogicFlow
+    from src.services.core_communication.core_ws_server import CoreWebsocketServer
 
 logger = get_logger(__name__)
 
