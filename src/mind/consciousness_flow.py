@@ -14,9 +14,9 @@ from src.mind.intrusive_thoughts import IntrusiveThoughtsGenerator
 from src.mind.state_manager import AIStateManager
 from src.mind.thought_generator import ThoughtGenerator
 from src.mind.thought_persistor import ThoughtPersistor
-from src.os.apps.qq.components import PromptComponents
 from src.os.decision_dispatcher import process_aicos_decision
 from src.prompting import PromptBuilderError, ThoughtPromptBuilder
+from src.prompting.components import PromptComponents
 from src.services.action.action_handler import ActionHandler
 from src.services.database import ThoughtStorageService
 from src.services.database.models import ThoughtChainDocument
@@ -24,8 +24,7 @@ from src.services.database.models import ThoughtChainDocument
 if TYPE_CHECKING:
     from src.bootstrap.container import ServiceContainer
     from src.os.application_manager import ApplicationManager
-    from src.os.apps.qq.qq_chat_session import ChatSession
-    from src.os.apps.qq.qq_chat_session_manager import ChatSessionManager
+    from src.os.apps.interfaces import ISession
     from src.os.state_generator import AICOSStateGenerator
     from src.os.window_manager import WindowManager
     from src.services.core_communication.core_ws_server import CoreWebsocketServer
@@ -57,7 +56,6 @@ class CoreLogic:
         interruption_broker: "InterruptionEventBroker",
         immediate_thought_trigger: asyncio.Event,
         aicos_state_generator: "AICOSStateGenerator",
-        chat_session_manager: Optional["ChatSessionManager"],
         thought_storage_service: ThoughtStorageService,
         entity_graph_service: "EntityGraphService",
         intrusive_generator_instance: IntrusiveThoughtsGenerator | None = None,
@@ -67,7 +65,6 @@ class CoreLogic:
         self.core_comm_layer = core_comm_layer
         self.action_handler_instance = action_handler_instance
         self.state_manager = state_manager
-        self.chat_session_manager = chat_session_manager
         self.thought_generator = thought_generator
         self.thought_persistor = thought_persistor
         self.thought_storage_service = thought_storage_service
@@ -80,17 +77,18 @@ class CoreLogic:
         self.intrusive_generator_instance = intrusive_generator_instance
         self.thinking_loop_task: asyncio.Task | None = None
         self._last_interrupt_context_stimulus: Stimulus | None = None
-        self.container: ServiceContainer | None = None  # 用于接收容器自身的引用
-        logger.info(f"{self.__class__.__name__} 已创建 (AIC-OS 适配版)")
+        self.container: ServiceContainer | None = None
+        logger.info(f"{self.__class__.__name__} 已创建 ")
 
     def trigger_immediate_thought_cycle(self) -> None:
         """立即触发思考循环，唤醒主意识."""
         logger.info("接收到立即思考触发信号，主意识将被唤醒。")
         self.immediate_thought_trigger.set()
 
-    def _get_current_session(self) -> Optional["ChatSession"]:
-        if self.prompt_builder and self.chat_session_manager:
-            _, _, _, session = self.prompt_builder._extract_context_from_ui()
+    async def _get_current_session(self) -> Optional["ISession"]:
+        """异步获取当前UI焦点所在的会话."""
+        if self.prompt_builder:
+            _, _, _, session = await self.prompt_builder._extract_context_from_ui()
             return session
         return None
 
@@ -127,14 +125,17 @@ class CoreLogic:
     async def _run_full_thought_cycle(self) -> None:
         """执行完整的思考循环，主要负责编排."""
         try:
-            prompt_components, _, ui_mapping = await self.prompt_builder.build_prompts_components()
+            prompt_components, session, ui_mapping = (
+                await self.prompt_builder.build_prompts_components()
+            )
         except PromptBuilderError as e:
             logger.error(f"构建Prompt失败，中止本轮思考循环: {e}")
             return
 
         try:
+            # 将 session 传递下去
             new_thought_pearl, saved_key = await self._generate_and_persist_thought(
-                prompt_components
+                prompt_components, session
             )
             if not new_thought_pearl or not new_thought_pearl.action_payload:
                 logger.info("本轮思考未产生任何决策，进入下一周期。")
@@ -144,7 +145,6 @@ class CoreLogic:
             logger.error(f"核心思考过程失败，中止本轮循环: {e}")
             return
 
-        # 确保容器存在，并直接传递它
         if not self.container:
             logger.critical("ServiceContainer 未注入到 CoreLogic，无法执行决策分发！")
             return
@@ -156,7 +156,7 @@ class CoreLogic:
         )
 
     async def _generate_and_persist_thought(
-        self, prompt_components: PromptComponents
+        self, prompt_components: PromptComponents, session: Optional["ISession"]
     ) -> tuple[ThoughtChainDocument | None, str | None]:
         """生成思考，创建文档，并将其持久化."""
         system_prompt, user_prompt, response_schema = self.prompt_builder.finalize_prompts(
@@ -169,22 +169,32 @@ class CoreLogic:
             user_prompt=user_prompt,
             image_inputs=prompt_components.image_references,
             response_schema=response_schema,
-            focus_path=None,
+            focus_path=None, # focus_path 暂时未使用，保持 None
         )
         if not generated_thought_json:
             raise ThoughtGenerationError("LLM未能生成有效的思考JSON。")
 
-        # 暂时禁用 Sanitizer，因为它依赖于旧的 U0, U1 用户映射系统
         sanitized_thought_json = generated_thought_json
 
+        # [修改] 传递 session id
+        source_id = session.conversation_id if session else None
         saved_key, new_thought_pearl = await self.thought_persistor.store_thought(
             thought_json=sanitized_thought_json,
             source_type="aicos_unified",
-            source_id=None,
+            source_id=source_id,
         )
 
         if not saved_key or not new_thought_pearl:
             raise ThoughtGenerationError("未能将新的思考持久化到数据库。")
+
+        # 在这里检查是否需要处理慢思考的副作用
+        # 注意：这里的 session 是 ISession 接口，我们只关心 working_memory
+        if session and self.state_manager and session.working_memory:
+            resolution = session.working_memory.get("deliberation_resolution")
+            if resolution:
+                self.state_manager.add_strategic_memo(resolution)
+                session.working_memory.pop("deliberation_resolution", None) # 用完就删
+                self.trigger_immediate_thought_cycle()
 
         return new_thought_pearl, saved_key
 

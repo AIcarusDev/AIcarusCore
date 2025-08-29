@@ -202,7 +202,6 @@ class ServiceBuilder:
             immediate_thought_trigger=AsyncioEvent(),
             intrusive_generator_instance=intrusive_generator,
             interruption_broker=interruption_broker,
-            chat_session_manager=None,  # Will be wired later
             thought_storage_service=db_services["thought_storage_service"],
             entity_graph_service=db_services["entity_graph_service"],
             thought_persistor=thought_persistor,

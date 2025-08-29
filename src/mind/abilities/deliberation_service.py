@@ -6,6 +6,7 @@ from src.common.custom_logging.logging_config import get_logger
 from src.common.json_parser.json_parser import parse_llm_json_response
 from src.common.time_utils import get_formatted_time_for_llm
 from src.config import config
+from src.os.apps.interfaces import IApp
 from src.os.apps.registry import platform_builder_registry  # 新增导入
 from src.os.models import WindowStatus  # 新增导入
 from src.prompting.templates.deliberation_prompts import (
@@ -133,18 +134,19 @@ class DeliberationService:
             logger.info(f"慢思考决议已生成: {resolution.get('summary')}")
 
             # [核心修改] 将关联会话的逻辑内聚到此服务中
-            await self._associate_resolution_with_session(resolution, container)
+            await self._handle_resolution_side_effects(resolution, container)
 
         except Exception as e:
             logger.error(f"执行“慢思考”时发生严重错误: {e}", exc_info=True)
 
-    async def _associate_resolution_with_session(
+    async def _handle_resolution_side_effects(
         self,
         resolution: dict,
         container: "ServiceContainer"
     ) -> None:
-        """将思考决议与当前激活的会话关联起来."""
+        """处理慢思考决议的副作用：更新会话记忆或全局记忆."""
         window_manager = container.window_manager
+        state_manager = container.state_manager
 
         active_window = next(
             (
@@ -155,13 +157,14 @@ class DeliberationService:
             None,
         )
 
+        # 场景一：当前在聊天窗口，将结论存入会话工作记忆
         if active_window and active_window.window_class == "conversation":
             conv_uid = active_window.content_state.get("conversation_uid")
             if conv_uid:
-                qq_builder = platform_builder_registry.get_builder("qq")
-                if qq_builder:
-                    chat_session_manager = qq_builder.get_session_manager(container)
-                    session = await chat_session_manager.get_or_create_session(conv_uid)
+                platform_id = conv_uid.split("_")[0]
+                builder = platform_builder_registry.get_builder(platform_id)
+                if builder and isinstance(builder, IApp):
+                    session = await builder.get_session(conv_uid, container)
                     if session:
                         session.working_memory = {
                             "summary": resolution.get("summary"),
@@ -170,7 +173,13 @@ class DeliberationService:
                         logger.info(
                             f"[{session.conversation_id}] 慢思考决议已存入当前会话的工作记忆。"
                         )
-        else:
-            logger.info(
-                "慢思考在非聊天上下文中完成，决议摘要未存入特定会话。"
-            )
+                        # 触发思考，让结论立刻生效
+                        container.core_logic.trigger_immediate_thought_cycle()
+                        return # 处理完毕，直接返回
+
+        # 场景二：不在聊天窗口，或获取 session 失败，存入全局战略备忘录
+        logger.info(
+            "慢思考在非聊天上下文中完成，或无法获取会话，决议将存入全局战略备忘录。"
+        )
+        state_manager.add_strategic_memo(resolution)
+        container.core_logic.trigger_immediate_thought_cycle()

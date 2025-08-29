@@ -9,6 +9,7 @@ logger = get_logger(__name__)
 def wire_dependencies(container: ServiceContainer) -> None:
     """将容器中所有服务的静态依赖关系连接起来."""
     container.core_logic.container = container
+    container.prompt_builder.container = container
 
 
 async def wire_dynamic_dependencies(container: ServiceContainer) -> None:

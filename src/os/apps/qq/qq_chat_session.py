@@ -1,8 +1,10 @@
+# src/os/apps/qq/qq_chat_session.py
 import time
 from typing import TYPE_CHECKING, Any
 
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
+from src.os.apps.interfaces import ISession
 from src.services.action.action_handler import ActionHandler
 from src.services.database import EnrichedConversationInfo
 from src.services.database.services.event_storage_service import EventStorageService
@@ -25,7 +27,7 @@ CONVERSATION_DETAILS_CACHE_EXPIRATION_SECONDS = 7200
 logger = get_logger(__name__)
 
 
-class ChatSession:
+class ChatSession(ISession):
     """管理单个专注聊天会话的状态和逻辑."""
 
     def __init__(
@@ -46,7 +48,7 @@ class ChatSession:
     ) -> None:
         # --- 模块化组件 ---
         self.conversation_info = conversation_info
-        self.conversation_id: str = conversation_id  # 注意：这里的 ID 是 entity_uid
+        self._conversation_id: str = conversation_id
         self.llm_client: LLMProcessorClient = llm_client
         self.event_storage: EventStorageService = event_storage
         self.action_handler: ActionHandler = action_handler
@@ -81,9 +83,24 @@ class ChatSession:
         # --- 缓存 ---
         self.bot_profile_cache: dict[str, Any] = {}
         self.last_profile_update_time: float = 0.0
-        self.working_memory: dict[str, Any] = {}
+        self._working_memory: dict[str, Any] = {}
 
-        logger.info(f"[ChatSession][{self.conversation_id}] 实例已创建。")
+        logger.info(f"[ChatSession][{self._conversation_id}] 实例已创建。")
+
+    # --- 实现接口中定义的属性 ---
+    @property
+    def conversation_id(self) -> str:
+        """返回会话ID."""
+        return self._conversation_id
+
+    @property
+    def working_memory(self) -> dict[str, Any]:
+        """Return the working memory."""
+        return self._working_memory
+
+    @working_memory.setter
+    def working_memory(self, value: dict[str, Any]) -> None:
+        self._working_memory = value
 
     async def get_bot_profile(self) -> dict[str, Any]:
         """智能获取祂的档案，如果缓存有效则直接返回，否则从数据库加载最新的客观数据."""
@@ -94,7 +111,6 @@ class ChatSession:
             return self.bot_profile_cache
 
         # --- 步骤 2: 缓存未命中，直接、精确地从数据库获取当前平台实体 ---
-        # 移除了原有的 "获取全部再查找" 的低效逻辑
         entity_doc = await self.entity_graph_service.get_self_entity_by_platform(self.platform)
 
         if not (entity_doc and isinstance(entity_doc, dict)):

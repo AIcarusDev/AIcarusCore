@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING
 from xml.etree.ElementTree import Element
 
 from aicarus_protocols import Event, Seg
+from src.os.apps.interfaces import IApp, ISession
 from src.os.models import Window
-from src.os.window_manager import WindowManager
 from src.services.action.components.base_builder import BasePlatformBuilder
 
 from .qq_chat_session_manager import ChatSessionManager
@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from src.services.database.services.event_storage_service import EventStorageService
 
 
-class QQBuilder(BasePlatformBuilder):
+class QQBuilder(BasePlatformBuilder, IApp):
     """QQ 平台的构建器，负责向 Core 注册 QQAdapter 的能力."""
 
     def __init__(self) -> None:
@@ -36,9 +36,7 @@ class QQBuilder(BasePlatformBuilder):
         if self._session_manager_instance is None:
             # 只有在第一次被请求时，才创建实例
             self._session_manager_instance = ChatSessionManager(
-                config=container.config, # 传递整个 config 对象
                 llm_client=container.focused_chat_llm_client,
-                deliberation_service=container.deliberation_service,
                 event_storage=container.event_storage_service,
                 action_handler=container.action_handler,
                 self_bot_ids_map=container.application_manager.get_self_bot_ids_map(),
@@ -49,6 +47,16 @@ class QQBuilder(BasePlatformBuilder):
                 core_logic=container.core_logic,
             )
         return self._session_manager_instance
+
+    # 实现 IApp 接口的方法
+    async def get_session(
+        self, conversation_uid: str, container: ServiceContainer
+    ) -> ISession | None:
+        """根据会话 UID 获取一个会话实例."""
+        session_manager = self.get_session_manager(container)
+        if session_manager:
+            return await session_manager.get_or_create_session(conversation_uid)
+        return None
 
     @property
     def platform_id(self) -> str:
@@ -78,7 +86,7 @@ class QQBuilder(BasePlatformBuilder):
             image_collector
         )
 
-    def get_action_definitions(self, window_manager: WindowManager) -> dict:
+    def get_action_definitions(self) -> dict:
         """定义 QQ 平台的所有动作."""
         # 这个方法现在只定义了 send_message
         # 其他如 get_list 等，会由 AIC-OS 的 UI 交互自动生成

@@ -14,12 +14,12 @@ from src.prompting.templates.core_prompts import CORE_BEHAVIOR_GUIDELINES
 if TYPE_CHECKING:
     from src.mind.internal_info_builder import InternalInfoBuilder
     from src.mind.state_manager import AIStateManager
-    from src.os.apps.qq.qq_chat_session import ChatSession
+    from src.os.apps.interfaces import ISession
     from src.services.database.services.entity_graph_service import EntityGraphService
 
 
 class SystemPromptPartsBuilder:
-    """[AIC-OS 重构版]负责构建填充 System Prompt 模板所需的所有部分."""
+    """负责构建填充 System Prompt 模板所需的所有部分."""
 
     def __init__(
         self,
@@ -37,7 +37,7 @@ class SystemPromptPartsBuilder:
 
     async def build(
         self,
-        session: Optional["ChatSession"],
+        session: Optional["ISession"],
         is_context_switch_flag: bool,
     ) -> dict[str, Any]:
         """构建并返回一个包含 System Prompt 所有组件的字典."""
@@ -51,6 +51,7 @@ class SystemPromptPartsBuilder:
         working_memories_block = await self._build_working_memories_block()
         deliberation_summary_block = self.state_manager.get_formatted_strategic_memos()
         current_goals_block = self.state_manager.goal_manager.get_formatted_goals()
+        deliberation_summary_block_from_session = self._get_deliberation_summary_block(session)
 
         internal_info_block = await internal_info_task
 
@@ -64,7 +65,10 @@ class SystemPromptPartsBuilder:
             ),
             "current_goals_block": current_goals_block,
             "current_state_block": current_state_block,
-            "deliberation_summary_block": deliberation_summary_block,
+            "deliberation_summary_block": (
+                f"{deliberation_summary_block}\n"
+                f"{deliberation_summary_block_from_session}".strip()
+            ),
             "working_memories_block": working_memories_block,
             "internal_info_block": internal_info_block,
             "sticker_collection_block": "",
@@ -131,7 +135,7 @@ class SystemPromptPartsBuilder:
 
         return "\n".join(memory_lines)
 
-    def _get_deliberation_summary_block(self, session: Optional["ChatSession"]) -> str:
+    def _get_deliberation_summary_block(self, session: Optional["ISession"]) -> str:
         """构建慢脑思考决策摘要块."""
         if session and hasattr(session, "working_memory") and session.working_memory:
             remaining = session.working_memory.get("remaining_turns", 0)

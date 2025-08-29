@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from src.common.custom_logging.logging_config import get_logger
 from src.domain.models import ActionMetadata
-from src.os.apps.qq.builder import QQBuilder
+from src.os.apps.interfaces import IApp
 from src.os.apps.registry import platform_builder_registry
 from src.os.models import Window, WindowStatus
 
@@ -128,20 +128,21 @@ async def _handle_aicos_interaction(
 
     # 解析特定应用的交互 (例如 qq)
     else:
-        platform_id = next(iter(aicos_interaction), None)
-        if not platform_id:
-            return
-        platform_action = aicos_interaction[platform_id]
-        action_name = next(iter(platform_action), None)
-        if not action_name:
-            return
-        params = platform_action[action_name]
+        for platform_id, platform_action in aicos_interaction.items():
+            if platform_id == "base":
+                continue
 
-        # [核心重构] 所有应用层的动作 (如 send_message) 都交给 ActionHandler 的新接口处理
-        logger.info(f"路由平台GUI动作 '{platform_id}.{action_name}' 到 ActionHandler")
-        await container.action_handler.handle_aicos_gui_action(
-            platform_id, action_name, params, window_manager
-        )
+            action_name = next(iter(platform_action), None)
+            if not action_name:
+                continue
+
+            params = platform_action[action_name]
+
+            logger.info(f"路由平台GUI动作 '{platform_id}.{action_name}' 到 ActionHandler")
+            await container.action_handler.handle_aicos_gui_action(
+                platform_id, action_name, params, window_manager
+            )
+            break # 决策中只有一个平台动作，处理完第一个就可以退出
 
 
 async def _handle_ui_interaction(
@@ -239,28 +240,32 @@ async def _handle_ui_interaction(
                 window_manager.open_window(main_window)
 
     elif internal_command == "open_conversation_window":
-        qq_builder = platform_builder_registry.get_builder("qq")
-        if not isinstance(qq_builder, QQBuilder):
-            logger.error("严重错误：获取的 'qq' 平台构建器不是 QQBuilder 类型。")
+        # 通用化打开会话窗口的逻辑
+        app_list = application_manager.get_all_apps()
+        # 从会话UID中解析出平台ID
+        platform_id = target_uid.split("_")[0]
+        # 找到这个平台对应的APP
+        app = next((a for a in app_list if a.name == platform_id), None)
+
+        if not app:
+            logger.error(f"无法打开会话窗口：找不到负责平台 '{platform_id}' 的应用。")
             return
 
-        # 类型守卫后，IDE可以正确推断类型
-        chat_session_manager = qq_builder.get_session_manager(container)
-
-        if not chat_session_manager:
-            logger.error("无法打开会话窗口：ChatSessionManager 不可用。")
+        builder = platform_builder_registry.get_builder(platform_id)
+        if not builder or not isinstance(builder, IApp):
+            logger.error(f"严重错误：平台 '{platform_id}' 的构建器未实现 IApp 接口。")
             return
 
-        app_id = "app-001"
-        if not application_manager.is_running(app_id):
-            application_manager.start_app(app_id)
+        session = await builder.get_session(target_uid, container)
 
-        session = await chat_session_manager.get_or_create_session(target_uid)
         if session:
+            if not application_manager.is_running(app.id):
+                application_manager.start_app(app.id)
+
             conv_window = Window(
                 id=f"win-conv-{target_uid.replace('_', '-')}",
-                parent_app_id=app_id,
-                title=f"与 {session.conversation_name} 的对话",
+                parent_app_id=app.id,
+                title=f"与 {session.conversation_name} 的对话", # ISession 需要有 conversation_name
                 window_class="conversation",
                 content_state={"conversation_uid": target_uid},
             )
