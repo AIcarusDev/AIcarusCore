@@ -21,7 +21,6 @@ from src.mind.abilities.information_retrieval_service import InformationRetrieva
 from src.mind.consciousness_flow import CoreLogic
 from src.mind.goal_manager import GoalManager
 from src.mind.internal_info_builder import InternalInfoBuilder
-from src.mind.intrusive_thoughts import IntrusiveThoughtsGenerator
 from src.mind.state_manager import AIStateManager
 from src.mind.thought_generator import ThoughtGenerator
 from src.mind.thought_persistor import ThoughtPersistor
@@ -178,13 +177,6 @@ class ServiceBuilder:
 
         stop_event = ThreadingEvent()
         intrusive_generator = None
-        if (
-            config.intrusive_thoughts_module_settings.enabled
-            and llm_clients["intrusive_thoughts_llm_client"]
-        ):
-            intrusive_generator = IntrusiveThoughtsGenerator(
-                llm_clients["intrusive_thoughts_llm_client"], stop_event
-            )
 
         thought_generator = ThoughtGenerator(llm_clients["main_consciousness_llm_client"])
         thought_persistor = ThoughtPersistor(db_services["thought_storage_service"])

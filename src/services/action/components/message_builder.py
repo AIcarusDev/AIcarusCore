@@ -9,7 +9,7 @@ from pypinyin import Style, pinyin
 from src.common.custom_logging.logging_config import get_logger
 
 if TYPE_CHECKING:
-    from src.focus_chat_mode.chat_session import ChatSession
+    from src.os.apps.qq.qq_chat_session import ChatSession
 
 logger = get_logger(__name__)
 

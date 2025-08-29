@@ -10,7 +10,6 @@ from src.common.custom_logging.logging_config import get_logger
 from src.common.interruption_broker import InterruptionEventBroker
 from src.config import config
 from src.domain.models import Stimulus
-from src.mind.intrusive_thoughts import IntrusiveThoughtsGenerator
 from src.mind.state_manager import AIStateManager
 from src.mind.thought_generator import ThoughtGenerator
 from src.mind.thought_persistor import ThoughtPersistor
@@ -58,7 +57,6 @@ class CoreLogic:
         aicos_state_generator: "AICOSStateGenerator",
         thought_storage_service: ThoughtStorageService,
         entity_graph_service: "EntityGraphService",
-        intrusive_generator_instance: IntrusiveThoughtsGenerator | None = None,
     ) -> None:
         self.window_manager = window_manager
         self.application_manager = application_manager
@@ -74,7 +72,6 @@ class CoreLogic:
         self.stop_event = stop_event
         self.interruption_broker = interruption_broker
         self.immediate_thought_trigger = immediate_thought_trigger
-        self.intrusive_generator_instance = intrusive_generator_instance
         self.thinking_loop_task: asyncio.Task | None = None
         self._last_interrupt_context_stimulus: Stimulus | None = None
         self.container: ServiceContainer | None = None

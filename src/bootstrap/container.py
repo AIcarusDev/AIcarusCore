@@ -19,7 +19,6 @@ if TYPE_CHECKING:
     from src.mind.consciousness_flow import CoreLogic
     from src.mind.goal_manager import GoalManager
     from src.mind.internal_info_builder import InternalInfoBuilder
-    from src.mind.intrusive_thoughts import IntrusiveThoughtsGenerator
     from src.mind.state_manager import AIStateManager
     from src.mind.thought_generator import ThoughtGenerator
     from src.mind.thought_persistor import ThoughtPersistor
@@ -78,7 +77,6 @@ class ServiceContainer:
     sticker_service: StickerService
     intelligent_interrupter: IntelligentInterrupter
     internal_info_builder: InternalInfoBuilder
-    intrusive_generator: IntrusiveThoughtsGenerator | None
     message_processor: DefaultMessageProcessor
     prompt_builder: ThoughtPromptBuilder
     state_manager: AIStateManager
