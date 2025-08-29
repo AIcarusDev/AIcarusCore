@@ -78,11 +78,12 @@ class CoreLogic:
         self.thinking_loop_task: asyncio.Task | None = None
         self._last_interrupt_context_stimulus: Stimulus | None = None
         self.container: ServiceContainer | None = None
+        self._last_external_info_snapshot: str | None = None
         logger.info(f"{self.__class__.__name__} 已创建 ")
 
     def trigger_immediate_thought_cycle(self) -> None:
-        """立即触发思考循环，唤醒主意识."""
-        logger.info("接收到立即思考触发信号，主意识将被唤醒。")
+        """立即触发认知周期循环，唤醒意识."""
+        logger.info("接收到立即认知周期触发信号，意识将被唤醒。")
         self.immediate_thought_trigger.set()
 
     async def _get_current_session(self) -> Optional["ISession"]:
@@ -93,7 +94,7 @@ class CoreLogic:
         return None
 
     async def _core_thinking_loop(self) -> None:
-        """核心思考循环. 只负责维持循环和处理顶层异常."""
+        """核心认知周期循环. 只负责维持循环和处理顶层异常."""
         is_continuous = config.core_logic_settings.enable_continuous_thinking
         active_interval = (
             config.core_logic_settings.continuous_thinking_interval_seconds
@@ -101,35 +102,45 @@ class CoreLogic:
             else config.core_logic_settings.thinking_interval_seconds
         )
         mode_desc = (
-            f"连续思考模式 (间隔: {active_interval}s)"
+            f"连续认知周期模式 (间隔: {active_interval}s)"
             if is_continuous
-            else f"标准间隔模式 (间隔: {active_interval}s)"
+            else f"标准认知周期模式 (间隔: {active_interval}s)"
         )
 
-        logger.info(f"=== {config.persona.bot_name} 苏醒了 ({mode_desc}) ===")
+        logger.info(f"=== {config.persona.bot_name} 认知周期开始 ({mode_desc}) ===")
 
         while not self.stop_event.is_set():
             try:
                 await self._run_full_thought_cycle()
                 await self._wait_for_next_cycle(active_interval)
             except asyncio.CancelledError:
-                logger.info("意识流主循环被取消。")
+                logger.info("认知周期循环被取消。")
                 break
             except Exception as e:
-                logger.error(f"意识流主循环发生严重错误: {e}")
-                logger.exception("核心思考循环中发生未处理的异常。")
+                logger.error(f"认知周期循环发生严重错误: {e}")
+                logger.exception("核心认知周期循环中发生未处理的异常。")
                 traceback.print_exc()
                 await asyncio.sleep(10)
-        logger.info(f"--- {config.persona.bot_name} 的意识流已停止 ---")
+        logger.info(f"--- {config.persona.bot_name} 的认知周期已停止 ---")
 
     async def _run_full_thought_cycle(self) -> None:
-        """执行完整的思考循环，主要负责编排."""
+        """执行完整的认知周期循环，主要负责编排."""
         try:
-            prompt_components, session, ui_mapping = (
-                await self.prompt_builder.build_prompts_components()
+            # 1. 传入上一轮的快照
+            # 2. 捕获这一轮的新快照
+            (
+                prompt_components,
+                session,
+                ui_mapping,
+                current_external_info_snapshot
+            ) = await self.prompt_builder.build_prompts_components(
+                # 将上一轮的快照传递给 Prompt 构建器
+                last_external_info_snapshot=self._last_external_info_snapshot
             )
+            # 更新快照，为下一轮做准备
+            self._last_external_info_snapshot = current_external_info_snapshot
         except PromptBuilderError as e:
-            logger.error(f"构建Prompt失败，中止本轮思考循环: {e}")
+            logger.error(f"构建Prompt失败，中止本轮认知周期循环: {e}")
             return
 
         try:
@@ -138,11 +149,11 @@ class CoreLogic:
                 prompt_components, session
             )
             if not new_thought_pearl or not new_thought_pearl.action_payload:
-                logger.info("本轮思考未产生任何决策，进入下一周期。")
+                logger.info("本轮认知周期未产生任何决策，进入下一周期。")
                 return
 
         except ThoughtGenerationError as e:
-            logger.error(f"核心思考过程失败，中止本轮循环: {e}")
+            logger.error(f"核心认知周期过程失败，中止本轮认知周期循环: {e}")
             return
 
         if not self.container:
@@ -156,7 +167,10 @@ class CoreLogic:
         )
 
     async def _generate_and_persist_thought(
-        self, prompt_components: PromptComponents, session: Optional["ISession"]
+        self,
+        prompt_components: PromptComponents,
+        session: Optional["ISession"],
+        external_info_snapshot: str
     ) -> tuple[ThoughtChainDocument | None, str | None]:
         """生成思考，创建文档，并将其持久化."""
         system_prompt, user_prompt, response_schema = self.prompt_builder.finalize_prompts(
@@ -169,7 +183,6 @@ class CoreLogic:
             user_prompt=user_prompt,
             image_inputs=prompt_components.image_references,
             response_schema=response_schema,
-            focus_path=None, # focus_path 暂时未使用，保持 None
         )
         if not generated_thought_json:
             raise ThoughtGenerationError("LLM未能生成有效的思考JSON。")
@@ -209,20 +222,20 @@ class CoreLogic:
             self.immediate_thought_trigger.clear()
 
     async def start_thinking_loop(self) -> asyncio.Task:
-        """启动核心逻辑的思考循环."""
-        logger.info(f"=== {config.persona.bot_name} 的大脑准备开始持续思考 ===")
+        """启动核心逻辑的认知周期循环."""
+        logger.info(f"=== {config.persona.bot_name} 准备开始循环 ===")
         self.thinking_loop_task = asyncio.create_task(self._core_thinking_loop())
         return self.thinking_loop_task
 
     async def stop(self) -> None:
-        """停止核心逻辑的思考循环."""
-        logger.info(f"--- {config.persona.bot_name} 的意识流动正在停止 ---")
+        """停止核心逻辑的认知周期循环."""
+        logger.info(f"--- {config.persona.bot_name} 的认知周期正在停止 ---")
         self.stop_event.set()
         if self.thinking_loop_task and not self.thinking_loop_task.done():
             self.thinking_loop_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self.thinking_loop_task
-            logger.info("主思考循环任务已被取消。")
+            logger.info("认知周期任务已被取消。")
 
     async def handle_deliberation_resolution(self, resolution: dict | None) -> None:
         """接收并处理来自慢思考服务的决议，将其存入全局状态管理器."""

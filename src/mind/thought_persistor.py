@@ -26,15 +26,18 @@ class ThoughtPersistor:
         logger.info("ThoughtPersistor 已初始化。")
 
     async def store_thought(
-        self, thought_json: dict[str, Any], source_type: str, source_id: str | None = None
+        self,
+        thought_json: dict[str, Any],
+        source_type: str,
+        user_prompt_for_memory: str,
+        source_id: str | None = None
     ) -> tuple[str, ThoughtChainDocument] | tuple[None, None]:
         """将思考结果打包成思想点并存储到数据库中.
-
-        这个过程包括提取有效载荷并生成唯一的行动 ID.
 
         Args:
             thought_json (dict[str, Any]): 包含思考结果的 JSON 对象.
             source_type (str): 思考来源的类型，例如 "user", "system" 等.
+            user_prompt_for_memory (str): 用户提示的快照，用于记忆.
             source_id (str | None): 可选的来源 ID，用于标识思考的来源.
 
         Returns:
@@ -58,6 +61,7 @@ class ThoughtPersistor:
             source_id=source_id,
             action_id=action_id,
             action_payload=thought_json,  # 存储完整的、修正后的JSON
+            user_prompt_snapshot=user_prompt_for_memory
         )
 
         # 2. 把点交给存储服务去串起来

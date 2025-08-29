@@ -160,25 +160,30 @@ class ThoughtPromptBuilder:
 
     async def build_prompts_components(
         self,
+        last_external_info_snapshot: str | None,
         handover_result: dict | None = None,
-    ) -> tuple[PromptComponents, ISession | None, dict]:
+    ) -> tuple[PromptComponents, ISession | None, dict, str]:
         """构建所有 Prompt 组件，并返回 UI 映射表."""
+        # 1. 生成当前轮次的 external_info
         image_collector = []
-        external_info_block, ui_mapping = await self.aicos_state_generator.build_current_state(
-            image_collector=image_collector
+        current_external_info_block, ui_mapping = (
+            await self.aicos_state_generator.build_current_state(
+                image_collector=image_collector
+            )
         )
 
-        _, _, _, session = await self._extract_context_from_ui() # <--- [修改] await a call
+        _, _, _, session = await self._extract_context_from_ui()  # <--- [修改] await a call
 
+        # 2. 将上一轮的快照传递给 SystemPromptPartsBuilder
         system_prompt_blocks = await self.system_prompt_parts_builder.build(
             session=session,
             is_context_switch_flag=self.is_context_switch_flag,
+            last_external_info_snapshot=last_external_info_snapshot
         )
 
+        # 3. 将当前轮次的 external_info 传递给 UserPromptPartsBuilder
         user_prompt_blocks = await self.user_prompt_parts_builder.build(
-            handover_result=handover_result,
-            external_info_block=external_info_block,
-            session=session,
+            external_info_block=current_external_info_block
         )
 
         response_schema = self._build_response_schema(ui_mapping=ui_mapping)
@@ -190,7 +195,7 @@ class ThoughtPromptBuilder:
             image_references=image_collector
         )
 
-        return prompt_components_obj, session, ui_mapping
+        return prompt_components_obj, session, ui_mapping, current_external_info_block
 
     async def _extract_context_from_ui(
         self,

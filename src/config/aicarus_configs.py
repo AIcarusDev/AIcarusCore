@@ -24,6 +24,48 @@ class PersonaSettings(ConfigBase):
     slow_thought_persona: str = "你的思考风格是审慎、多疑、逻辑严密且极度客观的。"
     """祂的理性思考方式."""
 
+@dataclass
+class MemoryClarityLevels(ConfigBase):
+    """定义工作记忆中不同清晰度等级的数量."""
+    vivid: int = 1
+    active: int = 1
+    retained: int = 3
+    decaying: int = 3
+
+    # 使用 __post_init__ 来验证配置
+    def __post_init__(self) -> None:
+        """验证配置."""
+        if self.vivid < 1:
+            raise ValueError("vivid memory count must be at least 1.")
+        if self.active < 1:
+            raise ValueError("active memory count must be at least 1.")
+        if self.retained < 0:
+            raise ValueError("retained memory count cannot be negative.")
+        if self.decaying < 0:
+            raise ValueError("decaying memory count cannot be negative.")
+
+@dataclass
+class WorkingMemorySettings(ConfigBase):
+    """工作记忆系统的配置."""
+    depth: int = 8
+    clarity_levels: MemoryClarityLevels = field(default_factory=MemoryClarityLevels)
+
+    # 使用 __post_init__ 进行交叉验证
+    def __post_init__(self) -> None:
+        """验证配置."""
+        total_clarity_levels = (
+            self.clarity_levels.vivid +
+            self.clarity_levels.active +
+            self.clarity_levels.retained +
+            self.clarity_levels.decaying
+        )
+        if self.depth < 4:
+            raise ValueError("Working memory depth must be at least 4.")
+        if self.depth != total_clarity_levels:
+            raise ValueError(
+                f"Memory depth ({self.depth}) does not match the sum of "
+                f"clarity levels ({total_clarity_levels})."
+            )
 
 @dataclass
 class LLMClientSettings(ConfigBase):
@@ -263,6 +305,7 @@ class AlcarusRootConfig(ConfigBase):
     core_logic_settings: CoreLogicSettings
     intrusive_thoughts_module_settings: IntrusiveThoughtsSettings
     llm_models: AllModelPurposesConfig | None = field(default_factory=AllModelPurposesConfig)
+    working_memory: WorkingMemorySettings = field(default_factory=WorkingMemorySettings)
     test_function: TestFunctionConfig = field(default_factory=TestFunctionConfig)
     logging: LoggingSettings = field(default_factory=LoggingSettings)
     server: ServerSettings = field(default_factory=ServerSettings)

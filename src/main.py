@@ -64,8 +64,8 @@ async def start_core_system() -> None:
             logger.info(f"还剩 {i} 秒...")
             await asyncio.sleep(1)
 
-        # 最后，启动主思考循环
-        logger.info("正在尝试启动主思考循环...")
+        # 最后，启动认知周期循环
+        logger.info("正在尝试启动认知周期循环...")
         logic_task = await container.core_logic.start_thinking_loop()
 
         # 5. 等待核心任务结束
