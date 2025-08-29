@@ -65,7 +65,6 @@ class SystemPromptPartsBuilder:
             "sticker_collection_block": "",
             "available_platforms_block": "",
             "behavior_guidelines_block": CORE_BEHAVIOR_GUIDELINES,
-            "input_XML_block_description": self._get_input_xml_block_description(),
         }
 
     def _get_current_state_block(self) -> str:
@@ -88,12 +87,3 @@ class SystemPromptPartsBuilder:
             status_desc = "是当前激活的窗口"
 
         return f"你当前正专注于应用窗口 '{active_window.title}'，它{status_desc}。"
-
-
-    def _get_input_xml_block_description(self) -> str:
-        """为 AIC-OS 提供新的、更简洁的输入块描述."""
-        return """
-输入 XML 块介绍：
-- <external_info>: 这个块包含了你当前能“看到”的 AIC-OS 虚拟操作系统的完整图形界面。所有你能进行的操作，都基于这个界面中显示的元素。
-- <action_response>: (可选) 如果你上一轮的行动有文本返回结果，会在这里显示。
-"""  # noqa: E501

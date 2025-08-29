@@ -6,12 +6,8 @@
 {aicarus_rule_block}: Aicarus 规则的内容
 {current_time}: 当前时间
 {persona_block}: 角色设定
-{self_prompt_block}: 自我提示块的内容, 祂可以通过修改特定文件进行持久化注入该块
-{available_platforms_block}: 可用平台，也包含了祂自身的客观平台信息（网名，id等）
 {current_state_block}: 祂当前的状态，例如：发呆，聊天等
 {behavior_guidelines_block}: 行为准则指导
-{available_actions}: 可用动作说明
-{input_XML_block_description}： 输入 XML 块的描述
 """
 
 CORE_CYCLE_SYSTEM_PROMPT = """
@@ -35,27 +31,15 @@ CORE_CYCLE_SYSTEM_PROMPT = """
 {current_state_block}
 </current_state>
 
-<deliberation_summary>
-{deliberation_summary_block}
-</deliberation_summary>
-
 <working_memories scope="short_term_buffer" time_unit="cognitive_cycle" order="descending">
 {working_memories_block}
 </working_memories>
-
-<history_internal_info>
-{internal_info_block}
-</history_internal_info>
 
 {sticker_collection_block}
 
 <behavior_guidelines>
 {behavior_guidelines_block}
 </behavior_guidelines>
-
-<input_XML_block_description>
-{input_XML_block_description}
-</input_XML_block_description>
 
 <output_format>
 你的输出是 JSON 格式，你必须**严格**地按照 Schema 的结构和规则来生成 JSON。
@@ -75,8 +59,6 @@ JSON 对象包含三个顶级键: `"internal_state"`, `"internal_action"`, `"ext
 # ============================= 核心循环用户提示 =============================
 """
 {external_info_block} 是外部信息块的内容
-{meta_info_block} 是元信息块的内容
-{command_feedback_block} 是上一次意识控制指令的执行反馈
 """
 CORE_CYCLE_USER_PROMPT = """
 
@@ -85,7 +67,6 @@ CORE_CYCLE_USER_PROMPT = """
 </external_info>
 
 <output_format>
-现在请你严格遵守`<behavior_guidelines>`中的规则，不管content中有无提及，谨记“**不可**在输出中包含U1,U2等为内部标识符，包括思考、心情、发言动机和发言内容等”。
 请结合所有信息，严格按照 Schema 的结构和规则生成 JSON ，输出你现在的心情，内心想法,意图，行动等内容。
 </output_format>
 """  # noqa: E501
