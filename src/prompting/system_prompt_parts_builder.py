@@ -49,7 +49,7 @@ class SystemPromptPartsBuilder:
 
         current_state_block = self._get_current_state_block()
         working_memories_block = await self._build_working_memories_block()
-        deliberation_summary_block = self._get_deliberation_summary_block(session)
+        deliberation_summary_block = self.state_manager.get_formatted_strategic_memos()
         current_goals_block = self.state_manager.goal_manager.get_formatted_goals()
 
         internal_info_block = await internal_info_task

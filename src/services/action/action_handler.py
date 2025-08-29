@@ -10,6 +10,7 @@ from src.common.custom_logging.logging_config import get_logger
 from src.common.utils import parse_entity_uid
 from src.domain.models import ActionMetadata, ActionResult
 from src.os.apps.registry import platform_builder_registry
+from src.os.models import WindowStatus
 from src.services.action.components.pending_action_manager import PendingActionManager
 from src.services.action.services.sticker_service import StickerService
 from src.services.core_communication.action_sender import ActionSender
@@ -25,6 +26,7 @@ if TYPE_CHECKING:
     from src.mind.consciousness_flow import CoreLogic
     from src.os.apps.qq.qq_chat_session_manager import ChatSessionManager
     from src.os.services.filesystem_service import FileSystemService
+    from src.os.window_manager import WindowManager
 
 
 logger = get_logger(__name__)
@@ -377,6 +379,86 @@ class ActionHandler:
             original_action_description=description,
             metadata=metadata,
         )
+    # [核心新增] 新方法，处理来自GUI的平台动作
+    async def handle_aicos_gui_action(
+        self,
+        platform_id: str,
+        action_name: str,
+        params: dict,
+        window_manager: WindowManager,
+    ) -> None:
+        """处理由 AIC-OS GUI 交互触发的平台特定动作 (如 send_message)."""
+        if platform_id == "qq" and action_name == "send_message":
+            await self._handle_gui_send_message(params, window_manager)
+        else:
+            logger.warning(
+                f"ActionHandler 收到一个未知的 GUI 动作: {platform_id}.{action_name}"
+            )
+
+    async def _handle_gui_send_message(self, params: dict, window_manager: WindowManager) -> None:
+        """从 GUI 动作参数中解析并发送消息."""
+        target_window_id = params.get("target_window_id")
+        steps = params.get("steps")
+        motivation = params.get("motivation", "由AIC-OS MessageBuilder发起")
+
+        if not target_window_id or not steps:
+            logger.error("send_message 指令缺少 target_window_id 或 steps。")
+            return
+
+        window = window_manager.get_window(target_window_id)
+        if (
+            not window
+            or window.window_class != "conversation"
+            or window.status == WindowStatus.MINIMIZE
+        ):
+            logger.error(f"AI 试图向无效、非聊天或最小化的窗口 '{target_window_id}' 发送消息。")
+            return
+
+        conversation_uid = window.content_state.get("conversation_uid")
+        if not conversation_uid:
+            logger.error(f"窗口 '{target_window_id}' 缺少 conversation_uid 状态。")
+            return
+
+        parsed_info = parse_entity_uid(conversation_uid)
+        if not parsed_info:
+            logger.error(f"无法从持久化ID '{conversation_uid}' 中解析信息。")
+            return
+
+        platform, conv_type, native_id = parsed_info
+
+        # 确保 chat_session_manager 存在
+        if not self.chat_session_manager:
+            logger.error("无法发送消息：ChatSessionManager 未在 ActionHandler 中初始化。")
+            return
+
+        bot_id = self.chat_session_manager.self_bot_ids_map.get(platform)
+        if not bot_id:
+            logger.error(f"无法为平台 '{platform}' 找到对应的 bot_id。")
+            return
+
+        action_params_for_handler = {
+            "conversation_id": native_id,
+            "conversation_type": conv_type,
+            "content": steps,
+        }
+
+        logger.info(
+            f"准备通过 ActionHandler 发送消息至会话 '{conversation_uid}' (原生ID: {native_id})"
+        )
+        action_result = await self.execute_simple_action(
+            platform_id=platform,
+            action_name="send_message",
+            params=action_params_for_handler,
+            bot_id=bot_id,
+            description="由 AIC-OS 发送",
+            motivation=motivation,
+        )
+
+        if action_result.is_success:
+            logger.info(f"消息已成功发送至会话 '{conversation_uid}'。回执: {action_result.payload}")
+            window_manager.focus_window(target_window_id)
+        else:
+            logger.error(f"消息发送至会话 '{conversation_uid}' 失败: {action_result.error_message}")
 
     async def _execute_platform_action(
         self,

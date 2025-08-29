@@ -1,17 +1,22 @@
 # 文件路径: src/mind/abilities/deliberation_service.py
 
-from typing import Any
+from typing import TYPE_CHECKING
 
 from src.common.custom_logging.logging_config import get_logger
 from src.common.json_parser.json_parser import parse_llm_json_response
 from src.common.time_utils import get_formatted_time_for_llm
 from src.config import config
+from src.os.apps.registry import platform_builder_registry  # 新增导入
+from src.os.models import WindowStatus  # 新增导入
 from src.prompting.templates.deliberation_prompts import (
     DELIBERATION_RESPONSE_SCHEMA,
     DELIBERATION_SYSTEM_PROMPT,
     DELIBERATION_USER_PROMPT,
 )
 from src.services.llmrequest.llm_processor import Client as LLMProcessorClient
+
+if TYPE_CHECKING:
+    from src.bootstrap.container import ServiceContainer  # 新增导入
 
 logger = get_logger(__name__)
 
@@ -59,17 +64,17 @@ class DeliberationService:
     async def execute(
         self,
         pipeline_params: dict,
-        current_internal_state: dict,
-    ) -> dict[str, Any] | None:
-        """执行慢思考流程，直接返回结果.
+        container: "ServiceContainer",
+    ) -> None:
+        """执行慢思考流程，并处理其副作用 (如更新会话记忆)."""
+        # 从 container 中获取最新的内部状态
+        latest_thought = await container.thought_storage_service.get_latest_thought_document()
+        current_internal_state = {
+            "mood": latest_thought.get("mood", "平静") if latest_thought else "平静",
+            "think": latest_thought.get("think", "...") if latest_thought else "...",
+            "intent": latest_thought.get("intent", "无") if latest_thought else "无",
+        }
 
-        Args:
-            pipeline_params: LLM返回的 'deep_think' 指令的参数。
-            current_internal_state: 当前的核心内部状态 (mood, think, intent)。
-
-        Returns:
-            一个包含完整决议 (resolution) 的字典，如果成功。否则返回 None。
-        """
         try:
             opinions_block_lines = []
             opinions = pipeline_params.get("opinions", [])
@@ -114,7 +119,7 @@ class DeliberationService:
 
             if not raw_llm_response or raw_llm_response.get("error"):
                 logger.error(f"慢思考LLM调用失败: {raw_llm_response}")
-                return None
+                return
 
             deliberation_result_json = parse_llm_json_response(raw_llm_response.get("text"))
 
@@ -122,11 +127,50 @@ class DeliberationService:
                 logger.error(
                     f"慢思考LLM返回结果格式不正确或解析失败: {raw_llm_response.get('text')}"
                 )
-                return None
+                return
 
-            # 直接返回 resolution 字典
-            return deliberation_result_json.get("resolution")
+            resolution = deliberation_result_json.get("resolution")
+            logger.info(f"慢思考决议已生成: {resolution.get('summary')}")
+
+            # [核心修改] 将关联会话的逻辑内聚到此服务中
+            await self._associate_resolution_with_session(resolution, container)
 
         except Exception as e:
-            logger.error(f"执行“慢思考”决策管线时发生严重错误: {e}", exc_info=True)
-            return None
+            logger.error(f"执行“慢思考”时发生严重错误: {e}", exc_info=True)
+
+    async def _associate_resolution_with_session(
+        self,
+        resolution: dict,
+        container: "ServiceContainer"
+    ) -> None:
+        """将思考决议与当前激活的会话关联起来."""
+        window_manager = container.window_manager
+
+        active_window = next(
+            (
+                w
+                for w in reversed(window_manager.get_all_windows_sorted())
+                if w.status != WindowStatus.MINIMIZE
+            ),
+            None,
+        )
+
+        if active_window and active_window.window_class == "conversation":
+            conv_uid = active_window.content_state.get("conversation_uid")
+            if conv_uid:
+                qq_builder = platform_builder_registry.get_builder("qq")
+                if qq_builder:
+                    chat_session_manager = qq_builder.get_session_manager(container)
+                    session = await chat_session_manager.get_or_create_session(conv_uid)
+                    if session:
+                        session.working_memory = {
+                            "summary": resolution.get("summary"),
+                            "remaining_turns": resolution.get("memory_duration", 2),
+                        }
+                        logger.info(
+                            f"[{session.conversation_id}] 慢思考决议已存入当前会话的工作记忆。"
+                        )
+        else:
+            logger.info(
+                "慢思考在非聊天上下文中完成，决议摘要未存入特定会话。"
+            )

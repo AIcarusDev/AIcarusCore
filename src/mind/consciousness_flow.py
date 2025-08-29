@@ -144,7 +144,7 @@ class CoreLogic:
             logger.error(f"核心思考过程失败，中止本轮循环: {e}")
             return
 
-        # [核心修正] 移除对 chat_session_manager 的检查，并传递 container
+        # 确保容器存在，并直接传递它
         if not self.container:
             logger.critical("ServiceContainer 未注入到 CoreLogic，无法执行决策分发！")
             return
@@ -152,7 +152,7 @@ class CoreLogic:
         await process_aicos_decision(
             decision_json=new_thought_pearl.action_payload,
             ui_mapping=ui_mapping,
-            container=self.container, # <--- 传递整个容器
+            container=self.container,
         )
 
     async def _generate_and_persist_thought(
@@ -213,3 +213,16 @@ class CoreLogic:
             with contextlib.suppress(asyncio.CancelledError):
                 await self.thinking_loop_task
             logger.info("主思考循环任务已被取消。")
+
+    async def handle_deliberation_resolution(self, resolution: dict | None) -> None:
+        """接收并处理来自慢思考服务的决议，将其存入全局状态管理器."""
+        if not resolution:
+            return
+
+        logger.info("CoreLogic 正在将慢思考决议添加为全局战略备忘录...")
+
+        # 将结果交给 AIStateManager 管理
+        self.state_manager.add_strategic_memo(resolution)
+
+        # 重要的结论应该立即影响下一轮思考
+        self.trigger_immediate_thought_cycle()
