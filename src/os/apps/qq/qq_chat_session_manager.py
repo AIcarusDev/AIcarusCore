@@ -5,7 +5,6 @@ import time
 from typing import TYPE_CHECKING, Optional
 
 from src.common.custom_logging.logging_config import get_logger
-from src.config.aicarus_configs import FocusChatModeSettings
 from src.services.action.action_handler import ActionHandler
 from src.services.database.models import ConversationDetails
 from src.services.database.services.event_storage_service import EventStorageService
@@ -19,7 +18,6 @@ if TYPE_CHECKING:
         IntelligentInterrupter,
     )
     from src.mind.consciousness_flow import CoreLogic as CoreLogicFlow
-    from src.mind.internal_info_builder import InternalInfoBuilder
     from src.services.database import EnrichedConversationInfo
     from src.services.database.services.entity_graph_service import EntityGraphService
 
@@ -34,7 +32,6 @@ class ChatSessionManager:
 
     def __init__(
         self,
-        config: FocusChatModeSettings,
         llm_client: LLMProcessorClient,
         event_storage: EventStorageService,
         action_handler: ActionHandler,
@@ -42,17 +39,14 @@ class ChatSessionManager:
         intelligent_interrupter: "IntelligentInterrupter",
         entity_graph_service: "EntityGraphService",
         thought_storage_service: "ThoughtStorageService",
-        internal_info_builder: "InternalInfoBuilder",
         core_logic: Optional["CoreLogicFlow"] = None,
     ) -> None:
         """初始化 ChatSessionManager."""
-        self.config = config
         self.llm_client = llm_client
         self.event_storage = event_storage
         self.action_handler = action_handler
         self.self_bot_ids_map = self_bot_ids_map
         self.thought_storage_service = thought_storage_service
-        self.internal_info_builder = internal_info_builder
         self.intelligent_interrupter = intelligent_interrupter
         self.entity_graph_service = entity_graph_service
         self.core_logic = core_logic
@@ -118,7 +112,6 @@ class ChatSessionManager:
                 chat_session_manager=self,
                 intelligent_interrupter=self.intelligent_interrupter,
                 thought_storage_service=self.thought_storage_service,
-                internal_info_builder=self.internal_info_builder,
                 entity_graph_service=self.entity_graph_service,
                 initial_last_processed_timestamp=initial_last_processed_timestamp,
             )

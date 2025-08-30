@@ -16,7 +16,6 @@ if TYPE_CHECKING:
     from src.mind.abilities.deliberation_service import DeliberationService
     from src.mind.abilities.information_retrieval_service import InformationRetrievalService
     from src.mind.goal_manager import GoalManager
-    from src.mind.internal_info_builder import InternalInfoBuilder
     from src.mind.state_manager import AIStateManager
     from src.os.application_manager import ApplicationManager
     from src.os.services.filesystem_service import FileSystemService
@@ -34,7 +33,6 @@ class ThoughtPromptBuilder:
         aicos_state_generator: "AICOSStateGenerator",
         window_manager: "WindowManager",
         application_manager: "ApplicationManager",
-        internal_info_builder: "InternalInfoBuilder",
         state_manager: "AIStateManager",
         thought_storage_service: "ThoughtStorageService",
         entity_graph_service: "EntityGraphService",
@@ -57,7 +55,6 @@ class ThoughtPromptBuilder:
         self.schema_builder = SchemaBuilder()
 
         self.system_prompt_parts_builder = SystemPromptPartsBuilder(
-            internal_info_builder,
             state_manager,
             window_manager,
             application_manager,
@@ -150,6 +147,7 @@ class ThoughtPromptBuilder:
         aicos_properties = {}
 
         # 调用 ApplicationManager 构建基础交互
+        # BUG:build_base_interaction_schema未定义
         base_interactions = self.application_manager.build_base_interaction_schema(ui_mapping)
         if base_interactions:
             aicos_properties["base"] = {

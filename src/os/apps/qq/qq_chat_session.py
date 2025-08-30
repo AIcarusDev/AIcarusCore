@@ -16,7 +16,6 @@ if TYPE_CHECKING:
         IntelligentInterrupter,
     )
     from src.mind.consciousness_flow import CoreLogic as CoreLogicFlow
-    from src.mind.internal_info_builder import InternalInfoBuilder
     from src.services.database.services.entity_graph_service import EntityGraphService
 
     from .qq_chat_session_manager import ChatSessionManager
@@ -40,7 +39,6 @@ class ChatSession(ISession):
         bot_id: str,
         core_logic: "CoreLogicFlow",
         chat_session_manager: "ChatSessionManager",
-        internal_info_builder: "InternalInfoBuilder",
         intelligent_interrupter: "IntelligentInterrupter",
         thought_storage_service: "ThoughtStorageService",
         entity_graph_service: "EntityGraphService",
@@ -58,7 +56,6 @@ class ChatSession(ISession):
         self.conversation_name: str | None = conversation_info.name
         self.core_logic = core_logic
         self.chat_session_manager = chat_session_manager
-        self.internal_info_builder = internal_info_builder
         self.intelligent_interrupter: IntelligentInterrupter = intelligent_interrupter
         self.thought_storage_service: ThoughtStorageService = thought_storage_service
         self.entity_graph_service = entity_graph_service  # 存储服务实例

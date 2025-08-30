@@ -19,7 +19,6 @@ from src.mind.abilities.deliberation_service import DeliberationService
 from src.mind.abilities.information_retrieval_service import InformationRetrievalService
 from src.mind.consciousness_flow import CoreLogic
 from src.mind.goal_manager import GoalManager
-from src.mind.internal_info_builder import InternalInfoBuilder
 from src.mind.state_manager import AIStateManager
 from src.mind.thought_generator import ThoughtGenerator
 from src.mind.thought_persistor import ThoughtPersistor
@@ -111,7 +110,6 @@ class ServiceBuilder:
             action_log_service=db_services["action_log_service"],
             goal_storage_service=db_services["goal_storage_service"],
         )
-        internal_info_builder = InternalInfoBuilder(db_services["thought_storage_service"])
 
         # Prompting 层服务
         aicos_state_generator = AICOSStateGenerator(
@@ -125,7 +123,6 @@ class ServiceBuilder:
             aicos_state_generator=aicos_state_generator,
             window_manager=window_manager,
             application_manager=application_manager,
-            internal_info_builder=internal_info_builder,
             state_manager=state_manager,
             thought_storage_service=db_services["thought_storage_service"],
             entity_graph_service=db_services["entity_graph_service"],
@@ -177,7 +174,6 @@ class ServiceBuilder:
             intelligent_interrupter=await self._initialize_interrupt_model(
                 db_services["event_storage_service"]
             ),
-            internal_info_builder=internal_info_builder,
             message_processor=message_processor,
             prompt_builder=prompt_builder,
             state_manager=state_manager,
