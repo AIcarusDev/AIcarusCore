@@ -87,21 +87,30 @@ class ThoughtPromptBuilder:
         internal_action_properties = {}
         internal_action_properties.update(self.goal_manager.get_actions_schema())
         internal_action_properties.update(self.deliberation_service.get_actions_schema())
+
+        external_action_properties = self._build_external_action_schema(ui_mapping)
+
+        action_properties = {}
         if internal_action_properties:
-            schema_parts["internal_action"] = {
+            action_properties["internal"] = {
                 "type": "object",
                 "description": "内部的，心理的动作。",
                 "properties": internal_action_properties,
-                "maxProperties": 1,
+                "maxProperties": 1, # 确保内部动作只选一个
             }
-
-        external_action_properties = self._build_external_action_schema(ui_mapping)
         if external_action_properties:
-            schema_parts["external_action"] = {
+            action_properties["external"] = {
                 "type": "object",
                 "description": "与外部世界交互的动作。",
                 "properties": external_action_properties,
-                "maxProperties": 1,
+                "maxProperties": 1, # 确保外部动作只选一个
+            }
+
+        if action_properties:
+            schema_parts["action"] = {
+                "type": "object",
+                "description": "你决定执行的动作。",
+                "properties": action_properties,
             }
 
         return self.schema_builder.assemble(schema_parts)

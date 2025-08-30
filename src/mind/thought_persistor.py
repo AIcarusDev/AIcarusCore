@@ -29,7 +29,6 @@ class ThoughtPersistor:
         self,
         thought_json: dict[str, Any],
         source_type: str,
-        user_prompt_for_memory: str,
         source_id: str | None = None
     ) -> tuple[str, ThoughtChainDocument] | tuple[None, None]:
         """将思考结果打包成思想点并存储到数据库中.
@@ -45,7 +44,7 @@ class ThoughtPersistor:
             否则返回 (None, None)。
         """
         # 提取 'action' 或 'consciousness_control' 作为有效载荷
-        action_payload = thought_json.get("action") or thought_json.get("consciousness_control")
+        action_payload = thought_json.get("action")
         action_id = (
             str(uuid.uuid4()) if action_payload and isinstance(action_payload, dict) else None
         )
@@ -61,7 +60,6 @@ class ThoughtPersistor:
             source_id=source_id,
             action_id=action_id,
             action_payload=thought_json,  # 存储完整的、修正后的JSON
-            user_prompt_snapshot=user_prompt_for_memory
         )
 
         # 2. 把点交给存储服务去串起来

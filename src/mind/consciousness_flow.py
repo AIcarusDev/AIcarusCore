@@ -166,8 +166,7 @@ class CoreLogic:
     async def _generate_and_persist_thought(
         self,
         prompt_components: PromptComponents,
-        session: Optional["ISession"],
-        external_info_snapshot: str
+        session: Optional["ISession"]
     ) -> tuple[ThoughtChainDocument | None, str | None]:
         """生成思考，创建文档，并将其持久化."""
         system_prompt, user_prompt, response_schema = self.prompt_builder.finalize_prompts(
@@ -198,7 +197,6 @@ class CoreLogic:
             raise ThoughtGenerationError("未能将新的思考持久化到数据库。")
 
         # 在这里检查是否需要处理慢思考的副作用
-        # 注意：这里的 session 是 ISession 接口，我们只关心 working_memory
         if session and self.state_manager and session.working_memory:
             resolution = session.working_memory.get("deliberation_resolution")
             if resolution:

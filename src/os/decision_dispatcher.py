@@ -32,13 +32,13 @@ async def process_aicos_decision(
 
     logger.info(f"AIC-OS 决策路由器处理决策: {decision_json}")
 
-    # 1. 路由内部动作
-    if internal_action := decision_json.get("internal_action"):
-        await _route_internal_action(internal_action, container)
+    # 查找统一的 'action' 键
+    if action_payload := decision_json.get("action"):
+        if internal_action := action_payload.get("internal"):
+            await _route_internal_action(internal_action, container)
 
-    # 2. 路由外部动作
-    if external_action := decision_json.get("external_action"):
-        await _route_external_action(external_action, ui_mapping, container)
+        if external_action := action_payload.get("external"):
+            await _route_external_action(external_action, ui_mapping, container)
 
 
 async def _route_internal_action(internal_action: dict, container: "ServiceContainer") -> None:

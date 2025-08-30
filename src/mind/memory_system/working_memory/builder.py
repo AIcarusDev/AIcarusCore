@@ -106,12 +106,12 @@ class WorkingMemoryBuilder:
 
     def render_to_xml_string(self, fragments: list[MemoryFragment]) -> str:
         """将记忆片段列表渲染为最终的 XML 字符串."""
+        lines = []
         if not fragments:
-            return (
+            lines.append(
                 '  <memory cycle_ago="more" status="forgotten"/>\n'
             )
 
-        lines = []
         for frag in fragments:
             lines.append(f'  <memory cycle_ago="{frag.cycle_ago}" status="{frag.status}">')
 
