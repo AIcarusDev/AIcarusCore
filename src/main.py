@@ -42,10 +42,6 @@ async def start_core_system() -> None:
             container.image_analysis_service.start()
             logger.info("后台图像分析服务已启动。")
 
-        # 启动侵入性思维后台线程 (如果启用)
-        # 它的关闭是由 stop_event (threading.Event) 控制的，所以不在这里管理
-        if container.intrusive_generator:
-            container.intrusive_generator.start_background_generation()
 
         # 4. 在后台处理动态依赖的连接 (ChatSessionManager)
         # 这不会阻塞主服务运行
@@ -56,13 +52,9 @@ async def start_core_system() -> None:
         # 当任务自己完成后，就把它从集合里移除
         dynamic_wiring_task.add_done_callback(background_tasks.discard)
 
-        # 等待动态依赖连接完成
-        sleep_time = 10
-
         logger.info("正在等待动态依赖连接完成...")
-        for i in range(sleep_time, 0, -1):
-            logger.info(f"还剩 {i} 秒...")
-            await asyncio.sleep(1)
+        await dynamic_wiring_task
+        logger.info("动态依赖连接已完成。")
 
         # 最后，启动认知周期循环
         logger.info("正在尝试启动认知周期循环...")

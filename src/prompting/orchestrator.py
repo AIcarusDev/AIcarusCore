@@ -67,7 +67,7 @@ class ThoughtPromptBuilder:
             thought_storage_service,
             state_manager,
         )
-        self.container: ServiceContainer | None = None # <--- [新增] 用于接收容器引用
+        self.container: ServiceContainer | None = None # 用于接收容器引用
 
     def _build_response_schema(self, ui_mapping: dict[str, Any]) -> dict[str, Any]:
         """Schema 构建的总指挥方法."""
@@ -94,7 +94,7 @@ class ThoughtPromptBuilder:
         if internal_action_properties:
             action_properties["internal"] = {
                 "type": "object",
-                "description": "内部的，心理的动作。",
+                "description": "内部的心理动作。",
                 "properties": internal_action_properties,
                 "maxProperties": 1, # 确保内部动作只选一个
             }
@@ -103,7 +103,7 @@ class ThoughtPromptBuilder:
                 "type": "object",
                 "description": "与外部世界交互的动作。",
                 "properties": external_action_properties,
-                "maxProperties": 1, # 确保外部动作只选一个
+                # 外部动作的约束由具体实现决定
             }
 
         if action_properties:
@@ -132,7 +132,7 @@ class ThoughtPromptBuilder:
             }
         if innate_actions:
             external_actions["innate"] = {
-                "type": "object", "description": "你的先天能力。",
+                "type": "object", "description": "你自带的能力。",
                 "properties": innate_actions, "maxProperties": 1,
             }
 
@@ -149,7 +149,7 @@ class ThoughtPromptBuilder:
         """聚合所有 AIC-OS 交互的 Schema."""
         aicos_properties = {}
 
-        # [修改] 调用 ApplicationManager 构建基础交互
+        # 调用 ApplicationManager 构建基础交互
         base_interactions = self.application_manager.build_base_interaction_schema(ui_mapping)
         if base_interactions:
             aicos_properties["base"] = {
@@ -162,7 +162,7 @@ class ThoughtPromptBuilder:
             if app_schema:
                 aicos_properties[platform_id] = {
                     "type": "object",
-                    "description": f"与 {builder.platform_id.upper()} 应用窗口的交互。",
+                    "description": f"与 {builder.platform_id.upper()} 应用的交互。",
                     "properties": app_schema,
                 }
         return aicos_properties
@@ -170,7 +170,6 @@ class ThoughtPromptBuilder:
     async def build_prompts_components(
         self,
         last_external_info_snapshot: str | None,
-        handover_result: dict | None = None,
     ) -> tuple[PromptComponents, ISession | None, dict, str]:
         """构建所有 Prompt 组件，并返回 UI 映射表."""
         # 1. 生成当前轮次的 external_info
@@ -230,7 +229,7 @@ class ThoughtPromptBuilder:
             if not conversation_uid:
                 return "platform", platform_id, None, None
 
-            # [修改] 关键改动：通过接口动态获取会话实例
+            # 通过接口动态获取会话实例
             session: ISession | None = None
             builder = platform_builder_registry.get_builder(platform_id)
             if builder and isinstance(builder, IApp) and self.container:

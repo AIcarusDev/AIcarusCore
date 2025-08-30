@@ -130,7 +130,7 @@ class WorkingMemoryBuilder:
             content_json = json.dumps(frag.content, ensure_ascii=False, separators=(",", ":"))
             lines.append(f"    <response><![CDATA[{content_json}]]></response>")
 
-            # 渲染 <additional_content> (用于慢思考等动作结果)
+            # 渲染 <additional_content>
             if action_result:
                 # 压缩到一行
                 compressed_action_result = " ".join(action_result.split())

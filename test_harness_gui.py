@@ -2,10 +2,10 @@
 import asyncio
 
 import streamlit as st
+from AIcarusCore.src.os.ui_dispatcher import process_aicos_decision
 
 # --- 导入所有需要的 AIC-OS 核心服务 ---
 from src.bootstrap.builder import ServiceBuilder
-from src.os.decision_dispatcher import process_aicos_decision
 from src.os.models import Application
 
 # --- Streamlit 页面配置 ---

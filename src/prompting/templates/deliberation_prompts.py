@@ -1,4 +1,4 @@
-# src/prompt_templates/deliberation_prompts.py
+# src/prompting/templates/deliberation_prompts.py
 
 DELIBERATION_SYSTEM_PROMPT = """
 <current_time>
@@ -87,12 +87,6 @@ DELIBERATION_RESPONSE_SCHEMA = {
                     "type": "string",
                     "description": "对整个详细分析过程和最终决策依据的简明扼要的总结。",
                 },
-                "memory_duration": {
-                    "type": "integer",
-                    "description": "决定最终总结对“快思维”来说会保留多长时间，可用根据重要性决定，用整数表示，至少2轮",  # noqa: E501
-                    "minimum": 2,
-                    "maximum": 10,
-                },
                 "final_mood": {
                     "type": "string",
                     "description": "经过深思熟虑后，调整后的、更恰当的情绪状态。",
@@ -106,7 +100,7 @@ DELIBERATION_RESPONSE_SCHEMA = {
                     "description": "调整后的、更清晰明确的当前意图。",
                 },
             },
-            "required": ["summary", "memory_duration", "final_mood", "final_think", "final_intent"],
+            "required": ["summary", "final_mood", "final_think", "final_intent"],
         },
     },
     "required": ["deep_mind", "resolution"],

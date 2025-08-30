@@ -10,10 +10,10 @@ from src.common.custom_logging.logging_config import get_logger
 from src.common.interruption_broker import InterruptionEventBroker
 from src.config import config
 from src.domain.models import Stimulus
+from src.mind.action_orchestrator import orchestrate_action
 from src.mind.state_manager import AIStateManager
 from src.mind.thought_generator import ThoughtGenerator
 from src.mind.thought_persistor import ThoughtPersistor
-from src.os.decision_dispatcher import process_aicos_decision
 from src.prompting import PromptBuilderError, ThoughtPromptBuilder
 from src.prompting.components import PromptComponents
 from src.services.action.action_handler import ActionHandler
@@ -34,12 +34,11 @@ logger = get_logger(__name__)
 
 class ThoughtGenerationError(Exception):
     """Custom exception for critical failures during thought generation or persistence."""
-
     pass
 
 
 class CoreLogic:
-    """核心逻辑处理类."""
+    """核心逻辑类，负责管理整个系统的认知和行为流程."""
 
     def __init__(
         self,
@@ -120,6 +119,7 @@ class CoreLogic:
                 await asyncio.sleep(10)
         logger.info(f"--- {config.persona.bot_name} 的认知周期已停止 ---")
 
+
     async def _run_full_thought_cycle(self) -> None:
         """执行完整的认知周期循环，主要负责编排."""
         try:
@@ -145,8 +145,8 @@ class CoreLogic:
             new_thought_pearl, saved_key = await self._generate_and_persist_thought(
                 prompt_components, session
             )
-            if not new_thought_pearl or not new_thought_pearl.action_payload:
-                logger.info("本轮认知周期未产生任何决策，进入下一周期。")
+            if not new_thought_pearl or not new_thought_pearl.action_payload or not saved_key:
+                logger.info("本轮认知周期未产生任何决策或未能持久化，进入下一周期。")
                 return
 
         except ThoughtGenerationError as e:
@@ -157,10 +157,12 @@ class CoreLogic:
             logger.critical("ServiceContainer 未注入到 CoreLogic，无法执行决策分发！")
             return
 
-        await process_aicos_decision(
+        # 调用 ActionOrchestrator
+        await orchestrate_action(
             decision_json=new_thought_pearl.action_payload,
             ui_mapping=ui_mapping,
             container=self.container,
+            thought_key=saved_key,
         )
 
     async def _generate_and_persist_thought(
@@ -185,7 +187,7 @@ class CoreLogic:
 
         sanitized_thought_json = generated_thought_json
 
-        # [修改] 传递 session id
+        # 传递 session id
         source_id = session.conversation_id if session else None
         saved_key, new_thought_pearl = await self.thought_persistor.store_thought(
             thought_json=sanitized_thought_json,
@@ -195,14 +197,6 @@ class CoreLogic:
 
         if not saved_key or not new_thought_pearl:
             raise ThoughtGenerationError("未能将新的思考持久化到数据库。")
-
-        # 在这里检查是否需要处理慢思考的副作用
-        if session and self.state_manager and session.working_memory:
-            resolution = session.working_memory.get("deliberation_resolution")
-            if resolution:
-                self.state_manager.add_strategic_memo(resolution)
-                session.working_memory.pop("deliberation_resolution", None) # 用完就删
-                self.trigger_immediate_thought_cycle()
 
         return new_thought_pearl, saved_key
 
@@ -231,16 +225,3 @@ class CoreLogic:
             with contextlib.suppress(asyncio.CancelledError):
                 await self.thinking_loop_task
             logger.info("认知周期任务已被取消。")
-
-    async def handle_deliberation_resolution(self, resolution: dict | None) -> None:
-        """接收并处理来自慢思考服务的决议，将其存入全局状态管理器."""
-        if not resolution:
-            return
-
-        logger.info("CoreLogic 正在将慢思考决议添加为全局战略备忘录...")
-
-        # 将结果交给 AIStateManager 管理
-        self.state_manager.add_strategic_memo(resolution)
-
-        # 重要的结论应该立即影响下一轮思考
-        self.trigger_immediate_thought_cycle()
