@@ -125,22 +125,10 @@ class AllModelPurposesConfig(ConfigBase):
     """
 
     main_consciousness: ModelParams | None = None
-    """主要意识模型，用于处理核心任务和对话."""
-
-    intrusive_thoughts: ModelParams | None = None
-    """侵入性思维模型，用于生成和处理侵入性思维."""
-
-    action_decision: ModelParams | None = None
-    """行动决策模型，用于生成和处理行动决策相关的思维."""
-
-    information_summary: ModelParams | None = None
-    """信息摘要模型，用于生成和处理信息摘要相关的思维."""
+    """主要循环模型，负责处理机器人的核心循环和对话."""
 
     embedding_default: ModelParams | None = None
     """嵌入模型，用于生成和处理文本嵌入相关的思维."""
-
-    focused_chat: ModelParams | None = None
-    """专注聊天模型，用于处理专注聊天相关的思维."""
 
     web_search_agent: ModelParams | None = None
     """网页搜索代理模型，用于处理web_search动作并总结结果."""
@@ -181,20 +169,6 @@ class CoreLogicSettings(ConfigBase):
 
 
 @dataclass
-class IntrusiveThoughtsSettings(ConfigBase):
-    """侵入性思维模块的设置，包括启用状态、生成间隔和插入概率."""
-
-    enabled: bool = True
-    """是否启用侵入性思维模块."""
-
-    generation_interval_seconds: int = 600
-    """生成间隔时间（秒），用于控制侵入性思维的生成频率."""
-
-    insertion_probability: float = 0.15
-    """插入概率，用于控制侵入性思维的插入频率."""
-
-
-@dataclass
 class LoggingSettings(ConfigBase):
     """日志记录相关设置，包括日志级别和日志文件路径."""
 
@@ -221,12 +195,6 @@ class TestFunctionConfig(ConfigBase):
 
     这个类将包含一些测试相关的设置，未来可能会被移除.
     """
-
-    enable_test_group: bool = False
-    """是否启用测试模式."""
-
-    test_group: list[str] = field(default_factory=list)
-    """测试群组列表，用于指定哪些群组启用测试功能."""
 
     fallback_model_name: str = ""
     """用于给审查严格的 gemini-2.5-flash 兜底函数，如不启用留空即可."""
@@ -303,7 +271,6 @@ class AlcarusRootConfig(ConfigBase):
     llm_client_settings: LLMClientSettings
     persona: PersonaSettings
     core_logic_settings: CoreLogicSettings
-    intrusive_thoughts_module_settings: IntrusiveThoughtsSettings
     llm_models: AllModelPurposesConfig | None = field(default_factory=AllModelPurposesConfig)
     working_memory: WorkingMemorySettings = field(default_factory=WorkingMemorySettings)
     test_function: TestFunctionConfig = field(default_factory=TestFunctionConfig)

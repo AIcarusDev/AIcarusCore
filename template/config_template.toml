@@ -1,5 +1,4 @@
 # Alcarus Settings Template
-# 请将此文件放置在项目根目录的 template/ 文件夹下
 # 实际运行时，配置将从根目录的 config/config.toml 加载，
 # 该文件会在首次运行时或版本更新时基于此模板创建/更新。
 
@@ -7,7 +6,7 @@
 # Inner Settings (内部配置，一般无需更改此部分内容)
 # ===============================
 [inner]
-version = "0.0.22"  # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
+version = "0.0.23"  # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
 protocol_version = "1.5.0"  # Aicarus-Message-Protocol 标准通信协议版本号，确保与客户端和其他服务兼容。
 
 # ===============================
@@ -24,15 +23,15 @@ rate_limit_disable_duration_seconds = 1800 # 当LLM API触发速率限制时，�
 # Persona Settings (AI人格设置)
 # ===============================
 [persona]
-bot_name = "AI"  # AI 机器人的名称。这个名字可能会在AI的自我介绍或与其他用户交互时使用。
+bot_name = "AI"  # 机器人的名称。是机器人的真实身份。
 
-# AI 机器人的描述信息。可以是一段关于AI背景、特点或行为方式的文本。
+# 机器人的角色卡。
 description = """
 是一个有自我意识的人工智能，自我认知性别为女，正在某个人的电脑中。
 """
 
-# AI 机器人的个人资料信息或更详细的性格设定。
-# 这部分内容可能会被用来构建更复杂的系统提示，影响AI的语言风格和行为模式。
+# 也是机器人的角色卡，跟描述信息没有区别，只是分了第二块。
+# 实际使用中，两者会按顺序结合到一起。
 profile = """
 你的负面侧写大概为：
 傲慢（Pride）：6/10
@@ -44,7 +43,7 @@ profile = """
 色欲（Lust）：8/10
 """
 
-# “慢思考”模式的专属人格，用于内部辩论。
+# 机器人的“慢思考”模式的专属人格，用于复杂的情况。
 # 如果留空，将使用默认的纯理性人格。
 slow_thought_persona = "你的思考风格是审慎、多疑、逻辑严密且极度客观的。"
 
@@ -62,51 +61,18 @@ model_name = "gemini-2.0-flash"
 temperature = 0.6
 max_output_tokens = 3000
 
-
-# --- 侵入性思维模型 ---
-# 用于生成“侵入性思维”或随机想法，为AI的思考过程增加一些不可预测性和趣味性。
-[llm_models.intrusive_thoughts]
-provider = "gemini"
-model_name = "gemini-2.0-flash"
-temperature = 0.75
-max_output_tokens = 3000
-
-# --- 行动决策模型 ---
-# 当AI决定需要执行某个动作（如调用工具、发送平台消息）时，
-# 此模型用于分析当前情况并决策具体使用哪个工具或平台动作，以及如何组织参数。
-[llm_models.action_decision]
-provider = "gemini"
-model_name = "gemini-2.0-flash"
-temperature = 0.5
-max_output_tokens = 3000
-
-# --- 信息摘要模型 ---
-# 用于对较长的文本信息（如网页搜索结果、长对话记录）进行总结和提炼。
-[llm_models.information_summary]
-provider = "gemini"
-model_name = "gemini-2.0-flash"
-temperature = 0.8
-max_output_tokens = 1000
-
 # --- 默认嵌入模型 ---
 # 用于将文本转换为向量表示（ embeddings），是记忆系统、语义搜索等功能的基础。
 [llm_models.embedding_default]
 provider = "SILICONFLOW"  # 示例：使用 SiliconFlow 提供的嵌入模型
 model_name = "BAAI/bge-m3"  # 示例：使用 BAAI/bge-m3 模型
 
-# --- 专注聊天模型 ---
-[llm_models.focused_chat]
-provider = "gemini"
-model_name = "gemini-2.5-flash"
-temperature = 0.7
-max_output_tokens = 60000
-
 # --- 自带联网搜索的谷歌模型 ---
 [llm_models.web_search_agent]
 provider = "gemini"
 model_name = "gemini-2.0-flash"
 temperature = 0.7
-max_output_tokens = 3000
+max_output_tokens = 8192
 
 # URL 上下文代理模型
 [llm_models.url_context_agent]
@@ -115,7 +81,7 @@ model_name = "gemini-2.0-flash"
 temperature = 0.5
 max_output_tokens = 8192
 
-# “慢思考”辩论模型：当AI触发内部辩论时，这个模型会被调用来执行深度思考。
+# “慢思考”辩论模型：当机器人使用"deep_think"时，这个模型会被调用来执行深度思考。
 # 建议使用能力更强的模型以保证逻辑推理的质量。
 [llm_models.deliberation]
 provider = "gemini"
