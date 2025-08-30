@@ -12,7 +12,6 @@ if TYPE_CHECKING:
     )
     from src.common.interruption_broker import InterruptionEventBroker
     from src.common.narrative_vectorizer.narrative_vectorizer import NarrativeVectorizer
-    from src.common.unread_info_service.unread_info_service import UnreadInfoService
     from src.config import AlcarusRootConfig
     from src.mind.abilities.deliberation_service import DeliberationService
     from src.mind.abilities.information_retrieval_service import InformationRetrievalService
@@ -82,7 +81,6 @@ class ServiceContainer:
     state_manager: AIStateManager
     thought_generator: ThoughtGenerator
     thought_persistor: ThoughtPersistor
-    unread_info_service: UnreadInfoService
     interruption_broker: InterruptionEventBroker
     narrative_vectorizer: NarrativeVectorizer
 
@@ -96,6 +94,7 @@ class ServiceContainer:
     window_manager: WindowManager
     application_manager: ApplicationManager
     aicos_state_generator: AICOSStateGenerator
+    window_manager: WindowManager
 
     # [新] 能力与服务
     filesystem_service: FileSystemService

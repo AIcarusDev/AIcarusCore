@@ -1,4 +1,5 @@
-# src/database/services/entity_graph_service.py
+# 文件路径: src/services/database/services/entity_graph_service.py
+
 import asyncio
 import json
 import time
@@ -8,6 +9,7 @@ from typing import Any
 from aicarus_protocols import UserInfo as ProtocolUserInfo
 from src.common.custom_logging.logging_config import get_logger
 from src.common.utils import build_conversation_entity_uid
+from src.config import config
 from typedb.driver import Transaction, TransactionType
 
 from ..core.connection_manager import TypeDBConnectionManager
@@ -30,6 +32,72 @@ class EntityGraphService:
         self.conn_manager = conn_manager
         self.event_storage_service = event_storage_service
         logger.info("EntityGraphService (TypeDB) 初始化完成。")
+
+    # 从 UnreadInfoService 迁移并强化的通用方法
+    async def get_sender_display_name_for_event(
+        self, event: dict, conv_doc: "EntityDocument", self_bot_ids: dict
+    ) -> str:
+        """根据复杂的业务规则，获取事件发送者在特定上下文中的最佳显示名称."""
+        event = event or {}
+        user_info = (
+            (event.get("user_info") or {}) if isinstance(event.get("user_info"), dict) else {}
+        )
+
+        details = getattr(conv_doc, "details", None)
+        conv_type = getattr(details, "type", None) or (event.get("conversation_info") or {}).get(
+            "type"
+        )
+        platform = getattr(details, "platform", None)
+
+        current_sender_id = user_info.get("user_id") or user_info.get("id") or ""
+        is_self_sender = bool(
+            platform
+            and current_sender_id
+            and self_bot_ids.get(platform) == str(current_sender_id)
+        )
+
+        friend_remark = (
+            (user_info.get("extra") or {}).get("friend_remark")
+            if isinstance(user_info.get("extra"), dict)
+            else None
+        )
+        cardname = user_info.get("user_cardname")
+        nickname = user_info.get("user_nickname")
+
+        if is_self_sender:
+            if platform and conv_doc and conv_doc._key:
+                presence_info = await self.get_self_presence_in_conversation(
+                    platform=platform,
+                    conversation_entity_uid=conv_doc._key,
+                )
+                self_entity = await self.get_self_entity_by_platform(platform)
+
+                if (
+                    conv_type == "group"
+                    and presence_info
+                    and (group_cardname := presence_info.get("cardname"))
+                ):
+                    return group_cardname
+
+                if self_entity and (
+                    platform_nickname := self_entity.get("details", {}).get("nickname")
+                ):
+                    return platform_nickname
+
+            return config.persona.bot_name
+
+        if isinstance(friend_remark, str) and friend_remark.strip():
+            return friend_remark
+        if conv_type == "group" and isinstance(cardname, str) and cardname.strip():
+            return cardname
+        if isinstance(nickname, str) and nickname.strip():
+            return nickname
+
+        user_id = user_info.get("user_id")
+        if isinstance(user_id, str) and user_id:
+            return f"用户({user_id[-4:]})"
+
+        return "未知用户"
 
     def _update_account_nickname_if_changed_sync(
         self, tx: Transaction, account_uid: str, new_nickname: str

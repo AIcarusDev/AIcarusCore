@@ -13,7 +13,6 @@ from src.common.intelligent_interrupt_system.intelligent_interrupter import Inte
 from src.common.intelligent_interrupt_system.models import SemanticModel
 from src.common.interruption_broker import InterruptionEventBroker
 from src.common.narrative_vectorizer.narrative_vectorizer import NarrativeVectorizer
-from src.common.unread_info_service.unread_info_service import UnreadInfoService
 from src.config import config
 from src.config.aicarus_configs import ModelParams
 from src.mind.abilities.deliberation_service import DeliberationService
@@ -94,7 +93,7 @@ class ServiceBuilder:
             db_services["conn_manager"], db_services["image_analysis_cache_service"]
         )
 
-        # [修改] ActionHandler 的初始化
+        # ActionHandler 的初始化
         action_handler = ActionHandler(
             filesystem_service=filesystem_service,
             info_retrieval_service=info_retrieval_service,
@@ -136,9 +135,6 @@ class ServiceBuilder:
             deliberation_service=deliberation_service,
         )
 
-        unread_info_service = UnreadInfoService(
-            db_services["event_storage_service"], db_services["entity_graph_service"]
-        )
         semantic_model = await self._get_semantic_model(db_services["event_storage_service"])
         narrative_vectorizer = NarrativeVectorizer(
             entity_service=db_services["entity_graph_service"],
@@ -158,53 +154,7 @@ class ServiceBuilder:
             narrative_vectorizer=narrative_vectorizer,
         )
 
-        event_receiver = EventReceiver(
-            event_handler_callback=message_processor.process_event,
-            action_handler_instance=action_handler,
-            adapter_clients_info=action_sender.adapter_clients_info,
-        )
-
-        core_comm_layer = CoreWebsocketServer(
-            host=config.server.host,
-            port=config.server.port,
-            event_receiver=event_receiver,
-            action_sender=action_sender,
-            event_storage_service=db_services["event_storage_service"],
-            action_handler_instance=action_handler,
-            entity_service=db_services["entity_graph_service"],
-            unread_info_service=unread_info_service,
-        )
-
-        stop_event = ThreadingEvent()
-        intrusive_generator = None
-
-        thought_generator = ThoughtGenerator(llm_clients["main_consciousness_llm_client"])
-        thought_persistor = ThoughtPersistor(db_services["thought_storage_service"])
-
-        core_logic = CoreLogic(
-            window_manager=window_manager,
-            application_manager=application_manager,
-            aicos_state_generator=aicos_state_generator,
-            core_comm_layer=core_comm_layer,
-            action_handler_instance=action_handler,
-            state_manager=state_manager,
-            thought_generator=thought_generator,
-            prompt_builder=prompt_builder,
-            stop_event=stop_event,
-            immediate_thought_trigger=AsyncioEvent(),
-            intrusive_generator_instance=intrusive_generator,
-            interruption_broker=interruption_broker,
-            thought_storage_service=db_services["thought_storage_service"],
-            entity_graph_service=db_services["entity_graph_service"],
-            thought_persistor=thought_persistor,
-        )
-
-        # 构建 IIS 模型
-        intelligent_interrupter = await self._initialize_interrupt_model(
-            db_services["event_storage_service"]
-        )
-
-        return ServiceContainer(
+        container = ServiceContainer(
             main_consciousness_llm_client=llm_clients["main_consciousness_llm_client"],
             summary_llm_client=llm_clients["summary_llm_client"],
             intrusive_thoughts_llm_client=llm_clients["intrusive_thoughts_llm_client"],
@@ -224,19 +174,19 @@ class ServiceBuilder:
             image_analysis_cache_service=db_services["image_analysis_cache_service"],
             action_handler=action_handler,
             sticker_service=sticker_service,
-            intelligent_interrupter=intelligent_interrupter,
+            intelligent_interrupter=await self._initialize_interrupt_model(
+                db_services["event_storage_service"]
+            ),
             internal_info_builder=internal_info_builder,
-            intrusive_generator=intrusive_generator,
             message_processor=message_processor,
             prompt_builder=prompt_builder,
             state_manager=state_manager,
-            thought_generator=thought_generator,
-            thought_persistor=thought_persistor,
-            unread_info_service=unread_info_service,
+            thought_generator=ThoughtGenerator(llm_clients["main_consciousness_llm_client"]),
+            thought_persistor=ThoughtPersistor(db_services["thought_storage_service"]),
             interruption_broker=interruption_broker,
             narrative_vectorizer=narrative_vectorizer,
-            core_comm_layer=core_comm_layer,
-            core_logic=core_logic,
+            core_comm_layer=None,  # 稍后填充
+            core_logic=None,      # 稍后填充
             window_manager=window_manager,
             application_manager=application_manager,
             aicos_state_generator=aicos_state_generator,
@@ -244,8 +194,51 @@ class ServiceBuilder:
             info_retrieval_service=info_retrieval_service,
             deliberation_service=deliberation_service,
             goal_manager=goal_manager,
-            chat_session_manager=None,
         )
+
+
+        # 接收完整的容器实例
+        event_receiver = EventReceiver(
+            mind_event_callback=message_processor.process_event,
+            action_handler_instance=action_handler,
+            service_container=container,
+        )
+
+
+        core_comm_layer = CoreWebsocketServer(
+            host=config.server.host,
+            port=config.server.port,
+            event_receiver=event_receiver,
+            action_sender=action_sender,
+            event_storage_service=db_services["event_storage_service"],
+            action_handler_instance=action_handler,
+            entity_service=db_services["entity_graph_service"],
+        )
+
+        stop_event = ThreadingEvent()
+
+        core_logic = CoreLogic(
+            window_manager=window_manager,
+            application_manager=application_manager,
+            aicos_state_generator=aicos_state_generator,
+            core_comm_layer=core_comm_layer,
+            action_handler_instance=action_handler,
+            state_manager=state_manager,
+            thought_generator=container.thought_generator,
+            thought_persistor=container.thought_persistor,
+            prompt_builder=prompt_builder,
+            stop_event=stop_event,
+            immediate_thought_trigger=AsyncioEvent(),
+            interruption_broker=interruption_broker,
+            thought_storage_service=db_services["thought_storage_service"],
+            entity_graph_service=db_services["entity_graph_service"],
+        )
+
+        # 填充容器中之前留空的服务
+        container.core_comm_layer = core_comm_layer
+        container.core_logic = core_logic
+
+        return container
 
     def _initialize_llm_clients(self) -> dict:
         """初始化所有配置的LLM客户端."""
@@ -402,7 +395,7 @@ class ServiceBuilder:
         self, event_storage_service: EventStorageService
     ) -> IntelligentInterrupter:
         """初始化中断判断模型."""
-        logger.info("=== 开始初始化中断判断模型（小色猫）... ===")
+        logger.info("=== 开始初始化中断判断模型... ===")
         iis_builder = IISBuilder(event_storage=event_storage_service)
         semantic_markov_model = await iis_builder.get_or_create_model()
         interrupt_config = config.interrupt_model

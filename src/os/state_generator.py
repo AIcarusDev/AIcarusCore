@@ -295,6 +295,37 @@ class AICOSStateGenerator:
                 content_node.text = window.content_state.get("error_message", "发生未知系统错误。")
                 return
 
+            # 增加对 QQ 新消息弹窗的专门渲染
+            #TODO: 这理应由apps中的qq管理，当前暂时由这里处理
+            elif window.window_class == "qq_new_message_popup":
+                content_node = SubElement(
+                    window_node,
+                    "content",
+                    attrib={"type": "new_message_alert"}
+                )
+                state = window.content_state
+                SubElement(
+                    content_node, "sender_name").text = state.get("sender_name", "未知发件人")
+                SubElement(
+                    content_node,
+                    "message_snippet"
+                ).text = state.get("message_snippet", "...")
+
+                actions_node = SubElement(content_node, "actions")
+                view_btn_path = [*current_path, "content", "view_now_button"]
+                view_btn_id = self._generate_semantic_id(view_btn_path)
+
+                SubElement(
+                    actions_node, "button",
+                    attrib={"id": view_btn_id, "name": "view_now", "title": "立即查看"}
+                )
+                self.ui_mapping[view_btn_id] = {
+                    "action_type": "click",
+                    "action": "open_conversation_window",
+                    "target_uid": state.get("target_conversation_uid"),
+                }
+                return
+
             app = next(
                 (
                     a

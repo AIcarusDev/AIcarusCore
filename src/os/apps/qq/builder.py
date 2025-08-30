@@ -1,4 +1,5 @@
-# 文件路径: src/apps/qq/builder.py
+# 文件路径: src/os/apps/qq/builder.py
+
 from __future__ import annotations
 
 import time
@@ -7,8 +8,11 @@ from typing import TYPE_CHECKING
 from xml.etree.ElementTree import Element
 
 from aicarus_protocols import Event, Seg
+from aicarus_protocols import Event as ProtocolEvent
+from src.common.custom_logging.logging_config import get_logger
+from src.common.utils import build_conversation_entity_uid
 from src.os.apps.interfaces import IApp, ISession
-from src.os.models import Window
+from src.os.models import Window, WindowStatus
 from src.services.action.components.base_builder import BasePlatformBuilder
 
 from .qq_chat_session_manager import ChatSessionManager
@@ -19,14 +23,82 @@ if TYPE_CHECKING:
     from src.services.database.services.entity_graph_service import EntityGraphService
     from src.services.database.services.event_storage_service import EventStorageService
 
+logger = get_logger(__name__)
 
 class QQBuilder(BasePlatformBuilder, IApp):
-    """QQ 平台的构建器，负责向 Core 注册 QQAdapter 的能力."""
+    """QQ 平台的构建器，现在负责处理 OS 级别的实时事件."""
 
     def __init__(self) -> None:
-        """初始化 QQBuilder."""
-        # 缓存 ChatSessionManager 实例
         self._session_manager_instance: ChatSessionManager | None = None
+
+    # OS 实时事件处理器
+    async def handle_os_level_event(
+        self,
+        event: ProtocolEvent,
+        container: ServiceContainer
+    ) -> None:
+        """处理分发到 OS 层的实时事件，主要用于触发 UI 变化，如弹窗."""
+        # 目前只关心新消息事件
+        if not event.event_type.startswith("message."):
+            return
+
+        # 获取 OS 层服务
+        window_manager = container.window_manager
+        application_manager = container.application_manager
+        entity_service = container.entity_graph_service
+
+        # --- 弹窗决策逻辑 ---
+        # 1. 必须是别人发的消息
+        bot_id = application_manager.get_self_bot_ids_map().get(event.get_platform())
+        if not bot_id or not event.user_info or str(event.user_info.user_id) == str(bot_id):
+            return
+
+        # 2. 当前不能有模态弹窗锁定UI
+        if window_manager.get_active_modal_popup():
+            return
+
+        # 3. 消息不能来自当前聚焦的聊天窗口
+        active_window = next(
+            (
+                w for w in reversed(window_manager.get_all_windows_sorted())
+                if w.status != WindowStatus.MINIMIZE
+            ),
+            None,
+        )
+
+        target_conv_uid = build_conversation_entity_uid(
+            event.get_platform(),
+            event.conversation_info.type,
+            event.conversation_info.conversation_id
+        )
+
+        if active_window and active_window.content_state.get("conversation_uid") == target_conv_uid:
+            return
+
+        # --- 所有条件满足，创建弹窗 ---
+        logger.info(f"[QQBuilder] 检测到来自 '{target_conv_uid}' 的新消息，触发弹窗。")
+
+        conv_doc = await entity_service.get_entity_by_key(target_conv_uid)
+        sender_name = await entity_service.get_sender_display_name_for_event(
+            event.to_dict(), conv_doc, application_manager.get_self_bot_ids_map()
+        )
+        snippet = await container.event_storage_service.get_event_text_summary(event.to_dict())
+
+        popup = Window(
+            id=f"win-popup-qq-newmsg-{target_conv_uid}",
+            parent_app_id="app-001",
+            title="新消息提醒",
+            window_class="qq_new_message_popup",
+            content_state={
+                "sender_name": sender_name,
+                "message_snippet": snippet,
+                "target_conversation_uid": target_conv_uid,
+            },
+            is_popup=True,
+            popup_type='interactive',
+            transient_cycles_remaining=1, # 显示一轮
+        )
+        window_manager.open_window(popup)
 
     def get_session_manager(self, container: ServiceContainer) -> ChatSessionManager:
         """按需创建并返回 ChatSessionManager 的单例.

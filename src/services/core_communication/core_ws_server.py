@@ -14,7 +14,6 @@ from aicarus_protocols import ConversationInfo, SegBuilder
 from aicarus_protocols import Event as ProtocolEvent
 from aicarus_protocols import UserInfo as ProtocolUserInfo
 from src.common.custom_logging.logging_config import get_logger
-from src.common.unread_info_service.unread_info_service import UnreadInfoService
 from src.config import config
 from src.mind.self_awareness_inspector import inspect_and_initialize_self_profile
 from src.os.apps.registry import platform_builder_registry
@@ -44,7 +43,6 @@ class CoreWebsocketServer:
         event_storage_service: EventStorageService,
         action_handler_instance: "ActionHandler",
         entity_service: "EntityGraphService",
-        unread_info_service: "UnreadInfoService",
     ) -> None:
         self.host: str = host
         self.port: int = port
@@ -54,7 +52,6 @@ class CoreWebsocketServer:
         self.action_sender = action_sender
         self.action_handler_instance = action_handler_instance
         self.entity_service = entity_service
-        self.unread_info_service = unread_info_service
         self.adapter_clients_info: dict[str, dict[str, Any]] = {}
         self._websocket_to_adapter_id: dict[WebSocketServerProtocol, str] = {}
         self._stop_event: asyncio.Event = asyncio.Event()
@@ -491,92 +488,6 @@ class CoreWebsocketServer:
             logger.info("AIcarus 核心 WebSocket 服务器已关闭。")
             self.server = None
 
-    async def get_connected_platforms_info(self) -> str:
-        """构建并返回所有平台的信息字符串，现在它能感知在线、离线和安检中的状态了!"""
-        # 从数据库获取所有已知的机器人账号
-        all_known_bots = await self.entity_service.get_all_self_entities()
-        # 使用安全的方式从嵌套结构中提取 platform 并构建字典
-        known_platforms = {}
-        for bot in all_known_bots:
-            # 安全地访问 details 字典，然后再安全地访问 platform 键
-            details = bot.get("details")
-            if isinstance(details, dict) and (platform_id := details.get("platform")):
-                known_platforms[platform_id] = bot
-            else:
-                logger.warning(
-                    f"在 'get_all_self_entities' 返回的机器人档案中缺少 'details.platform'，"
-                    f"已跳过: {bot}"
-                )
-
-        # 获取当前正连着网线的平台
-        connected_platforms_info = self.adapter_clients_info
-
-        all_platform_ids = set(known_platforms.keys()) | set(connected_platforms_info.keys())
-
-        if not all_platform_ids:
-            return "你暂时没有可用平台，可能是与平台连接断开或程序刚刚启动，请稍等。"
-
-        online_parts = []
-        offline_parts = []
-
-        # 遍历所有平台，生成结构化描述
-        for platform_id in sorted(all_platform_ids):
-            # 尝试从在线适配器中获取显示名称，如果没有，就用平台ID自身
-            display_name = connected_platforms_info.get(platform_id, {}).get(
-                "display_name", platform_id
-            )
-
-            # 构造每个平台的描述块
-            platform_block = [
-                f"- 平台名称: {display_name}",
-                f"  - 平台ID: {platform_id}",  # 关键：明确提供机器可读的ID
-            ]
-
-            # 情况 1 & 2: 平台当前在线
-            if platform_id in connected_platforms_info:
-                info = connected_platforms_info[platform_id]
-                profile = info.get("bot_profile")
-
-                if profile and isinstance(profile, dict):  # 安检通过，有身份了！
-                    bot_id = profile.get("user_id", "读取失败")
-                    bot_name = profile.get("nickname", "读取失败")
-                    platform_block.append("  - 状态: 在线")
-                    platform_block.append(f"  - 你的{platform_id}号是：{bot_id}")
-                    platform_block.append(f"  - 你的{platform_id}名称是：{bot_name}")
-                else:  # 正在安检
-                    platform_block.append("  - 状态: 在线 (正在获取你的信息，请稍等...)")
-
-                online_parts.extend(platform_block)
-
-            # 情况 3: 平台不在线，但数据库里有记录
-            elif platform_id in known_platforms:
-                profile = known_platforms[platform_id]
-                bot_id = profile.get("details", {}).get("platform_id", "未知ID")
-                bot_name = profile.get("details", {}).get("nickname", "未知昵称")
-                platform_block.append("  - 状态: 离线")
-                platform_block.append(f"  - 你的{platform_id}号是：{bot_id}")
-                platform_block.append(f"  - 你的{platform_id}名称是：{bot_name}")
-                offline_parts.extend(platform_block)
-
-        # 组装最终的报告
-        final_parts = []
-        if online_parts:
-            final_parts.append("你当前在线的平台：")
-            final_parts.extend(online_parts)
-
-        if offline_parts:
-            if not online_parts:
-                final_parts.append(
-                    "你暂时没有可用平台，可能是与平台连接断开或程序刚刚启动，请稍等。"
-                )
-            else:
-                final_parts.append("\n你当前离线的平台(可能断开了)：")
-            final_parts.extend(offline_parts)
-
-        if not final_parts:
-            return "你暂时没有可用平台，可能是与平台连接断开或程序刚刚启动，请稍等。"
-
-        return "\n".join(final_parts)
 
     async def stop(self) -> None:
         """停止WebSocket服务器和所有活动连接.
@@ -663,9 +574,5 @@ class CoreWebsocketServer:
                 bot_id_for_platform
             )
             logger.debug(f"ChatSessionManager 的 ID 地图已为平台 '{adapter_id}' 更新 (简单登记)。")
-
-        if self.unread_info_service:
-            self.unread_info_service.update_self_bot_ids({adapter_id: bot_id_for_platform})
-            logger.debug(f"UnreadInfoService 的 ID 地图已为平台 '{adapter_id}' 更新。")
 
         logger.info(f"平台 '{display_name}({adapter_id})' 已完成轻量化身份登记。")

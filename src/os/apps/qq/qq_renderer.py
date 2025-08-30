@@ -3,6 +3,7 @@
 import time
 from xml.etree.ElementTree import Element, SubElement
 
+from src.common.time_utils import format_relative_time
 from src.common.utils import parse_entity_uid
 from src.os.models import Window, WindowStatus
 from src.services.database.services.entity_graph_service import EntityGraphService
@@ -26,6 +27,35 @@ class QQWindowRenderer:
         self.event_service = event_service
         self.ui_mapping = ui_mapping
         self._generate_semantic_id = generate_semantic_id
+
+    async def _get_message_priority_tag(self, event: dict, bot_ids_map: dict) -> str:
+        """检查事件内容，如果包含@我或回复我，则返回一个高亮标签."""
+        all_my_bot_ids = set(bot_ids_map.values())
+        for seg in event.get("content", []):
+            if not isinstance(seg, dict):
+                continue
+            seg_type = seg.get("type")
+            if seg_type in ("at", "quote"):
+                target_user_id = str(seg.get("data", {}).get("user_id", ""))
+                if target_user_id in all_my_bot_ids:
+                    return "<b>[有人@你]</b>" if seg_type == "at" else "<b>[有人回复你]</b>"
+        return ""
+
+    async def _create_message_preview(
+        self, event: dict, conv_doc: dict, bot_ids_map: dict
+    ) -> tuple[str, str, str]:
+        """生成消息预览所需的所有组件 (发送者, 摘要, 优先级标签)."""
+        sender_display_name = await self.entity_service.get_sender_display_name_for_event(
+            event, conv_doc, bot_ids_map
+        )
+        priority_tag = await self._get_message_priority_tag(event, bot_ids_map)
+
+        snippet = await self.event_service.get_event_text_summary(event)
+
+        full_sender = (
+            f"{priority_tag} {sender_display_name}" if priority_tag else sender_display_name
+        )
+        return full_sender, snippet, format_relative_time(event.get("timestamp", 0))
 
     async def render_content(
         self,
@@ -59,19 +89,13 @@ class QQWindowRenderer:
     async def _render_conversation_list(
         self, window_node: Element, current_path: list[str], window: Window, bot_ids_map: dict
     ) -> None:
-        # 在渲染列表前，先渲染自身平台信息
         await self._render_self_platform_profile(window_node, "qq")
 
         page = window.content_state.get("page", 1)
         page_size = 30 if window.status == WindowStatus.MAXIMIZE else 15
 
-        bot_id = bot_ids_map.get("qq")
-        if not bot_id:
-            SubElement(window_node, "error").text = "内部错误：无法获取机器人ID。"
-            return
-
         conversations, total_pages = await self.entity_service.get_paged_conversations(
-            platform_id="qq", page=page, page_size=page_size, self_bot_ids={"qq": bot_id}
+            platform_id="qq", page=page, page_size=page_size, self_bot_ids=bot_ids_map
         )
 
         list_node = SubElement(
@@ -92,13 +116,14 @@ class QQWindowRenderer:
 
         for conv_data in conversations:
             conv_doc = conv_data.get("conv_doc")
-            if not conv_doc:
+            latest_event = conv_data.get("latest_event")
+            if not conv_doc or not latest_event:
                 continue
 
             conv_uid = conv_doc._key
             conv_name = conv_doc.details.name or "未知会话"
-
             conv_path = [*list_path, conv_name]
+
             conv_node = SubElement(
                 list_node,
                 "conversation",
@@ -109,11 +134,18 @@ class QQWindowRenderer:
                 },
             )
 
-            latest_msg_text = await self.event_service.get_event_text_summary(
-                conv_data.get("latest_event")
+            # 调用新的预览生成逻辑
+            sender, snippet, time_str = await self._create_message_preview(
+                latest_event, conv_doc, bot_ids_map
             )
-            SubElement(conv_node, "desc").text = f"[最新消息]: {latest_msg_text}"
 
+            # 渲染精细化的最新消息
+            latest_msg_node = SubElement(conv_node, "latest_message")
+            SubElement(latest_msg_node, "sender").text = sender
+            SubElement(latest_msg_node, "snippet").text = snippet
+            SubElement(latest_msg_node, "time").text = time_str
+
+            # 渲染进入按钮
             enter_btn_id = self._generate_semantic_id([*conv_path, "enter_button"])
             SubElement(
                 conv_node,
