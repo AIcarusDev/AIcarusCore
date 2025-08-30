@@ -108,14 +108,10 @@ class WorkingMemoryBuilder:
         """将记忆片段列表渲染为最终的 XML 字符串."""
         if not fragments:
             return (
-                '<working_memories scope="short_term_buffer" time_unit="cognitive_cycle" order="descending">\n'  # noqa: E501
                 '  <memory cycle_ago="more" status="forgotten"/>\n'
-                '</working_memories>'
             )
 
-        lines = [
-            '<working_memories scope="short_term_buffer" time_unit="cognitive_cycle" order="descending">',  # noqa: E501
-        ]
+        lines = []
         for frag in fragments:
             lines.append(f'  <memory cycle_ago="{frag.cycle_ago}" status="{frag.status}">')
 
@@ -148,5 +144,4 @@ class WorkingMemoryBuilder:
         if len(fragments) >= self.get_memory_depth():
             lines.append('  <memory cycle_ago="more" status="forgotten"/>')
 
-        lines.append('</working_memories>')
         return "\n".join(lines)
