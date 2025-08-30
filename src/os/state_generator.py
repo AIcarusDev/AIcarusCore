@@ -1,4 +1,5 @@
-# src/aicos/state_generator.py
+# 文件路径: src/os/state_generator.py
+
 import re
 from xml.dom.minidom import parseString
 from xml.etree.ElementTree import Element, SubElement, tostring
@@ -20,6 +21,7 @@ class AICOSStateGenerator:
 
     并生成 UI 元素到内部实体的映射。
     使用基于稳定 `name` 的、带编码的、确定性语义化ID生成方案。
+    支持模态弹窗的渲染劫持。
     """
 
     def __init__(
@@ -43,11 +45,10 @@ class AICOSStateGenerator:
         # 1. 替换点号，因为我们用它做分隔符
         encoded_part = part.replace(".", "__dot__")
         # 2. 替换所有其他非法字符为下划线
-        encoded_part = self._invalid_id_chars_pattern.sub("_", encoded_part)
-        return encoded_part
+        return self._invalid_id_chars_pattern.sub("_", encoded_part)
 
     def _generate_semantic_id(self, path_parts: list[str]) -> str:
-        """[新核心] 根据语义路径列表生成一个确定性的、编码过的UI ID."""
+        """根据语义路径列表生成一个确定性的、编码过的UI ID."""
         encoded_parts = [self._encode_id_part(part) for part in path_parts]
         return ".".join(encoded_parts)
 
@@ -64,17 +65,33 @@ class AICOSStateGenerator:
         self._ui_mapping = {}
         image_collector = image_collector if image_collector is not None else []
 
+        # 窗老化逻辑
+        self.window_manager.age_transient_popups()
+
         if not self.is_connected:
             return self._render_disconnected_state()
 
         root = Element("AIC-OS", attrib={"connection": "connected", "lifecycle": "running"})
         SubElement(root, "desc").text = "欢迎来到Aic-OS。一个为AI交互设计的轻量级操作系统。"
 
-        self._render_softwares(root)
-
-        base_path = ["aicos"]
-        self._render_background_processes(root, [*base_path, "task_manager"])
-        await self._render_desktop(root, [*base_path, "desktop"], image_collector)
+        # 模态弹窗检查
+        active_modal = self.window_manager.get_active_modal_popup()
+        if active_modal:
+            logger.info(f"检测到模态弹窗 '{active_modal.id}'，执行劫持渲染。")
+            desktop_node = SubElement(
+                root,
+                "desktop",
+                attrib={"name": "desktop", "parent": "uti-002", "status": "modal_lock"}
+            )
+            windows_node = SubElement(desktop_node, "windows", attrib={"name": "windows"})
+            modal_path = ["aicos", "desktop", "modal_" + self._encode_id_part(active_modal.id)]
+            await self._render_window_frame(windows_node, modal_path, active_modal, image_collector)
+        else:
+            # 正常渲染
+            self._render_softwares(root)
+            base_path = ["aicos"]
+            self._render_background_processes(root, [*base_path, "task_manager"])
+            await self._render_desktop(root, [*base_path, "desktop"], image_collector)
 
         xml_string = self._pretty_print_xml(root)
         return xml_string, self._ui_mapping
@@ -203,17 +220,20 @@ class AICOSStateGenerator:
         image_collector: list[dict]
     ) -> None:
         """此方法负责渲染窗口的通用外框和控件，内容部分委托给应用渲染器."""
-        window_node = SubElement(
-            parent_element,
-            "window",
-            attrib={
-                "id": window.id,
-                "parent": window.parent_app_id,
-                "class": window.window_class,
-                "title": window.title,
-                "status": window.status.value,
-            },
-        )
+        # 弹窗属性的渲染
+        window_attrs = {
+            "id": window.id,
+            "parent": window.parent_app_id,
+            "class": window.window_class,
+            "title": window.title,
+            "status": window.status.value,
+        }
+        if window.is_popup:
+            window_attrs["class"] = "popup" # 覆盖或设置为 popup
+            if window.popup_type:
+                window_attrs["popup-type"] = window.popup_type
+
+        window_node = SubElement(parent_element, "window", attrib=window_attrs)
 
         controls_node = SubElement(window_node, "controls")
         controls_path = [*current_path, "controls"]
@@ -257,8 +277,11 @@ class AICOSStateGenerator:
             }
 
         close_btn_id = self._generate_semantic_id([*controls_path, "close_button"])
+        close_btn_title = "确认" if window.popup_type == 'modal' else "关闭"
         SubElement(
-            controls_node, "button", attrib={"id": close_btn_id, "name": "close", "title": "关闭"}
+            controls_node,
+            "button",
+            attrib={"id": close_btn_id, "name": "close", "title": close_btn_title},
         )
         self._ui_mapping[close_btn_id] = {
             "action_type": "click",
@@ -266,8 +289,12 @@ class AICOSStateGenerator:
             "target_uid": window.id,
         }
 
-        # 委托渲染
         if window.status != WindowStatus.MINIMIZE:
+            if window.window_class == "system_error_modal":
+                content_node = SubElement(window_node, "content", attrib={"type": "error_message"})
+                content_node.text = window.content_state.get("error_message", "发生未知系统错误。")
+                return
+
             app = next(
                 (
                     a

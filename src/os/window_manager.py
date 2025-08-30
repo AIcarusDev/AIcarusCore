@@ -1,4 +1,5 @@
-# src/aicos/window_manager.py
+# 文件路径: src/os/window_manager.py
+
 import time
 
 from .models import Window, WindowStatus
@@ -10,7 +11,7 @@ MAX_NORMAL_WINDOWS = 4
 class WindowManager:
     """管理 AIC-OS 中所有窗口的生命周期、状态和层级.
 
-    执行窗口数量限制规则.
+    执行窗口数量限制规则，并管理弹窗。
     """
 
     def __init__(self) -> None:
@@ -44,9 +45,10 @@ class WindowManager:
         return False
 
     def set_window_status(self, window_id: str, new_status: WindowStatus) -> bool:
-        """设置窗口的状态 (normal, minimize, maximize)。
+        """设置窗口的状态 (normal, minimize, maximize).
+
         这也会触发窗口限制规则的执行.
-        """  # noqa: D205
+        """
         if window_id not in self._windows:
             return False
 
@@ -77,6 +79,35 @@ class WindowManager:
         """
         return sorted(self._windows.values(), key=lambda w: w.z_order)
 
+    def get_active_modal_popup(self) -> Window | None:
+        """查找并返回当前最顶层的、激活的模态弹窗."""
+        # 按 z_order 降序查找，确保找到最顶层的那个
+        for window in sorted(self._windows.values(), key=lambda w: w.z_order, reverse=True):
+            if (
+                window.is_popup and
+                window.popup_type == 'modal' and
+                window.status != WindowStatus.MINIMIZE
+            ):
+                return window
+        return None
+
+    def age_transient_popups(self) -> None:
+        """“老化”所有瞬态弹窗。在每个认知周期开始时调用.
+
+        它会减少剩余生命周期，并移除生命周期结束的弹窗。
+        """
+        expired_popup_ids = []
+        for window_id, window in self._windows.items():
+            if window.is_popup and window.transient_cycles_remaining is not None:
+                window.transient_cycles_remaining -= 1
+                if window.transient_cycles_remaining <= 0:
+                    expired_popup_ids.append(window_id)
+
+        if expired_popup_ids:
+            for popup_id in expired_popup_ids:
+                self.close_window(popup_id)
+            print(f"清除了 {len(expired_popup_ids)} 个过期的瞬态弹窗。")
+
     def _enforce_window_limits(self, newly_opened_window_id: str | None = None) -> None:
         """核心规则执行器.
 
@@ -94,7 +125,11 @@ class WindowManager:
             return  # 独占规则优先，直接返回
 
         # 规则2: 普通窗口数量限制
-        normal_windows = [w for w in self._windows.values() if w.status == WindowStatus.NORMAL]
+        # 弹窗不计入普通窗口数量限制
+        normal_windows = [
+            w for w in self._windows.values()
+            if w.status == WindowStatus.NORMAL and not w.is_popup
+        ]
 
         if len(normal_windows) > MAX_NORMAL_WINDOWS:
             # 找出需要被最小化的窗口

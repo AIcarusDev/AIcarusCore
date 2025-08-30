@@ -127,11 +127,41 @@ async def _handle_ui_interaction(
             app_windows = [
                 w for w in window_manager.get_all_windows_sorted() if w.parent_app_id == app_id
             ]
-            if not app_windows:
+            if not app_windows and not closed_window.is_popup:
                 application_manager.stop_app(app_id)
                 logger.info(f"应用 '{app_id}' 所有窗口已关闭，进程已停止。")
 
     elif internal_command == "start_app":
+        app = next((a for a in application_manager.get_all_apps() if a.id == target_uid), None)
+        if not app:
+            logger.error(f"尝试启动一个不存在的应用: '{target_uid}'")
+            return
+
+        # 解析平台信息
+        platform_id = app.name
+        self_entity = await container.entity_graph_service.get_self_entity_by_platform(platform_id)
+
+        if not self_entity:
+            error_message = (
+                f"无法启动应用 '{app.title}'。\n"
+                f"原因：尚未获取到你在此平台 ({platform_id}) 的身份信息。"
+                f"请确保对应的适配器已连接，并稍等片刻待系统完成安检。"
+            )
+            logger.error(error_message.replace('\n', ' '))
+
+            error_popup = Window(
+                id=f"win-error-startup-{app.id}",
+                parent_app_id=app.id,
+                title=f"{app.title} - 启动失败",
+                window_class="system_error_modal",
+                content_state={"error_message": error_message},
+                is_popup=True,
+                popup_type='modal',
+                transient_cycles_remaining=None,
+            )
+            window_manager.open_window(error_popup)
+            return
+
         app_windows = [
             w for w in window_manager.get_all_windows_sorted() if w.parent_app_id == target_uid
         ]
@@ -141,8 +171,7 @@ async def _handle_ui_interaction(
         else:
             application_manager.start_app(target_uid)
             logger.info(f"应用 '{target_uid}' 已启动。")
-            app = next((a for a in application_manager.get_all_apps() if a.id == target_uid), None)
-            if app and app.name == "qq":
+            if app.name == "qq":
                 main_window = Window(
                     id=f"win-{app.id}-main",
                     parent_app_id=app.id,

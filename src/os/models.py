@@ -1,11 +1,12 @@
-# src/aicos/models.py
+# 文件路径: src/os/models.py
+
 import time
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Literal
 
-# --- 枚举类型，让状态更清晰、更安全 ---
 
-
+# --- 枚举类型 ---
 class WindowStatus(Enum):
     """窗口状态的枚举，指示窗口的当前状态."""
 
@@ -20,6 +21,8 @@ class ApplicationLifecycle(Enum):
     RUNNING = "running"
     STOPPED = "stopped"
 
+# 弹窗类型定义
+PopupType = Literal["notification", "interactive", "modal"]
 
 # --- 核心数据结构 ---
 
@@ -55,6 +58,11 @@ class Window:
     # content_state 用于存储窗口的特定内容状态，例如当前页码
     content_state: dict = field(default_factory=dict)
 
+    # 弹窗相关属性
+    is_popup: bool = False
+    popup_type: PopupType | None = None
+    # 瞬态弹窗的生命周期（认知周期数），None 表示持久存在
+    transient_cycles_remaining: int | None = None
 
 @dataclass
 class Application:

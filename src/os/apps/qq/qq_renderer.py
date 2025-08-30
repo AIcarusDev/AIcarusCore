@@ -1,5 +1,4 @@
-# 文件路径: src/apps/qq/qq_renderer.py
-# [新增] 这是一个全新的文件，负责所有QQ应用窗口内容的渲染逻辑。
+# 文件路径: src/os/apps/qq/qq_renderer.py
 
 import time
 from xml.etree.ElementTree import Element, SubElement
@@ -46,11 +45,23 @@ class QQWindowRenderer:
                 parent_element, current_path, window, bot_ids_map, image_collector
             )
 
+    async def _render_self_platform_profile(self, window_node: Element, platform_id: str) -> None:
+        """负责查询并渲染机器人在指定平台的基础档案（ID和昵称）."""
+        self_entity = await self.entity_service.get_self_entity_by_platform(platform_id)
+        if self_entity and self_entity.get("details"):
+            details = self_entity["details"]
+            profile_attrs = {
+                "user_id": details.get("platform_id", "未知"),
+                "nickname": details.get("nickname", "未知"),
+            }
+            SubElement(window_node, "self_profile_on_platform", attrib=profile_attrs)
+
     async def _render_conversation_list(
         self, window_node: Element, current_path: list[str], window: Window, bot_ids_map: dict
     ) -> None:
-        # [移动] 此方法逻辑从 AICOSStateGenerator 移动至此
-        # (此处的具体实现可以保持原样，核心是职责的转移)
+        # 在渲染列表前，先渲染自身平台信息
+        await self._render_self_platform_profile(window_node, "qq")
+
         page = window.content_state.get("page", 1)
         page_size = 30 if window.status == WindowStatus.MAXIMIZE else 15
 
@@ -149,7 +160,7 @@ class QQWindowRenderer:
         self_profile_attrs = {k: v for k, v in self_profile_attrs.items() if v}
         SubElement(window_node, "self_profile_in_chat", attrib=self_profile_attrs)
 
-        # ==================== 增强方案: 分页与消息渲染 ====================
+        # 分页与消息渲染
         page = window.content_state.get("page", 1)
         page_size = 30 if window.status == WindowStatus.MAXIMIZE else 15
 
