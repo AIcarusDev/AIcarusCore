@@ -34,10 +34,7 @@ class MessageBuilder:
         self._current_segments: list[Seg] = []
 
     async def process_steps(self, steps: list[dict]) -> bool:
-        """核心工作方法。它会一步步阅读指令清单（steps），并执行翻译.
-
-        在竞速模式下，它不再检查中断信号.
-        """
+        """核心工作方法。它会一步步阅读指令清单（steps），并执行翻译."""
         logger.info(
             f"MessageBuilder 开始为会话 {self.conversation_info.conversation_id} "
             f"处理 {len(steps)} 个指令步骤..."

@@ -41,17 +41,20 @@ async def orchestrate_action(
 ) -> None:
     """动作总编排器.
 
-    Mind 和 Action/OS 之间的桥梁，负责解析决策并分发到正确的处理器。
+    Mind 和 Action/OS 之间的桥梁，负责解析LLM的决策并分发到正确的处理器。
     """
     if not decision_json or not isinstance(decision_json, dict):
         return
 
     logger.info(f"动作编排器开始处理决策 (源自 Thought: {thought_key}): {decision_json}")
 
+    # 1. 解析动作负载
     if action_payload := decision_json.get("action"):
+        # 2. 路由内部动作
         if internal_action := action_payload.get("internal"):
             await _route_internal_action(internal_action, container, thought_key)
 
+        # 3. 路由外部动作
         if external_action := action_payload.get("external"):
             await _route_external_action(external_action, ui_mapping, container)
 
@@ -61,7 +64,7 @@ async def _route_internal_action(
     container: "ServiceContainer",
     thought_key: str
 ) -> None:
-    """将内部动作路由到对应的 Mind 或 Service 层服务执行."""
+    """将内部动作路由到对应的 Mind 层服务执行."""
     action_name = next(iter(internal_action), None)
     if not action_name:
         return
@@ -100,27 +103,32 @@ async def _route_external_action(
     action_handler = container.action_handler
     aicos_state_generator = container.aicos_state_generator
 
+    # 分发 "innate" (固有能力) 动作
     if innate_action := external_action.get("innate"):
         action_name = next(iter(innate_action), None)
         if not action_name:
             return
         action_params = innate_action[action_name]
 
-        if action_name == "connect":
-            if action_params.get("device_name") == "AIC-OS":
-                aicos_state_generator.is_connected = True
-                logger.info("设备 AIC-OS 已连接。")
-        else:
-            motivation = action_params.get("motivation", "由 AI 核心决策发起")
-            temp_thought_id = f"thought_for_{action_name}_{uuid.uuid4().hex[:6]}"
-            action_json_for_handler = {"core": {action_name: action_params}}
-            await action_handler.process_action_flow(
-                action_id=f"action_{uuid.uuid4().hex[:6]}",
-                doc_key_for_updates=temp_thought_id,
-                action_json=action_json_for_handler,
-                metadata=ActionMetadata(motivation=motivation),
-            )
+        # 特殊处理 connect, 因为它直接改变OS状态
+        if action_name == "connect" and action_params.get("device_name") == "AIC-OS":
+            aicos_state_generator.is_connected = True
+            logger.info("设备 AIC-OS 已连接。")
+            return
 
-    # 调用 OS 层的 UI Dispatcher
+        # 其他固有能力(文件、搜索)是需要异步等待结果的，交给 ActionHandler 处理
+        motivation = action_params.get("motivation", "由 AI 核心决策发起")
+        temp_thought_id = f"thought_for_{action_name}_{uuid.uuid4().hex[:6]}"
+
+        # ActionHandler 的 process_action_flow 现在是处理这类动作的专家
+        action_json_for_handler = {"core": {action_name: action_params}}
+        await action_handler.process_action_flow(
+            action_id=f"action_{uuid.uuid4().hex[:6]}",
+            doc_key_for_updates=temp_thought_id,
+            action_json=action_json_for_handler,
+            metadata=ActionMetadata(motivation=motivation),
+        )
+
+    # 分发所有 AIC-OS 的 UI 交互到 UI Dispatcher
     elif aicos_interaction := external_action.get("AIC-OS"):
         await handle_os_interaction(aicos_interaction, ui_mapping, container)

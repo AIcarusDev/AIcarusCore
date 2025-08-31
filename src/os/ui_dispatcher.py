@@ -20,19 +20,19 @@ async def handle_os_interaction(
 ) -> None:
     """统一处理所有与 AIC-OS GUI 相关的交互.
 
-    这是 OS 层的唯一入口点。
+    这是 OS 层的唯一交互入口.
     """
     window_manager = container.window_manager
     application_manager = container.application_manager
 
-    # 解析基础UI交互
+    # 1. 解析基础UI交互 (click, double_click)
     if base_interaction := aicos_interaction.get("base"):
         action_name = next(iter(base_interaction), None)
         if not action_name:
             return
         action_params = base_interaction[action_name]
         if action_name in ["click", "double_click"]:
-            await _handle_ui_interaction(
+            await _handle_base_ui_interaction(
                 action_name,
                 action_params,
                 ui_mapping,
@@ -41,8 +41,9 @@ async def handle_os_interaction(
                 container,
             )
 
-    # 解析特定应用的交互 (例如 qq)
+    # 2. 解析特定应用的交互 (例如 qq.send_message)
     else:
+        # 遍历 interaction, 找到平台ID (e.g., 'qq')
         for platform_id, platform_action in aicos_interaction.items():
             if platform_id == "base":
                 continue
@@ -50,14 +51,17 @@ async def handle_os_interaction(
             if not action_name:
                 continue
             params = platform_action[action_name]
-            logger.info(f"路由平台GUI动作 '{platform_id}.{action_name}' 到 ActionHandler")
+            logger.info(f"UI Dispatcher: 路由平台GUI动作 '{platform_id}.{action_name}'")
+
+            # 对于需要和外部适配器通信的动作，我们调用 ActionHandler
+            # ActionHandler 现在是这方面的专家
             await container.action_handler.handle_aicos_gui_action(
                 platform_id, action_name, params, window_manager
             )
-            break
+            break # 一个决策只执行一个平台的动作
 
 
-async def _handle_ui_interaction(
+async def _handle_base_ui_interaction(
     action_name: str,
     params: dict,
     ui_mapping: dict,
@@ -183,7 +187,7 @@ async def _handle_ui_interaction(
                 )
                 logger.error(error_message.replace('\n', ' '))
                 error_popup = Window(
-                    id=f"win-error-startup-{app.id}",
+                    name=f"win-error-startup-{app.id}",
                     parent_app_id=app.id,
                     title=f"{app.title} - 启动失败",
                     window_class="system_error_modal",
@@ -199,7 +203,7 @@ async def _handle_ui_interaction(
             application_manager.start_app(target_uid)
             logger.info(f"应用 '{target_uid}' 已启动。")
             main_window = Window(
-                iname="qq_main",
+                name="qq_main",
                 parent_app_id=app.id,
                 title=f"{app.title}",
                 window_class="main",

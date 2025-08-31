@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 import uuid
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any
 
 from src.common.custom_logging.logging_config import get_logger
 from src.common.utils import parse_entity_uid
@@ -23,24 +24,18 @@ from src.services.database import (
 
 if TYPE_CHECKING:
     from src.mind.abilities.information_retrieval_service import InformationRetrievalService
-    from src.mind.consciousness_flow import CoreLogic
-    from src.os.apps.qq.qq_chat_session_manager import QQChatSessionManager
     from src.os.services.filesystem_service import FileSystemService
     from src.os.window_manager import WindowManager
 
 
 logger = get_logger(__name__)
 
-INFO_GATHERING_ACTIONS = {"get_list", "get_group_info", "get_bot_profile", "get_history"}
-
 
 class ActionHandler:
-    """处理所有与动作相关的逻辑，作为一个纯粹的调度中心."""
+    """处理所有需要与外部适配器进行异步通信的动作.
 
-    NORMALIZATION_ACTIONS: ClassVar[dict[str, str]] = {
-        "delete_friend": "user_id",
-        "leave_conversation": "group_id",
-    }
+    纯粹的“外部动作”调度中心。
+    """
 
     def __init__(
         self,
@@ -53,7 +48,6 @@ class ActionHandler:
         entity_service: EntityGraphService,
         sticker_service: StickerService,
     ) -> None:
-        # 保存服务实例
         self.filesystem_service = filesystem_service
         self.info_retrieval_service = info_retrieval_service
         self.thought_storage_service = thought_storage_service
@@ -63,72 +57,12 @@ class ActionHandler:
         self.entity_service = entity_service
         self.sticker_service = sticker_service
 
-        # 动态注入的依赖
-        self.chat_session_manager: QQChatSessionManager | None = None
-        self.core_logic: CoreLogic | None = None
-        self.immediate_thought_trigger: asyncio.Event | None = None
-
-        self.pending_action_manager = PendingActionManager(
-            action_log_service=self.action_log_service,
-            thought_storage_service=self.thought_storage_service,
-            event_storage_service=self.event_storage_service,
-            action_handler_instance=self,
-        )
-        logger.info(f"{self.__class__.__name__} instance created (等待动态依赖注入).")
-
-    def set_dynamic_dependencies(
-        self,
-        chat_session_manager: QQChatSessionManager,
-        core_logic: CoreLogic,
-        trigger_event: asyncio.Event,
-    ) -> None:
-        """注入动态依赖 (在安检后)."""
-        self.chat_session_manager = chat_session_manager
-        self.core_logic = core_logic
-        self.immediate_thought_trigger = trigger_event
-        logger.info("ActionHandler 的动态依赖已成功设置。")
+        self.pending_action_manager = PendingActionManager()
+        logger.info(f"{self.__class__.__name__} instance created (Refactored).")
 
     async def handle_action_response(self, response_event_data: dict[str, Any]) -> None:
-        """处理动作响应."""
-        if self.pending_action_manager:
-            await self.pending_action_manager.handle_response(response_event_data)
-        else:
-            logger.error("PendingActionManager 未初始化，无法处理动作响应。")
-
-    async def _handle_local_action(
-        self, platform_id: str, action_name: str, params: dict, doc_key: str
-    ) -> None:
-        """处理本地执行的动作 (如 qq.scroll)."""
-        result_text = ""
-        if platform_id == "qq" and action_name == "scroll":
-            # (此处的 _execute_local_scroll_action 逻辑保持不变)
-            params_val = params.get("params")
-            if not params_val or params_val not in ["up", "down"]:
-                result_text = f"错误：收到无效的滚动方向 '{params_val}'。"
-            elif not self.chat_session_manager:
-                result_text = "错误：会话管理器未就绪，无法执行滚动。"
-            elif platform_id not in self.chat_session_manager.platform_view_states:
-                result_text = f"错误：找不到平台 '{platform_id}' 的视图状态。"
-            else:
-                state = self.chat_session_manager.platform_view_states[platform_id]
-                current_offset = state.get("scroll_offset", 0)
-                page_size = 10
-                if params_val == "down":
-                    state["scroll_offset"] = current_offset + page_size
-                    action_desc = "向下"
-                elif params_val == "up":
-                    state["scroll_offset"] = max(0, current_offset - page_size)
-                    action_desc = "向上"
-                logger.info(f"平台 '{platform_id}' 视图已滚动, 新偏移量: {state['scroll_offset']}")
-                result_text = f"成功地将列表 {action_desc} 滚动了一页。"
-
-        if self.thought_storage_service:
-            await self.thought_storage_service.save_action_result_to_thought(
-                thought_key=doc_key, result_text=result_text
-            )
-        if self.immediate_thought_trigger:
-            logger.info(f"本地动作 '{platform_id}.{action_name}' 完成，立即触发新一轮思考。")
-            self.immediate_thought_trigger.set()
+        """处理动作响应，直接委托给 PendingActionManager."""
+        await self.pending_action_manager.handle_response(response_event_data)
 
     async def process_action_flow(
         self,
@@ -137,62 +71,43 @@ class ActionHandler:
         action_json: dict[str, Any],
         metadata: ActionMetadata,
     ) -> None:
-        """统一的行动处理流程，负责分发任务到具体的处理器."""
-        # (此方法内部逻辑保持不变)
-        logger.info(f"[探灯B] ActionHandler 收到的 action_json: {action_json}")
-        logger.info(
-            f"-- [Action ID: {action_id}] 开始处理行动流程 (动机: {metadata.motivation[:50]}...) --"
-        )
-        if not (platform_id := next(iter(action_json), None)) or not (
-            actions_to_process := action_json.get(platform_id)
-        ):
-            logger.info("AI决策的动作对象为空或格式不正确，无需执行。")
-            if self.core_logic and (session := self.core_logic._get_current_session()):
-                session.no_action_count += 1
+        """统一的外部行动处理流程.
+
+        现在只处理 innate (core) 和需要发往适配器的 platform 动作。
+        """
+        namespace = next(iter(action_json), None)
+        if not namespace:
             return
+
+        actions_to_process = action_json[namespace]
         action_name, params = next(iter(actions_to_process.items()))
-        if platform_id == "qq" and action_name == "scroll":
-            await self._handle_local_action(platform_id, action_name, params, doc_key_for_updates)
-        elif platform_id == "core":
-            await self._handle_core_action_flow(action_name, params, doc_key_for_updates)
-        elif platform_id == "qq" and action_name == "manage_stickers":
-            if not self.sticker_service:
-                logger.error("StickerService 未注入，无法处理 manage_stickers 动作。")
-                return
-            result_text = await self.sticker_service.manage_stickers(platform_id, params)
-            if self.thought_storage_service:
-                await self.thought_storage_service.save_action_result_to_thought(
-                    thought_key=doc_key_for_updates, result_text=result_text
-                )
-            if self.immediate_thought_trigger:
-                logger.info(
-                    f"表情包管理动作 '{platform_id}.{action_name}' 完成，立即触发新一轮思考。"
-                )
-                self.immediate_thought_trigger.set()
+
+        if namespace == "core":
+            await self._handle_innate_action(action_name, params, doc_key_for_updates)
         else:
             await self._execute_platform_action_flow(
-                platform_id, action_name, params, doc_key_for_updates, metadata
+                namespace, action_name, params, doc_key_for_updates, metadata
             )
-            if action_name in INFO_GATHERING_ACTIONS and self.immediate_thought_trigger:
-                logger.info(
-                    f"信息获取类平台动作 '{platform_id}.{action_name}' 完成，立即触发新一轮思考。"
-                )
-                self.immediate_thought_trigger.set()
 
-    async def _handle_core_action_flow(self, action_name: str, params: dict, doc_key: str) -> None:
-        """[核心修改] 处理 'core' 命名空间下的动作，分发到对应的服务."""
+    async def _handle_innate_action(self, action_name: str, params: dict, doc_key: str) -> None:
+        """处理所有固有的、本地执行的核心能力."""
         result_text = ""
         try:
-            # 分发到信息检索服务
             if action_name == "web_search":
                 result_text = await self.info_retrieval_service.web_search(params)
             elif action_name == "summarize_url":
                 result_text = await self.info_retrieval_service.summarize_url(params)
-            # 分发到文件系统服务 (使用 to_thread 保证不阻塞事件循环)
             elif action_name == "list_files":
                 result_text = await asyncio.to_thread(self.filesystem_service.list_files, params)
             elif action_name == "read_file":
-                result_text = await asyncio.to_thread(self.filesystem_service.read_file, params)
+                path_str = params.get("path")
+                safe_path = self.filesystem_service.resolve_safe_path(path_str)
+                if not safe_path:
+                    result_text = f"错误：路径 '{path_str}' 不安全或无效。"
+                else:
+                    result_text = await asyncio.to_thread(
+                        self.filesystem_service.read_file, safe_path, path_str
+                    )
             elif action_name == "write_file":
                 result_text = await asyncio.to_thread(self.filesystem_service.write_file, params)
             elif action_name == "edit_file":
@@ -201,7 +116,7 @@ class ActionHandler:
                 result_text = await asyncio.to_thread(
                     self.filesystem_service.get_aggregated_content, params
                 )
-            elif action_name == "delete_file":
+            elif action_name == "delete_workspace_file": # 修正方法名
                 result_text = await asyncio.to_thread(self.filesystem_service.delete_file, params)
             else:
                 logger.error(f"收到了一个未知的核心动作: '{action_name}'")
@@ -210,49 +125,9 @@ class ActionHandler:
             logger.error(f"执行核心动作 '{action_name}' 时发生错误: {e}", exc_info=True)
             result_text = f"错误：执行核心动作 '{action_name}' 时发生内部错误。"
 
-        if self.thought_storage_service:
-            await self.thought_storage_service.save_action_result_to_thought(
-                thought_key=doc_key, result_text=result_text
-            )
-        if self.immediate_thought_trigger:
-            logger.info(f"核心动作 '{action_name}' 完成，立即触发新一轮思考。")
-            self.immediate_thought_trigger.set()
-
-    def _get_id_from_params(self, action_name: str, params: dict) -> str | None:
-        """根据动作名称，从参数字典中提取目标ID字符串."""
-        id_key = "user_id" if "friend" in action_name else "group_id"
-        return params.get(id_key)
-
-    def _get_id_from_session(self) -> str | None:
-        """如果在会话上下文中，则从中提取原生ID作为回退."""
-        if self.core_logic and (session := self.core_logic._get_current_session()):
-            if parsed_tuple := parse_entity_uid(session.conversation_id):
-                return parsed_tuple[2]
-            logger.error(f"无法从当前会话的实体UID '{session.conversation_id}' 中解析出原生ID。")
-        return None
-
-    def _normalize_id_string(self, id_string: str, platform_id: str) -> str | None:
-        """将一个可能是完整UID的字符串规范化为平台原生ID."""
-        if parsed_tuple := parse_entity_uid(id_string):
-            parsed_platform, _, native_id = parsed_tuple
-            if parsed_platform != platform_id:
-                logger.warning(
-                    f"解析出的实体UID平台 '{parsed_platform}' 与当前动作平台 '{platform_id}' "
-                    f"不匹配。将仍然使用其原生ID部分 '{native_id}'。"
-                )
-            return native_id
-        return id_string
-
-    def _resolve_target_id(self, action_name: str, params: dict, platform_id: str) -> str | None:
-        """以清晰、可维护的方式解析出动作所需的目标原生ID."""
-        raw_id = self._get_id_from_params(action_name, params)
-        if not raw_id:
-            raw_id = self._get_id_from_session()
-        if not raw_id:
-            id_key = "user_id" if "friend" in action_name else "group_id"
-            logger.error(f"动作 '{action_name}' 缺少必要的 '{id_key}' 且不在有效的会话上下文中。")
-            return None
-        return self._normalize_id_string(raw_id, platform_id)
+        await self.thought_storage_service.save_action_result_to_thought(
+            thought_key=doc_key, result_text=result_text
+        )
 
     async def _execute_platform_action_flow(
         self,
@@ -262,107 +137,50 @@ class ActionHandler:
         doc_key_for_updates: str,
         metadata: ActionMetadata,
     ) -> None:
-        """执行一个平台动作的完整流程，并传递元数据."""
+        """[重构] 执行一个平台动作的完整流程，负责构建Event并调用底层执行器."""
         if not self.action_sender or platform_id not in self.action_sender.connected_adapters:
             error_msg = f"动作执行失败：平台 '{platform_id}' 理论上存在，但当前未连接。"
             logger.error(error_msg)
-            if self.thought_storage_service:
-                await self.thought_storage_service.save_action_result_to_thought(
-                    thought_key=doc_key_for_updates, result_text=error_msg
-                )
+            await self.thought_storage_service.save_action_result_to_thought(
+                thought_key=doc_key_for_updates, result_text=error_msg
+            )
             return
 
         builder = platform_builder_registry.get_builder(platform_id)
         if not builder:
             logger.error(f"找不到平台 '{platform_id}' 的翻译官。")
             return
-        if not self.entity_service:
-            logger.error("EntityGraphService 未注入到 ActionHandler，无法获取祂的ID！")
-            return
-        if action_name in self.NORMALIZATION_ACTIONS:
-            resolved_id = self._resolve_target_id(action_name, params, platform_id)
-            if not resolved_id:
-                error_msg = f"动作 '{action_name}' 执行失败：无法确定目标ID。"
-                logger.error(error_msg)
-                if self.thought_storage_service:
-                    await self.thought_storage_service.save_action_result_to_thought(
-                        thought_key=doc_key_for_updates, result_text=error_msg
-                    )
-                return
-            id_key = self.NORMALIZATION_ACTIONS[action_name]
-            params[id_key] = resolved_id
-            logger.debug(f"已将动作 '{action_name}' 的目标ID归一化为: '{resolved_id}'")
 
-        all_self_entities = await self.entity_service.get_all_self_entities()
-        self_entity = next(
-            (
-                entity
-                for entity in all_self_entities
-                if entity.get("details", {}).get("platform") == platform_id
-            ),
-            None,
-        )
-        if not self_entity or not self_entity.get("details", {}).get("platform_id"):
-            logger.error(f"无法为平台 '{platform_id}' 获取已安检的祂的客观实体ID。动作无法执行。")
-            if self.thought_storage_service:
-                await self.thought_storage_service.save_action_result_to_thought(
-                    thought_key=doc_key_for_updates,
-                    result_text=f"动作执行失败：我找不到自己在这个平台({platform_id})上的身份信息。",
-                )
+        self_entity = await self.entity_service.get_self_entity_by_platform(platform_id)
+        if not self_entity or not (bot_id := self_entity.get("details", {}).get("platform_id")):
+            error_msg = f"动作执行失败：我找不到自己在这个平台({platform_id})上的身份信息。"
+            logger.error(f"无法为平台 '{platform_id}' 获取已安检的自身实体ID。")
+            await self.thought_storage_service.save_action_result_to_thought(
+                thought_key=doc_key_for_updates, result_text=error_msg
+            )
             return
 
-        correct_bot_id = self_entity["details"]["platform_id"]
-        action_event = builder.build_action_event(action_name, params, bot_id=correct_bot_id)
+        action_event = builder.build_action_event(action_name, params, bot_id=str(bot_id))
         if not action_event:
             logger.error(f"平台 '{platform_id}' 的翻译官不会翻译动作 '{action_name}'。")
             return
 
-        await self._execute_platform_action(
-            action_to_send=action_event.to_dict(),
-            thought_doc_key=doc_key_for_updates,
+        action_event_dict = action_event.to_dict()
+        action_event_dict['platform'] = platform_id
+
+        action_result = await self._execute_platform_action(
+            action_to_send=action_event_dict,
             original_action_description=f"{platform_id}.{action_name}",
-            metadata=metadata,
         )
 
-    async def execute_simple_action(
-        self,
-        platform_id: str,
-        action_name: str,
-        params: dict,
-        bot_id: str,
-        description: str,
-        motivation: str | None = None,
-    ) -> ActionResult:
-        """一个更简单的动作执行入口，供 MessageBuilder 等内部系统调用."""
-        builder = platform_builder_registry.get_builder(platform_id)
-        if not builder:
-            return ActionResult(
-                action_id="",
-                is_success=False,
-                error_message=f"找不到平台 '{platform_id}' 的翻译官。",
-            )
-
-        action_event = builder.build_action_event(action_name, params, bot_id=bot_id)
-        if not action_event:
-            return ActionResult(
-                action_id="",
-                is_success=False,
-                error_message=f"平台 '{platform_id}' 的翻译官不会翻译动作 '{action_name}'。",
-            )
-
-        metadata = ActionMetadata(
-            motivation=motivation or "由内部系统（如MessageBuilder）发起",
-            source_event_id=None,
-            source_thought_id=None,
+        await self._process_action_result(
+            action_result,
+            doc_key_for_updates,
+            f"{platform_id}.{action_name}",
+            action_event_dict,
+            metadata
         )
 
-        return await self._execute_platform_action(
-            action_to_send=action_event.to_dict(),
-            thought_doc_key=None,
-            original_action_description=description,
-            metadata=metadata,
-        )
-    # 新方法，处理来自GUI的平台动作
     async def handle_aicos_gui_action(
         self,
         platform_id: str,
@@ -370,81 +188,27 @@ class ActionHandler:
         params: dict,
         window_manager: WindowManager,
     ) -> None:
-        """处理由 AIC-OS GUI 交互触发的平台特定动作 (如 send_message)."""
+        """处理由 UI Dispatcher 转发来的、需要与适配器通信的 GUI 动作."""
         if platform_id == "qq" and action_name == "send_message":
-            # [核心修改] 调用新的、更直接的处理器
-            await self._handle_direct_send_message(platform_id, params)
+            await self._handle_gui_send_message(params, window_manager)
         else:
             logger.warning(
-                f"ActionHandler 收到一个未知的 GUI 动作: {platform_id}.{action_name}"
+                f"ActionHandler 收到一个未知的 GUI 动作转发: {platform_id}.{action_name}"
             )
-
-    async def _handle_direct_send_message(self, platform_id: str, params: dict) -> None:
-        """直接从 GUI 动作参数中解析并发送消息，不再依赖窗口对象."""
-        conversation_uid = params.get("target_conversation_uid")
-        steps = params.get("steps")
-        motivation = params.get("motivation", "由AI核心决策发起")
-
-        if not conversation_uid or not steps:
-            logger.error("send_message 指令缺少 target_conversation_uid 或 steps。")
-            return
-
-        parsed_info = parse_entity_uid(conversation_uid)
-        if not parsed_info:
-            logger.error(f"无法从持久化ID '{conversation_uid}' 中解析信息。")
-            return
-
-        platform, conv_type, native_id = parsed_info
-
-        # 确保 chat_session_manager 存在 (此依赖在 builder.py 中注入)
-        if not self.chat_session_manager:
-            logger.error("无法发送消息：QQChatSessionManager 未在 ActionHandler 中初始化。")
-            return
-
-        bot_id = self.chat_session_manager.self_bot_ids_map.get(platform)
-        if not bot_id:
-            logger.error(f"无法为平台 '{platform}' 找到对应的 bot_id。")
-            return
-
-        action_params_for_handler = {
-            "conversation_id": native_id,
-            "conversation_type": conv_type,
-            "content": steps,
-        }
-
-        logger.info(
-            f"准备通过 ActionHandler 发送消息至会话 '{conversation_uid}' (原生ID: {native_id})"
-        )
-        action_result = await self.execute_simple_action(
-            platform_id=platform,
-            action_name="send_message",
-            params=action_params_for_handler,
-            bot_id=bot_id,
-            description="由 AIC-OS 发送",
-            motivation=motivation,
-        )
-
-        if action_result.is_success:
-            logger.info(f"消息已成功发送至会話 '{conversation_uid}'。回执: {action_result.payload}")
-        else:
-            logger.error(f"消息发送至会话 '{conversation_uid}' 失败: {action_result.error_message}")
 
     async def _handle_gui_send_message(self, params: dict, window_manager: WindowManager) -> None:
         """从 GUI 动作参数中解析并发送消息."""
         target_window_id = params.get("target_window_id")
         steps = params.get("steps")
-        motivation = params.get("motivation", "由AIC-OS MessageBuilder发起")
+        motivation = params.get("motivation", "由AIC-OS GUI交互发起")
 
         if not target_window_id or not steps:
             logger.error("send_message 指令缺少 target_window_id 或 steps。")
             return
 
         window = window_manager.get_window(target_window_id)
-        if (
-            not window
-            or window.window_class != "conversation"
-            or window.status == WindowStatus.MINIMIZE
-        ):
+        if not window or window.window_class != "conversation" or \
+                window.status == WindowStatus.MINIMIZE:
             logger.error(f"AI 试图向无效、非聊天或最小化的窗口 '{target_window_id}' 发送消息。")
             return
 
@@ -460,13 +224,8 @@ class ActionHandler:
 
         platform, conv_type, native_id = parsed_info
 
-        # 确保 chat_session_manager 存在
-        if not self.chat_session_manager:
-            logger.error("无法发送消息：QQChatSessionManager 未在 ActionHandler 中初始化。")
-            return
-
-        bot_id = self.chat_session_manager.self_bot_ids_map.get(platform)
-        if not bot_id:
+        self_entity = await self.entity_service.get_self_entity_by_platform(platform)
+        if not self_entity or not (bot_id := self_entity.get("details", {}).get("platform_id")):
             logger.error(f"无法为平台 '{platform}' 找到对应的 bot_id。")
             return
 
@@ -483,8 +242,8 @@ class ActionHandler:
             platform_id=platform,
             action_name="send_message",
             params=action_params_for_handler,
-            bot_id=bot_id,
-            description="由 AIC-OS 发送",
+            bot_id=str(bot_id),
+            description="由 AIC-OS GUI 发送",
             motivation=motivation,
         )
 
@@ -494,54 +253,59 @@ class ActionHandler:
         else:
             logger.error(f"消息发送至会话 '{conversation_uid}' 失败: {action_result.error_message}")
 
+    async def execute_simple_action(
+        self,
+        platform_id: str,
+        action_name: str,
+        params: dict,
+        bot_id: str,
+        description: str,
+        motivation: str | None = None,
+    ) -> ActionResult:
+        """一个便捷的内部动作执行入口，直接返回 ActionResult."""
+        builder = platform_builder_registry.get_builder(platform_id)
+        if not builder:
+            return ActionResult(
+                action_id="",
+                is_success=False,
+                error_message=f"找不到平台 '{platform_id}' 的构建器。"
+            )
+
+        action_event = builder.build_action_event(action_name, params, bot_id=bot_id)
+        if not action_event:
+            return ActionResult(
+                action_id="",
+                is_success=False,
+                error_message=f"构建动作 '{action_name}' 失败。"
+            )
+
+        action_event_dict = action_event.to_dict()
+        action_event_dict['platform'] = platform_id
+
+        return await self._execute_platform_action(
+            action_to_send=action_event_dict,
+            original_action_description=description,
+        )
+
     async def _execute_platform_action(
         self,
         action_to_send: dict[str, Any],
-        thought_doc_key: str | None,
         original_action_description: str,
-        metadata: ActionMetadata,
     ) -> ActionResult:
-        """底层动作执行器：发送动作到适配器并等待响应."""
+        """底层动作执行器：记录尝试、发送、等待并返回纯净结果."""
         core_action_id = action_to_send.setdefault("event_id", str(uuid.uuid4()))
-        if not self.action_sender or not self.action_log_service or not self.pending_action_manager:
-            return ActionResult(
-                action_id=core_action_id,
-                is_success=False,
-                error_message="内部错误：核心服务不可用。",
-            )
 
-        event_type = action_to_send.get("event_type", "")
-        platform = event_type.split(".")[1] if "." in event_type else "unknown"
-        timestamp = int(time.time() * 1000)
-        action_to_send["timestamp"] = timestamp
-        bot_id_for_log = action_to_send.get("bot_id")
-        if not bot_id_for_log:
-            logger.error(
-                f"严重逻辑错误：动作事件中缺少 bot_id！无法记录日志。事件: {action_to_send}"
-            )
-            bot_id_for_log = "error_missing_bot_id"
-
-        from src.services.database.models import ActionLogDocument
-
-        action_doc = ActionLogDocument(
-            _key=core_action_id,
-            action_type=event_type,
-            timestamp=timestamp,
-            bot_id=bot_id_for_log,
-            platform=platform,
-            status="pending",
-        )
-        await self.action_log_service.save_action_attempt(action_doc)
+        await self._log_action_attempt(core_action_id, action_to_send)
 
         try:
             send_success = await self.action_sender.send_action_to_adapter_by_id(
-                platform, action_to_send
+                action_to_send.get("platform", "unknown"), action_to_send
             )
             if not send_success:
                 return ActionResult(
                     action_id=core_action_id,
                     is_success=False,
-                    error_message=f"发送到适配器 '{platform}' 失败。",
+                    error_message=f"发送到适配器 '{action_to_send.get('platform')}' 失败。",
                 )
         except Exception as e:
             return ActionResult(
@@ -552,8 +316,128 @@ class ActionHandler:
 
         return await self.pending_action_manager.add_and_wait_for_action(
             action_id=core_action_id,
-            thought_doc_key=thought_doc_key,
             original_action_description=original_action_description,
-            action_to_send=action_to_send,
-            metadata=metadata,
         )
+
+    async def _process_action_result(
+        self,
+        result: ActionResult,
+        thought_doc_key: str | None,
+        description: str,
+        sent_dict: dict,
+        metadata: ActionMetadata
+    ) -> None:
+        """统一处理 ActionResult 的后续所有流程."""
+        # 1. 更新动作日志
+        await self.action_log_service.update_action_log_with_response(
+            action_id=result.action_id,
+            updates={
+                "status": "success" if result.is_success else "failed",
+                "response_timestamp": int(time.time() * 1000),
+                "error_info": result.error_message,
+                "result_details": result.payload,
+            }
+        )
+
+        # 2. 将结果写入思考链
+        if thought_doc_key:
+            result_message = self._create_final_result_message(description, result)
+            await self.thought_storage_service.save_action_result_to_thought(
+                thought_key=thought_doc_key, result_text=result_message
+            )
+
+        # 3. 如果成功，处理副作用
+        if result.is_success:
+            await self._handle_successful_action_side_effects(sent_dict, result.payload)
+            await self._save_successful_action_as_event(result.action_id, sent_dict, metadata)
+
+    def _create_final_result_message(self, description: str, result: ActionResult) -> str:
+        """辅助方法：根据 ActionResult 创建最终的结果消息."""
+        if result.is_success:
+            msg = f"动作 '{description}' 已成功执行。"
+            if result.payload:
+                try:
+                    payload_str = json.dumps(result.payload, ensure_ascii=False, indent=2)
+                    msg += f" 详情: {payload_str}"
+                except (TypeError, ValueError):
+                    msg += f" 详情: {result.payload!s}"
+            return msg
+        return f"动作 '{description}' 执行失败: {result.error_message}"
+
+    async def _save_successful_action_as_event(
+        self, action_id: str, sent_dict: dict[str, Any], metadata: ActionMetadata
+    ) -> None:
+        """将成功的动作（通常是send_message）存储为事件."""
+        event_to_save = sent_dict.copy()
+        event_type_full = event_to_save.get("event_type", "")
+
+        if not event_type_full.endswith(".send_message"):
+            return
+
+        platform = event_to_save.get("platform", "unknown")
+        conv_info = event_to_save.get("conversation_info")
+        if conv_info and isinstance(conv_info, dict):
+            conv_type = conv_info.get("type", "unknown")
+            event_to_save["event_type"] = f"message.{platform}.{conv_type}"
+
+        event_to_save["event_id"] = action_id
+        event_to_save["timestamp"] = int(time.time() * 1000)
+        event_to_save["status"] = "read"
+        if metadata.motivation and metadata.motivation.strip():
+            event_to_save["motivation"] = metadata.motivation
+
+        await self.event_storage_service.save_event_document(event_to_save)
+        logger.info(f"成功的发送消息动作 '{action_id}' 已作为事件存入 events 表。")
+
+    async def _handle_successful_action_side_effects(
+        self, sent_dict: dict[str, Any], details: dict | None
+    ) -> None:
+        """处理动作成功后的副作用."""
+        original_action_type = sent_dict.get("event_type")
+        if not original_action_type:
+            return
+
+        if original_action_type.endswith(".get_list"):
+            await self._proactively_create_conversation_docs_from_list(details, sent_dict)
+
+    async def _proactively_create_conversation_docs_from_list(
+        self, details: dict | None, sent_dict: dict
+    ) -> None:
+        if not details or not isinstance(details, dict):
+            return
+        list_type = sent_dict.get("content", [{}])[0].get("data", {}).get("list_type")
+        platform_id = sent_dict.get("platform")
+        if not list_type or not platform_id:
+            logger.warning("无法从 get_list 的原始请求中获取足够信息来创建会话实体。")
+            return
+        items = details.get("friends", []) if list_type == "friend" else details.get("groups", [])
+        if not items or not isinstance(items, list):
+            return
+        logger.info(
+            f"收到 get_list({list_type}) 的成功响应，"
+            f"准备为 {len(items)} 个项目主动创建/更新会话实体。"
+        )
+        if not self.entity_service:
+            logger.error("EntityGraphService 未注入到 ActionHandler，无法主动创建会话实体。")
+            return
+        entity_service = self.entity_service
+        conv_type = "private" if list_type == "friend" else "group"
+        creation_tasks = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            conv_id = item.get("user_id") if list_type == "friend" else item.get("group_id")
+            conv_name = item.get("nickname") if list_type == "friend" else item.get("group_name")
+            if not conv_id:
+                continue
+            task = entity_service.get_or_create_conversation_entity(
+                conversation_id=str(conv_id),
+                platform=platform_id,
+                conv_type=conv_type,
+                name=conv_name,
+            )
+            creation_tasks.append(task)
+        if creation_tasks:
+            await asyncio.gather(*creation_tasks)
+            logger.info(f"已完成对 {len(creation_tasks)} 个项目的会话实体主动更新。")
+

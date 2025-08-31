@@ -16,7 +16,6 @@ from src.mind.thought_generator import ThoughtGenerator
 from src.mind.thought_persistor import ThoughtPersistor
 from src.prompting import PromptBuilderError, ThoughtPromptBuilder
 from src.prompting.components import PromptComponents
-from src.services.action.action_handler import ActionHandler
 from src.services.database import ThoughtStorageService
 from src.services.database.models import ThoughtChainDocument
 
@@ -27,6 +26,7 @@ if TYPE_CHECKING:
     from src.os.communication.core_ws_server import CoreWebsocketServer
     from src.os.state_generator import AICOSStateGenerator
     from src.os.window_manager import WindowManager
+    from src.services.action.action_handler import ActionHandler  # 保持导入
     from src.services.database.services.entity_graph_service import EntityGraphService
 
 logger = get_logger(__name__)
@@ -45,7 +45,7 @@ class CoreLogic:
         window_manager: "WindowManager",
         application_manager: "ApplicationManager",
         core_comm_layer: "CoreWebsocketServer",
-        action_handler_instance: ActionHandler,
+        action_handler_instance: "ActionHandler",
         state_manager: AIStateManager,
         thought_generator: ThoughtGenerator,
         thought_persistor: ThoughtPersistor,
@@ -123,25 +123,20 @@ class CoreLogic:
     async def _run_full_thought_cycle(self) -> None:
         """执行完整的认知周期循环，主要负责编排."""
         try:
-            # 1. 传入上一轮的快照
-            # 2. 捕获这一轮的新快照
             (
                 prompt_components,
                 session,
                 ui_mapping,
                 current_external_info_snapshot
             ) = await self.prompt_builder.build_prompts_components(
-                # 将上一轮的快照传递给 Prompt 构建器
                 last_external_info_snapshot=self._last_external_info_snapshot
             )
-            # 更新快照，为下一轮做准备
             self._last_external_info_snapshot = current_external_info_snapshot
         except PromptBuilderError as e:
             logger.error(f"构建Prompt失败，中止本轮认知周期循环: {e}")
             return
 
         try:
-            # 将 session 传递下去
             new_thought_pearl, saved_key = await self._generate_and_persist_thought(
                 prompt_components, session
             )
@@ -157,7 +152,7 @@ class CoreLogic:
             logger.critical("ServiceContainer 未注入到 CoreLogic，无法执行决策分发！")
             return
 
-        # 调用 ActionOrchestrator
+        # [核心修改] 所有决策现在都交由 ActionOrchestrator 处理
         await orchestrate_action(
             decision_json=new_thought_pearl.action_payload,
             ui_mapping=ui_mapping,
@@ -186,8 +181,6 @@ class CoreLogic:
             raise ThoughtGenerationError("LLM未能生成有效的思考JSON。")
 
         sanitized_thought_json = generated_thought_json
-
-        # 传递 session id
         source_id = session.conversation_id if session else None
         saved_key, new_thought_pearl = await self.thought_persistor.store_thought(
             thought_json=sanitized_thought_json,
