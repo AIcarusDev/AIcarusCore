@@ -95,20 +95,6 @@ class ActionHandler:
         else:
             logger.error("PendingActionManager 未初始化，无法处理动作响应。")
 
-    async def _handle_do_nothing_action(self, action_json: dict, doc_key: str) -> None:
-        """处理 do_nothing 动作."""
-        motivation = action_json["core"]["do_nothing"].get("motivation", "决定保持沉默")
-        logger.info(f"AI 决定不行动，动机: {motivation}")
-        if self.core_logic and (session := self.core_logic._get_current_session()):
-            session.no_action_count += 1
-            logger.debug(
-                f"[{session.conversation_id}] 连续不发言计数器已递增至: {session.no_action_count}"
-            )
-        if self.thought_storage_service:
-            await self.thought_storage_service.save_action_result_to_thought(
-                thought_key=doc_key, result_text=f"决定不行动，原因：{motivation}"
-            )
-
     async def _handle_local_action(
         self, platform_id: str, action_name: str, params: dict, doc_key: str
     ) -> None:
@@ -157,9 +143,6 @@ class ActionHandler:
         logger.info(
             f"-- [Action ID: {action_id}] 开始处理行动流程 (动机: {metadata.motivation[:50]}...) --"
         )
-        if "do_nothing" in action_json.get("core", {}):
-            await self._handle_do_nothing_action(action_json, doc_key_for_updates)
-            return
         if not (platform_id := next(iter(action_json), None)) or not (
             actions_to_process := action_json.get(platform_id)
         ):
@@ -379,7 +362,7 @@ class ActionHandler:
             original_action_description=description,
             metadata=metadata,
         )
-    # [核心新增] 新方法，处理来自GUI的平台动作
+    # 新方法，处理来自GUI的平台动作
     async def handle_aicos_gui_action(
         self,
         platform_id: str,
@@ -389,11 +372,62 @@ class ActionHandler:
     ) -> None:
         """处理由 AIC-OS GUI 交互触发的平台特定动作 (如 send_message)."""
         if platform_id == "qq" and action_name == "send_message":
-            await self._handle_gui_send_message(params, window_manager)
+            # [核心修改] 调用新的、更直接的处理器
+            await self._handle_direct_send_message(platform_id, params)
         else:
             logger.warning(
                 f"ActionHandler 收到一个未知的 GUI 动作: {platform_id}.{action_name}"
             )
+
+    async def _handle_direct_send_message(self, platform_id: str, params: dict) -> None:
+        """直接从 GUI 动作参数中解析并发送消息，不再依赖窗口对象."""
+        conversation_uid = params.get("target_conversation_uid")
+        steps = params.get("steps")
+        motivation = params.get("motivation", "由AI核心决策发起")
+
+        if not conversation_uid or not steps:
+            logger.error("send_message 指令缺少 target_conversation_uid 或 steps。")
+            return
+
+        parsed_info = parse_entity_uid(conversation_uid)
+        if not parsed_info:
+            logger.error(f"无法从持久化ID '{conversation_uid}' 中解析信息。")
+            return
+
+        platform, conv_type, native_id = parsed_info
+
+        # 确保 chat_session_manager 存在 (此依赖在 builder.py 中注入)
+        if not self.chat_session_manager:
+            logger.error("无法发送消息：QQChatSessionManager 未在 ActionHandler 中初始化。")
+            return
+
+        bot_id = self.chat_session_manager.self_bot_ids_map.get(platform)
+        if not bot_id:
+            logger.error(f"无法为平台 '{platform}' 找到对应的 bot_id。")
+            return
+
+        action_params_for_handler = {
+            "conversation_id": native_id,
+            "conversation_type": conv_type,
+            "content": steps,
+        }
+
+        logger.info(
+            f"准备通过 ActionHandler 发送消息至会话 '{conversation_uid}' (原生ID: {native_id})"
+        )
+        action_result = await self.execute_simple_action(
+            platform_id=platform,
+            action_name="send_message",
+            params=action_params_for_handler,
+            bot_id=bot_id,
+            description="由 AIC-OS 发送",
+            motivation=motivation,
+        )
+
+        if action_result.is_success:
+            logger.info(f"消息已成功发送至会話 '{conversation_uid}'。回执: {action_result.payload}")
+        else:
+            logger.error(f"消息发送至会话 '{conversation_uid}' 失败: {action_result.error_message}")
 
     async def _handle_gui_send_message(self, params: dict, window_manager: WindowManager) -> None:
         """从 GUI 动作参数中解析并发送消息."""

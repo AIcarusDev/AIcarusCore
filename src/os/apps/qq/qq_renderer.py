@@ -95,7 +95,7 @@ class QQWindowRenderer:
 
         views = {"conversation_list": "会话", "contacts_list": "联系人"}
         for view_name, view_title in views.items():
-            btn_id = self._generate_semantic_id([*switcher_path, f"{view_name}_button"])
+            btn_id = self._generate_semantic_id([*switcher_path, f"{view_name}"])
             btn_status = "active" if current_view == view_name else "inactive"
             SubElement(
                 switcher_node,
@@ -195,10 +195,14 @@ class QQWindowRenderer:
                 item_node = SubElement(
                     list_node,
                     "item",
-                    attrib={"name": item["name"], "type": item["type"]},
+                    attrib={
+                        "name": item["uid"],
+                        "title": item["name"],
+                        "type": item["type"],
+                    },
                 )
-                item_path = [*list_path, item["name"]]
-                chat_btn_id = self._generate_semantic_id([*item_path, "chat_button"])
+                item_path = [*list_path, item["uid"]]
+                chat_btn_id = self._generate_semantic_id([*item_path, "chat"])
                 SubElement(
                     item_node,
                     "button",
@@ -214,7 +218,7 @@ class QQWindowRenderer:
             pagination_node = SubElement(list_node, "pagination_controls")
             pagination_path = [*list_path, "pagination"]
             if current_page > 1:
-                prev_btn_id = self._generate_semantic_id([*pagination_path, "prev_button"])
+                prev_btn_id = self._generate_semantic_id([*pagination_path, "prev"])
                 SubElement(
                     pagination_node,
                     "button",
@@ -229,7 +233,7 @@ class QQWindowRenderer:
             SubElement(pagination_node, "desc").text = f"第 {current_page} / {total_pages} 页"
 
             if current_page < total_pages:
-                next_btn_id = self._generate_semantic_id([*pagination_path, "next_button"])
+                next_btn_id = self._generate_semantic_id([*pagination_path, "next"])
                 SubElement(
                     pagination_node,
                     "button",
@@ -286,13 +290,14 @@ class QQWindowRenderer:
                 continue
 
             conv_uid = conv_doc._key
-            conv_name = conv_doc.details.name or "未知会话"
-            conv_path = [*list_path, conv_name]
+            conv_name = conv_doc.details.name
+            conv_path = [*list_path, conv_uid]
 
             conv_node = SubElement(
                 list_node,
                 "conversation",
                 attrib={
+                    "name": conv_uid,
                     "title": conv_name,
                     "type": conv_doc.details.type,
                     "unread": str(conv_data.get("unread_count", 0)),
@@ -311,7 +316,7 @@ class QQWindowRenderer:
             SubElement(latest_msg_node, "time").text = time_str
 
             # 渲染进入按钮
-            enter_btn_id = self._generate_semantic_id([*conv_path, "enter_button"])
+            enter_btn_id = self._generate_semantic_id([*conv_path, "enter"])
             SubElement(
                 conv_node,
                 "button",
@@ -421,7 +426,7 @@ class QQWindowRenderer:
 
         # 渲染向下滚动按钮
         if current_page < total_pages:
-            scroll_down_id = self._generate_semantic_id([*list_path, "scroll_down_button"])
+            scroll_down_id = self._generate_semantic_id([*list_path, "scroll_down"])
             SubElement(
                 list_node,
                 "button",

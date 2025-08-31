@@ -112,9 +112,6 @@ async def start_core_system() -> None:
             # 关闭所有 LLM 客户端
             llm_clients_to_close = [
                 container.main_consciousness_llm_client,
-                container.summary_llm_client,
-                container.intrusive_thoughts_llm_client,
-                container.focused_chat_llm_client,
                 container.web_search_agent_client,
                 container.url_context_agent_client,
             ]

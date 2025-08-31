@@ -31,7 +31,7 @@ PopupType = Literal["notification", "interactive", "modal"]
 class UIElement:
     """代表一个可交互的UI元素，如按钮或快捷方式."""
 
-    id: str  # 临时的、用于当前帧的UI ID，例如 "btn-close-c3"
+    id: str  # 唯一标识符
     element_type: str  # 'button', 'shortcut', 'file', 'process'
     title: str  # 显示给AI看的文本
 
@@ -45,7 +45,7 @@ class UIElement:
 class Window:
     """代表一个窗口的完整内部状态."""
 
-    id: str  # 窗口的唯一ID，例如 "win-qq-main"
+    name: str
     parent_app_id: str  # 所属应用的ID，例如 "app-001"
     title: str
     window_class: str  # 例如 "conversation_list", "conversation", "editor"

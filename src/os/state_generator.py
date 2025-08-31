@@ -40,17 +40,10 @@ class AICOSStateGenerator:
         # 预编译正则表达式以提高性能
         self._invalid_id_chars_pattern = re.compile(r"[^a-zA-Z0-9_\-]")
 
-    def _encode_id_part(self, part: str) -> str:
-        """对ID路径的单个部分进行编码，确保其对XML ID有效."""
-        # 1. 替换点号，因为我们用它做分隔符
-        encoded_part = part.replace(".", "__dot__")
-        # 2. 替换所有其他非法字符为下划线
-        return self._invalid_id_chars_pattern.sub("_", encoded_part)
-
     def _generate_semantic_id(self, path_parts: list[str]) -> str:
-        """根据语义路径列表生成一个确定性的、编码过的UI ID."""
-        encoded_parts = [self._encode_id_part(part) for part in path_parts]
-        return ".".join(encoded_parts)
+        """根据语义路径列表生成一个确定性的UI ID."""
+        # 直接用点连接，因为我们现在使用安全的UID
+        return ".".join(path_parts)
 
     def _pretty_print_xml(self, element: Element) -> str:
         """将 ElementTree 元素格式化为带缩进的 XML 字符串."""
@@ -101,7 +94,7 @@ class AICOSStateGenerator:
         root = Element("AIC-OS", attrib={"connection": "disconnected", "lifecycle": "stopped"})
         SubElement(root, "desc").text = "你尚未连接到你的设备。使用 'connect' 动作来接入 AIC-OS。"
 
-        connect_id = self._generate_semantic_id(["aicos", "connect_button"])
+        connect_id = self._generate_semantic_id(["aicos", "connect"])
         SubElement(
             root, "button", attrib={"id": connect_id, "name": "connect", "title": "连接设备"}
         )
@@ -124,7 +117,7 @@ class AICOSStateGenerator:
         SubElement(applications_node, "application", id="app-001", name="qq", title="QQ")
 
     def _render_background_processes(
-        self, parent_element: Element, current_path: list[str]
+        self, parent_element: Element,
     ) -> None:
         """渲染后台进程列表，并为非核心进程添加关闭按钮."""
         bg_processes_node = SubElement(
@@ -147,12 +140,12 @@ class AICOSStateGenerator:
             if app.name in core_processes:
                 continue
 
-            proc_path = [*current_path, app.name]
+            proc_path = [app.name]
             proc_node = SubElement(
                 bg_processes_node, "process", attrib={"name": app.name, "title": app.title}
             )
 
-            kill_btn_id = self._generate_semantic_id([*proc_path, "terminate_button"])
+            kill_btn_id = self._generate_semantic_id([*proc_path, "terminate"])
             SubElement(
                 proc_node,
                 "button",
@@ -165,20 +158,20 @@ class AICOSStateGenerator:
             }
 
     async def _render_desktop(
-        self, parent_element: Element, current_path: list[str], image_collector: list[dict]
+        self, parent_element: Element, image_collector: list[dict]
     ) -> None:
         """渲染桌面，包括快捷方式、窗口和系统托盘."""
         desktop_node = SubElement(
-            parent_element, "desktop", attrib={"name": "desktop", "parent": "uti-002"}
+            parent_element, "desktop", attrib={"parent": "uti-002"}
         )
         is_desktop_visible = not any(
             w.status == WindowStatus.MAXIMIZE for w in self.window_manager.get_all_windows_sorted()
         )
 
         if is_desktop_visible:
-            items_node = SubElement(desktop_node, "items", attrib={"name": "items"})
+            items_node = SubElement(desktop_node, "items")
             qq_app_id = "app-001"
-            qq_shortcut_path = [*current_path, "shortcut_qq"]
+            qq_shortcut_path = ["shortcut_qq"]
             qq_shortcut_id = self._generate_semantic_id(qq_shortcut_path)
             SubElement(
                 items_node,
@@ -191,15 +184,15 @@ class AICOSStateGenerator:
                 "target_uid": qq_app_id,
             }
 
-        windows_node = SubElement(desktop_node, "windows", attrib={"name": "windows"})
+        windows_node = SubElement(desktop_node, "windows")
         for window in self.window_manager.get_all_windows_sorted():
             # 为每个窗口创建一个基于其稳定ID的路径
-            window_path = [*current_path, "window_" + self._encode_id_part(window.id)]
+            window_path = [window.name]
             await self._render_window_frame(windows_node, window_path, window, image_collector)
 
         # 在桌面渲染系统托盘和断开连接按钮
         system_tray_node = SubElement(desktop_node, "system_tray", attrib={"name": "system_tray"})
-        disconnect_path = [*current_path, "system_tray", "disconnect_button"]
+        disconnect_path = ["system_tray", "disconnect"]
         disconnect_btn_id = self._generate_semantic_id(disconnect_path)
         SubElement(
             system_tray_node,
@@ -222,7 +215,7 @@ class AICOSStateGenerator:
         """此方法负责渲染窗口的通用外框和控件，内容部分委托给应用渲染器."""
         # 弹窗属性的渲染
         window_attrs = {
-            "id": window.id,
+            "name": window.name,
             "parent": window.parent_app_id,
             "class": window.window_class,
             "title": window.title,
@@ -239,7 +232,7 @@ class AICOSStateGenerator:
         controls_path = [*current_path, "controls"]
 
         if window.status == WindowStatus.MINIMIZE:
-            restore_btn_id = self._generate_semantic_id([*controls_path, "restore_button"])
+            restore_btn_id = self._generate_semantic_id([*controls_path, "restore"])
             SubElement(
                 controls_node,
                 "button",
@@ -248,10 +241,10 @@ class AICOSStateGenerator:
             self._ui_mapping[restore_btn_id] = {
                 "action_type": "click",
                 "action": "restore_window",
-                "target_uid": window.id,
+                "target_uid": window.name,
             }
         else:
-            minimize_btn_id = self._generate_semantic_id([*controls_path, "minimize_button"])
+            minimize_btn_id = self._generate_semantic_id([*controls_path, "minimize"])
             SubElement(
                 controls_node,
                 "button",
@@ -260,11 +253,11 @@ class AICOSStateGenerator:
             self._ui_mapping[minimize_btn_id] = {
                 "action_type": "click",
                 "action": "minimize_window",
-                "target_uid": window.id,
+                "target_uid": window.name,
             }
 
         if window.status == WindowStatus.NORMAL:
-            maximize_btn_id = self._generate_semantic_id([*controls_path, "maximize_button"])
+            maximize_btn_id = self._generate_semantic_id([*controls_path, "maximize"])
             SubElement(
                 controls_node,
                 "button",
@@ -273,10 +266,10 @@ class AICOSStateGenerator:
             self._ui_mapping[maximize_btn_id] = {
                 "action_type": "click",
                 "action": "maximize_window",
-                "target_uid": window.id,
+                "target_uid": window.name,
             }
 
-        close_btn_id = self._generate_semantic_id([*controls_path, "close_button"])
+        close_btn_id = self._generate_semantic_id([*controls_path, "close"])
         close_btn_title = "确认" if window.popup_type == 'modal' else "关闭"
         SubElement(
             controls_node,
@@ -286,7 +279,7 @@ class AICOSStateGenerator:
         self._ui_mapping[close_btn_id] = {
             "action_type": "click",
             "action": "close_window",
-            "target_uid": window.id,
+            "target_uid": window.name,
         }
 
         if window.status != WindowStatus.MINIMIZE:
@@ -312,14 +305,14 @@ class AICOSStateGenerator:
                 ).text = state.get("message_snippet", "...")
 
                 actions_node = SubElement(content_node, "actions")
-                view_btn_path = [*current_path, "content", "view_now_button"]
+                view_btn_path = [*current_path, "content", "view_now"]
                 view_btn_id = self._generate_semantic_id(view_btn_path)
 
                 SubElement(
                     actions_node, "button",
                     attrib={"id": view_btn_id, "name": "view_now", "title": "立即查看"}
                 )
-                self.ui_mapping[view_btn_id] = {
+                self._ui_mapping[view_btn_id] = {
                     "action_type": "click",
                     "action": "open_conversation_window",
                     "target_uid": state.get("target_conversation_uid"),

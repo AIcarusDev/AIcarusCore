@@ -199,7 +199,7 @@ async def _handle_ui_interaction(
             application_manager.start_app(target_uid)
             logger.info(f"应用 '{target_uid}' 已启动。")
             main_window = Window(
-                id=f"win-{app.id}-main",
+                iname="qq_main",
                 parent_app_id=app.id,
                 title=f"{app.title}",
                 window_class="main",
@@ -228,8 +228,9 @@ async def _handle_ui_interaction(
             if not application_manager.is_running(app.id):
                 application_manager.start_app(app.id)
 
+            window_name = f"conv_{target_uid}"
             conv_window = Window(
-                id=f"win-conv-{target_uid.replace('_', '-')}",
+                name=window_name,
                 parent_app_id=app.id,
                 title=f"与 {session.conversation_name} 的对话",
                 window_class="conversation",

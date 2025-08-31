@@ -135,14 +135,13 @@ class QQBuilder(BasePlatformBuilder, IApp):
         if self._session_manager_instance is None:
             # 只有在第一次被请求时，才创建实例
             self._session_manager_instance = QQChatSessionManager(
-                llm_client=container.focused_chat_llm_client,
+                llm_client=container.main_consciousness_llm_client,
                 event_storage=container.event_storage_service,
                 action_handler=container.action_handler,
                 self_bot_ids_map=container.application_manager.get_self_bot_ids_map(),
                 intelligent_interrupter=container.intelligent_interrupter,
                 entity_graph_service=container.entity_graph_service,
                 thought_storage_service=container.thought_storage_service,
-                internal_info_builder=container.internal_info_builder,
                 core_logic=container.core_logic,
             )
         return self._session_manager_instance
@@ -188,20 +187,22 @@ class QQBuilder(BasePlatformBuilder, IApp):
     def get_action_definitions(self, window_manager: WindowManager) -> dict:
         """动态定义 QQ 平台的所有动作，特别是 send_message."""
         # 这个方法现在只定义了 send_message
-        # 1. 查找所有当前可见的聊天窗口
-        visible_chat_window_ids = [
-            window.id
+        # 1. 查找所有当前可见的聊天窗口，并提取其对应的会话 UID
+        visible_conv_uids = [
+            window.content_state.get("conversation_uid")
             for window in window_manager.get_all_windows_sorted()
-            if window.window_class == "conversation" and window.status != WindowStatus.MINIMIZE
+            if window.window_class == "conversation"
+                and window.status != WindowStatus.MINIMIZE
+                and window.content_state.get("conversation_uid")
         ]
         # 2. 构建 send_message 的 Schema
         send_message_schema = {
                 "type": "object",
                 "description": "在指定的、当前可见的聊天窗口中发送消息。",
                 "properties": {
-                    "target_window_id": {
+                    "target_conversation_uid": {
                         "type": "string",
-                        "description": "必须是当前屏幕上可见的聊天窗口的ID。",
+                        "description": "必须是当前屏幕上可见会话的ID。",
                     },
                     "steps": {
                         "type": "array",
@@ -223,8 +224,8 @@ class QQBuilder(BasePlatformBuilder, IApp):
                 "required": ["target_window_id", "steps", "motivation"],
             }
         # 3. 如果找到了可见的聊天窗口，就动态添加 enum 约束
-        if visible_chat_window_ids:
-            send_message_schema["properties"]["target_window_id"]["enum"] = visible_chat_window_ids
+        if visible_conv_uids:
+            send_message_schema["properties"]["target_conversation_uid"]["enum"] = visible_conv_uids
         else:
             # 如果没有可见的聊天窗口，不返回 send_message 动作
             return {}

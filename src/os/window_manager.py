@@ -27,50 +27,47 @@ class WindowManager:
         """
         if window.id in self._windows:
             # 如果窗口已存在（例如只是被最小化了），则将其聚焦
-            self.focus_window(window.id)
+            self.focus_window(window.name)
             return
-
         self._z_order_counter += 1
         window.z_order = self._z_order_counter
         window.last_focused_timestamp = time.time()
+        self._windows[window.name] = window
+        self._enforce_window_limits(newly_opened_window_name=window.name)
 
-        self._windows[window.id] = window
-        self._enforce_window_limits(newly_opened_window_id=window.id)
-
-    def close_window(self, window_id: str) -> bool:
+    def close_window(self, window_name: str) -> bool:
         """关闭一个窗口."""
-        if window_id in self._windows:
-            del self._windows[window_id]
+        if window_name in self._windows:
+            del self._windows[window_name]
             return True
         return False
 
-    def set_window_status(self, window_id: str, new_status: WindowStatus) -> bool:
+    def set_window_status(self, window_name: str, new_status: WindowStatus) -> bool:
         """设置窗口的状态 (normal, minimize, maximize).
 
         这也会触发窗口限制规则的执行.
         """
-        if window_id not in self._windows:
+        if window_name not in self._windows:
             return False
-
-        window = self._windows[window_id]
+        window = self._windows[window_name]
         window.status = new_status
 
         # 聚焦这个被操作的窗口
-        self.focus_window(window_id)
+        self.focus_window(window_name)
 
-        self._enforce_window_limits(newly_opened_window_id=window_id)
+        self._enforce_window_limits(newly_opened_window_name=window_name)
         return True
 
-    def focus_window(self, window_id: str) -> None:
+    def focus_window(self, window_name: str) -> None:
         """将一个窗口带到最前面."""
-        if window_id in self._windows:
+        if window_name in self._windows:
             self._z_order_counter += 1
-            self._windows[window_id].z_order = self._z_order_counter
-            self._windows[window_id].last_focused_timestamp = time.time()
+            self._windows[window_name].z_order = self._z_order_counter
+            self._windows[window_name].last_focused_timestamp = time.time()
 
-    def get_window(self, window_id: str) -> Window | None:
+    def get_window(self, window_name: str) -> Window | None:
         """获取单个窗口的状态."""
-        return self._windows.get(window_id)
+        return self._windows.get(window_name)
 
     def get_all_windows_sorted(self) -> list[Window]:
         """获取所有已打开的窗口，并按 z_order 排序（从低到高）.
@@ -96,19 +93,19 @@ class WindowManager:
 
         它会减少剩余生命周期，并移除生命周期结束的弹窗。
         """
-        expired_popup_ids = []
-        for window_id, window in self._windows.items():
+        expired_popup_names = []
+        for window_name, window in self._windows.items():
             if window.is_popup and window.transient_cycles_remaining is not None:
                 window.transient_cycles_remaining -= 1
                 if window.transient_cycles_remaining <= 0:
-                    expired_popup_ids.append(window_id)
+                    expired_popup_names.append(window_name)
 
-        if expired_popup_ids:
-            for popup_id in expired_popup_ids:
-                self.close_window(popup_id)
-            print(f"清除了 {len(expired_popup_ids)} 个过期的瞬态弹窗。")
+        if expired_popup_names:
+            for popup_name in expired_popup_names:
+                self.close_window(popup_name)
+            print(f"清除了 {len(expired_popup_names)} 个过期的瞬态弹窗。")
 
-    def _enforce_window_limits(self, newly_opened_window_id: str | None = None) -> None:
+    def _enforce_window_limits(self, newly_opened_window_name: str | None = None) -> None:
         """核心规则执行器.
 
         - 如果有任何一个窗口是最大化的，其他所有窗口都必须是最小化的。
@@ -120,7 +117,7 @@ class WindowManager:
         )
         if maximized_window:
             for window in self._windows.values():
-                if window.id != maximized_window.id:
+                if window.name != maximized_window.name:
                     window.status = WindowStatus.MINIMIZE
             return  # 独占规则优先，直接返回
 
@@ -134,7 +131,7 @@ class WindowManager:
         if len(normal_windows) > MAX_NORMAL_WINDOWS:
             # 找出需要被最小化的窗口
             # 我们不最小化刚刚被打开或操作的窗口
-            windows_to_consider = [w for w in normal_windows if w.id != newly_opened_window_id]
+            windows_to_consider = [w for w in normal_windows if w.name != newly_opened_window_name]
 
             # 按 last_focused_timestamp 排序，最旧的在前面
             windows_to_consider.sort(key=lambda w: w.last_focused_timestamp)
