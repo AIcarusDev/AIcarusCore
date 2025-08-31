@@ -30,7 +30,8 @@ entity account,
     owns request-timestamp,
     plays identity-ownership:owned-account,
     plays membership:member,
-    plays residency:resident;
+    plays residency:resident,
+    plays friendship:friend;
 
 entity conversation,
     sub objective-entity,

@@ -170,7 +170,34 @@ async def _handle_ui_interaction(
         app = next((a for a in application_manager.get_all_apps() if a.id == target_uid), None)
         if not app:
             logger.error(f"尝试启动一个不存在的应用: '{target_uid}'")
+            return
+
+        # --- 特殊处理 QQ 应用的启动 ---
         if app.name == "qq":
+            # 检查 QQ 应用是否已通过安检 (即 bot_id 是否已设置)
+            if not application_manager.get_self_bot_ids_map().get("qq"):
+                error_message = (
+                    f"无法启动应用 '{app.title}'。\n"
+                    f"原因：QQ 应用尚未完成身份安检。"
+                    f"请确保 QQ 适配器已连接并成功初始化。"
+                )
+                logger.error(error_message.replace('\n', ' '))
+                error_popup = Window(
+                    id=f"win-error-startup-{app.id}",
+                    parent_app_id=app.id,
+                    title=f"{app.title} - 启动失败",
+                    window_class="system_error_modal",
+                    content_state={"error_message": error_message},
+                    is_popup=True,
+                    popup_type='modal',
+                    transient_cycles_remaining=None,
+                )
+                window_manager.open_window(error_popup)
+                return
+
+            # 安检已通过，正常启动
+            application_manager.start_app(target_uid)
+            logger.info(f"应用 '{target_uid}' 已启动。")
             main_window = Window(
                 id=f"win-{app.id}-main",
                 parent_app_id=app.id,
@@ -180,49 +207,6 @@ async def _handle_ui_interaction(
             )
             window_manager.open_window(main_window)
             return
-
-        # 解析平台信息
-        platform_id = app.name
-        self_entity = await container.entity_graph_service.get_self_entity_by_platform(platform_id)
-
-        if not self_entity:
-            error_message = (
-                f"无法启动应用 '{app.title}'。\n"
-                f"原因：尚未获取到你在此平台 ({platform_id}) 的身份信息。"
-                f"需要确保对应的适配器已连接，并稍等片刻待系统完成安检。"
-            )
-            logger.error(error_message.replace('\n', ' '))
-
-            error_popup = Window(
-                id=f"win-error-startup-{app.id}",
-                parent_app_id=app.id,
-                title=f"{app.title} - 启动失败",
-                window_class="system_error_modal",
-                content_state={"error_message": error_message},
-                is_popup=True,
-                popup_type='modal',
-                transient_cycles_remaining=None,
-            )
-            window_manager.open_window(error_popup)
-            return
-
-        app_windows = [
-            w for w in window_manager.get_all_windows_sorted() if w.parent_app_id == target_uid
-        ]
-        if application_manager.is_running(target_uid) and app_windows:
-            logger.warning(f"应用 '{target_uid}' 已在运行中，将聚焦其窗口。")
-            window_manager.focus_window(app_windows[0].id)
-        else:
-            application_manager.start_app(target_uid)
-            logger.info(f"应用 '{target_uid}' 已启动。")
-            if app.name == "qq":
-                main_window = Window(
-                    id=f"win-{app.id}-main",
-                    parent_app_id=app.id,
-                    title=f"{app.title}",
-                    window_class="main/conversation_list",
-                )
-                window_manager.open_window(main_window)
 
     elif internal_command == "open_conversation_window":
         app_list = application_manager.get_all_apps()

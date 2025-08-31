@@ -153,9 +153,6 @@ class ServiceBuilder:
 
         container = ServiceContainer(
             main_consciousness_llm_client=llm_clients["main_consciousness_llm_client"],
-            summary_llm_client=llm_clients["summary_llm_client"],
-            intrusive_thoughts_llm_client=llm_clients["intrusive_thoughts_llm_client"],
-            focused_chat_llm_client=llm_clients["focused_chat_llm_client"],
             web_search_agent_client=llm_clients["web_search_agent_client"],
             url_context_agent_client=llm_clients["url_context_agent_client"],
             deliberation_llm_client=llm_clients["deliberation_llm_client"],
@@ -316,25 +313,14 @@ class ServiceBuilder:
             "main_consciousness_llm_client": _create_client(
                 models.main_consciousness, "main_consciousness"
             ),
-            "summary_llm_client": _create_client(models.information_summary, "information_summary"),
             "web_search_agent_client": _create_client(models.web_search_agent, "web_search_agent"),
             "url_context_agent_client": _create_client(
                 models.url_context_agent, "url_context_agent"
             ),
             "deliberation_llm_client": _create_client(models.deliberation, "deliberation"),
-            "intrusive_thoughts_llm_client": _create_client(
-                models.intrusive_thoughts, "intrusive_thoughts"
-            )
-            if config.intrusive_thoughts_module_settings.enabled
-            else None,
-            "focused_chat_llm_client": _create_client(models.focused_chat, "focused_chat")
-            if config.focus_chat_mode.enabled
-            else None,
         }
         if not clients["main_consciousness_llm_client"]:
             raise RuntimeError("主意识LLM客户端初始化失败。")
-        if config.focus_chat_mode.enabled and not clients["focused_chat_llm_client"]:
-            raise RuntimeError("专注聊天LLM客户端已启用但初始化失败。")
         logger.info("LLM客户端初始化完毕。")
         return clients
 

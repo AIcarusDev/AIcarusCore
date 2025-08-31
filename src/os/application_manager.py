@@ -1,4 +1,4 @@
-# src/aicos/application_manager.py
+# 文件路径: src/os/application_manager.py
 
 from .models import Application, ApplicationLifecycle
 
@@ -13,8 +13,15 @@ class ApplicationManager:
         self._self_bot_ids_map: dict[str, str] = {}
 
     def set_self_bot_ids_map(self, bot_ids_map: dict[str, str]) -> None:
-        """从外部注入 bot_id 映射."""
+        """从外部一次性注入完整的 bot_id 映射."""
         self._self_bot_ids_map = bot_ids_map
+
+    def set_self_bot_id_for_platform(self, platform_id: str, bot_id: str) -> None:
+        """为单个平台设置或更新机器人的 bot_id.
+
+        这是供各个应用构建器在安检完成后调用的标准接口。
+        """
+        self._self_bot_ids_map[platform_id] = bot_id
 
     def get_self_bot_ids_map(self) -> dict[str, str]:
         """获取 bot_id 映射."""
@@ -54,3 +61,44 @@ class ApplicationManager:
     def get_all_apps(self) -> list[Application]:
         """获取所有已安装的应用列表."""
         return list(self._applications.values())
+
+    def build_base_interaction_schema(
+            self,
+            ui_mapping: dict,
+            allow_only_click: bool = False
+        ) -> dict:
+        """根据当前的 UI 映射，构建基础交互动作的 JSON Schema."""
+        properties = {}
+        # Click
+        clickable_ids = [
+            key for key, info in ui_mapping.items() if info.get("action_type") == "click"
+        ]
+        if clickable_ids:
+            properties["click"] = {
+                "type": "object",
+                "description": "模拟一次鼠标单击。",
+                "properties": {
+                    "target_id": {"type": "string", "enum": clickable_ids},
+                    "motivation": {"type": "string"},
+                },
+                "required": ["target_id", "motivation"],
+            }
+
+        # Double Click
+        if not allow_only_click:
+            double_clickable_ids = [
+                key for key, info in ui_mapping.items() if info.get("action_type") == "double_click"
+            ]
+            if double_clickable_ids:
+                properties["double_click"] = {
+                    "type": "object",
+                    "description": "模拟一次鼠标双击。",
+                    "properties": {
+                        "target_id": {"type": "string", "enum": double_clickable_ids},
+                        "motivation": {"type": "string"},
+                    },
+                    "required": ["target_id", "motivation"],
+                }
+
+        return properties
+

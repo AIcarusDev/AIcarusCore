@@ -100,9 +100,9 @@ class EventStorageService:
                     $_ isa event-source, links (source-platform: $p, sourced-event: $e);
                 """
 
-                logger.debug(
-                    f"Executing atomic event put query for event_id '{event_id}':\n{full_query}"
-                )
+                # logger.debug(
+                #     f"Executing atomic event put query for event_id '{event_id}':\n{full_query}"
+                # )
                 tx.query(full_query).resolve()
                 tx.commit()
                 return True

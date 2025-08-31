@@ -142,13 +142,12 @@ class EntityGraphService:
         def db_write() -> None:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
                 for friend_uid in friend_account_uids:
-                    # 使用 TypeDB 的 shorthand 语法简化关系插入
                     query = f"""
                     match
                         $me isa account, has account-uid "{self_account_uid}";
                         $friend isa account, has account-uid "{friend_uid}";
                     insert
-                        (friend_a: $me, friend_b: $friend) isa friendship;
+                        (friend: $me, friend: $friend) isa friendship;
                     """
                     tx.query(query).resolve()
                 tx.commit()

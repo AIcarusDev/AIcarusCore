@@ -7,6 +7,7 @@ from aicarus_protocols import Event
 
 # 导入依赖类型
 from src.os.models import Window
+from src.os.window_manager import WindowManager
 from src.services.database.services.entity_graph_service import EntityGraphService
 from src.services.database.services.event_storage_service import EventStorageService
 
@@ -40,10 +41,11 @@ class BasePlatformBuilder(ABC):
         """返回平台ID."""
         pass
 
-    def get_action_definitions(self) -> dict:
+    def get_action_definitions(self, window_manager: "WindowManager") -> dict:
         """返回平台提供的非UI动作定义.
 
-        默认为空，因为大部分动作通过UI交互触发。
+        Args:
+            window_manager: 窗口管理器实例，用于动态生成与窗口相关的 Schema。
         """
         return {}
 

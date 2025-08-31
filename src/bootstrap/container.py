@@ -49,9 +49,6 @@ class ServiceContainer:
 
     # LLM 客户端
     main_consciousness_llm_client: ProcessorClient
-    summary_llm_client: ProcessorClient | None
-    intrusive_thoughts_llm_client: ProcessorClient | None
-    focused_chat_llm_client: ProcessorClient | None
     web_search_agent_client: ProcessorClient | None
     url_context_agent_client: ProcessorClient | None
     deliberation_llm_client: ProcessorClient | None

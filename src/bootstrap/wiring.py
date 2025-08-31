@@ -18,19 +18,10 @@ async def wire_dynamic_dependencies(container: ServiceContainer) -> None:
     await container.core_comm_layer.wait_for_all_inspections()
     logger.info("动态依赖连接器：所有安检已完成。")
 
-    all_self_entities = await container.entity_graph_service.get_all_self_entities()
-    bot_ids_map = {
-        details.get("platform"): details.get("platform_id")
-        for acc in all_self_entities
-        if (details := acc.get("details")) and isinstance(details, dict)
-    }
+    # 注意：bot_id 的设置现在由每个 app builder 的 run_on_connect_inspection 内部处理
+    # ApplicationManager 会自动收集这些信息。
+    # 这里我们只是验证一下结果。
+    bot_ids_map = container.application_manager.get_self_bot_ids_map()
 
-    logger.info(f"动态依赖连接器：从数据库获取到 Bot ID Map: {bot_ids_map}")
-
-    container.application_manager.set_self_bot_ids_map(bot_ids_map)
-    logger.info("ApplicationManager 的 Bot ID Map 已设置。")
-
-
-    container.unread_info_service.update_self_bot_ids(bot_ids_map)
-    logger.info("UnreadInfoService 的 Bot ID Map 已更新。")
+    logger.info(f"动态依赖连接器：从 ApplicationManager 获取到 Bot ID Map: {bot_ids_map}")
     logger.info("动态依赖连接流程完成。")

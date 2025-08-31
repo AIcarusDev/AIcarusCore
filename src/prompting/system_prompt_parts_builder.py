@@ -6,6 +6,7 @@ from src.common.time_utils import get_formatted_time_for_llm
 from src.config import config
 from src.mind.memory_system.working_memory.builder import WorkingMemoryBuilder
 from src.os.application_manager import ApplicationManager
+from src.os.apps.interfaces import ISession
 from src.os.models import WindowStatus
 from src.os.window_manager import WindowManager
 from src.prompting.templates.aicarus_rule import AICARUS_RULE
@@ -32,8 +33,11 @@ class SystemPromptPartsBuilder:
         self.entity_service = entity_service
         self.working_memory_builder = WorkingMemoryBuilder()
 
+    # 修改 build 方法的签名以接收 session
     async def build(
         self,
+        session: ISession | None,
+        is_context_switch_flag: bool,
         last_external_info_snapshot: str | None,
     ) -> dict[str, Any]:
         """构建并返回一个包含 System Prompt 所有组件的字典."""
@@ -47,7 +51,8 @@ class SystemPromptPartsBuilder:
         )
         working_memories_block = self.working_memory_builder.render_to_xml_string(memory_fragments)
 
-        current_state_block = self._get_current_state_block()
+        # [核心修复] 将 session 传递给 _get_current_state_block
+        current_state_block = self._get_current_state_block(session)
         current_goals_block = self.state_manager.goal_manager.get_formatted_goals()
 
 
@@ -62,13 +67,14 @@ class SystemPromptPartsBuilder:
             "current_goals_block": current_goals_block,
             "current_state_block": current_state_block,
             "working_memories_block": working_memories_block,
-            "sticker_collection_block": "",
-            "available_platforms_block": "",
+            "sticker_collection_block": "", # 占位，未来实现
+            "available_platforms_block": "", # 占位，未来实现
             "behavior_guidelines_block": CORE_BEHAVIOR_GUIDELINES,
         }
 
-    def _get_current_state_block(self) -> str:
-        """根据 WindowManager 的状态构建当前状态的描述."""
+    # +++ [核心修复] 修改 _get_current_state_block 的签名以接收 session +++
+    def _get_current_state_block(self, session: ISession | None) -> str:
+        """根据 WindowManager 的状态和当前会话构建状态描述."""
         active_window = next(
             (
                 w
@@ -80,6 +86,10 @@ class SystemPromptPartsBuilder:
 
         if not active_window:
             return "你当前正看着 AIC-OS 的桌面，没有任何激活的应用窗口。"
+
+        if session and hasattr(session, 'conversation_name') and session.conversation_name:
+            # 如果我们处于一个具体的聊天会话中
+            return f"你当前正专注于与 '{session.conversation_name}' 的对话窗口。"
 
         if active_window.status == WindowStatus.MAXIMIZE:
             status_desc = "被最大化显示"

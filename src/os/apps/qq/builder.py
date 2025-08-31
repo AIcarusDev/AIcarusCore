@@ -13,6 +13,7 @@ from src.common.custom_logging.logging_config import get_logger
 from src.common.utils import build_conversation_entity_uid
 from src.os.apps.interfaces import IApp, ISession
 from src.os.models import Window, WindowStatus
+from src.os.window_manager import WindowManager
 from src.services.action.components.base_builder import BasePlatformBuilder
 
 from .qq_chat_session_manager import QQChatSessionManager
@@ -184,12 +185,17 @@ class QQBuilder(BasePlatformBuilder, IApp):
             image_collector
         )
 
-    def get_action_definitions(self) -> dict:
-        """定义 QQ 平台的所有动作."""
+    def get_action_definitions(self, window_manager: WindowManager) -> dict:
+        """动态定义 QQ 平台的所有动作，特别是 send_message."""
         # 这个方法现在只定义了 send_message
-        # 其他如 get_list 等，会由 AIC-OS 的 UI 交互自动生成
-        return {
-            "send_message": {
+        # 1. 查找所有当前可见的聊天窗口
+        visible_chat_window_ids = [
+            window.id
+            for window in window_manager.get_all_windows_sorted()
+            if window.window_class == "conversation" and window.status != WindowStatus.MINIMIZE
+        ]
+        # 2. 构建 send_message 的 Schema
+        send_message_schema = {
                 "type": "object",
                 "description": "在指定的、当前可见的聊天窗口中发送消息。",
                 "properties": {
@@ -216,7 +222,14 @@ class QQBuilder(BasePlatformBuilder, IApp):
                 },
                 "required": ["target_window_id", "steps", "motivation"],
             }
-        }
+        # 3. 如果找到了可见的聊天窗口，就动态添加 enum 约束
+        if visible_chat_window_ids:
+            send_message_schema["properties"]["target_window_id"]["enum"] = visible_chat_window_ids
+        else:
+            # 如果没有可见的聊天窗口，不返回 send_message 动作
+            return {}
+
+        return {"send_message": send_message_schema}
 
     def build_action_event(self, action_name: str, params: dict, bot_id: str) -> Event | None:
         """将 Core 的指令转换成发往 Adapter 的标准 Event."""

@@ -156,7 +156,7 @@ class ThoughtPromptBuilder:
             }
 
         for platform_id, builder in platform_builder_registry.get_all_builders().items():
-            app_schema = builder.get_action_definitions()
+            app_schema = builder.get_action_definitions(self.window_manager)
             if app_schema:
                 aicos_properties[platform_id] = {
                     "type": "object",
