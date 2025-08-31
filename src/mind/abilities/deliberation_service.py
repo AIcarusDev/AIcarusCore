@@ -35,7 +35,8 @@ class DeliberationService:
                 "type": "object",
                 "description": (
                     "进行理性的深度思考，"
-                    "在遇到陌生、复杂、抽象问题，或高风险的决策时使用。"
+                    "在遇到陌生、复杂、抽象问题、高风险的决策、"
+                    "或是任何你觉得需要仔细想想的情况使用。"
                 ),
                 "properties": {
                     "motivation": {"type": "string"},
