@@ -15,7 +15,8 @@ from src.os.apps.interfaces import IApp, ISession
 from src.os.models import Window, WindowStatus
 from src.services.action.components.base_builder import BasePlatformBuilder
 
-from .qq_chat_session_manager import ChatSessionManager
+from .qq_chat_session_manager import QQChatSessionManager
+from .qq_inspection_service import inspect_and_initialize_self_profile
 from .qq_renderer import QQWindowRenderer
 
 if TYPE_CHECKING:
@@ -29,7 +30,32 @@ class QQBuilder(BasePlatformBuilder, IApp):
     """QQ 平台的构建器，现在负责处理 OS 级别的实时事件."""
 
     def __init__(self) -> None:
-        self._session_manager_instance: ChatSessionManager | None = None
+        self._session_manager_instance: QQChatSessionManager | None = None
+
+    @property
+    def needs_on_connect_inspection(self) -> bool:
+        """告知 Core，此平台连接后需要执行安检."""
+        return True
+
+    async def run_on_connect_inspection(self, container: ServiceContainer) -> None:
+        """由 CoreWebsocketServer 调用的、平台专属的安检流程."""
+        logger.info(f"--- [QQBuilder] 开始执行平台 '{self.platform_id}' 的上线安检仪式 ---")
+        success, profile_data = await inspect_and_initialize_self_profile(
+            entity_service=container.entity_graph_service,
+            action_handler=container.action_handler,
+            platform_id=self.platform_id,
+        )
+
+        if success and profile_data:
+            logger.success("[QQBuilder] 安检成功，获取到自身档案。")
+            bot_id = profile_data.get("user_id")
+            if bot_id:
+                container.application_manager.set_self_bot_id_for_platform(
+                    self.platform_id,
+                    str(bot_id)
+                )
+        else:
+            logger.critical(f"[QQBuilder] 安检失败！平台 '{self.platform_id}' 的功能将严重受影响。")
 
     # OS 实时事件处理器
     async def handle_os_level_event(
@@ -100,14 +126,14 @@ class QQBuilder(BasePlatformBuilder, IApp):
         )
         window_manager.open_window(popup)
 
-    def get_session_manager(self, container: ServiceContainer) -> ChatSessionManager:
-        """按需创建并返回 ChatSessionManager 的单例.
+    def get_session_manager(self, container: ServiceContainer) -> QQChatSessionManager:
+        """按需创建并返回 QQChatSessionManager 的单例.
 
         这是实现懒加载的核心。
         """
         if self._session_manager_instance is None:
             # 只有在第一次被请求时，才创建实例
-            self._session_manager_instance = ChatSessionManager(
+            self._session_manager_instance = QQChatSessionManager(
                 llm_client=container.focused_chat_llm_client,
                 event_storage=container.event_storage_service,
                 action_handler=container.action_handler,

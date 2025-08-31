@@ -3,6 +3,7 @@
 import time
 from xml.etree.ElementTree import Element, SubElement
 
+from pypinyin import Style, pinyin
 from src.common.time_utils import format_relative_time
 from src.common.utils import parse_entity_uid
 from src.os.models import Window, WindowStatus
@@ -65,15 +66,179 @@ class QQWindowRenderer:
         bot_ids_map: dict,
         image_collector: list[dict]
     ) -> None:
-        """根据窗口类型，分发到具体的渲染方法."""
-        if window.window_class == "main/conversation_list":
-            # 会话列表窗口不处理图片，直接传递空的收集器
+        """[重构] 视图分发器."""
+        # --- 1. 渲染通用部分：视图切换器 ---
+        self._render_view_switcher(parent_element, current_path, window)
+
+        # --- 2. 根据 view 状态分发到不同的渲染方法 ---
+        current_view = window.content_state.get("view", "conversation_list")
+
+        if current_view == "conversation_list":
             await self._render_conversation_list(parent_element, current_path, window, bot_ids_map)
-        elif window.window_class == "conversation":
-            # 聊天窗口需要处理图片，传递收集器
+        elif current_view == "contacts_list":
+            await self._render_contacts_list(parent_element, current_path, window, bot_ids_map)
+        elif window.window_class == "conversation": # 兼容旧的聊天窗口逻辑
             await self._render_conversation_window(
                 parent_element, current_path, window, bot_ids_map, image_collector
             )
+
+    def _render_view_switcher(
+        self,
+        window_node: Element,
+        current_path: list[str],
+        window: Window
+    ) -> None:
+        """渲染视图切换按钮栏."""
+        current_view = window.content_state.get("view", "conversation_list")
+        switcher_node = SubElement(window_node, "view_switcher")
+        switcher_path = [*current_path, "view_switcher"]
+
+        views = {"conversation_list": "会话", "contacts_list": "联系人"}
+        for view_name, view_title in views.items():
+            btn_id = self._generate_semantic_id([*switcher_path, f"{view_name}_button"])
+            btn_status = "active" if current_view == view_name else "inactive"
+            SubElement(
+                switcher_node,
+                "button",
+                attrib={"id": btn_id, "name": view_name, "title": view_title, "status": btn_status}
+            )
+            if btn_status == "inactive":
+                self.ui_mapping[btn_id] = {
+                    "action_type": "click",
+                    "action": "switch_window_view",
+                    "target_uid": window.id,
+                    "view_name": view_name,
+                }
+
+    async def _render_contacts_list(
+        self, window_node: Element, current_path: list[str], window: Window, bot_ids_map: dict
+    ) -> None:
+        await self._render_self_platform_profile(window_node, "qq")
+
+        self_entity = await self.entity_service.get_self_entity_by_platform("qq")
+        if not self_entity or not self_entity.get("entity_uid"):
+            SubElement(window_node, "error").text = "无法加载联系人：自身实体信息丢失。"
+            return
+
+        friends, groups = await self.entity_service.get_all_contacts(self_entity["entity_uid"])
+
+        # 按拼音首字母排序
+        def sort_key(item: dict) -> str:
+            # 优先使用备注/群名，其次是昵称
+            name = item.get("name", "")
+            # pinyin返回一个二维列表，例如 [['nǐ'], ['hǎo']]
+            pinyin_list = pinyin(name, style=Style.FIRST_LETTER, strict=False)
+            # 拼接首字母
+            return "".join(part[0] for part in pinyin_list if part).lower()
+
+        friends.sort(key=sort_key)
+        groups.sort(key=sort_key)
+
+        contacts_node = SubElement(window_node, "contacts_list")
+
+        # 渲染两个可折叠列表
+        await self._render_collapsible_list(
+            contacts_node, current_path, window, "friends", "好友", friends
+        )
+        await self._render_collapsible_list(
+            contacts_node,
+            current_path,
+            window,
+            "groups",
+            "群聊",
+            groups
+            )
+
+    async def _render_collapsible_list(
+        self, parent_node: Element, current_path: list[str], window: Window,
+        list_name: str, list_title: str, items: list[dict]
+    ) -> None:
+        """通用辅助方法，用于渲染一个可折叠、可分页的列表."""
+        list_states = window.content_state.get("collapsible_lists", {})
+        status = list_states.get(list_name, "collapsed")
+
+        list_path = [*current_path, list_name]
+        list_id = self._generate_semantic_id(list_path)
+
+        list_node = SubElement(
+            parent_node,
+            "collapsible_list",
+            attrib={
+                "id": list_id,
+                "name": list_name,
+                "title": f"{list_title} ({len(items)})",
+                "status": status,
+            },
+        )
+        self.ui_mapping[list_id] = {
+            "action_type": "click",
+            "action": "toggle_collapsible_list",
+            "target_uid": window.id,
+            "list_name": list_name,
+        }
+
+        if status == "expanded":
+            page_size = 30 if window.status == WindowStatus.MAXIMIZE else 15
+            total_items = len(items)
+            total_pages = max(1, (total_items + page_size - 1) // page_size)
+
+            # 存储总页数，供翻页指令使用
+            window.content_state.setdefault("list_total_pages", {})[list_name] = total_pages
+
+            current_page = window.content_state.get("list_pages", {}).get(list_name, 1)
+
+            start_index = (current_page - 1) * page_size
+            end_index = start_index + page_size
+            paginated_items = items[start_index:end_index]
+
+            for item in paginated_items:
+                item_node = SubElement(
+                    list_node,
+                    "item",
+                    attrib={"name": item["name"], "type": item["type"]},
+                )
+                item_path = [*list_path, item["name"]]
+                chat_btn_id = self._generate_semantic_id([*item_path, "chat_button"])
+                SubElement(
+                    item_node,
+                    "button",
+                    attrib={"id": chat_btn_id, "name": "chat", "title": "发起聊天"},
+                )
+                self.ui_mapping[chat_btn_id] = {
+                    "action_type": "click",
+                    "action": "open_conversation_window",
+                    "target_uid": item["uid"],
+                }
+
+            # 渲染分页控件
+            pagination_node = SubElement(list_node, "pagination_controls")
+            pagination_path = [*list_path, "pagination"]
+            if current_page > 1:
+                prev_btn_id = self._generate_semantic_id([*pagination_path, "prev_button"])
+                SubElement(
+                    pagination_node,
+                    "button",
+                    attrib={"id": prev_btn_id,
+                    "name": "prev_page", "title": "上一页"}
+                )
+                self.ui_mapping[prev_btn_id] = {
+                    "action_type": "click", "action": "paginate_collapsible_list",
+                    "target_uid": window.id, "list_name": list_name, "direction": "prev"
+                }
+
+            SubElement(pagination_node, "desc").text = f"第 {current_page} / {total_pages} 页"
+
+            if current_page < total_pages:
+                next_btn_id = self._generate_semantic_id([*pagination_path, "next_button"])
+                SubElement(
+                    pagination_node,
+                    "button",
+                    attrib={"id": next_btn_id, "name": "next_page", "title": "下一页"}
+                )
+                self.ui_mapping[next_btn_id] = {
+                    "action_type": "click", "action": "paginate_collapsible_list",
+                    "target_uid": window.id, "list_name": list_name, "direction": "next"
+                }
 
     async def _render_self_platform_profile(self, window_node: Element, platform_id: str) -> None:
         """负责查询并渲染机器人在指定平台的基础档案（ID和昵称）."""

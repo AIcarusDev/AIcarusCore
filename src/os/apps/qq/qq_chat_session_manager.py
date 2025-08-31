@@ -11,7 +11,7 @@ from src.services.database.services.event_storage_service import EventStorageSer
 from src.services.database.services.thought_storage_service import ThoughtStorageService
 from src.services.llmrequest.llm_processor import Client as LLMProcessorClient
 
-from .qq_chat_session import ChatSession
+from .qq_chat_session import QQChatSession
 
 if TYPE_CHECKING:
     from src.common.intelligent_interrupt_system.intelligent_interrupter import (
@@ -24,8 +24,8 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-class ChatSessionManager:
-    """管理所有 ChatSession 实例，作为会话对象的工厂和缓存池.
+class QQChatSessionManager:
+    """管理所有 QQChatSession 实例，作为会话对象的工厂和缓存池.
 
     负责提供会话的业务逻辑和数据上下文。
     """
@@ -41,7 +41,7 @@ class ChatSessionManager:
         thought_storage_service: "ThoughtStorageService",
         core_logic: Optional["CoreLogicFlow"] = None,
     ) -> None:
-        """初始化 ChatSessionManager."""
+        """初始化 QQChatSessionManager."""
         self.llm_client = llm_client
         self.event_storage = event_storage
         self.action_handler = action_handler
@@ -50,13 +50,13 @@ class ChatSessionManager:
         self.intelligent_interrupter = intelligent_interrupter
         self.entity_graph_service = entity_graph_service
         self.core_logic = core_logic
-        self.sessions: dict[str, ChatSession] = {}
+        self.sessions: dict[str, QQChatSession] = {}
         self.lock = asyncio.Lock()
 
-        logger.info("ChatSessionManager 初始化完成。")
+        logger.info("QQChatSessionManager 初始化完成。")
 
-    async def get_or_create_session(self, conversation_entity_uid: str) -> ChatSession | None:
-        """根据会话实体的UID获取或创建ChatSession.
+    async def get_or_create_session(self, conversation_entity_uid: str) -> QQChatSession | None:
+        """根据会话实体的UID获取或创建QQChatSession.
 
         这是该模块在新架构下的主要入口点。
         """
@@ -95,13 +95,13 @@ class ChatSessionManager:
             )
 
             if not self.core_logic:
-                raise RuntimeError("CoreLogic未注入，ChatSessionManager无法创建会话。")
+                raise RuntimeError("CoreLogic未注入，QQChatSessionManager无法创建会话。")
 
             initial_last_processed_timestamp = (
                 getattr(conv_entity_doc, "last_read_timestamp", 0.0) or time.time() * 1000.0
             )
 
-            new_session = ChatSession(
+            new_session = QQChatSession(
                 conversation_info=conversation_info_obj,
                 conversation_id=conversation_entity_uid,
                 llm_client=self.llm_client,
@@ -137,6 +137,6 @@ class ChatSessionManager:
 
     def shutdown(self) -> None:
         """在应用程序关闭时执行清理操作."""
-        logger.info("ChatSessionManager 正在关闭...")
+        logger.info("QQChatSessionManager 正在关闭...")
         # 未来可以在这里添加需要保存到数据库的批量操作
-        logger.info("ChatSessionManager 关闭完成。")
+        logger.info("QQChatSessionManager 关闭完成。")

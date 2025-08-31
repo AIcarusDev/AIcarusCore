@@ -10,10 +10,10 @@ from src.common.custom_logging.logging_config import get_logger
 from src.common.utils import parse_entity_uid
 from src.domain.models import ActionMetadata, ActionResult
 from src.os.apps.registry import platform_builder_registry
+from src.os.communication.action_sender import ActionSender
 from src.os.models import WindowStatus
 from src.services.action.components.pending_action_manager import PendingActionManager
 from src.services.action.services.sticker_service import StickerService
-from src.services.core_communication.action_sender import ActionSender
 from src.services.database import (
     ActionLogStorageService,
     EntityGraphService,
@@ -24,7 +24,7 @@ from src.services.database import (
 if TYPE_CHECKING:
     from src.mind.abilities.information_retrieval_service import InformationRetrievalService
     from src.mind.consciousness_flow import CoreLogic
-    from src.os.apps.qq.qq_chat_session_manager import ChatSessionManager
+    from src.os.apps.qq.qq_chat_session_manager import QQChatSessionManager
     from src.os.services.filesystem_service import FileSystemService
     from src.os.window_manager import WindowManager
 
@@ -64,7 +64,7 @@ class ActionHandler:
         self.sticker_service = sticker_service
 
         # 动态注入的依赖
-        self.chat_session_manager: ChatSessionManager | None = None
+        self.chat_session_manager: QQChatSessionManager | None = None
         self.core_logic: CoreLogic | None = None
         self.immediate_thought_trigger: asyncio.Event | None = None
 
@@ -78,7 +78,7 @@ class ActionHandler:
 
     def set_dynamic_dependencies(
         self,
-        chat_session_manager: ChatSessionManager,
+        chat_session_manager: QQChatSessionManager,
         core_logic: CoreLogic,
         trigger_event: asyncio.Event,
     ) -> None:
@@ -428,7 +428,7 @@ class ActionHandler:
 
         # 确保 chat_session_manager 存在
         if not self.chat_session_manager:
-            logger.error("无法发送消息：ChatSessionManager 未在 ActionHandler 中初始化。")
+            logger.error("无法发送消息：QQChatSessionManager 未在 ActionHandler 中初始化。")
             return
 
         bot_id = self.chat_session_manager.self_bot_ids_map.get(platform)

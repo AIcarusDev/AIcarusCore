@@ -24,9 +24,9 @@ if TYPE_CHECKING:
     from src.bootstrap.container import ServiceContainer
     from src.os.application_manager import ApplicationManager
     from src.os.apps.interfaces import ISession
+    from src.os.communication.core_ws_server import CoreWebsocketServer
     from src.os.state_generator import AICOSStateGenerator
     from src.os.window_manager import WindowManager
-    from src.services.core_communication.core_ws_server import CoreWebsocketServer
     from src.services.database.services.entity_graph_service import EntityGraphService
 
 logger = get_logger(__name__)

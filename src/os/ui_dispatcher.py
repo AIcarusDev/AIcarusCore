@@ -131,10 +131,54 @@ async def _handle_ui_interaction(
                 application_manager.stop_app(app_id)
                 logger.info(f"应用 '{app_id}' 所有窗口已关闭，进程已停止。")
 
+    elif internal_command == "switch_window_view":
+        window = window_manager.get_window(target_uid)
+        new_view = mapped_info.get("view_name")
+        if window and new_view:
+            window.content_state["view"] = new_view
+            logger.info(f"窗口 '{target_uid}' 的视图已切换到 '{new_view}'。")
+            window_manager.focus_window(target_uid)
+
+    elif internal_command == "toggle_collapsible_list":
+        window = window_manager.get_window(target_uid)
+        list_name = mapped_info.get("list_name")
+        if window and list_name:
+            list_states = window.content_state.setdefault("collapsible_lists", {})
+            current_state = list_states.get(list_name, "collapsed")
+            list_states[list_name] = "expanded" if current_state == "collapsed" else "collapsed"
+            logger.info(f"窗口 '{target_uid}' 中的列表 '{list_name}' 状态已切换。")
+            window_manager.focus_window(target_uid)
+
+    elif internal_command == "paginate_collapsible_list":
+        window = window_manager.get_window(target_uid)
+        list_name = mapped_info.get("list_name")
+        direction = mapped_info.get("direction")
+        if window and list_name and direction:
+            list_pages = window.content_state.setdefault("list_pages", {})
+            current_page = list_pages.get(list_name, 1)
+            # 总页数应该由渲染器在渲染时计算并存入 content_state
+            total_pages = window.content_state.get("list_total_pages", {}).get(list_name, 1)
+
+            if direction == "next":
+                list_pages[list_name] = min(total_pages, current_page + 1)
+            elif direction == "prev":
+                list_pages[list_name] = max(1, current_page - 1)
+            logger.info(f"窗口 '{target_uid}' 中列表 '{list_name}' 已翻页。")
+            window_manager.focus_window(target_uid)
+
     elif internal_command == "start_app":
         app = next((a for a in application_manager.get_all_apps() if a.id == target_uid), None)
         if not app:
             logger.error(f"尝试启动一个不存在的应用: '{target_uid}'")
+        if app.name == "qq":
+            main_window = Window(
+                id=f"win-{app.id}-main",
+                parent_app_id=app.id,
+                title=f"{app.title}",
+                window_class="main",
+                content_state={"view": "conversation_list"}
+            )
+            window_manager.open_window(main_window)
             return
 
         # 解析平台信息
@@ -145,7 +189,7 @@ async def _handle_ui_interaction(
             error_message = (
                 f"无法启动应用 '{app.title}'。\n"
                 f"原因：尚未获取到你在此平台 ({platform_id}) 的身份信息。"
-                f"请确保对应的适配器已连接，并稍等片刻待系统完成安检。"
+                f"需要确保对应的适配器已连接，并稍等片刻待系统完成安检。"
             )
             logger.error(error_message.replace('\n', ' '))
 

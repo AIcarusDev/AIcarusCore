@@ -131,6 +131,87 @@ class EntityGraphService:
         )
         tx.query(insert_query).resolve()
 
+    async def establish_friendships(
+            self,
+            self_account_uid: str,
+            friend_account_uids: list[str]
+        ) -> bool:
+        """批量建立双向好友关系."""
+        driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
+
+        def db_write() -> None:
+            with driver.transaction(db_name, TransactionType.WRITE) as tx:
+                for friend_uid in friend_account_uids:
+                    # 使用 TypeDB 的 shorthand 语法简化关系插入
+                    query = f"""
+                    match
+                        $me isa account, has account-uid "{self_account_uid}";
+                        $friend isa account, has account-uid "{friend_uid}";
+                    insert
+                        (friend_a: $me, friend_b: $friend) isa friendship;
+                    """
+                    tx.query(query).resolve()
+                tx.commit()
+        try:
+            await asyncio.to_thread(db_write)
+            return True
+        except Exception as e:
+            logger.error(f"批量建立好友关系时失败: {e}", exc_info=True)
+            return False
+
+    async def get_all_contacts(self, self_account_uid: str) -> tuple[list[dict], list[dict]]:
+        """获取一个账户的所有好友和群组列表."""
+        friends_task = self.get_all_friends_for_account(self_account_uid)
+        groups_task = self.get_all_groups_for_account(self_account_uid)
+        friends, groups = await asyncio.gather(friends_task, groups_task)
+        return friends, groups
+
+    async def get_all_friends_for_account(self, self_account_uid: str) -> list[dict]:
+        """获取一个账户的所有好友列表."""
+        query = f"""
+        match
+            $me isa account, has account-uid "{self_account_uid}";
+            (friend_a: $me, friend_b: $friend) isa friendship;
+            $friend has account-uid $uid, has nickname $nick;
+            optional {{ $friend has friend-remark $remark; }};
+        select $uid, $nick, $remark;
+        """
+        driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
+        def db_read() -> list[dict]:
+            with driver.transaction(db_name, TransactionType.READ) as tx:
+                results = []
+                for ans in tx.query(query).resolve().as_concept_rows():
+                    results.append({
+                        "uid": ans.get("uid").as_attribute().get_value(),
+                        "name": (
+                            ans.get("remark").as_attribute().get_value()
+                            if ans.get("remark")
+                            else ans.get("nick").as_attribute().get_value()
+                        ),
+                        "type": "private",
+                    })
+                return results
+        return await asyncio.to_thread(db_read)
+
+    async def get_all_groups_for_account(self, self_account_uid: str) -> list[dict]:
+        """获取一个账户所在的所有群组列表."""
+        query = f"""
+        match
+            $me isa account, has account-uid "{self_account_uid}";
+            (member: $me, group: $group) isa membership;
+            $group has conversation-uid $uid, has display-name $name;
+        select $uid, $name;
+        """
+        driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
+        def db_read() -> list[dict]:
+            with driver.transaction(db_name, TransactionType.READ) as tx:
+                return [{
+                    "uid": ans.get("uid").as_attribute().get_value(),
+                    "name": ans.get("name").as_attribute().get_value(),
+                    "type": "group"
+                } for ans in tx.query(query).resolve().as_concept_rows()]
+        return await asyncio.to_thread(db_read)
+
     def _update_conversation_name_if_changed_sync(
         self, tx: Transaction, conv_entity_uid: str, new_name: str | None
     ) -> None:

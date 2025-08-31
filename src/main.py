@@ -43,7 +43,7 @@ async def start_core_system() -> None:
             logger.info("后台图像分析服务已启动。")
 
 
-        # 4. 在后台处理动态依赖的连接 (ChatSessionManager)
+        # 4. 在后台处理动态依赖的连接 (QQChatSessionManager)
         # 这不会阻塞主服务运行
         dynamic_wiring_task = asyncio.create_task(
             wire_dynamic_dependencies(container), name="DynamicWiring"

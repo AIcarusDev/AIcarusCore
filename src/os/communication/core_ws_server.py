@@ -1,4 +1,5 @@
-# src/core_communication/core_ws_server.py
+# src/os/communication/core_ws_server.py
+
 import asyncio
 import json
 import time
@@ -6,23 +7,25 @@ import uuid
 from contextlib import suppress
 from typing import TYPE_CHECKING, Any
 
-if TYPE_CHECKING:
-    from src.services.action.action_handler import ActionHandler
-
 import websockets
 from aicarus_protocols import ConversationInfo, SegBuilder
 from aicarus_protocols import Event as ProtocolEvent
 from aicarus_protocols import UserInfo as ProtocolUserInfo
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
-from AIcarusCore.src.os.apps.qq.qq_inspection_service import inspect_and_initialize_self_profile
 from src.os.apps.registry import platform_builder_registry
-from src.services.core_communication.action_sender import ActionSender
-from src.services.core_communication.event_receiver import EventReceiver
+from src.services.action.components.base_builder import BasePlatformBuilder
 from src.services.database import EntityGraphService
 from src.services.database.services.event_storage_service import EventStorageService
 from websockets.exceptions import ConnectionClosed, ConnectionClosedError, ConnectionClosedOK
 from websockets.server import WebSocketServerProtocol
+
+from .action_sender import ActionSender
+from .event_receiver import EventReceiver
+
+if TYPE_CHECKING:
+    from src.bootstrap.container import ServiceContainer
+    from src.services.action.action_handler import ActionHandler
 
 logger = get_logger(__name__)
 
@@ -39,6 +42,7 @@ class CoreWebsocketServer:
         host: str,
         port: int,
         event_receiver: EventReceiver,
+        container: "ServiceContainer",
         action_sender: ActionSender,
         event_storage_service: EventStorageService,
         action_handler_instance: "ActionHandler",
@@ -46,6 +50,7 @@ class CoreWebsocketServer:
     ) -> None:
         self.host: str = host
         self.port: int = port
+        self.container = container
         self.server: websockets.WebSocketServer | None = None
         self.event_storage_service = event_storage_service
         self.event_receiver = event_receiver
@@ -128,105 +133,43 @@ class CoreWebsocketServer:
         builder = platform_builder_registry.get_builder(adapter_id)
 
         if builder and builder.needs_on_connect_inspection:
-            # 路径 A: 需要安检的平台 (e.g., QQ)
             logger.info(f"平台 '{display_name}({adapter_id})' 需要上线安检，启动安检仪式...")
-
-            # 1. 创建安检任务
-            inspection_task = asyncio.create_task(
-                self._run_inspection_ceremony(adapter_id, display_name)
-            )
+            inspection_task = asyncio.create_task(self._run_inspection_ceremony(builder))
             self.active_inspection_tasks.add(inspection_task)
-
-            # 2. 定义并绑定回调函数 (只在这里做，只做一次！)
-            def _done_callback(t: asyncio.Task) -> None:
-                """任务完成后的回调函数，用于清理和记录异常."""
-                self.active_inspection_tasks.discard(t)
-                if not t.cancelled() and t.exception():
-                    logger.error("安检仪式后台任务异常:", exc_info=t.exception())
-
-            inspection_task.add_done_callback(_done_callback)
-
+            inspection_task.add_done_callback(lambda t: self.active_inspection_tasks.discard(t))
         else:
             logger.info(f"平台 '{display_name}({adapter_id})' 无需上线安检，执行轻量化身份登记。")
             await self._register_simple_identity(adapter_id, display_name)
 
-    async def _run_inspection_ceremony(self, adapter_id: str, display_name: str) -> None:
-        """一个专门用来在后台运行安检的协程."""
-        max_retries = 3  # 最多重试3次
-        initial_delay = 5  # 初始延迟5秒
-        backoff_factor = 2  # 每次重试延迟时间乘以2
+    async def _run_inspection_ceremony(self, builder: BasePlatformBuilder) -> None:
+        """后台运行安检的协程 (只负责重试和调用)."""
+        max_retries = 3
+        initial_delay = 5
+        backoff_factor = 2
         for attempt in range(max_retries + 1):
             try:
                 if attempt > 0:
                     delay = initial_delay * (backoff_factor ** (attempt - 1))
                     logger.info(
-                        f"适配器 '{adapter_id}' 的安检将在 {delay} 秒后进行"
-                        f"第 {attempt}/{max_retries} 次重试..."
+                        f"适配器 '{builder.platform_id}' 的安检将在 {delay} "
+                        f"秒后进行第 {attempt}/{max_retries} 次重试..."
                     )
                     await asyncio.sleep(delay)
-                logger.info(
-                    f"为适配器 '{adapter_id}' 举行欢迎仪式 (执行安检，尝试次数 {attempt + 1})..."
-                )
-                # 给一点点时间，确保连接完全稳定
+
                 await asyncio.sleep(0.5)
-
-                # [PROBE START] 添加探针，捕获特定解包错误
-                try:
-                    success, profile_data = await inspect_and_initialize_self_profile(
-                        entity_service=self.entity_service,
-                        action_handler=self.action_handler_instance,
-                        platform_id=adapter_id,
-                    )
-                except TypeError as e:
-                    # 这个探针专门捕获解包错误，提供更具体的上下文
-                    logger.critical(
-                        f"安检仪式在调用 inspect_and_initialize_self_profile 后"
-                        f"发生解包错误 (TypeError)。"
-                        f"这通常意味着函数返回值与预期不符。错误: {e}",
-                        exc_info=True,
-                    )
-                    # 将 success 和 profile_data 设置为失败状态，以便重试逻辑可以继续
-                    success, profile_data = False, None
-                # [PROBE END]
-
-                if success and profile_data:
-                    logger.success(
-                        f"安检成功 (尝试次数 {attempt + 1})，"
-                        f"获取到适配器 '{adapter_id}' 中祂的档案。"
-                    )
-                    # 将获取到的档案缓存起来
-                    if adapter_id in self.adapter_clients_info:
-                        self.adapter_clients_info[adapter_id]["bot_profile"] = profile_data
-
-                    # 安检成功后，需要更新 ChatSessionManager 的 ID 地图
-                    if self.action_handler_instance.chat_session_manager and (
-                        bot_id := profile_data.get("user_id")
-                    ):
-                        self.action_handler_instance.chat_session_manager.self_bot_ids_map[
-                            adapter_id
-                        ] = str(bot_id)
-                        logger.info(f"ChatSessionManager 的 ID 地图已为平台 '{adapter_id}' 更新。")
-
-                    return  # 成功后直接退出函数
-
-                # 如果执行到这里，说明 success 为 False
-                logger.warning(
-                    f"安检尝试 {attempt + 1} 失败。返回结果: success={success}, "
-                    f"profile_data={str(profile_data)[:200]}"
+                await builder.run_on_connect_inspection(self.container)
+                logger.info(
+                    f"适配器 '{builder.platform_id}' 的安检仪式 (尝试次数 {attempt + 1}) 已执行。"
                 )
+                return
 
             except Exception as e:
                 logger.error(
-                    f"在为适配器 '{adapter_id}' 举行后台安检仪式 (尝试次数 {attempt + 1}) "
-                    f"时发生严重错误: {e}",
-                    exc_info=True,
+                    f"在为适配器 '{builder.platform_id}' 举行后台安检仪式时发生严重错误: {e}",
+                    exc_info=True
                 )
 
-        # 如果循环结束都没有成功
-        logger.critical(
-            f"后台安检仪式在经过 {max_retries + 1} 次尝试后彻底失败！"
-            f"适配器 '{adapter_id}' 的相关功能将严重受影响。"
-        )
+        logger.critical(f"后台安检仪式在经过 {max_retries + 1} 次尝试后彻底失败！")
 
     async def wait_for_all_inspections(self) -> None:
         """等待所有正在进行的安检任务完成.
@@ -573,6 +516,8 @@ class CoreWebsocketServer:
             self.action_handler_instance.chat_session_manager.self_bot_ids_map[adapter_id] = (
                 bot_id_for_platform
             )
-            logger.debug(f"ChatSessionManager 的 ID 地图已为平台 '{adapter_id}' 更新 (简单登记)。")
+            logger.debug(
+                f"QQChatSessionManager 的 ID 地图已为平台 '{adapter_id}' 更新 (简单登记)。"
+            )
 
         logger.info(f"平台 '{display_name}({adapter_id})' 已完成轻量化身份登记。")

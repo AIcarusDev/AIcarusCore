@@ -25,15 +25,15 @@ from src.mind.thought_persistor import ThoughtPersistor
 from src.os import apps
 from src.os.application_manager import ApplicationManager
 from src.os.apps.registry import platform_builder_registry
+from src.os.communication.action_sender import ActionSender
+from src.os.communication.core_ws_server import CoreWebsocketServer
+from src.os.communication.event_receiver import EventReceiver
 from src.os.services.filesystem_service import FileSystemService
 from src.os.state_generator import AICOSStateGenerator
 from src.os.window_manager import WindowManager
 from src.prompting.orchestrator import ThoughtPromptBuilder
 from src.services.action.action_handler import ActionHandler
 from src.services.action.services.sticker_service import StickerService
-from src.services.core_communication.action_sender import ActionSender
-from src.services.core_communication.core_ws_server import CoreWebsocketServer
-from src.services.core_communication.event_receiver import EventReceiver
 from src.services.database.core.connection_manager import TypeDBConnectionManager
 from src.services.database.services import (
     ActionLogStorageService,
@@ -69,7 +69,7 @@ class ServiceBuilder:
         llm_clients = self._initialize_llm_clients()
         db_services = await self._initialize_typedb_and_services()
 
-        # [新] 创建新的能力/服务实例
+        # 创建新的能力/服务实例
         filesystem_service = FileSystemService()
         info_retrieval_service = InformationRetrievalService(
             web_search_agent_client=llm_clients["web_search_agent_client"],
@@ -202,6 +202,7 @@ class ServiceBuilder:
 
 
         core_comm_layer = CoreWebsocketServer(
+            container=container,
             host=config.server.host,
             port=config.server.port,
             event_receiver=event_receiver,

@@ -7,7 +7,7 @@ from src.common.custom_logging.logging_config import get_logger
 from src.domain.models import Stimulus
 
 if TYPE_CHECKING:
-    from src.os.apps.qq.qq_chat_session import ChatSession
+    from src.os.apps.qq.qq_chat_session import QQChatSession
 
 logger = get_logger(__name__)
 
@@ -77,7 +77,7 @@ class InterruptionEventBroker:
         # 方法签名和类型提示更新为 Stimulus
         await self._main_queue.put(stimulus)
 
-    async def subscribe(self, session: "ChatSession") -> asyncio.Queue[Stimulus]:
+    async def subscribe(self, session: "QQChatSession") -> asyncio.Queue[Stimulus]:
         """由 CoreLogic 的哨兵调用，订阅一个会话的事件."""
         # 返回值类型提示更新为 asyncio.Queue[Stimulus]
         async with self._lock:
@@ -90,7 +90,7 @@ class InterruptionEventBroker:
                 logger.debug(f"为会话 '{key}' 创建了新的中断事件队列。")
             return queue
 
-    async def unsubscribe(self, session: "ChatSession") -> None:
+    async def unsubscribe(self, session: "QQChatSession") -> None:
         """由 CoreLogic 的哨兵调用，取消订阅."""
         async with self._lock:
             key = session.conversation_id

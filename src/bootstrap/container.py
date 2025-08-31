@@ -21,13 +21,13 @@ if TYPE_CHECKING:
     from src.mind.thought_generator import ThoughtGenerator
     from src.mind.thought_persistor import ThoughtPersistor
     from src.os.application_manager import ApplicationManager
+    from src.os.communication.core_ws_server import CoreWebsocketServer
     from src.os.services.filesystem_service import FileSystemService
     from src.os.state_generator import AICOSStateGenerator
     from src.os.window_manager import WindowManager
     from src.prompting.orchestrator import ThoughtPromptBuilder
     from src.services.action.action_handler import ActionHandler
     from src.services.action.services.sticker_service import StickerService
-    from src.services.core_communication.core_ws_server import CoreWebsocketServer
     from src.services.database.core.connection_manager import TypeDBConnectionManager
     from src.services.database.services import (
         ActionLogStorageService,

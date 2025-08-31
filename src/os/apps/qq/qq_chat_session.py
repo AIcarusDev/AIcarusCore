@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from src.mind.consciousness_flow import CoreLogic as CoreLogicFlow
     from src.services.database.services.entity_graph_service import EntityGraphService
 
-    from .qq_chat_session_manager import ChatSessionManager
+    from .qq_chat_session_manager import QQChatSessionManager
 
 CACHE_EXPIRATION_SECONDS = 600
 CONVERSATION_DETAILS_CACHE_EXPIRATION_SECONDS = 7200
@@ -26,7 +26,7 @@ CONVERSATION_DETAILS_CACHE_EXPIRATION_SECONDS = 7200
 logger = get_logger(__name__)
 
 
-class ChatSession(ISession):
+class QQChatSession(ISession):
     """管理单个专注聊天会话的状态和逻辑."""
 
     def __init__(
@@ -38,7 +38,7 @@ class ChatSession(ISession):
         action_handler: ActionHandler,
         bot_id: str,
         core_logic: "CoreLogicFlow",
-        chat_session_manager: "ChatSessionManager",
+        chat_session_manager: "QQChatSessionManager",
         intelligent_interrupter: "IntelligentInterrupter",
         thought_storage_service: "ThoughtStorageService",
         entity_graph_service: "EntityGraphService",
@@ -82,7 +82,7 @@ class ChatSession(ISession):
         self.last_profile_update_time: float = 0.0
         self._working_memory: dict[str, Any] = {}
 
-        logger.info(f"[ChatSession][{self._conversation_id}] 实例已创建。")
+        logger.info(f"[QQChatSession][{self._conversation_id}] 实例已创建。")
 
     # --- 实现接口中定义的属性 ---
     @property

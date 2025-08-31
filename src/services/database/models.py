@@ -6,7 +6,7 @@ from typing import Any, Literal
 
 @dataclass
 class EnrichedConversationInfo:
-    """一个数据传输对象 (DTO)，用于在创建 ChatSession 时传递丰富的会话上下文.
+    """一个数据传输对象 (DTO)，用于在创建 QQChatSession 时传递丰富的会话上下文.
 
     它不是一个直接映射到数据库集合的模型。
     """

@@ -9,20 +9,20 @@ from pypinyin import Style, pinyin
 from src.common.custom_logging.logging_config import get_logger
 
 if TYPE_CHECKING:
-    from src.os.apps.qq.qq_chat_session import ChatSession
+    from src.os.apps.qq.qq_chat_session import QQChatSession
 
 logger = get_logger(__name__)
 
 
 class MessageBuilder:
-    """一个专门为ChatSession设计的消息构建器.
+    """一个专门为QQChatSession设计的消息构建器.
 
     它能读懂LLM用“链式指令”（steps数组）写的“操作步骤”,
     然后把这些步骤翻译成一条或多条可以发送给适配器的标准消息.
     它不再处理中断逻辑，因为中断由更高层的竞速机制处理.
     """
 
-    def __init__(self, session: "ChatSession", motivation: str | None) -> None:
+    def __init__(self, session: "QQChatSession", motivation: str | None) -> None:
         self.session = session
         self.motivation = motivation
         self.action_handler = session.action_handler
