@@ -15,7 +15,7 @@ from aicarus_protocols import Event as ProtocolEvent
 from aicarus_protocols import UserInfo as ProtocolUserInfo
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
-from src.mind.self_awareness_inspector import inspect_and_initialize_self_profile
+from AIcarusCore.src.os.apps.qq.qq_inspection_service import inspect_and_initialize_self_profile
 from src.os.apps.registry import platform_builder_registry
 from src.services.core_communication.action_sender import ActionSender
 from src.services.core_communication.event_receiver import EventReceiver
