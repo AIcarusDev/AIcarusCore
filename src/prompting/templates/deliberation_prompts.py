@@ -13,6 +13,7 @@ DELIBERATION_SYSTEM_PROMPT = """
 <input_XML_block_description>
 # 输入 xml 块介绍：
   - `<fast_think_person>`: 这是"快思考"模式的人格prompt，用途是让你在需要的时候，可以结合“自身情况”理性分析。
+  - `<external_info>`: 这是你与"快思考"当前所处的外部环境信息，包含了所能感知到的所有外部事实和状态。
   - `<deliberation_input>`：包含了"快思考"模式遇到的困难/情况，是你主要的分析评估任务。
     - `<current_fast_thought>`："快思考"模式当前的状态等细节。
       - `<mood>`："快思考"模式当前的心情。
@@ -51,6 +52,10 @@ DELIBERATION_USER_PROMPT = """
 <fast_think_person>
 {fast_thought_person_block}
 </fast_think_person>
+
+<external_info>
+{external_info_block}
+</external_info>
 
 <deliberation_input>
     <current_fast_thought>

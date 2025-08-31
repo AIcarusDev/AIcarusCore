@@ -158,6 +158,7 @@ class CoreLogic:
             ui_mapping=ui_mapping,
             container=self.container,
             thought_key=saved_key,
+            external_info_snapshot=current_external_info_snapshot,
         )
 
     async def _generate_and_persist_thought(

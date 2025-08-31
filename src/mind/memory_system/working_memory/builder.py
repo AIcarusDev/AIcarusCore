@@ -42,7 +42,7 @@ class WorkingMemoryBuilder:
             thought: ThoughtChainDocument,
             status: str
         ) -> dict[str, Any] | None:
-        """[核心] JSON 提取器，根据记忆状态对完整的思考文档进行衰减."""
+        """JSON 提取器，根据记忆状态对完整的思考文档进行衰减."""
         full_response = thought.action_payload
         if not full_response:
             return None

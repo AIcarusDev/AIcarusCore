@@ -38,6 +38,7 @@ async def orchestrate_action(
     ui_mapping: dict,
     container: "ServiceContainer",
     thought_key: str,
+    external_info_snapshot: str | None,
 ) -> None:
     """动作总编排器.
 
@@ -52,7 +53,9 @@ async def orchestrate_action(
     if action_payload := decision_json.get("action"):
         # 2. 路由内部动作
         if internal_action := action_payload.get("internal"):
-            await _route_internal_action(internal_action, container, thought_key)
+            await _route_internal_action(
+                internal_action, container, thought_key, external_info_snapshot
+            )
 
         # 3. 路由外部动作
         if external_action := action_payload.get("external"):
@@ -62,7 +65,8 @@ async def orchestrate_action(
 async def _route_internal_action(
     internal_action: dict,
     container: "ServiceContainer",
-    thought_key: str
+    thought_key: str,
+    external_info_snapshot: str | None
 ) -> None:
     """将内部动作路由到对应的 Mind 层服务执行."""
     action_name = next(iter(internal_action), None)
@@ -83,6 +87,7 @@ async def _route_internal_action(
         resolution = await container.deliberation_service.execute(
             pipeline_params=params,
             container=container,
+            external_info_snapshot=external_info_snapshot,
         )
         if resolution:
             result_str = _format_resolution_for_memory(resolution)

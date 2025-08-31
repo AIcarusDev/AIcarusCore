@@ -33,7 +33,10 @@ class DeliberationService:
             "deep_think": {
                 "title": "仔细想想",
                 "type": "object",
-                "description": "进行理性的深度思考，在遇到陌生、复杂、抽象问题，或高风险的决策时使用。",  # noqa: E501
+                "description": (
+                    "进行理性的深度思考，"
+                    "在遇到陌生、复杂、抽象问题，或高风险的决策时使用。"
+                ),
                 "properties": {
                     "motivation": {"type": "string"},
                     "opinions": {
@@ -64,6 +67,7 @@ class DeliberationService:
         self,
         pipeline_params: dict,
         container: "ServiceContainer",
+        external_info_snapshot: str | None,
     ) -> dict[str, Any] | None:
         """执行慢思考流程，并返回最终的决议 (resolution).
 
@@ -91,6 +95,8 @@ class DeliberationService:
                 )
             opinions_block = "\n".join(opinions_block_lines)
 
+            external_info_for_prompt = external_info_snapshot or "无有效的外部信息。"
+
             persona_block = (
                 f'你是"{config.persona.bot_name}"；'
                 f"\n{config.persona.description}\n{config.persona.profile}"
@@ -104,6 +110,7 @@ class DeliberationService:
 
             user_prompt = DELIBERATION_USER_PROMPT.format(
                 fast_thought_person_block=persona_block,
+                external_info_block=external_info_for_prompt,
                 mood=current_internal_state.get("mood", "未知"),
                 think=current_internal_state.get("think", "未知"),
                 intent=current_internal_state.get("intent", "未知"),
