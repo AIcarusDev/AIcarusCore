@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from src.os.communication.core_ws_server import CoreWebsocketServer
     from src.os.state_generator import AICOSStateGenerator
     from src.os.window_manager import WindowManager
-    from src.services.action.action_handler import ActionHandler  # 保持导入
+    from src.services.action.action_handler import ActionHandler
     from src.services.database.services.entity_graph_service import EntityGraphService
 
 logger = get_logger(__name__)

@@ -198,30 +198,77 @@ class QQBuilder(BasePlatformBuilder, IApp):
         # 2. 构建 send_message 的 Schema
         send_message_schema = {
                 "type": "object",
-                "description": "在指定的、当前可见的聊天窗口中发送消息。",
+                "title": "发送QQ消息",
+                "description": (
+                    "在指定的、当前可见的qq聊天窗口中发送消息，"
+                    "通常发言应简洁自然,偏口语化，"
+                    "建议**省略主语**，"
+                    "建议**省略标点符号**。"
+                    "关注对话的自然流转。若发送消息后对方没有立即回应是正常的现象，可能是对方在忙或话题已结束等等。"
+                    "可以一次只发送一条消息，也可以选择把一段完整的消息拆分为多条。"
+                    "在已经拆分了多条消息的情况下，每条消息可以**非常简短**。"
+                    "但是需要注意一下拆分的消息数量，避免依次发送过多的消息导致刷屏。"
+                ),
                 "properties": {
                     "target_conversation_uid": {
+                        "title": "目标会话ID",
                         "type": "string",
-                        "description": "必须是当前屏幕上可见会话的ID。",
+                        "description": "需要是当前屏幕上可见会话的ID。",
                     },
                     "steps": {
                         "type": "array",
-                        "description": "构建消息的指令序列。",
+                        "description": (
+                            "一个指令对象序列，用于构建最终要发送的消息内容。"
+                            "不同指令可以组合使用。例如，先@某人再说你好："
+                            "`[{\"command\": \"at\", ...}, {\"command\": \"text\", ...}]`。"
+                            "使用`send_and_compose_next`可分多条发送。"
+                        ),
                         "items": {
                             "type": "object",
                             "properties": {
                                 "command": {
+                                    "title": "操作指令",
                                     "type": "string",
-                                    "enum": ["reply", "at", "text", "sticker", "send_and_break"],
+                                    "description": (
+                                        "选择一个具体的操作指令。"
+                                        "这个指令将决定下方`params`对象必须采用的结构。"
+                                    ),
+                                    "enum": [
+                                        "reply",
+                                        "at",
+                                        "text",
+                                        "sticker",
+                                        "send_and_compose_next"
+                                    ],
                                 },
-                                "params": {"type": "object"},
+                                "params": {
+                                    "type": "object",
+                                    "description": (
+                                        "一个字典，必须且只能包含一个与上方`command`值对应的键值对。规则如下：\n"
+                                        "- 当 command 为 'reply' 时, "
+                                        "params 必须为 message_id\": \"...\"} "
+                                        "(仅在需要明确上下文时使用，避免滥用)。\n"
+                                        "- 当 command 为 'at' 时, "
+                                        "params 必须为 {\"user_id\": \"...\"} "
+                                        "(ID从user_logs获取，仅在需要特别提醒某人时使用)。\n"
+                                        "- 当 command 为 'text' 时, "
+                                        "params 必须为 {\"content\": \"...\"} "
+                                        "(建议内容简短自然，可省略主语和大部分标点)。\n"
+                                        "- 当 command 为 'sticker' 时, "
+                                        "params 必须为 {\"sticker_id\": \"...\"} "
+                                        "(ID从sticker_collection_preview获取)。\n"
+                                        "- 当 command 为 'send_and_compose_next' 时, "
+                                        "params 必须为空对象 {}"
+                                        "(此指令会触发一次发送操作，将其前面所有的指令作为一条消息发送出去。它也标志着下一条新消息的开始)。"
+                                    )
+                                },
                             },
                             "required": ["command", "params"],
                         },
                     },
                     "motivation": {"type": "string"},
                 },
-                "required": ["target_window_id", "steps", "motivation"],
+                "required": ["target_conversation_uid", "steps", "motivation"],
             }
         # 3. 如果找到了可见的聊天窗口，就动态添加 enum 约束
         if visible_conv_uids:

@@ -55,7 +55,10 @@ class MessageBuilder:
                 await self._add_sticker(params.get("sticker_id"))
 
             # 遇到“发送并换行”指令，或者这是最后一步了, 且工作台上有内容
-            if (command == "send_and_break" or (i == len(steps) - 1)) and self._current_segments:
+            if (
+                command == "send_and_compose_next"
+                or (i == len(steps) - 1)
+            ) and self._current_segments:
                 success = await self._send_current_message()
                 if success:
                     any_message_sent = True
