@@ -25,7 +25,7 @@ class WindowManager:
 
         这会将其添加到管理器中，并自动执行窗口限制规则。
         """
-        if window.id in self._windows:
+        if window.name in self._windows:
             # 如果窗口已存在（例如只是被最小化了），则将其聚焦
             self.focus_window(window.name)
             return

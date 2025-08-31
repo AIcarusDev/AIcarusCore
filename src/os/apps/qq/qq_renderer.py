@@ -106,7 +106,7 @@ class QQWindowRenderer:
                 self.ui_mapping[btn_id] = {
                     "action_type": "click",
                     "action": "switch_window_view",
-                    "target_uid": window.id,
+                    "target_uid": window.name,
                     "view_name": view_name,
                 }
 
@@ -173,7 +173,7 @@ class QQWindowRenderer:
         self.ui_mapping[list_id] = {
             "action_type": "click",
             "action": "toggle_collapsible_list",
-            "target_uid": window.id,
+            "target_uid": window.name,
             "list_name": list_name,
         }
 
@@ -227,7 +227,7 @@ class QQWindowRenderer:
                 )
                 self.ui_mapping[prev_btn_id] = {
                     "action_type": "click", "action": "paginate_collapsible_list",
-                    "target_uid": window.id, "list_name": list_name, "direction": "prev"
+                    "target_uid": window.name, "list_name": list_name, "direction": "prev"
                 }
 
             SubElement(pagination_node, "desc").text = f"第 {current_page} / {total_pages} 页"
@@ -241,7 +241,7 @@ class QQWindowRenderer:
                 )
                 self.ui_mapping[next_btn_id] = {
                     "action_type": "click", "action": "paginate_collapsible_list",
-                    "target_uid": window.id, "list_name": list_name, "direction": "next"
+                    "target_uid": window.name, "list_name": list_name, "direction": "next"
                 }
 
     async def _render_self_platform_profile(self, window_node: Element, platform_id: str) -> None:
@@ -395,7 +395,7 @@ class QQWindowRenderer:
             self.ui_mapping[scroll_up_id] = {
                 "action_type": "click",
                 "action": "scroll_chat_window",
-                "target_uid": window.id,
+                "target_uid": window.name,
                 "direction": "up",
             }
 
@@ -439,7 +439,7 @@ class QQWindowRenderer:
             self.ui_mapping[scroll_down_id] = {
                 "action_type": "click",
                 "action": "scroll_chat_window",
-                "target_uid": window.id,
+                "target_uid": window.name,
                 "direction": "down",
             }
 

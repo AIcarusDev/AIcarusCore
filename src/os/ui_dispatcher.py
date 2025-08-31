@@ -90,7 +90,7 @@ async def _handle_ui_interaction(
             w for w in window_manager.get_all_windows_sorted() if w.parent_app_id == target_uid
         ]
         for window in windows_to_close:
-            window_manager.close_window(window.id)
+            window_manager.close_window(window.name)
         logger.info(f"已关闭属于应用 '{target_uid}' 的 {len(windows_to_close)} 个窗口。")
 
     elif internal_command == "scroll_chat_window":
