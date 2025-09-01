@@ -2,8 +2,6 @@
 
 import json
 import os
-from asyncio import Event as AsyncioEvent
-from threading import Event as ThreadingEvent
 from typing import Protocol, runtime_checkable
 
 from src.bootstrap.container import ServiceContainer
@@ -209,23 +207,11 @@ class ServiceBuilder:
             entity_service=db_services["entity_graph_service"],
         )
 
-        stop_event = ThreadingEvent()
 
         core_logic = CoreLogic(
-            window_manager=window_manager,
-            application_manager=application_manager,
-            aicos_state_generator=aicos_state_generator,
-            core_comm_layer=core_comm_layer,
-            action_handler_instance=action_handler,
-            state_manager=state_manager,
             thought_generator=container.thought_generator,
             thought_persistor=container.thought_persistor,
             prompt_builder=prompt_builder,
-            stop_event=stop_event,
-            immediate_thought_trigger=AsyncioEvent(),
-            interruption_broker=interruption_broker,
-            thought_storage_service=db_services["thought_storage_service"],
-            entity_graph_service=db_services["entity_graph_service"],
         )
 
         # 填充容器中之前留空的服务

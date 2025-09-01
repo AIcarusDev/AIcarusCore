@@ -1,9 +1,9 @@
 # src/main.py
 import asyncio
-import contextlib
 
 from src.bootstrap.builder import ServiceBuilder
 from src.bootstrap.wiring import wire_dependencies, wire_dynamic_dependencies
+from src.cognitive_cycle import CognitiveCycle
 from src.common.custom_logging.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -12,6 +12,7 @@ logger = get_logger(__name__)
 async def start_core_system() -> None:
     """启动 AIcarus Core 系统的全新、优雅的入口."""
     container = None
+    cognitive_cycle = None
     background_tasks = set()
     try:
         # 1. 构建服务容器，创建所有服务实例
@@ -32,19 +33,27 @@ async def start_core_system() -> None:
             await container.state_manager.initialize()
             logger.info("状态管理器及其子组件 (如GoalManager) 已从数据库同步状态。")
 
-        # 3. 启动核心服务
+        # 3. 实例化顶层协调者
+        cognitive_cycle = CognitiveCycle(container)
+        # 将协调者的触发器注入到需要它的地方 (例如慢思考服务)
+        # 注意: 这需要在 builder.py 中为 deliberation_service 设置一个引用
+        if container.deliberation_service and hasattr(
+            container.deliberation_service, "set_cycle_trigger"
+        ):
+            container.deliberation_service.set_cycle_trigger(cognitive_cycle.trigger_immediate_thought_cycle)
+
+
+        # 4. 启动核心服务
         # 启动WS服务器，它会开始接受连接并进行安检
         ws_task = asyncio.create_task(container.core_comm_layer.start(), name="CoreWSServer")
+        background_tasks.add(ws_task)
 
         # 启动图像分析服务 (如果启用)
-        # 这会在后台异步运行，处理提交的图片分析任务
         if container.image_analysis_service:
             container.image_analysis_service.start()
             logger.info("后台图像分析服务已启动。")
 
-
-        # 4. 在后台处理动态依赖的连接 (QQChatSessionManager)
-        # 这不会阻塞主服务运行
+        # 5. 在后台处理动态依赖的连接 (等待安检完成)
         dynamic_wiring_task = asyncio.create_task(
             wire_dynamic_dependencies(container), name="DynamicWiring"
         )
@@ -56,73 +65,69 @@ async def start_core_system() -> None:
         await dynamic_wiring_task
         logger.info("动态依赖连接已完成。")
 
-        # 最后，启动认知周期循环
-        logger.info("正在尝试启动认知周期循环...")
-        logic_task = await container.core_logic.start_thinking_loop()
+        # 6. 最后，启动认知周期循环
+        logger.info("正在尝试启动认知周期...")
+        logic_task = asyncio.create_task(cognitive_cycle.start(), name="CognitiveCycle")
+        background_tasks.add(logic_task)
 
-        # 5. 等待核心任务结束
-        # 核心任务是 ws_task 和 logic_task，它们决定了程序的生命周期
-        main_tasks = {ws_task, logic_task}
-        done, pending = await asyncio.wait(main_tasks, return_when=asyncio.FIRST_COMPLETED)
+        # 7. 等待核心任务（WS服务和认知循环）中任意一个结束
+        done, pending = await asyncio.wait(
+            {ws_task, logic_task}, return_when=asyncio.FIRST_COMPLETED
+        )
 
-        # 检查是哪个核心任务先结束了，以及为什么
         for task in done:
             if exc := task.exception():
                 logger.critical(f"核心任务 '{task.get_name()}' 异常终止: {exc!r}", exc_info=exc)
-                # 重新抛出异常以触发下面的 finally 清理流程
-                raise exc
+                raise exc # 重新抛出以触发 finally
             else:
                 logger.info(f"核心任务 '{task.get_name()}' 正常完成。")
 
-        # 如果一个核心任务结束了，我们也应该取消另一个，准备关机
+        # 取消所有剩余的挂起任务
         for task in pending:
             task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await task
 
     except Exception as e:
         logger.critical(f"AIcarus Core 系统启动或运行遭遇致命错误: {e}", exc_info=True)
     finally:
         logger.info("--- AIcarus Core 系统正在进入关闭流程 ---")
 
-        # 在关闭核心服务之前，先处理掉所有后台的“小弟”
+        # 优雅地关闭认知循环
+        if cognitive_cycle:
+            await cognitive_cycle.stop()
+
         if background_tasks:
             logger.info(f"正在取消 {len(background_tasks)} 个后台任务...")
             for task in background_tasks:
                 task.cancel()
-
-            # 使用 gather 等待所有取消操作完成
-            # return_exceptions=True 就像给它们买了保险，一个任务取消失败不会影响其他的
             await asyncio.gather(*background_tasks, return_exceptions=True)
             logger.info("所有后台任务已处理完毕。")
 
         if container:
-            # 优雅地关闭核心服务
-            if container.chat_session_manager:
-                container.chat_session_manager.shutdown()
-            if container.core_logic:
-                await container.core_logic.stop()  # 这会处理 intrusive_generator 的线程
             if container.core_comm_layer:
                 await container.core_comm_layer.stop()
             if container.conn_manager:
                 await container.conn_manager.close_client()
             if container.image_analysis_service:
                 await container.image_analysis_service.stop()
-            logger.info("AIcarus Core 系统关闭流程执行完毕。")
-            # 关闭所有 LLM 客户端
+            logger.info("核心服务已关闭。")
+
+            # 关闭LLM客户端
             llm_clients_to_close = [
                 container.main_consciousness_llm_client,
                 container.web_search_agent_client,
                 container.url_context_agent_client,
+                container.deliberation_llm_client,
             ]
-            for client in llm_clients_to_close:
-                if client and hasattr(client, "llm_client") and hasattr(client.llm_client, "close"):
-                    try:
-                        # 注意：我们要关闭的是底层的 UnderlyingLLMClient 实例
-                        await client.llm_client.close()
-                    except Exception as e_close:
-                        logger.error(f"关闭一个 LLM 客户端时出错: {e_close}")
+            close_tasks = [
+                client.llm_client.close()
+                for client in llm_clients_to_close
+                if client and hasattr(client, "llm_client") and hasattr(client.llm_client, "close")
+            ]
+            if close_tasks:
+                await asyncio.gather(*close_tasks, return_exceptions=True)
             logger.info("所有 LLM 客户端已处理完毕。")
+
+        logger.info("AIcarus Core 系统关闭流程执行完毕。")
 
 
 async def main() -> None:
