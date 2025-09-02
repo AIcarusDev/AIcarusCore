@@ -8,11 +8,12 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 from src.common.custom_logging.logging_config import get_logger
-from src.common.utils import parse_entity_uid
 from src.domain.models import ActionMetadata, ActionResult
+from src.os.apps.interfaces import IApp
 from src.os.apps.registry import platform_builder_registry
 from src.os.communication.action_sender import ActionSender
 from src.os.models import WindowStatus
+from src.services.action.components.message_builder import MessageBuilder
 from src.services.action.components.pending_action_manager import PendingActionManager
 from src.services.action.services.sticker_service import StickerService
 from src.services.database import (
@@ -23,6 +24,7 @@ from src.services.database import (
 )
 
 if TYPE_CHECKING:
+    from src.bootstrap.container import ServiceContainer
     from src.mind.abilities.information_retrieval_service import InformationRetrievalService
     from src.os.services.filesystem_service import FileSystemService
     from src.os.window_manager import WindowManager
@@ -187,18 +189,26 @@ class ActionHandler:
         action_name: str,
         params: dict,
         window_manager: WindowManager,
+        container: ServiceContainer,
     ) -> None:
         """处理由 UI Dispatcher 转发来的、需要与适配器通信的 GUI 动作."""
         if platform_id == "qq" and action_name == "send_message":
-            await self._handle_gui_send_message(params, window_manager)
+            # 2. 传入 container
+            await self._handle_gui_send_message(params, window_manager, container)
         else:
             logger.warning(
                 f"ActionHandler 收到一个未知的 GUI 动作转发: {platform_id}.{action_name}"
             )
 
-    async def _handle_gui_send_message(self, params: dict, window_manager: WindowManager) -> None:
-        """从 GUI 动作参数中解析并发送消息."""
-        target_window_id = params.get("target_window_id")
+    async def _handle_gui_send_message(
+        self, params: dict, window_manager: WindowManager, container: ServiceContainer
+    ) -> None:
+        """从 GUI 动作参数中解析、构建并发送复杂消息."""
+        target_window_id = params.get("target_window_id") # 注意：JSON Schema中是 target_window_id
+        if not target_window_id:
+            # 兼容旧的 target_conversation_uid
+            target_window_id = params.get("target_conversation_uid")
+
         steps = params.get("steps")
         motivation = params.get("motivation", "由AIC-OS GUI交互发起")
 
@@ -206,6 +216,7 @@ class ActionHandler:
             logger.error("send_message 指令缺少 target_window_id 或 steps。")
             return
 
+        # 窗口和会话的有效性检查
         window = window_manager.get_window(target_window_id)
         if not window or window.window_class != "conversation" or \
                 window.status == WindowStatus.MINIMIZE:
@@ -217,41 +228,27 @@ class ActionHandler:
             logger.error(f"窗口 '{target_window_id}' 缺少 conversation_uid 状态。")
             return
 
-        parsed_info = parse_entity_uid(conversation_uid)
-        if not parsed_info:
-            logger.error(f"无法从持久化ID '{conversation_uid}' 中解析信息。")
+        # 获取 QQBuilder 和 Session
+        qq_builder = platform_builder_registry.get_builder("qq")
+        if not qq_builder or not isinstance(qq_builder, IApp):
+            logger.error("严重错误：找不到 QQBuilder 或其未实现 IApp 接口。")
             return
 
-        platform, conv_type, native_id = parsed_info
-
-        self_entity = await self.entity_service.get_self_entity_by_platform(platform)
-        if not self_entity or not (bot_id := self_entity.get("details", {}).get("platform_id")):
-            logger.error(f"无法为平台 '{platform}' 找到对应的 bot_id。")
+        session = await qq_builder.get_session(conversation_uid, container)
+        if not session:
+            logger.error(f"无法为会话 '{conversation_uid}' 获取 Session 实例。")
             return
 
-        action_params_for_handler = {
-            "conversation_id": native_id,
-            "conversation_type": conv_type,
-            "content": steps,
-        }
+        # 使用 MessageBuilder 构建和发送消息
+        logger.info(f"正在为会话 '{conversation_uid}' 实例化 MessageBuilder...")
+        message_builder = MessageBuilder(session, motivation)
+        send_success = await message_builder.process_steps(steps)
 
-        logger.info(
-            f"准备通过 ActionHandler 发送消息至会话 '{conversation_uid}' (原生ID: {native_id})"
-        )
-        action_result = await self.execute_simple_action(
-            platform_id=platform,
-            action_name="send_message",
-            params=action_params_for_handler,
-            bot_id=str(bot_id),
-            description="由 AIC-OS GUI 发送",
-            motivation=motivation,
-        )
-
-        if action_result.is_success:
-            logger.info(f"消息已成功发送至会话 '{conversation_uid}'。回执: {action_result.payload}")
+        if send_success:
+            logger.info(f"消息已通过 MessageBuilder 成功发送至会话 '{conversation_uid}'。")
             window_manager.focus_window(target_window_id)
         else:
-            logger.error(f"消息发送至会话 '{conversation_uid}' 失败: {action_result.error_message}")
+            logger.error(f"通过 MessageBuilder 发送消息至会话 '{conversation_uid}' 失败。")
 
     async def execute_simple_action(
         self,
@@ -440,4 +437,3 @@ class ActionHandler:
         if creation_tasks:
             await asyncio.gather(*creation_tasks)
             logger.info(f"已完成对 {len(creation_tasks)} 个项目的会话实体主动更新。")
-

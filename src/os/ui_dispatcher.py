@@ -53,10 +53,9 @@ async def handle_os_interaction(
             params = platform_action[action_name]
             logger.info(f"UI Dispatcher: 路由平台GUI动作 '{platform_id}.{action_name}'")
 
-            # 对于需要和外部适配器通信的动作，我们调用 ActionHandler
-            # ActionHandler 现在是这方面的专家
+            # 将 container 传递给 ActionHandler，让它有能力调用其他服务
             await container.action_handler.handle_aicos_gui_action(
-                platform_id, action_name, params, window_manager
+                platform_id, action_name, params, window_manager, container
             )
             break # 一个决策只执行一个平台的动作
 
