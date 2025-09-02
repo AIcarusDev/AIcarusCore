@@ -6,7 +6,7 @@
 # Inner Settings (内部配置，一般无需更改此部分内容)
 # ===============================
 [inner]
-version = "0.0.23"  # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
+version = "0.0.24"  # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
 protocol_version = "1.5.0"  # Aicarus-Message-Protocol 标准通信协议版本号，确保与客户端和其他服务兼容。
 
 # ===============================
@@ -140,6 +140,13 @@ fallback_model_name = ""  # 用于给审查严格的 gemini-2.5-flash 兜底函�
 [runtime_environment]  # 运行时环境设置，包括临时文件目录等。这些设置用于配置 Aicarus 在运行时的环境参数。
 temp_file_directory = "tmp/aicarus_temp_images"  # 临时文件目录，用于存储运行时生成的临时文件。默认值为 /tmp/aicarus_temp_images。
 workspace_root = "data/workspace"  # AI可读写文件的工作区根目录（相对于项目根目录）
+
+# 指定用于机器学习模型计算的设备。
+# 可选值:
+#   "auto": 程序将自动检测是否存在可用的NVIDIA GPU (CUDA)。如果存在，则使用 "cuda"，否则回退到 "cpu"。这是推荐的默认值。
+#   "cuda": 强制使用NVIDIA GPU。如果CUDA不可用，程序将启动失败。
+#   "cpu":  强制使用CPU。这将在没有NVIDIA显卡的电脑上运行，但性能会较低。
+compute_device = "auto"
 
 # ===============================
 # Sticker Settings (表情包相关设置)

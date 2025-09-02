@@ -259,6 +259,9 @@ class RuntimeEnvironmentSettings(ConfigBase):
     stickers_dir: str = "data/stickers"
     """定义表情包目录."""
 
+    compute_device: str = "auto"
+    """用于机器学习模型计算的设备。可选值: "auto", "cuda", "cpu"."""
+
 
 @dataclass
 class AlcarusRootConfig(ConfigBase):
