@@ -134,9 +134,14 @@ class CoreWebsocketServer:
 
         if builder and builder.needs_on_connect_inspection:
             logger.info(f"平台 '{display_name}({adapter_id})' 需要上线安检，启动安检仪式...")
+
             inspection_task = asyncio.create_task(self._run_inspection_ceremony(builder))
+
+            # 将任务加入管理集合，以便于追踪和在关闭时清理
             self.active_inspection_tasks.add(inspection_task)
+            # 当任务完成后，自动从集合中移除
             inspection_task.add_done_callback(lambda t: self.active_inspection_tasks.discard(t))
+
         else:
             logger.info(f"平台 '{display_name}({adapter_id})' 无需上线安检，执行轻量化身份登记。")
             await self._register_simple_identity(adapter_id, display_name)
@@ -508,16 +513,6 @@ class CoreWebsocketServer:
         else:
             logger.success(
                 f"已成功为工具平台 '{adapter_id}' 在数据库中登记身份 (Account UID: {account_uid})。"
-            )
-        # --- [修改结束] ---
-
-        # 下面的内存ID地图更新逻辑保持不变
-        if self.action_handler_instance.chat_session_manager:
-            self.action_handler_instance.chat_session_manager.self_bot_ids_map[adapter_id] = (
-                bot_id_for_platform
-            )
-            logger.debug(
-                f"QQChatSessionManager 的 ID 地图已为平台 '{adapter_id}' 更新 (简单登记)。"
             )
 
         logger.info(f"平台 '{display_name}({adapter_id})' 已完成轻量化身份登记。")
