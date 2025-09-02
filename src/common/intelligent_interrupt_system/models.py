@@ -5,8 +5,10 @@ import warnings
 
 import jieba
 import numpy as np
+import torch
 from sentence_transformers import SentenceTransformer
 from sklearn.cluster import KMeans
+from src.config import config  # 导入全局配置对象
 from sklearn.metrics.pairwise import cosine_similarity
 from src.common.custom_logging.logging_config import get_logger
 
@@ -90,8 +92,31 @@ class SemanticModel:
     """
 
     def __init__(self, model_name: str = "BAAI/bge-m3") -> None:
-        self.model = SentenceTransformer(model_name, device="cuda")
-        logger.info(f"语义探针 '{model_name}' 已启动，准备探索深层含义！")
+        # --- 开始智能设备选择 ---
+        device_setting = config.runtime_environment.compute_device.lower()
+        final_device = "cpu"  # 默认安全地使用 CPU
+
+        if device_setting == "auto":
+            if torch.cuda.is_available():
+                final_device = "cuda"
+                logger.info("自动检测到可用的 CUDA 设备，将使用 GPU。")
+            else:
+                final_device = "cpu"
+                logger.info("未检测到可用的 CUDA 设备，将使用 CPU。")
+        elif device_setting == "cuda":
+            if not torch.cuda.is_available():
+                # 如果用户强制要求CUDA但不可用，则抛出明确错误
+                raise RuntimeError("配置要求使用 CUDA，但 Torch 检测到 CUDA 不可用。请检查您的 NVIDIA 驱动和 PyTorch 安装。")
+            final_device = "cuda"
+        else:
+            # 对于任何其他值 (包括 "cpu")，都使用 CPU
+            final_device = "cpu"
+        
+        logger.info(f"正在为 SentenceTransformer 模型在 '{final_device}' 设备上进行初始化...")
+        # --- 智能设备选择结束 ---
+        
+        self.model = SentenceTransformer(model_name, device=final_device)
+        logger.info(f"语义探针 '{model_name}' 已在设备 '{final_device}' 上成功启动！")
 
     def encode(self, texts: list[str] | str) -> np.ndarray:
         """将文本编码为语义向量."""
