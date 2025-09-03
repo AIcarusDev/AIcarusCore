@@ -281,6 +281,7 @@ class Client:
         self,
         *,
         prompt: str | None = None,
+        prompt_parts: list[dict] | None = None,
         system_prompt: str | None = None,
         is_stream: bool,
         task_id: str | None = None,
@@ -383,8 +384,8 @@ class Client:
                 **embedding_gen_params,
             )
 
-        if prompt is None or not isinstance(prompt, str):
-            raise ValueError("非嵌入类型的 LLM 请求必须提供一个有效的 'prompt' 字符串。")
+        if (prompt is None or not isinstance(prompt, str)) and prompt_parts is None:
+            raise ValueError("非嵌入类型的 LLM 请求必须提供一个有效的 'prompt' 字符串或 'prompt_parts' 列表。")
 
         if is_stream:
             if not task_id:
@@ -407,9 +408,13 @@ class Client:
                 **additional_generation_params,
             )
         else:
+            final_prompt_parts = prompt_parts
+            if prompt:
+                final_prompt_parts = [{"text": prompt}]
+
             logger.info("路由到内部 UnderlyingLLMClient.make_request 以进行非流式请求。")
             result = await self.llm_client.make_request(
-                prompt=prompt,
+                prompt_parts=final_prompt_parts,
                 system_prompt=system_prompt,
                 is_stream=False,
                 is_multimodal=is_multimodal,

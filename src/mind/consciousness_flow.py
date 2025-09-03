@@ -1,5 +1,6 @@
 # 文件路径: src/mind/consciousness_flow.py
 
+import traceback
 from typing import TYPE_CHECKING
 
 from src.common.custom_logging.logging_config import get_logger
@@ -60,8 +61,9 @@ class CoreLogic:
         except ThoughtGenerationError as e:
             logger.error(f"核心思考过程失败: {e}")
             return None
-        except Exception:
-            logger.error("执行单次思考周期时发生意外错误。", exc_info=True)
+        except Exception as e:
+            stack_trace = traceback.format_exc()
+            logger.error(f"执行单次思考周期时发生意外错误: {e}\n{stack_trace}")
             return None
 
     async def _generate_and_persist_thought(
@@ -78,7 +80,7 @@ class CoreLogic:
         generated_thought_json = await self.thought_generator.generate_thought(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
-            image_inputs=prompt_components.image_references,
+            image_references=prompt_components.image_references,
             response_schema=response_schema,
         )
         if not generated_thought_json:
