@@ -119,6 +119,7 @@ class CoreWebsocketServer:
             "last_heartbeat": current_timestamp,
             "display_name": display_name,
             "bot_profile": None,
+            "is_ready": False,  # 新增 is_ready 标志
         }
         self.action_sender.register_adapter(adapter_id, display_name, websocket)
         logger.info(
@@ -129,22 +130,8 @@ class CoreWebsocketServer:
             adapter_id, display_name, "lifecycle.adapter_connected"
         )
 
-        # --- 核心逻辑 ---
-        builder = platform_builder_registry.get_builder(adapter_id)
-
-        if builder and builder.needs_on_connect_inspection:
-            logger.info(f"平台 '{display_name}({adapter_id})' 需要上线安检，启动安检仪式...")
-
-            inspection_task = asyncio.create_task(self._run_inspection_ceremony(builder))
-
-            # 将任务加入管理集合，以便于追踪和在关闭时清理
-            self.active_inspection_tasks.add(inspection_task)
-            # 当任务完成后，自动从集合中移除
-            inspection_task.add_done_callback(lambda t: self.active_inspection_tasks.discard(t))
-
-        else:
-            logger.info(f"平台 '{display_name}({adapter_id})' 无需上线安检，执行轻量化身份登记。")
-            await self._register_simple_identity(adapter_id, display_name)
+        # --- 核心逻辑修改：不再在此处直接触发安检 ---
+        logger.info(f"适配器 '{display_name}({adapter_id})' 已注册，等待其发送 'ready' 信号以启动安检（如果需要）。")
 
     async def _run_inspection_ceremony(self, builder: BasePlatformBuilder) -> None:
         """后台运行安检的协程 (只负责重试和调用)."""
@@ -162,6 +149,7 @@ class CoreWebsocketServer:
                     await asyncio.sleep(delay)
 
                 await asyncio.sleep(0.5)
+                # BUG:run_on_connect_inspection似乎未定义。
                 await builder.run_on_connect_inspection(self.container)
                 logger.info(
                     f"适配器 '{builder.platform_id}' 的安检仪式 (尝试次数 {attempt + 1}) 已执行。"
@@ -175,6 +163,47 @@ class CoreWebsocketServer:
                 )
 
         logger.critical(f"后台安检仪式在经过 {max_retries + 1} 次尝试后彻底失败！")
+
+    async def _handle_ready_event(self, event: ProtocolEvent) -> None:
+        """处理来自适配器的 ready 事件，并触发安检流程。"""
+        adapter_id = event.get_platform()
+        if not adapter_id or adapter_id not in self.adapter_clients_info:
+            logger.warning(f"收到来自未知或未注册适配器 '{adapter_id}' 的 ready 事件，已忽略。")
+            return
+
+        connection_info = self.adapter_clients_info[adapter_id]
+        if connection_info.get("is_ready"):
+            logger.info(f"适配器 '{adapter_id}' 已处于就绪状态，重复的 ready 事件已被忽略。")
+            return
+
+        display_name = connection_info.get("display_name", adapter_id)
+        logger.info(f"适配器 '{display_name}({adapter_id})' 已报告就绪状态。")
+        connection_info["is_ready"] = True
+
+        # --- 核心修改：从 ready 事件中提取并缓存 profile_data ---
+        try:
+            details = event.content[0].data.get("details", {})
+            if details and "profile_data" in details:
+                profile = details["profile_data"]
+                if profile:
+                    connection_info["bot_profile"] = profile
+                    logger.success(f"已从适配器 '{adapter_id}' 的 ready 信号中接收并缓存了其档案。")
+                else:
+                    logger.warning(f"适配器 '{adapter_id}' 在 ready 信号中提供了空的 profile_data。")
+        except (IndexError, AttributeError, KeyError) as e:
+            logger.warning(f"处理来自 '{adapter_id}' 的 ready 事件时，提取 profile_data 失败: {e}")
+        # --- 修改结束 ---
+
+        builder = platform_builder_registry.get_builder(adapter_id)
+        if builder and builder.needs_on_connect_inspection:
+            logger.info(f"平台 '{display_name}({adapter_id})' 需要上线安检，启动安检仪式...")
+            inspection_task = asyncio.create_task(self._run_inspection_ceremony(builder))
+            self.active_inspection_tasks.add(inspection_task)
+            inspection_task.add_done_callback(lambda t: self.active_inspection_tasks.discard(t))
+        else:
+            logger.info(f"平台 '{display_name}({adapter_id})' 已就绪，但无需执行上线安检。")
+            # 对于无需安检的平台，在 ready 后执行简单登记
+            await self._register_simple_identity(adapter_id, display_name)
 
     async def wait_for_all_inspections(self) -> None:
         """等待所有正在进行的安检任务完成.
@@ -313,36 +342,28 @@ class CoreWebsocketServer:
                 if self._stop_event.is_set():
                     break
 
-                # 预先检查，如果消息明显不是心跳，就直接跳过解析，交给后面的标准处理器
-                # 这样可以避免不必要的JSON解析和宽泛的异常捕获
-                if ".heartbeat" not in message_str:
-                    await self.event_receiver.handle_message(
-                        message_str, websocket, adapter_id, display_name
-                    )
-                    continue
-
-                # 如果消息中包含".heartbeat"，我们再尝试将其作为心跳处理
+                # 尝试将消息解析为事件，以处理元事件
                 try:
                     message_dict = json.loads(message_str)
-                    msg_event_type = message_dict.get("event_type")
-                    if (
-                        msg_event_type
-                        and msg_event_type.startswith("meta.")
-                        and msg_event_type.endswith(".heartbeat")
-                    ):
-                        # 确认是心跳，更新时间戳并继续下一次循环
-                        self.adapter_clients_info[adapter_id]["last_heartbeat"] = time.time()
-                        logger.debug(
-                            f"适配器 '{display_name}({adapter_id})' 的心跳已收到，计时器已重置~"
-                        )
-                        continue
-                except (json.JSONDecodeError, KeyError, TypeError):
-                    # 解析失败，说明它虽然包含".heartbeat"字符串但不是有效的心跳事件
-                    # 这种情况我们依然将它视为普通消息，交给标准处理器
-                    logger.debug("消息包含'.heartbeat'但不是有效的心跳事件，交由标准处理器分析。")
+                    event = ProtocolEvent.from_dict(message_dict)
+
+                    if event.event_type.endswith(".lifecycle.ready"):
+                        await self._handle_ready_event(event)
+                        continue  # 处理完毕，继续下一轮循环
+
+                    if event.event_type.endswith(".heartbeat"):
+                        if adapter_id in self.adapter_clients_info:
+                            self.adapter_clients_info[adapter_id]["last_heartbeat"] = time.time()
+                            logger.debug(
+                                f"适配器 '{display_name}({adapter_id})' 的心跳已收到，计时器已重置~"
+                            )
+                        continue # 处理完毕
+
+                except (json.JSONDecodeError, KeyError, TypeError, AttributeError):
+                    # 解析失败或不是有效事件对象，说明是普通消息，交由下面处理
                     pass
 
-                # 如果代码执行到这里，说明它不是一个被我们处理掉的心跳事件
+                # 如果不是我们在这里处理的任何元事件，就交给通用处理器
                 await self.event_receiver.handle_message(
                     message_str, websocket, adapter_id, display_name
                 )

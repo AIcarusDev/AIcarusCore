@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 from typing import TYPE_CHECKING
@@ -41,11 +42,33 @@ class QQBuilder(BasePlatformBuilder, IApp):
     async def run_on_connect_inspection(self, container: ServiceContainer) -> None:
         """由 CoreWebsocketServer 调用的、平台专属的安检流程."""
         logger.info(f"--- [QQBuilder] 开始执行平台 '{self.platform_id}' 的上线安检仪式 ---")
-        success, profile_data = await inspect_and_initialize_self_profile(
-            entity_service=container.entity_graph_service,
-            action_handler=container.action_handler,
-            platform_id=self.platform_id,
-        )
+        
+        # 核心修复：增加一个1秒的延迟，以确保 Adapter 侧的连接状态完全就绪
+        await asyncio.sleep(1)
+
+        # --- 核心修改：优先使用从 ready 事件中缓存的档案 ---
+        profile_data = None
+        success = False
+        
+        # 尝试从 Websocket 服务器获取缓存的档案
+        ws_server = container.core_websocket_server
+        if ws_server and self.platform_id in ws_server.adapter_clients_info:
+            connection_info = ws_server.adapter_clients_info[self.platform_id]
+            cached_profile = connection_info.get("bot_profile")
+            if cached_profile:
+                logger.info(f"安检流程：发现已缓存的档案 for '{self.platform_id}'，直接使用该档案。")
+                profile_data = cached_profile
+                # 假设数据格式正确，直接认定为成功
+                success = True
+
+        # 如果没有缓存的档案，则回退到主动获取模式
+        if not success:
+            logger.warning(f"安检流程：未发现缓存的档案 for '{self.platform_id}'，将回退到主动获取模式。")
+            success, profile_data = await inspect_and_initialize_self_profile(
+                entity_service=container.entity_graph_service,
+                action_handler=container.action_handler,
+                platform_id=self.platform_id,
+            )
 
         if success and profile_data:
             logger.success("[QQBuilder] 安检成功，获取到自身档案。")

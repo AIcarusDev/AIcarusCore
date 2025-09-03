@@ -216,6 +216,7 @@ class ServiceBuilder:
 
         # 填充容器中之前留空的服务
         container.core_comm_layer = core_comm_layer
+        container.core_websocket_server = core_comm_layer
         container.core_logic = core_logic
 
         return container
