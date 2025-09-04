@@ -141,7 +141,7 @@ class LLMClient:
             handler=self.handler,
             request_type=request_type,
             is_streaming=is_stream,
-            prompt=prompt_parts,
+            prompt_parts=prompt_parts,
             system_prompt=system_prompt,
             processed_images=processed_images,
             generation_params=generation_params,

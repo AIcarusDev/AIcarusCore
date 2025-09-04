@@ -92,7 +92,7 @@ class _StreamingWorkflowManager:
     async def process_streaming_task(
         self,
         task_id: str,
-        prompt: str,
+        prompt_parts: list[dict],
         system_prompt: str | None = None,
         is_multimodal: bool = False,
         image_inputs: list[str] | None = None,
@@ -121,7 +121,7 @@ class _StreamingWorkflowManager:
         try:
             logger.debug(f"准备为流式任务 {task_id} 调用 UnderlyingLLMClient.make_request")
             result_from_llm_client: dict[str, Any] = await self.llm_client.make_request(
-                prompt=prompt,
+                prompt_parts=prompt_parts,
                 system_prompt=system_prompt,
                 is_stream=True,
                 is_multimodal=is_multimodal,
@@ -385,16 +385,23 @@ class Client:
             )
 
         if (prompt is None or not isinstance(prompt, str)) and prompt_parts is None:
-            raise ValueError("非嵌入类型的 LLM 请求必须提供一个有效的 'prompt' 字符串或 'prompt_parts' 列表。")
+            raise ValueError(
+                "非嵌入类型的 LLM 请求必须提供一个有效的 'prompt' 字符串或 'prompt_parts' 列表。"
+                )
+
+        final_prompt_parts = prompt_parts
+        if prompt:
+            final_prompt_parts = [{"text": prompt}]
 
         if is_stream:
             if not task_id:
                 raise ValueError("流式请求 (is_stream=True) 必须提供一个 'task_id'。")
 
+
             logger.info(f"路由到内部 _StreamingWorkflowManager 以处理流式任务: {task_id}")
             return await self._streaming_manager.process_streaming_task(
                 task_id=task_id,
-                prompt=prompt,
+                prompt_parts=final_prompt_parts,
                 system_prompt=system_prompt,
                 is_multimodal=is_multimodal,
                 image_inputs=image_inputs,
@@ -408,9 +415,6 @@ class Client:
                 **additional_generation_params,
             )
         else:
-            final_prompt_parts = prompt_parts
-            if prompt:
-                final_prompt_parts = [{"text": prompt}]
 
             logger.info("路由到内部 UnderlyingLLMClient.make_request 以进行非流式请求。")
             result = await self.llm_client.make_request(
