@@ -23,11 +23,9 @@ class GoogleApiHandler(ApiProviderHandler):
         model_name: str,
         request_type: str,
         is_streaming: bool,
-        prompt_parts: list[dict], # <-- [修改] 接收 parts 列表
+        prompt_parts: list[dict],
         system_prompt: str | None,
-        # processed_images 参数不再直接使用，因为信息已在 prompt_parts 中
-        processed_images: list[dict[str, str]] | None,
-        final_generation_config: GenerationParams,
+        generation_params: GenerationParams,
         tools: list[dict[str, Any]] | None,
         tool_choice: str | dict | None,
         text_to_embed: str | None,
@@ -92,7 +90,7 @@ class GoogleApiHandler(ApiProviderHandler):
                         "HARM_CATEGORY_DANGEROUS_CONTENT",
                     ]
                 ],
-                "generationConfig": final_generation_config.copy(),
+                "generationConfig": generation_params.copy(),
             }
             if "responseSchema" in payload["generationConfig"]:
                 if is_streaming:

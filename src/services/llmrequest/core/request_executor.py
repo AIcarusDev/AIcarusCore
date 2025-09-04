@@ -96,7 +96,6 @@ class RequestExecutor:
             If all API request attempts fail or no available API keys are found.
         """
         last_exception: Exception | None = None
-        images_for_request = processed_images
 
         for attempt_pass in range(max_retries + 1):
             if interruption_event and interruption_event.is_set():
@@ -124,7 +123,6 @@ class RequestExecutor:
                         is_streaming,
                         prompt_parts,
                         system_prompt,
-                        images_for_request,
                         generation_params,
                         tools,
                         tool_choice,

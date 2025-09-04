@@ -24,7 +24,7 @@ class OpenAIApiHandler(ApiProviderHandler):
         is_streaming: bool,
         prompt_parts: list[dict],
         system_prompt: str | None,
-        final_generation_config: GenerationParams,
+        generation_params: GenerationParams,
         tools: list[dict[str, Any]] | None,
         tool_choice: str | dict | None,
         text_to_embed: str | None,
@@ -69,10 +69,10 @@ class OpenAIApiHandler(ApiProviderHandler):
         if request_type == "embedding":
             path = DEFAULT_EMBEDDINGS_ENDPOINT_OPENAI
             payload = {"input": text_to_embed, "model": model_name}
-            if "encoding_format" in final_generation_config:
-                payload["encoding_format"] = final_generation_config["encoding_format"]
-            if "dimensions" in final_generation_config:
-                payload["dimensions"] = final_generation_config["dimensions"]
+            if "encoding_format" in generation_params:
+                payload["encoding_format"] = generation_params["encoding_format"]
+            if "dimensions" in generation_params:
+                payload["dimensions"] = generation_params["dimensions"]
         else:
             path = DEFAULT_CHAT_COMPLETIONS_ENDPOINT_OPENAI
             messages = []
@@ -80,7 +80,7 @@ class OpenAIApiHandler(ApiProviderHandler):
             # 1. 支持 System Prompt
             if system_prompt:
                 # 如果有 schema，将其附加到 system_prompt，以强制模型输出 JSON
-                if schema := final_generation_config.get("responseSchema"):
+                if schema := generation_params.get("responseSchema"):
                     schema_json_string = json.dumps(schema, ensure_ascii=False)
                     system_prompt_with_schema = (
                         f"{system_prompt}\n\n"
@@ -112,11 +112,11 @@ class OpenAIApiHandler(ApiProviderHandler):
                 payload["stream"] = True
 
             # 3. 支持 JSON Schema (JSON Mode)
-            if final_generation_config.get("responseSchema"):
+            if generation_params.get("responseSchema"):
                 payload["response_format"] = {"type": "json_object"}
 
             # 转换通用参数为 OpenAI 特定参数
-            for key, value in final_generation_config.items():
+            for key, value in generation_params.items():
                 if key == "maxOutputTokens":
                     payload["max_tokens"] = value
                 elif key == "stopSequences":
