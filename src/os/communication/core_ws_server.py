@@ -131,7 +131,10 @@ class CoreWebsocketServer:
         )
 
         # --- 核心逻辑修改：不再在此处直接触发安检 ---
-        logger.info(f"适配器 '{display_name}({adapter_id})' 已注册，等待其发送 'ready' 信号以启动安检（如果需要）。")
+        logger.info(
+            f"适配器 '{display_name}({adapter_id})' 已注册，"
+            f"等待其发送 'ready' 信号以启动安检（如果需要）。"
+        )
 
     async def _run_inspection_ceremony(self, builder: BasePlatformBuilder) -> None:
         """后台运行安检的协程 (只负责重试和调用)."""
@@ -165,7 +168,7 @@ class CoreWebsocketServer:
         logger.critical(f"后台安检仪式在经过 {max_retries + 1} 次尝试后彻底失败！")
 
     async def _handle_ready_event(self, event: ProtocolEvent) -> None:
-        """处理来自适配器的 ready 事件，并触发安检流程。"""
+        """处理来自适配器的 ready 事件，并触发安检流程."""
         adapter_id = event.get_platform()
         if not adapter_id or adapter_id not in self.adapter_clients_info:
             logger.warning(f"收到来自未知或未注册适配器 '{adapter_id}' 的 ready 事件，已忽略。")
@@ -189,7 +192,9 @@ class CoreWebsocketServer:
                     connection_info["bot_profile"] = profile
                     logger.success(f"已从适配器 '{adapter_id}' 的 ready 信号中接收并缓存了其档案。")
                 else:
-                    logger.warning(f"适配器 '{adapter_id}' 在 ready 信号中提供了空的 profile_data。")
+                    logger.warning(
+                        f"适配器 '{adapter_id}' 在 ready 信号中提供了空的 profile_data。"
+                    )
         except (IndexError, AttributeError, KeyError) as e:
             logger.warning(f"处理来自 '{adapter_id}' 的 ready 事件时，提取 profile_data 失败: {e}")
         # --- 修改结束 ---

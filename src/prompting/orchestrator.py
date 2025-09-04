@@ -72,10 +72,10 @@ class ThoughtPromptBuilder:
 
         schema_parts["internal_state"] = {
             "type": "object",
-            "description": "你的内心状态，这是你思考的核心。",
+            "description": "你的内心状态。",
             "properties": {
-                "mood": {"type": "string", "description": "你当前的情绪状态和原因。"},
-                "think": {"type": "string", "description": "你对当前所有情况的详细思考过程。"},
+                "mood": {"type": "string", "description": "你当前的情绪，是下意识的第一反应。"},
+                "think": {"type": "string", "description": "你当前的内心想法，应该真实自然丰富。"},
                 "intent": {"type": "string", "description": "你当前最直接的、短期的意图或打算。"},
             },
             "required": ["mood", "think", "intent"],
