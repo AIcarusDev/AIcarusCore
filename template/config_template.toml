@@ -56,7 +56,7 @@ slow_thought_persona = "你的思考风格是审慎、多疑、逻辑严密且�
 # --- 主要意识模型 ---
 # 用于AI的核心思考、对话生成和主要任务处理。
 [llm_models.main_consciousness]
-provider = "gemini"
+provider = "GEMINI"
 model_name = "gemini-2.0-flash"
 temperature = 0.6
 max_output_tokens = 3000
@@ -69,14 +69,14 @@ model_name = "BAAI/bge-m3"  # 示例：使用 BAAI/bge-m3 模型
 
 # --- 自带联网搜索的谷歌模型 ---
 [llm_models.web_search_agent]
-provider = "gemini"
+provider = "GEMINI"
 model_name = "gemini-2.0-flash"
 temperature = 0.7
 max_output_tokens = 8192
 
 # URL 上下文代理模型
 [llm_models.url_context_agent]
-provider = "gemini"
+provider = "GEMINI"
 model_name = "gemini-2.0-flash"
 temperature = 0.5
 max_output_tokens = 8192
@@ -84,14 +84,14 @@ max_output_tokens = 8192
 # “慢思考”辩论模型：当机器人使用"deep_think"时，这个模型会被调用来执行深度思考。
 # 建议使用能力更强的模型以保证逻辑推理的质量。
 [llm_models.deliberation]
-provider = "gemini"
+provider = "GEMINI"
 model_name = "gemini-2.5-flash"
 temperature = 0.55
 max_output_tokens = 60000
 
 # 用于后台图像分析的模型
 [llm_models.image_analysis]
-provider = "gemini"
+provider = "GEMINI"
 model_name = "gemini-2.0-flash" # 推荐使用 Flash
 temperature = 0.1
 max_output_tokens = 5000

@@ -128,6 +128,16 @@ class APIResponseError(LLMClientError):
         self.status_code = status_code
         self.response_text = response_text
 
+    def __str__(self) -> str:
+        """提供更详细的错误字符串表示."""
+        msg = super().__str__()
+        if self.status_code:
+            msg += f" (Status Code: {self.status_code})"
+        # 截断 response_text 以免日志过长
+        if self.response_text:
+            msg += f" | Details: {self.response_text[:250]}"
+        return msg
+
 
 class PayloadTooLargeError(NetworkError):
     """For 413 payload too large errors."""

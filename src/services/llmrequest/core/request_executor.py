@@ -116,6 +116,7 @@ class RequestExecutor:
             )
 
             for _key_idx, current_key in enumerate(available_keys):
+                payload = {}
                 try:
                     path, params, headers, payload = handler.prepare_request_data(
                         model_name,
@@ -152,9 +153,22 @@ class RequestExecutor:
                     self.key_manager.temporarily_disable_key(e.key_identifier or current_key)
                     last_exception = e
                 except (NetworkError, APIResponseError, LLMClientError) as e:
-                    logger.warning(
+                    # 增强此处的日志记录
+                    error_details = (
                         f"尝试密钥 ...{current_key[-4:]} 失败: {type(e).__name__} - {e!s}"
                     )
+                    # 检查异常对象是否有 response_text 属性
+                    if hasattr(e, 'response_text') and e.response_text:
+                        error_details += f"\n--> API 响应体: {e.response_text}"
+
+                    # 尝试记录发送的 payload
+                    try:
+                        payload_str = json.dumps(payload, ensure_ascii=False, indent=2)
+                        error_details += f"\n--> 发送的 Payload: \n{payload_str}"
+                    except Exception:
+                        error_details += f"\n--> 发送的 Payload (无法序列化): {payload}"
+
+                    logger.warning(error_details)
                     last_exception = e
                 except Exception as e:
                     logger.error(
