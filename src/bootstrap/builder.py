@@ -117,6 +117,8 @@ class ServiceBuilder:
             event_service=db_services["event_storage_service"],
         )
 
+        action_handler.set_state_generator(aicos_state_generator)
+
         prompt_builder = ThoughtPromptBuilder(
             aicos_state_generator=aicos_state_generator,
             window_manager=window_manager,

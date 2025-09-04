@@ -157,16 +157,22 @@ class CognitiveCycle:
 
         logger.info(f"动作编排器开始处理决策 (源自 Thought: {thought_key}): {decision_json}")
 
+        action_taken = False
         if action_payload := decision_json.get("action"):
             # 路由内部动作 (直接调用Mind层服务)
             if internal_action := action_payload.get("internal"):
                 await self._route_internal_action(
                     internal_action, thought_key, external_info_snapshot
                 )
+                action_taken = True
 
             # 路由外部动作 (调用OS或ActionHandler)
             if external_action := action_payload.get("external"):
                 await self._route_external_action(external_action, ui_mapping)
+                action_taken = True
+
+        if action_taken:
+            self.trigger_immediate_thought_cycle()
 
     async def _route_internal_action(
         self, internal_action: dict, thought_key: str, external_info_snapshot: str | None
@@ -217,7 +223,7 @@ class CognitiveCycle:
             await self.container.action_handler.process_action_flow(
                 action_id=f"action_{uuid.uuid4().hex[:6]}",
                 doc_key_for_updates=f"thought_for_innate_{uuid.uuid4().hex[:6]}",
-                action_json={"core": innate_action},
+                action_json={"innate": innate_action},
                 metadata=ActionMetadata(motivation="由 AI 核心决策发起"),
             )
         # 分发所有 AIC-OS 的 UI 交互到 UI Dispatcher

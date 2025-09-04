@@ -82,9 +82,8 @@ class AICOSStateGenerator:
         else:
             # 正常渲染
             self._render_softwares(root)
-            base_path = ["aicos"]
-            self._render_background_processes(root, [*base_path, "task_manager"])
-            await self._render_desktop(root, [*base_path, "desktop"], image_collector)
+            self._render_background_processes(root)
+            await self._render_desktop(root, image_collector)
 
         xml_string = self._pretty_print_xml(root)
         return xml_string, self._ui_mapping
@@ -92,17 +91,10 @@ class AICOSStateGenerator:
     def _render_disconnected_state(self) -> tuple[str, dict[str, dict]]:
         """渲染未连接状态的界面."""
         root = Element("AIC-OS", attrib={"connection": "disconnected", "lifecycle": "stopped"})
-        SubElement(root, "desc").text = "你尚未连接到你的设备。使用 'connect' 动作来接入 AIC-OS。"
+        SubElement(root, "desc").text = (
+            "你尚未连接到你的设备。可以使用 'connect' 动作来接入 AIC-OS。"
+            )
 
-        connect_id = self._generate_semantic_id(["aicos", "connect"])
-        SubElement(
-            root, "button", attrib={"id": connect_id, "name": "connect", "title": "连接设备"}
-        )
-        self._ui_mapping[connect_id] = {
-            "action_type": "click",
-            "action": "connect_device",
-            "target_uid": "aicos-main",
-        }
         return self._pretty_print_xml(root), self._ui_mapping
 
     def _render_softwares(self, parent_element: Element) -> None:

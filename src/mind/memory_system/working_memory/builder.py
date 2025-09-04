@@ -2,13 +2,13 @@
 import json
 from typing import Any
 
+from src.common.custom_logging.logging_config import get_logger
 from src.config import config
-
-# 导入 ThoughtChainDocument
 from src.services.database.models import ThoughtChainDocument
 
 from .models import MemoryFragment
 
+logger = get_logger(__name__)
 
 class WorkingMemoryBuilder:
     """负责构建结构化的、带衰减机制的工作记忆."""
@@ -74,12 +74,29 @@ class WorkingMemoryBuilder:
 
     def build_fragments(
         self,
-        recent_thoughts: list[ThoughtChainDocument],
+        recent_thoughts: list[dict[str, Any]],
         last_external_info_snapshot: str | None
     ) -> list[MemoryFragment]:
         """从数据库文档列表构建记忆片段列表."""
         fragments = []
-        for i, thought in enumerate(recent_thoughts):
+
+        # [新增] 将字典列表转换为 ThoughtChainDocument 对象列表
+        thought_objects = []
+        for thought_dict in recent_thoughts:
+            try:
+                # 使用 dataclass 的构造函数从字典创建实例
+                # 我们需要确保字典的键与 dataclass 的字段匹配
+                # ThoughtChainDocument.from_dict 还没有，我们可以直接用构造函数
+                thought_objects.append(ThoughtChainDocument(**thought_dict))
+            except TypeError as e:
+                # 如果字典的键和 dataclass 字段不匹配，会抛出 TypeError
+                logger.warning(
+                    f"无法将思想字典转换为 ThoughtChainDocument 对象，"
+                    f"已跳过。错误: {e} | 数据: {thought_dict}"
+                )
+                continue
+
+        for i, thought in enumerate(thought_objects):
             cycle_ago = i + 1
             status = self._get_memory_status(cycle_ago)
 

@@ -5,6 +5,7 @@ import asyncio
 import json
 import time
 import uuid
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from src.common.custom_logging.logging_config import get_logger
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
     from src.bootstrap.container import ServiceContainer
     from src.mind.abilities.information_retrieval_service import InformationRetrievalService
     from src.os.services.filesystem_service import FileSystemService
+    from src.os.state_generator import AICOSStateGenerator
     from src.os.window_manager import WindowManager
 
 
@@ -50,8 +52,10 @@ class ActionHandler:
         entity_service: EntityGraphService,
         sticker_service: StickerService,
     ) -> None:
+        self.aicos_state_generator: AICOSStateGenerator | None = None
         self.filesystem_service = filesystem_service
         self.info_retrieval_service = info_retrieval_service
+        self._cycle_trigger: Callable[[], None] | None = None
         self.thought_storage_service = thought_storage_service
         self.event_storage_service = event_storage_service
         self.action_log_service = action_log_service
@@ -61,6 +65,10 @@ class ActionHandler:
 
         self.pending_action_manager = PendingActionManager()
         logger.info(f"{self.__class__.__name__} instance created (Refactored).")
+
+    def set_state_generator(self, state_generator: AICOSStateGenerator) -> None:
+        """注入 AICOSStateGenerator 实例以解决循环依赖."""
+        self.aicos_state_generator = state_generator
 
     async def handle_action_response(self, response_event_data: dict[str, Any]) -> None:
         """处理动作响应，直接委托给 PendingActionManager."""
@@ -75,7 +83,7 @@ class ActionHandler:
     ) -> None:
         """统一的外部行动处理流程.
 
-        现在只处理 innate (core) 和需要发往适配器的 platform 动作。
+        现在只处理 innate 和需要发往适配器的 platform 动作。
         """
         namespace = next(iter(action_json), None)
         if not namespace:
@@ -84,7 +92,7 @@ class ActionHandler:
         actions_to_process = action_json[namespace]
         action_name, params = next(iter(actions_to_process.items()))
 
-        if namespace == "core":
+        if namespace == "innate":
             await self._handle_innate_action(action_name, params, doc_key_for_updates)
         else:
             await self._execute_platform_action_flow(
@@ -93,9 +101,27 @@ class ActionHandler:
 
     async def _handle_innate_action(self, action_name: str, params: dict, doc_key: str) -> None:
         """处理所有固有的、本地执行的核心能力."""
+        if not self.aicos_state_generator:
+            logger.error(
+                "ActionHandler 未能获取到 AICOSStateGenerator 实例，无法执行 connect 动作。"
+            )
+            result_text = "错误：系统内部状态管理器未准备好，无法连接。"
+            await self.thought_storage_service.save_action_result_to_thought(
+                thought_key=doc_key, result_text=result_text
+            )
+            return
+
         result_text = ""
         try:
-            if action_name == "web_search":
+            if action_name == "connect":
+                device_name = params.get("device_name")
+                if device_name == "AIC-OS":
+                    self.aicos_state_generator.is_connected = True
+                    result_text = "成功！已连接到 AIC-OS 设备。"
+                    logger.info("AIC-OS 状态已切换为已连接。")
+                else:
+                    result_text = f"错误：无法连接到未知的设备 '{device_name}'。"
+            elif action_name == "web_search":
                 result_text = await self.info_retrieval_service.web_search(params)
             elif action_name == "summarize_url":
                 result_text = await self.info_retrieval_service.summarize_url(params)
@@ -139,7 +165,7 @@ class ActionHandler:
         doc_key_for_updates: str,
         metadata: ActionMetadata,
     ) -> None:
-        """[重构] 执行一个平台动作的完整流程，负责构建Event并调用底层执行器."""
+        """执行一个平台动作的完整流程，负责构建Event并调用底层执行器."""
         if not self.action_sender or platform_id not in self.action_sender.connected_adapters:
             error_msg = f"动作执行失败：平台 '{platform_id}' 理论上存在，但当前未连接。"
             logger.error(error_msg)
