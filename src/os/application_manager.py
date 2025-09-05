@@ -76,7 +76,8 @@ class ApplicationManager:
         if clickable_ids:
             properties["click"] = {
                 "type": "object",
-                "description": "模拟一次鼠标单击。",
+                "title": "单击",
+                "description": "通常用于点击某个按钮。",
                 "properties": {
                     "target_id": {"type": "string", "enum": clickable_ids},
                     "motivation": {"type": "string"},
@@ -92,7 +93,8 @@ class ApplicationManager:
             if double_clickable_ids:
                 properties["double_click"] = {
                     "type": "object",
-                    "description": "模拟一次鼠标双击。",
+                    "title": "双击",
+                    "description": "通常用于打开某个文件或快捷方式。",
                     "properties": {
                         "target_id": {"type": "string", "enum": double_clickable_ids},
                         "motivation": {"type": "string"},

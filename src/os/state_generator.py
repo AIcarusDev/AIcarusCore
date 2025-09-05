@@ -65,7 +65,7 @@ class AICOSStateGenerator:
             return self._render_disconnected_state()
 
         root = Element("AIC-OS", attrib={"connection": "connected", "lifecycle": "running"})
-        SubElement(root, "desc").text = "欢迎来到Aic-OS。一个为AI交互设计的轻量级操作系统。"
+        SubElement(root, "desc").text = "欢迎来到AIc-OS。一个为AI交互设计的轻量级操作系统。"
 
         # 模态弹窗检查
         active_modal = self.window_manager.get_active_modal_popup()
@@ -106,6 +106,7 @@ class AICOSStateGenerator:
             utilities_node, "utility", id="uti-002", name="file_explorer", title="资源管理器"
         )
         applications_node = SubElement(softwares_node, "applications")
+        #TODO: 这理应动态生成，当前暂时写死一个QQ
         SubElement(applications_node, "application", id="app-001", name="qq", title="QQ")
 
     def _render_background_processes(

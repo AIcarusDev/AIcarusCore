@@ -176,6 +176,7 @@ async def _handle_base_ui_interaction(
             return
 
         # --- 特殊处理 QQ 应用的启动 ---
+        #TODO: 这理应由apps中的qq管理，当前暂时由这里处理
         if app.name == "qq":
             # 检查 QQ 应用是否已通过安检 (即 bot_id 是否已设置)
             if not application_manager.get_self_bot_ids_map().get("qq"):
