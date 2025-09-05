@@ -5,7 +5,6 @@ from xml.dom.minidom import parseString
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 from src.common.custom_logging.logging_config import get_logger
-from src.os.apps.registry import platform_builder_registry
 from src.services.database.services.entity_graph_service import EntityGraphService
 from src.services.database.services.event_storage_service import EventStorageService
 
@@ -106,8 +105,10 @@ class AICOSStateGenerator:
             utilities_node, "utility", id="uti-002", name="file_explorer", title="资源管理器"
         )
         applications_node = SubElement(softwares_node, "applications")
-        #TODO: 这理应动态生成，当前暂时写死一个QQ
-        SubElement(applications_node, "application", id="app-001", name="qq", title="QQ")
+
+        # 从 ApplicationManager 动态获取应用列表
+        for app in self.application_manager.get_all_apps():
+            SubElement(applications_node, "application", id=app.id, name=app.name, title=app.title)
 
     def _render_background_processes(
         self, parent_element: Element,
@@ -163,19 +164,25 @@ class AICOSStateGenerator:
 
         if is_desktop_visible:
             items_node = SubElement(desktop_node, "items")
-            qq_app_id = "app-001"
-            qq_shortcut_path = ["shortcut_qq"]
-            qq_shortcut_id = self._generate_semantic_id(qq_shortcut_path)
-            SubElement(
-                items_node,
-                "shortcut",
-                attrib={"id": qq_shortcut_id, "target_id": qq_app_id, "name": "qq", "title": "QQ"},
-            )
-            self._ui_mapping[qq_shortcut_id] = {
-                "action_type": "double_click",
-                "action": "start_app",
-                "target_uid": qq_app_id,
-            }
+            # [重构] 动态渲染所有已安装应用的快捷方式
+            for app in self.application_manager.get_all_apps():
+                shortcut_path = [f"shortcut_{app.name}"]
+                shortcut_id = self._generate_semantic_id(shortcut_path)
+                SubElement(
+                    items_node,
+                    "shortcut",
+                    attrib={
+                        "id": shortcut_id,
+                        "target_id": app.id,
+                        "name": app.name,
+                        "title": app.title
+                    },
+                )
+                self._ui_mapping[shortcut_id] = {
+                    "action_type": "double_click",
+                    "action": "start_app",
+                    "target_uid": app.id,
+                }
 
         windows_node = SubElement(desktop_node, "windows")
         for window in self.window_manager.get_all_windows_sorted():
@@ -290,57 +297,26 @@ class AICOSStateGenerator:
                 content_node.text = window.content_state.get("error_message", "发生未知系统错误。")
                 return
 
-            # 增加对 QQ 新消息弹窗的专门渲染
-            #TODO: 这理应由apps中的qq管理，当前暂时由这里处理
-            elif window.window_class == "qq_new_message_popup":
-                content_node = SubElement(
-                    window_node,
-                    "content",
-                    attrib={"type": "new_message_alert"}
-                )
-                state = window.content_state
-                SubElement(
-                    content_node, "sender_name").text = state.get("sender_name", "未知发件人")
-                SubElement(
-                    content_node,
-                    "message_snippet"
-                ).text = state.get("message_snippet", "...")
+            # 委托应用渲染器渲染内容
+            app = self.application_manager.get_app_by_id(window.parent_app_id)
+            builder = self.application_manager.get_builder_by_name(app.name) if app else None
 
-                actions_node = SubElement(content_node, "actions")
-                view_btn_path = [*current_path, "content", "view_now"]
-                view_btn_id = self._generate_semantic_id(view_btn_path)
-
-                SubElement(
-                    actions_node, "button",
-                    attrib={"id": view_btn_id, "name": "view_now", "title": "立即查看"}
-                )
-                self._ui_mapping[view_btn_id] = {
-                    "action_type": "click",
-                    "action": "open_conversation_window",
-                    "target_uid": state.get("target_conversation_uid"),
+            if builder:
+                render_args = {
+                    "parent_element": window_node,
+                    "current_path": current_path,
+                    "window": window,
+                    "bot_ids_map": self.application_manager.get_self_bot_ids_map(),
+                    "entity_service": self.entity_service,
+                    "event_service": self.event_service,
+                    "ui_mapping": self._ui_mapping,
+                    "generate_semantic_id": self._generate_semantic_id,
+                    "image_collector": image_collector,
                 }
-                return
-
-            app = next(
-                (
-                    a
-                    for a in self.application_manager.get_all_apps()
-                    if a.id == window.parent_app_id
-                ),
-                None,
-            )
-            if app and (builder := platform_builder_registry.get_builder(app.name)):
-                await builder.render_window_content(
-                    parent_element=window_node,
-                    current_path=current_path,
-                    window=window,
-                    bot_ids_map=self.application_manager.get_self_bot_ids_map(),
-                    entity_service=self.entity_service,
-                    event_service=self.event_service,
-                    ui_mapping=self._ui_mapping,
-                    generate_semantic_id=self._generate_semantic_id,
-                    image_collector=image_collector,
-                )
+                if window.is_popup:
+                    await builder.render_popup_content(**render_args)
+                else:
+                    await builder.render_window_content(**render_args)
             else:
                 app_name = app.name if app else "未知"
                 message = f"应用 '{app_name}' 没有提供内容渲染器。"

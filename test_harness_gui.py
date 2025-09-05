@@ -8,8 +8,7 @@ import seed_database
 import streamlit as st
 from src.bootstrap.builder import ServiceBuilder, ServiceContainer
 from src.mind import action_orchestrator
-from src.os.apps.registry import platform_builder_registry
-from src.os.models import Application
+from src.os import apps
 
 # --- Streamlit 页面配置 ---
 st.set_page_config(layout="wide", page_title="AIC-OS Interactive Test Harness")
@@ -35,13 +34,11 @@ async def initialize_session_state() -> None:
     st.toast("数据库准备就绪！", icon="🗄️")
 
     # 3. 加载已安装的应用
-    container.application_manager.load_installed_apps(
-        [Application(id="app-001", name="qq", title="QQ")]
-    )
+    container.application_manager.discover_and_load_apps(apps)
 
     # 4. 模拟 QQ 适配器连接并执行安检
     st.toast("模拟QQ适配器连接并执行安检...")
-    qq_builder = platform_builder_registry.get_builder("qq")
+    qq_builder = container.application_manager.get_builder_by_name("qq")
     if qq_builder:
         await qq_builder.run_on_connect_inspection(container)
         st.toast("QQ安检完成！", icon="🛡️")

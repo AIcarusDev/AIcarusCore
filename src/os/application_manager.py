@@ -1,16 +1,69 @@
 # 文件路径: src/os/application_manager.py
+# [重构]
+
+import importlib
+import pkgutil
+
+from src.common.custom_logging.logging_config import get_logger
+from src.services.action.components.base_builder import BaseAppBuilder
 
 from .models import Application, ApplicationLifecycle
 
+logger = get_logger(__name__)
+
 
 class ApplicationManager:
-    """管理 AIC-OS 中所有应用程序的生命周期."""
+    """管理 AIC-OS 中所有应用的发现、加载和生命周期."""
 
     def __init__(self) -> None:
-        # _applications 是唯一真实来源，存储所有“已安装”的应用
-        # 实际项目中，这应该从数据库或配置文件加载
-        self._applications: dict[str, Application] = {}
+        self._applications: dict[str, Application] = {}  # Key: app.id
+        self._builders: dict[str, BaseAppBuilder] = {}     # Key: app.name
         self._self_bot_ids_map: dict[str, str] = {}
+
+    def discover_and_load_apps(self, package:type) -> None:
+        """在系统启动时，自动扫描 apps 包，发现并加载所有应用."""
+        logger.info(f"应用管理器：开始从包 '{package.__name__}' 自动发现应用...")
+
+        if not hasattr(package, '__path__'):
+            logger.error(f"提供的包 '{package.__name__}' 不是一个有效的包。")
+            return
+
+        for module_info in pkgutil.iter_modules(package.__path__, package.__name__ + '.'):
+            if not module_info.ispkg:
+                continue
+
+            try:
+                module = importlib.import_module(module_info.name)
+                if hasattr(module, 'app_definition'):
+                    definition = module.app_definition
+                    app_info = definition.app_info
+                    builder_class = definition.builder_class
+
+                    if app_info.id in self._applications:
+                        logger.warning(
+                            f"发现重复的应用ID '{app_info.id}'！后加载的应用将覆盖前者。"
+                        )
+
+                    self._applications[app_info.id] = app_info
+                    self._builders[app_info.name] = builder_class()
+
+                    logger.info(
+                        f"✅ 成功发现并加载应用: '{app_info.title}' "
+                        f"(ID: {app_info.id}, Name: {app_info.name})"
+                    )
+
+            except Exception as e:
+                logger.error(f"加载应用 '{module_info.name}' 时发生错误: {e}", exc_info=True)
+
+        logger.info(f"应用发现完成。共加载 {len(self._applications)} 个应用。")
+
+    def get_builder_by_name(self, app_name: str) -> BaseAppBuilder | None:
+        """根据应用的 name (例如 'qq') 获取其 Builder 实例."""
+        return self._builders.get(app_name)
+
+    def get_app_by_id(self, app_id: str) -> Application | None:
+        """根据唯一的 app_id 获取应用信息."""
+        return self._applications.get(app_id)
 
     def set_self_bot_ids_map(self, bot_ids_map: dict[str, str]) -> None:
         """从外部一次性注入完整的 bot_id 映射."""
@@ -26,10 +79,6 @@ class ApplicationManager:
     def get_self_bot_ids_map(self) -> dict[str, str]:
         """获取 bot_id 映射."""
         return self._self_bot_ids_map
-
-    def load_installed_apps(self, apps: list[Application]) -> None:
-        """加载系统“已安装”的所有应用."""
-        self._applications = {app.id: app for app in apps}
 
     def start_app(self, app_id: str) -> bool:
         """启动一个应用，将其生命周期状态设置为 RUNNING."""
@@ -103,4 +152,3 @@ class ApplicationManager:
                 }
 
         return properties
-

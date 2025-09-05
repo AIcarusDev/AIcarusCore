@@ -15,7 +15,7 @@ from src.common.utils import build_conversation_entity_uid
 from src.os.apps.interfaces import IApp, ISession
 from src.os.models import Window, WindowStatus
 from src.os.window_manager import WindowManager
-from src.services.action.components.base_builder import BasePlatformBuilder
+from src.services.action.components.base_builder import BaseAppBuilder
 
 from .qq_chat_session_manager import QQChatSessionManager
 from .qq_inspection_service import inspect_and_initialize_self_profile
@@ -28,11 +28,17 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-class QQBuilder(BasePlatformBuilder, IApp):
+class QQBuilder(BaseAppBuilder, IApp):
     """QQ 平台的构建器，现在负责处理 OS 级别的实时事件."""
 
     def __init__(self) -> None:
         self._session_manager_instance: QQChatSessionManager | None = None
+        self._renderer: QQWindowRenderer | None = None
+
+    @property
+    def app_name(self) -> str:
+        """返回平台ID."""
+        return "qq"
 
     @property
     def needs_on_connect_inspection(self) -> bool:
@@ -41,23 +47,23 @@ class QQBuilder(BasePlatformBuilder, IApp):
 
     async def run_on_connect_inspection(self, container: ServiceContainer) -> None:
         """由 CoreWebsocketServer 调用的、平台专属的安检流程."""
-        logger.info(f"--- [QQBuilder] 开始执行平台 '{self.platform_id}' 的上线安检仪式 ---")
+        logger.info(f"--- [QQBuilder] 开始执行平台 '{self.app_name}' 的上线安检仪式 ---")
 
-        # 核心修复：增加一个1秒的延迟，以确保 Adapter 侧的连接状态完全就绪
+        # 增加一个1秒的延迟，以确保 Adapter 侧的连接状态完全就绪
         await asyncio.sleep(1)
 
-        # --- 核心修改：优先使用从 ready 事件中缓存的档案 ---
+        # 优先使用从 ready 事件中缓存的档案
         profile_data = None
         success = False
 
         # 尝试从 Websocket 服务器获取缓存的档案
         ws_server = container.core_comm_layer
-        if ws_server and self.platform_id in ws_server.adapter_clients_info:
-            connection_info = ws_server.adapter_clients_info[self.platform_id]
+        if ws_server and self.app_name in ws_server.adapter_clients_info:
+            connection_info = ws_server.adapter_clients_info[self.app_name]
             cached_profile = connection_info.get("bot_profile")
             if cached_profile:
                 logger.info(
-                    f"安检流程：发现已缓存的档案 for '{self.platform_id}'，直接使用该档案。"
+                    f"安检流程：发现已缓存的档案 for '{self.app_name}'，直接使用该档案。"
                     )
                 profile_data = cached_profile
                 # 假设数据格式正确，直接认定为成功
@@ -66,12 +72,12 @@ class QQBuilder(BasePlatformBuilder, IApp):
         # 如果没有缓存的档案，则回退到主动获取模式
         if not success:
             logger.warning(
-                f"安检流程：未发现缓存的档案 for '{self.platform_id}'，将回退到主动获取模式。"
+                f"安检流程：未发现缓存的档案 for '{self.app_name}'，将回退到主动获取模式。"
             )
             success, profile_data = await inspect_and_initialize_self_profile(
                 entity_service=container.entity_graph_service,
                 action_handler=container.action_handler,
-                platform_id=self.platform_id,
+                platform_id=self.app_name,
             )
 
         if success and profile_data:
@@ -79,11 +85,32 @@ class QQBuilder(BasePlatformBuilder, IApp):
             bot_id = profile_data.get("user_id")
             if bot_id:
                 container.application_manager.set_self_bot_id_for_platform(
-                    self.platform_id,
+                    self.app_name,
                     str(bot_id)
                 )
         else:
-            logger.critical(f"[QQBuilder] 安检失败！平台 '{self.platform_id}' 的功能将严重受影响。")
+            logger.critical(f"[QQBuilder] 安检失败！app '{self.app_name}' 的功能将严重受影响。")
+
+    async def on_before_start(self, container: ServiceContainer) -> tuple[bool, str | None]:
+        """QQ启动前检查是否已完成安检."""
+        if not container.application_manager.get_self_bot_ids_map().get(self.app_name):
+            error_message = (
+                "无法启动应用 'QQ'。\n"
+                "原因：QQ 应用尚未完成身份检查。"
+            )
+            logger.error(error_message.replace('\n', ' '))
+            return False, error_message
+        return True, None
+
+    async def on_after_start(self, container: ServiceContainer, app_id: str) -> Window:
+        """QQ启动后创建主窗口。."""
+        return Window(
+            name="qq_main",
+            parent_app_id=app_id,
+            title="QQ",
+            window_class="main",
+            content_state={"view": "conversation_list"}
+        )
 
     # OS 实时事件处理器
     async def handle_os_level_event(
@@ -132,6 +159,15 @@ class QQBuilder(BasePlatformBuilder, IApp):
         # --- 所有条件满足，创建弹窗 ---
         logger.info(f"[QQBuilder] 检测到来自 '{target_conv_uid}' 的新消息，触发弹窗。")
 
+        # 通过 app_name 查找应用信息
+        app_info = next(
+            (app for app in application_manager.get_all_apps() if app.name == self.app_name),
+            None
+        )
+        if not app_info:
+            logger.error(f"无法为新消息创建弹窗，因为找不到 name 为 '{self.app_name}' 的应用定义。")
+            return
+
         conv_doc = await entity_service.get_entity_by_key(target_conv_uid)
         sender_name = await entity_service.get_sender_display_name_for_event(
             event.to_dict(), conv_doc, application_manager.get_self_bot_ids_map()
@@ -139,8 +175,8 @@ class QQBuilder(BasePlatformBuilder, IApp):
         snippet = await container.event_storage_service.get_event_text_summary(event.to_dict())
 
         popup = Window(
-            id=f"win-popup-qq-newmsg-{target_conv_uid}",
-            parent_app_id="app-001",
+            name=f"win-popup-qq-newmsg-{uuid.uuid4().hex[:6]}",
+            parent_app_id=app_info.id,
             title="新消息提醒",
             window_class="qq_new_message_popup",
             content_state={
@@ -173,6 +209,26 @@ class QQBuilder(BasePlatformBuilder, IApp):
             )
         return self._session_manager_instance
 
+    def _get_renderer(
+        self,
+        entity_service: EntityGraphService,
+        event_service: EventStorageService,
+        ui_mapping: dict,
+        generate_semantic_id: callable
+    ) -> QQWindowRenderer:
+        """按需创建或返回渲染器实例."""
+        if self._renderer is None:
+            self._renderer = QQWindowRenderer(
+                entity_service,
+                event_service,
+                ui_mapping,
+                generate_semantic_id
+            )
+        # 确保 renderer 使用的是当前轮次的上下文
+        self._renderer.ui_mapping = ui_mapping
+        self._renderer.generate_semantic_id = generate_semantic_id
+        return self._renderer
+
     # 实现 IApp 接口的方法
     async def get_session(
         self, conversation_uid: str, container: ServiceContainer
@@ -182,11 +238,6 @@ class QQBuilder(BasePlatformBuilder, IApp):
         if session_manager:
             return await session_manager.get_or_create_session(conversation_uid)
         return None
-
-    @property
-    def platform_id(self) -> str:
-        """返回平台ID."""
-        return "qq"
 
     # 实现渲染器接口
     async def render_window_content(
@@ -202,7 +253,7 @@ class QQBuilder(BasePlatformBuilder, IApp):
         image_collector: list[dict],
     ) -> None:
         """实现基类的渲染接口，委托给QQWindowRenderer处理."""
-        renderer = QQWindowRenderer(
+        renderer = self._get_renderer(
             entity_service,
             event_service,
             ui_mapping,
@@ -214,6 +265,31 @@ class QQBuilder(BasePlatformBuilder, IApp):
             window,
             bot_ids_map,
             image_collector
+        )
+
+    async def render_popup_content(
+        self,
+        parent_element: Element,
+        current_path: list[str],
+        window: Window,
+        bot_ids_map: dict,
+        entity_service: EntityGraphService,
+        event_service: EventStorageService,
+        ui_mapping: dict,
+        generate_semantic_id: callable,
+        image_collector: list[dict],
+    ) -> None:
+        """实现弹窗渲染，委托给QQWindowRenderer处理。."""
+        renderer = self._get_renderer(
+            entity_service,
+            event_service,
+            ui_mapping,
+            generate_semantic_id
+        )
+        await renderer.render_popup_content(
+            parent_element,
+            current_path,
+            window,
         )
 
     def get_action_definitions(self, window_manager: WindowManager) -> dict:

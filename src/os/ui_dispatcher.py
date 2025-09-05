@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING
 
 from src.common.custom_logging.logging_config import get_logger
 from src.os.apps.interfaces import IApp
-from src.os.apps.registry import platform_builder_registry
 from src.os.models import Window, WindowStatus
 
 if TYPE_CHECKING:
@@ -179,53 +178,44 @@ async def _handle_base_ui_interaction(
             logger.error(f"尝试启动一个不存在的应用: '{target_uid}'")
             return
 
-        # --- 特殊处理 QQ 应用的启动 ---
-        #TODO: 这理应由apps中的qq管理，当前暂时由这里处理
-        if app.name == "qq":
-            # 检查 QQ 应用是否已通过安检 (即 bot_id 是否已设置)
-            if not application_manager.get_self_bot_ids_map().get("qq"):
-                error_message = (
-                    f"无法启动应用 '{app.title}'。\n"
-                    f"原因：QQ 应用尚未完成身份安检。"
-                    f"请确保 QQ 适配器已连接并成功初始化。"
-                )
-                logger.error(error_message.replace('\n', ' '))
-                error_popup = Window(
-                    name=f"win-error-startup-{app.id}",
-                    parent_app_id=app.id,
-                    title=f"{app.title} - 启动失败",
-                    window_class="system_error_modal",
-                    content_state={"error_message": error_message},
-                    is_popup=True,
-                    popup_type='modal',
-                    transient_cycles_remaining=None,
-                )
-                window_manager.open_window(error_popup)
-                return
-
-            # 安检已通过，正常启动
-            application_manager.start_app(target_uid)
-            logger.info(f"应用 '{target_uid}' 已启动。")
-            main_window = Window(
-                name="qq_main",
-                parent_app_id=app.id,
-                title=f"{app.title}",
-                window_class="main",
-                content_state={"view": "conversation_list"}
-            )
-            window_manager.open_window(main_window)
+        builder = application_manager.get_builder_by_name(app.name)
+        if not builder:
+            logger.error(f"应用 '{app.title}' 没有找到构建器，无法启动。")
             return
 
+        # 通用的启动前检查流程
+        can_start, error_message = await builder.on_before_start(container)
+        # 检查未通过，弹出错误窗口
+        if not can_start:
+            logger.error(f"应用 '{app.title}' 启动前检查失败: {error_message}")
+            error_popup = Window(
+                name=f"win-error-startup-{app.id}",
+                parent_app_id=app.id,
+                title=f"{app.title} - 启动失败",
+                window_class="system_error_modal",
+                content_state={"error_message": error_message or "发生未知启动错误。"},
+                is_popup=True,
+                popup_type='modal',
+            )
+            window_manager.open_window(error_popup)
+            return
+
+        # 检查通过，执行通用启动流程
+        application_manager.start_app(target_uid)
+        logger.info(f"应用 '{app.title}' 已启动。")
+        main_window = await builder.on_after_start(container, app.id)
+        window_manager.open_window(main_window)
+
     elif internal_command == "open_conversation_window":
-        app_list = application_manager.get_all_apps()
+        # 这里的逻辑也应该更通用
         platform_id = target_uid.split("_")[0]
-        app = next((a for a in app_list if a.name == platform_id), None)
+        app = next((a for a in application_manager.get_all_apps() if a.name == platform_id), None)
 
         if not app:
             logger.error(f"无法打开会话窗口：找不到负责平台 '{platform_id}' 的应用。")
             return
 
-        builder = platform_builder_registry.get_builder(platform_id)
+        builder = application_manager.get_builder_by_name(platform_id)
         if not builder or not isinstance(builder, IApp):
             logger.error(f"严重错误：平台 '{platform_id}' 的构建器未实现 IApp 接口。")
             return

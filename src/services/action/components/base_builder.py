@@ -1,21 +1,41 @@
-# src/services/action/components/base_builder.py
+# 文件路径: src/services/action/components/base_builder.py
+
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from xml.etree.ElementTree import Element
 
 from aicarus_protocols import Event
 
-# 导入依赖类型
-from src.os.models import Window
-from src.os.window_manager import WindowManager
-from src.services.database.services.entity_graph_service import EntityGraphService
-from src.services.database.services.event_storage_service import EventStorageService
+if TYPE_CHECKING:
+    from src.bootstrap.container import ServiceContainer
+    from src.os.models import Window
+    from src.os.window_manager import WindowManager
+    from src.services.database.services.entity_graph_service import EntityGraphService
+    from src.services.database.services.event_storage_service import EventStorageService
 
 
-class BasePlatformBuilder(ABC):
-    """平台构建器的基类，定义了所有平台构建器的通用接口和属性."""
+class BaseAppBuilder(ABC):
+    """应用构建器的基类，定义了所有应用的通用接口."""
 
-    # 定义渲染器接口，所有平台构建器都必须实现
+    @property
+    @abstractmethod
+    def app_name(self) -> str:
+        """返回应用的内部名称 (例如 'qq', 'termux')，用于关联Builder."""
+        pass
+
+    @abstractmethod
+    async def on_before_start(self, container: ServiceContainer) -> tuple[bool, str | None]:
+        """在应用启动前调用的钩子，用于执行前置检查."""
+        # 默认实现为总是允许启动
+        return True, None
+
+    @abstractmethod
+    async def on_after_start(self, container: ServiceContainer, app_id: str) -> Window:
+        """在应用成功启动后调用的钩子，用于创建并返回应用的主窗口."""
+        pass
+
     @abstractmethod
     async def render_window_content(
         self,
@@ -35,13 +55,23 @@ class BasePlatformBuilder(ABC):
         """
         pass
 
-    @property
     @abstractmethod
-    def platform_id(self) -> str:
-        """返回平台ID."""
+    async def render_popup_content(
+        self,
+        parent_element: Element,
+        current_path: list[str],
+        window: Window,
+        bot_ids_map: dict,
+        entity_service: EntityGraphService,
+        event_service: EventStorageService,
+        ui_mapping: dict,
+        generate_semantic_id: callable,
+        image_collector: list[dict],
+    ) -> None:
+        """渲染应用弹窗的内容."""
         pass
 
-    def get_action_definitions(self, window_manager: "WindowManager") -> dict:
+    def get_action_definitions(self, window_manager: WindowManager) -> dict:
         """返回平台提供的非UI动作定义.
 
         Args:
@@ -49,9 +79,8 @@ class BasePlatformBuilder(ABC):
         """
         return {}
 
-    @abstractmethod
     def build_action_event(
         self, action_name: str, params: dict[str, Any], bot_id: str
     ) -> Event | None:
         """根据动作名称和参数，构建一个平台专属的、可执行的 Event 对象."""
-        pass
+        return None

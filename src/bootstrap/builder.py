@@ -22,7 +22,6 @@ from src.mind.thought_generator import ThoughtGenerator
 from src.mind.thought_persistor import ThoughtPersistor
 from src.os import apps
 from src.os.application_manager import ApplicationManager
-from src.os.apps.registry import platform_builder_registry
 from src.os.communication.action_sender import ActionSender
 from src.os.communication.core_ws_server import CoreWebsocketServer
 from src.os.communication.event_receiver import EventReceiver
@@ -63,7 +62,10 @@ class ServiceBuilder:
 
     async def build_container(self) -> ServiceContainer:
         """构建并配置服务容器，包括初始化LLM客户端、数据库服务等."""
-        platform_builder_registry.discover_and_register_builders(apps)
+        # 初始化应用管理器并加载所有应用
+        application_manager = ApplicationManager()
+        application_manager.discover_and_load_apps(apps)
+        # 初始化 LLM 客户端
         llm_clients = self._initialize_llm_clients()
         db_services = await self._initialize_typedb_and_services()
 
@@ -78,7 +80,6 @@ class ServiceBuilder:
 
         # OS 层服务
         window_manager = WindowManager()
-        application_manager = ApplicationManager()
 
         # 基础设施服务
         action_sender = ActionSender()

@@ -1,11 +1,35 @@
 # src/os/apps/interfaces.py
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from typing import TYPE_CHECKING
+
     from src.bootstrap.container import ServiceContainer
+    from src.services.action.components.base_builder import BaseAppBuilder
+
+    from ..models import Application
+
+
+class IAppDefinition(ABC):
+    """应用的“静态清单”(Manifest)接口.
+
+    每个应用目录都必须提供一个此接口的实现。
+    """
+    @property
+    @abstractmethod
+    def app_info(self) -> Application:
+        """返回应用的静态信息（ID, name, title）。ID必须是稳定的，且在系统中唯一."""
+        pass
+
+    @abstractmethod
+    def builder_class(self) -> type[BaseAppBuilder]:
+        """返回该应用的构建器类（注意是类本身，不是实例）."""
+        pass
+        pass
 
 
 class ISession(ABC):

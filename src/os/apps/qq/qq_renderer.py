@@ -58,6 +58,43 @@ class QQWindowRenderer:
         )
         return full_sender, snippet, format_relative_time(event.get("timestamp", 0))
 
+    async def render_popup_content(
+        self,
+        parent_element: Element,
+        current_path: list[str],
+        window: Window,
+    ) -> None:
+        """专门渲染QQ新消息弹窗的内容."""
+        if window.window_class != "qq_new_message_popup":
+            return
+
+        content_node = SubElement(
+            parent_element,
+            "content",
+            attrib={"type": "new_message_alert"}
+        )
+        state = window.content_state
+        SubElement(
+            content_node, "sender_name").text = state.get("sender_name", "未知发件人")
+        SubElement(
+            content_node,
+            "message_snippet"
+        ).text = state.get("message_snippet", "...")
+
+        actions_node = SubElement(content_node, "actions")
+        view_btn_path = [*current_path, "content", "view_now"]
+        view_btn_id = self._generate_semantic_id(view_btn_path)
+
+        SubElement(
+            actions_node, "button",
+            attrib={"id": view_btn_id, "name": "view_now", "title": "立即查看"}
+        )
+        self.ui_mapping[view_btn_id] = {
+            "action_type": "click",
+            "action": "open_conversation_window",
+            "target_uid": state.get("target_conversation_uid"),
+        }
+
     async def render_content(
         self,
         parent_element: Element,
