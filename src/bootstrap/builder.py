@@ -102,6 +102,7 @@ class ServiceBuilder:
             entity_service=db_services["entity_graph_service"],
             sticker_service=sticker_service,
         )
+        action_handler.set_application_manager(application_manager)
 
         # Mind 层服务
         state_manager = AIStateManager(

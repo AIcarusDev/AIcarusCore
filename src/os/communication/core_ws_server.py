@@ -13,8 +13,7 @@ from aicarus_protocols import Event as ProtocolEvent
 from aicarus_protocols import UserInfo as ProtocolUserInfo
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
-from src.os.apps.registry import platform_builder_registry
-from src.services.action.components.base_builder import BasePlatformBuilder
+from src.services.action.components.base_builder import BaseAppBuilder
 from src.services.database import EntityGraphService
 from src.services.database.services.event_storage_service import EventStorageService
 from websockets.exceptions import ConnectionClosed, ConnectionClosedError, ConnectionClosedOK
@@ -136,7 +135,7 @@ class CoreWebsocketServer:
             f"等待其发送 'ready' 信号以启动安检（如果需要）。"
         )
 
-    async def _run_inspection_ceremony(self, builder: BasePlatformBuilder) -> None:
+    async def _run_inspection_ceremony(self, builder: BaseAppBuilder) -> None:
         """后台运行安检的协程 (只负责重试和调用)."""
         max_retries = 3
         initial_delay = 5
@@ -146,7 +145,7 @@ class CoreWebsocketServer:
                 if attempt > 0:
                     delay = initial_delay * (backoff_factor ** (attempt - 1))
                     logger.info(
-                        f"适配器 '{builder.platform_id}' 的安检将在 {delay} "
+                        f"适配器 '{builder.app_name}' 的安检将在 {delay} "
                         f"秒后进行第 {attempt}/{max_retries} 次重试..."
                     )
                     await asyncio.sleep(delay)
@@ -155,13 +154,13 @@ class CoreWebsocketServer:
                 # BUG:run_on_connect_inspection似乎未定义。
                 await builder.run_on_connect_inspection(self.container)
                 logger.info(
-                    f"适配器 '{builder.platform_id}' 的安检仪式 (尝试次数 {attempt + 1}) 已执行。"
+                    f"适配器 '{builder.app_name}' 的安检仪式 (尝试次数 {attempt + 1}) 已执行。"
                 )
                 return
 
             except Exception as e:
                 logger.error(
-                    f"在为适配器 '{builder.platform_id}' 举行后台安检仪式时发生严重错误: {e}",
+                    f"在为适配器 '{builder.app_name}' 举行后台安检仪式时发生严重错误: {e}",
                     exc_info=True
                 )
 
@@ -199,7 +198,7 @@ class CoreWebsocketServer:
             logger.warning(f"处理来自 '{adapter_id}' 的 ready 事件时，提取 profile_data 失败: {e}")
         # --- 修改结束 ---
 
-        builder = platform_builder_registry.get_builder(adapter_id)
+        builder = self.container.application_manager.get_builder_by_name(adapter_id)
         if builder and builder.needs_on_connect_inspection:
             logger.info(f"平台 '{display_name}({adapter_id})' 需要上线安检，启动安检仪式...")
             inspection_task = asyncio.create_task(self._run_inspection_ceremony(builder))

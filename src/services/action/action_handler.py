@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any
 from src.common.custom_logging.logging_config import get_logger
 from src.domain.models import ActionMetadata, ActionResult
 from src.os.apps.interfaces import IApp
-from src.os.apps.registry import platform_builder_registry
 from src.os.communication.action_sender import ActionSender
 from src.os.models import WindowStatus
 from src.services.action.components.message_builder import MessageBuilder
@@ -27,6 +26,7 @@ from src.services.database import (
 if TYPE_CHECKING:
     from src.bootstrap.container import ServiceContainer
     from src.mind.abilities.information_retrieval_service import InformationRetrievalService
+    from src.os.application_manager import ApplicationManager
     from src.os.services.filesystem_service import FileSystemService
     from src.os.state_generator import AICOSStateGenerator
     from src.os.window_manager import WindowManager
@@ -53,6 +53,7 @@ class ActionHandler:
         sticker_service: StickerService,
     ) -> None:
         self.aicos_state_generator: AICOSStateGenerator | None = None
+        self.application_manager: ApplicationManager | None = None
         self.filesystem_service = filesystem_service
         self.info_retrieval_service = info_retrieval_service
         self._cycle_trigger: Callable[[], None] | None = None
@@ -69,6 +70,10 @@ class ActionHandler:
     def set_state_generator(self, state_generator: AICOSStateGenerator) -> None:
         """注入 AICOSStateGenerator 实例以解决循环依赖."""
         self.aicos_state_generator = state_generator
+
+    def set_application_manager(self, application_manager: ApplicationManager) -> None:
+        """注入 ApplicationManager 实例以解决循环依赖."""
+        self.application_manager = application_manager
 
     async def handle_action_response(self, response_event_data: dict[str, Any]) -> None:
         """处理动作响应，直接委托给 PendingActionManager."""
@@ -174,7 +179,10 @@ class ActionHandler:
             )
             return
 
-        builder = platform_builder_registry.get_builder(platform_id)
+        if not self.application_manager:
+            logger.error("ActionHandler 未能获取到 ApplicationManager 实例。")
+            return
+        builder = self.application_manager.get_builder_by_name(platform_id)
         if not builder:
             logger.error(f"找不到平台 '{platform_id}' 的翻译官。")
             return
@@ -255,7 +263,10 @@ class ActionHandler:
             return
 
         # 获取 QQBuilder 和 Session
-        qq_builder = platform_builder_registry.get_builder("qq")
+        if not self.application_manager:
+            logger.error("ActionHandler 未能获取到 ApplicationManager 实例。")
+            return
+        qq_builder = self.application_manager.get_builder_by_name("qq")
         if not qq_builder or not isinstance(qq_builder, IApp):
             logger.error("严重错误：找不到 QQBuilder 或其未实现 IApp 接口。")
             return
@@ -286,7 +297,14 @@ class ActionHandler:
         motivation: str | None = None,
     ) -> ActionResult:
         """一个便捷的内部动作执行入口，直接返回 ActionResult."""
-        builder = platform_builder_registry.get_builder(platform_id)
+        if not self.application_manager:
+            logger.error("ActionHandler 未能获取到 ApplicationManager 实例。")
+            return ActionResult(
+                action_id="",
+                is_success=False,
+                error_message="ApplicationManager 未初始化。"
+            )
+        builder = self.application_manager.get_builder_by_name(platform_id)
         if not builder:
             return ActionResult(
                 action_id="",

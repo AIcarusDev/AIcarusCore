@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 from aicarus_protocols import Event as ProtocolEvent
 from src.bootstrap.container import ServiceContainer
 from src.common.custom_logging.logging_config import get_logger
-from src.os.apps.registry import platform_builder_registry
 from websockets.server import WebSocketServerProtocol
 
 if TYPE_CHECKING:
@@ -81,7 +80,7 @@ class EventReceiver:
 
 
                 # 2. 分发给 OS 实时反应流水线
-                builder = platform_builder_registry.get_builder(adapter_id)
+                builder = self.container.application_manager.get_builder_by_name(adapter_id)
                 if builder and hasattr(builder, "handle_os_level_event"):
                     await builder.handle_os_level_event(aicarus_event, self.container)
 

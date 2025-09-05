@@ -3,7 +3,6 @@
 from typing import TYPE_CHECKING, Any, Optional
 
 from src.os.apps.interfaces import IApp, ISession
-from src.os.apps.registry import platform_builder_registry
 from src.os.models import WindowStatus
 from src.prompting.components import PromptComponents
 from src.prompting.schema_builder import SchemaBuilder
@@ -155,7 +154,7 @@ class ThoughtPromptBuilder:
                 "properties": base_interactions,
             }
 
-        for platform_id, builder in platform_builder_registry.get_all_builders().items():
+        for platform_id, builder in self.application_manager._builders.items():
             app_schema = builder.get_action_definitions(self.window_manager)
             if app_schema:
                 aicos_properties[platform_id] = {
@@ -229,7 +228,7 @@ class ThoughtPromptBuilder:
 
             # 通过接口动态获取会话实例
             session: ISession | None = None
-            builder = platform_builder_registry.get_builder(platform_id)
+            builder = self.application_manager.get_builder_by_name(platform_id)
             if builder and isinstance(builder, IApp) and self.container:
                 session = await builder.get_session(conversation_uid, self.container)
 
