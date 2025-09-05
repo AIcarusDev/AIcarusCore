@@ -51,7 +51,7 @@ class SystemPromptPartsBuilder:
         )
         working_memories_block = self.working_memory_builder.render_to_xml_string(memory_fragments)
 
-        # [核心修复] 将 session 传递给 _get_current_state_block
+        # 将 session 传递给 _get_current_state_block
         current_state_block = self._get_current_state_block(session)
         current_goals_block = self.state_manager.goal_manager.get_formatted_goals()
 
@@ -87,7 +87,7 @@ class SystemPromptPartsBuilder:
         if not active_window:
             return "你当前正看着 AIC-OS 的桌面，没有任何激活的应用窗口。"
 
-        if session and hasattr(session, 'conversation_name') and session.conversation_name:
+        if session and session.conversation_name:
             # 如果我们处于一个具体的聊天会话中
             return f"你当前正专注于与 '{session.conversation_name}' 的对话窗口。"
 

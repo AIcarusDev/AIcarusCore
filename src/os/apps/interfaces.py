@@ -36,6 +36,12 @@ class ISession(ABC):
         """设置会话的工作记忆."""
         pass
 
+    @property
+    @abstractmethod
+    def conversation_name(self) -> str | None:
+        """返回会话的可读名称，例如群名或好友昵称。如果不可用，则返回 None."""
+        pass
+
 
 class IApp(ABC):
     """定义一个通用应用接口 (Interface for an Application).

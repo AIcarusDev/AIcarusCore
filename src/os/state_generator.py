@@ -181,7 +181,12 @@ class AICOSStateGenerator:
         for window in self.window_manager.get_all_windows_sorted():
             # 为每个窗口创建一个基于其稳定ID的路径
             window_path = [window.name]
-            await self._render_window_frame(windows_node, window_path, window, image_collector)
+            await self._render_window_frame(
+                windows_node,
+                window_path,
+                window,
+                image_collector
+            )
 
         # 在桌面渲染系统托盘和断开连接按钮
         system_tray_node = SubElement(desktop_node, "system_tray", attrib={"name": "system_tray"})
@@ -190,7 +195,11 @@ class AICOSStateGenerator:
         SubElement(
             system_tray_node,
             "button",
-            attrib={"id": disconnect_btn_id, "name": "disconnect", "title": "断开与设备的连接"},
+            attrib={
+                "id": disconnect_btn_id,
+                "name": "disconnect",
+                "title": "断开与设备的连接"
+            },
         )
         self._ui_mapping[disconnect_btn_id] = {
             "action_type": "click",
