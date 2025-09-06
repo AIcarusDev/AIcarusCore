@@ -318,11 +318,11 @@ class QQBuilder(BaseAppBuilder, IApp):
                                 "description": (
                                     "一个字典，必须且只能包含一个与上方`command`值对应的键值对。规则如下：\n"
                                     "- 当 command 为 'reply' 时, "
-                                    'params 必须为 message_id": "..."} '
-                                    "(仅在需要明确上下文时使用，避免滥用)。\n"
+                                    'params 必须为 {"message_id": "..."} '
+                                    "(ID从聊天记录中目标消息的`id`属性获取，仅在需要明确上下文时使用，避免滥用)。\n"
                                     "- 当 command 为 'at' 时, "
                                     'params 必须为 {"user_id": "..."} '
-                                    "(ID从user_logs获取，仅在需要特别提醒某人时使用)。\n"
+                                    "(ID从聊天记录中目标用户发言的`div`元素的`sender_id`属性获取，仅在需要特别提醒某人时使用)。\n"
                                     "- 当 command 为 'text' 时, "
                                     'params 必须为 {"content": "..."} '
                                     "(建议内容简短自然，可省略主语和大部分标点)。\n"

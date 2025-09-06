@@ -173,24 +173,48 @@ class EntityGraphService:
         match
             $me isa account, has account-uid "{self_account_uid}";
             (friend_a: $me, friend_b: $friend) isa friendship;
-            $friend has account-uid $uid, has nickname $nick;
-            optional {{ $friend has friend-remark $remark; }};
-        select $uid, $nick, $remark;
+        fetch {{
+            "uid": $friend.account-uid,
+            "name": $friend.nickname,
+            "remark": $friend.friend-remark
+        }};
         """
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
         def db_read() -> list[dict]:
             with driver.transaction(db_name, TransactionType.READ) as tx:
                 results = []
-                for ans in tx.query(query).resolve().as_concept_rows():
+                # fetch 查询的结果需要用 as_concept_documents() 解析
+                for doc in tx.query(query).resolve().as_concept_documents():
+                    # doc.get() 返回 Concept 对象，需要进一步提取值
+                    remark_concept = doc.get("remark")
+                    remark_val = (
+                        remark_concept.as_attribute().get_value()
+                        if remark_concept
+                        else None
+                    )
+
+                    nick_concept = doc.get("name")
+                    nick_val = nick_concept.as_attribute().get_value()
+
+                    uid_concept = doc.get("uid")
+                    uid_val = uid_concept.as_attribute().get_value()
+
+                    if not uid_val:
+                        continue  # 跳过无效数据
+
+                    # 优先使用备注作为显示名称
+                    display_name = remark_val if remark_val else nick_val
+
+                    # 构建与 get_all_groups_for_account 兼容的返回格式
+                    # uid 现在是 account-uid，渲染器逻辑需要它来构建 conversation-uid
+                    # 现在的 uid 已经是 qq_private_xxxxxx 的格式了
+                    conv_uid = build_conversation_entity_uid("qq", "private", uid_val.split("_")[1])
+
                     results.append(
                         {
-                            "uid": ans.get("uid").as_attribute().get_value(),
-                            "name": (
-                                ans.get("remark").as_attribute().get_value()
-                                if ans.get("remark")
-                                else ans.get("nick").as_attribute().get_value()
-                            ),
+                            "uid": conv_uid,
+                            "name": display_name,
                             "type": "private",
                         }
                     )

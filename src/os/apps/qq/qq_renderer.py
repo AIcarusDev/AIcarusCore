@@ -450,7 +450,12 @@ class QQWindowRenderer:
             msg_node = SubElement(
                 list_node,
                 "div",
-                attrib={"class": "message", "id": msg.get("event_id"), "align": align},
+                attrib={
+                    "class": "message",
+                    "id": msg.get("event_id"),
+                    "align": align,
+                    "sender_id": str(msg_sender_id),
+                },
             )
 
             sender_name = msg.get("user_info", {}).get("user_cardname") or msg.get(
