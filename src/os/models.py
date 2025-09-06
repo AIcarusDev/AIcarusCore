@@ -21,6 +21,7 @@ class ApplicationLifecycle(Enum):
     RUNNING = "running"
     STOPPED = "stopped"
 
+
 # 弹窗类型定义
 PopupType = Literal["notification", "interactive", "modal"]
 
@@ -63,6 +64,7 @@ class Window:
     popup_type: PopupType | None = None
     # 瞬态弹窗的生命周期（认知周期数），None 表示持久存在
     transient_cycles_remaining: int | None = None
+
 
 @dataclass
 class Application:

@@ -46,15 +46,13 @@ class SystemPromptPartsBuilder:
             limit=memory_depth
         )
         memory_fragments = self.working_memory_builder.build_fragments(
-            recent_thoughts,
-            last_external_info_snapshot
+            recent_thoughts, last_external_info_snapshot
         )
         working_memories_block = self.working_memory_builder.render_to_xml_string(memory_fragments)
 
         # 将 session 传递给 _get_current_state_block
         current_state_block = self._get_current_state_block(session)
         current_goals_block = self.state_manager.goal_manager.get_formatted_goals()
-
 
         return {
             "aicarus_rule_block": AICARUS_RULE,
@@ -67,8 +65,8 @@ class SystemPromptPartsBuilder:
             "current_goals_block": current_goals_block,
             "current_state_block": current_state_block,
             "working_memories_block": working_memories_block,
-            "sticker_collection_block": "", # 占位，未来实现
-            "available_platforms_block": "", # 占位，未来实现
+            "sticker_collection_block": "",  # 占位，未来实现
+            "available_platforms_block": "",  # 占位，未来实现
             "behavior_guidelines_block": CORE_BEHAVIOR_GUIDELINES,
         }
 

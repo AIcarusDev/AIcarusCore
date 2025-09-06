@@ -26,10 +26,7 @@ class ThoughtPersistor:
         logger.info("ThoughtPersistor 已初始化。")
 
     async def store_thought(
-        self,
-        thought_json: dict[str, Any],
-        source_type: str,
-        source_id: str | None = None
+        self, thought_json: dict[str, Any], source_type: str, source_id: str | None = None
     ) -> tuple[str, ThoughtChainDocument] | tuple[None, None]:
         """将思考结果打包成思想点并存储到数据库中.
 

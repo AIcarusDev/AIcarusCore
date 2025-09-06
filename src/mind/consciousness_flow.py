@@ -18,6 +18,7 @@ logger = get_logger(__name__)
 
 class ThoughtGenerationError(Exception):
     """在思想生成或持久化过程中的严重失败."""
+
     pass
 
 
@@ -27,6 +28,7 @@ class CoreLogic:
     它接收格式化的Prompt组件，并返回一个经过持久化的“想法”。
     它完全不了解OS、循环或任何外部执行细节。
     """
+
     def __init__(
         self,
         thought_generator: ThoughtGenerator,
@@ -36,7 +38,7 @@ class CoreLogic:
         self.thought_generator = thought_generator
         self.thought_persistor = thought_persistor
         self.prompt_builder = prompt_builder
-        self.container: ServiceContainer | None = None # 仍然需要容器来获取session
+        self.container: ServiceContainer | None = None  # 仍然需要容器来获取session
         logger.info(f"{self.__class__.__name__} (纯净版) 已创建。")
 
     async def run_one_thought_cycle(

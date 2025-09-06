@@ -73,7 +73,7 @@ class AICOSStateGenerator:
             desktop_node = SubElement(
                 root,
                 "desktop",
-                attrib={"name": "desktop", "parent": "uti-002", "status": "modal_lock"}
+                attrib={"name": "desktop", "parent": "uti-002", "status": "modal_lock"},
             )
             windows_node = SubElement(desktop_node, "windows", attrib={"name": "windows"})
             modal_path = ["aicos", "desktop", "modal_" + self._encode_id_part(active_modal.id)]
@@ -90,9 +90,9 @@ class AICOSStateGenerator:
     def _render_disconnected_state(self) -> tuple[str, dict[str, dict]]:
         """渲染未连接状态的界面."""
         root = Element("AIC-OS", attrib={"connection": "disconnected", "lifecycle": "stopped"})
-        SubElement(root, "desc").text = (
-            "你尚未连接到你的设备。可以使用 'connect' 动作来接入 AIC-OS。"
-            )
+        SubElement(
+            root, "desc"
+        ).text = "你尚未连接到你的设备。可以使用 'connect' 动作来接入 AIC-OS。"
 
         return self._pretty_print_xml(root), self._ui_mapping
 
@@ -111,7 +111,8 @@ class AICOSStateGenerator:
             SubElement(applications_node, "application", id=app.id, name=app.name, title=app.title)
 
     def _render_background_processes(
-        self, parent_element: Element,
+        self,
+        parent_element: Element,
     ) -> None:
         """渲染后台进程列表，并为非核心进程添加关闭按钮."""
         bg_processes_node = SubElement(
@@ -151,13 +152,9 @@ class AICOSStateGenerator:
                 "target_uid": app.id,
             }
 
-    async def _render_desktop(
-        self, parent_element: Element, image_collector: list[dict]
-    ) -> None:
+    async def _render_desktop(self, parent_element: Element, image_collector: list[dict]) -> None:
         """渲染桌面，包括快捷方式、窗口和系统托盘."""
-        desktop_node = SubElement(
-            parent_element, "desktop", attrib={"parent": "uti-002"}
-        )
+        desktop_node = SubElement(parent_element, "desktop", attrib={"parent": "uti-002"})
         is_desktop_visible = not any(
             w.status == WindowStatus.MAXIMIZE for w in self.window_manager.get_all_windows_sorted()
         )
@@ -175,7 +172,7 @@ class AICOSStateGenerator:
                         "id": shortcut_id,
                         "target_id": app.id,
                         "name": app.name,
-                        "title": app.title
+                        "title": app.title,
                     },
                 )
                 self._ui_mapping[shortcut_id] = {
@@ -188,12 +185,7 @@ class AICOSStateGenerator:
         for window in self.window_manager.get_all_windows_sorted():
             # 为每个窗口创建一个基于其稳定ID的路径
             window_path = [window.name]
-            await self._render_window_frame(
-                windows_node,
-                window_path,
-                window,
-                image_collector
-            )
+            await self._render_window_frame(windows_node, window_path, window, image_collector)
 
         # 在桌面渲染系统托盘和断开连接按钮
         system_tray_node = SubElement(desktop_node, "system_tray", attrib={"name": "system_tray"})
@@ -202,11 +194,7 @@ class AICOSStateGenerator:
         SubElement(
             system_tray_node,
             "button",
-            attrib={
-                "id": disconnect_btn_id,
-                "name": "disconnect",
-                "title": "断开与设备的连接"
-            },
+            attrib={"id": disconnect_btn_id, "name": "disconnect", "title": "断开与设备的连接"},
         )
         self._ui_mapping[disconnect_btn_id] = {
             "action_type": "click",
@@ -219,7 +207,7 @@ class AICOSStateGenerator:
         parent_element: Element,
         current_path: list[str],
         window: Window,
-        image_collector: list[dict]
+        image_collector: list[dict],
     ) -> None:
         """此方法负责渲染窗口的通用外框和控件，内容部分委托给应用渲染器."""
         # 弹窗属性的渲染
@@ -231,7 +219,7 @@ class AICOSStateGenerator:
             "status": window.status.value,
         }
         if window.is_popup:
-            window_attrs["class"] = "popup" # 覆盖或设置为 popup
+            window_attrs["class"] = "popup"  # 覆盖或设置为 popup
             if window.popup_type:
                 window_attrs["popup-type"] = window.popup_type
 
@@ -279,7 +267,7 @@ class AICOSStateGenerator:
             }
 
         close_btn_id = self._generate_semantic_id([*controls_path, "close"])
-        close_btn_title = "确认" if window.popup_type == 'modal' else "关闭"
+        close_btn_title = "确认" if window.popup_type == "modal" else "关闭"
         SubElement(
             controls_node,
             "button",

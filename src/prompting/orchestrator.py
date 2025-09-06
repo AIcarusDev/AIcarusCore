@@ -63,7 +63,7 @@ class ThoughtPromptBuilder:
             thought_storage_service,
             state_manager,
         )
-        self.container: ServiceContainer | None = None # 用于接收容器引用
+        self.container: ServiceContainer | None = None  # 用于接收容器引用
 
     def _build_response_schema(self, ui_mapping: dict[str, Any]) -> dict[str, Any]:
         """Schema 构建的总指挥方法."""
@@ -92,7 +92,7 @@ class ThoughtPromptBuilder:
                 "type": "object",
                 "description": "内部的心理动作。",
                 "properties": internal_action_properties,
-                "maxProperties": 1, # 确保内部动作只选一个
+                "maxProperties": 1,  # 确保内部动作只选一个
             }
         if external_action_properties:
             action_properties["external"] = {
@@ -120,24 +120,30 @@ class ThoughtPromptBuilder:
         innate_actions.update(self.filesystem_service.get_actions_schema())
         if not self.aicos_state_generator.is_connected:
             innate_actions["connect"] = {
-                "type": "object", "description": "连接属于你的设备，可以进行工作或社交。",
+                "type": "object",
+                "description": "连接属于你的设备，可以进行工作或社交。",
                 "properties": {
                     "device_name": {"type": "string", "enum": ["AIC-OS"]},
                     "motivation": {"type": "string"},
-                }, "required": ["device_name", "motivation"],
+                },
+                "required": ["device_name", "motivation"],
             }
         if innate_actions:
             external_actions["innate"] = {
-                "type": "object", "description": "你自带的能力。",
-                "properties": innate_actions, "maxProperties": 1,
+                "type": "object",
+                "description": "你自带的能力。",
+                "properties": innate_actions,
+                "maxProperties": 1,
             }
 
         if self.aicos_state_generator.is_connected:
             aicos_interactions = self._build_aicos_interaction_schema(ui_mapping)
             if aicos_interactions:
                 external_actions["AIC-OS"] = {
-                    "type": "object", "description": "与 AIC-OS 系统的交互动作。",
-                    "properties": aicos_interactions, "maxProperties": 1,
+                    "type": "object",
+                    "description": "与 AIC-OS 系统的交互动作。",
+                    "properties": aicos_interactions,
+                    "maxProperties": 1,
                 }
         return external_actions
 
@@ -150,7 +156,8 @@ class ThoughtPromptBuilder:
         base_interactions = self.application_manager.build_base_interaction_schema(ui_mapping)
         if base_interactions:
             aicos_properties["base"] = {
-                "type": "object", "description": "通用的 AIC-OS 界面操作。",
+                "type": "object",
+                "description": "通用的 AIC-OS 界面操作。",
                 "properties": base_interactions,
             }
 
@@ -171,11 +178,10 @@ class ThoughtPromptBuilder:
         """构建所有 Prompt 组件，并返回 UI 映射表."""
         # 1. 生成当前轮次的 external_info
         image_collector = []
-        current_external_info_block, ui_mapping = (
-            await self.aicos_state_generator.build_current_state(
-                image_collector=image_collector
-            )
-        )
+        (
+            current_external_info_block,
+            ui_mapping,
+        ) = await self.aicos_state_generator.build_current_state(image_collector=image_collector)
 
         _, _, _, session = await self._extract_context_from_ui()  # <--- [修改] await a call
 
@@ -183,7 +189,7 @@ class ThoughtPromptBuilder:
         system_prompt_blocks = await self.system_prompt_parts_builder.build(
             session=session,
             is_context_switch_flag=self.is_context_switch_flag,
-            last_external_info_snapshot=last_external_info_snapshot
+            last_external_info_snapshot=last_external_info_snapshot,
         )
 
         # 3. 将当前轮次的 external_info 传递给 UserPromptPartsBuilder
@@ -197,14 +203,14 @@ class ThoughtPromptBuilder:
             system_prompt_blocks=system_prompt_blocks,
             user_prompt_blocks=user_prompt_blocks,
             response_schema=response_schema,
-            image_references=image_collector
+            image_references=image_collector,
         )
 
         return prompt_components_obj, session, ui_mapping, current_external_info_block
 
     async def _extract_context_from_ui(
         self,
-    ) -> tuple[str, str | None, str | None, Optional["ISession"]]: # 返回通用接口
+    ) -> tuple[str, str | None, str | None, Optional["ISession"]]:  # 返回通用接口
         all_windows = self.window_manager.get_all_windows_sorted()
         active_window = next(
             (w for w in reversed(all_windows) if w.status != WindowStatus.MINIMIZE), None

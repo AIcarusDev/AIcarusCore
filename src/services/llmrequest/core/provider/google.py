@@ -64,7 +64,7 @@ class GoogleApiHandler(ApiProviderHandler):
             The API endpoint path, query parameters, headers, and payload dictionary.
         """
         headers = {"Content-Type": "application/json"}
-        params = {"key": "{api_key}"} # Gemini API key in params
+        params = {"key": "{api_key}"}  # Gemini API key in params
         payload: dict[str, Any] = {}
 
         if request_type == "embedding":

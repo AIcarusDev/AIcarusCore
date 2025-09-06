@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
+
 # --- 辅助函数 1: 检查现有档案 ---
 async def _check_for_existing_profile(
     entity_service: "EntityGraphService", platform_id: str
@@ -33,6 +34,7 @@ async def _check_for_existing_profile(
         }
     return None
 
+
 # --- 辅助函数 2: 从适配器获取新档案 ---
 async def _fetch_new_profile_from_adapter(
     action_handler: "ActionHandler", platform_id: str
@@ -48,7 +50,7 @@ async def _fetch_new_profile_from_adapter(
     if not action_result.is_success or not isinstance(action_result.payload, dict):
         logger.critical(
             f"检查失败！无法从平台 '{platform_id}' 获取档案。返回: {action_result.payload}"
-            )
+        )
         return None
 
     profile_data = action_result.payload
@@ -58,6 +60,7 @@ async def _fetch_new_profile_from_adapter(
 
     logger.success(f"获取到自身ID: {profile_data['user_id']}, 昵称: {profile_data['nickname']}")
     return profile_data
+
 
 # --- 辅助函数 3: 持久化新档案 ---
 async def _persist_new_profile(
@@ -73,12 +76,13 @@ async def _persist_new_profile(
         logger.critical("检查失败！在数据库中创建自身 Profile 或 Entity 节点时失败。")
     return entity_uid
 
+
 # --- 辅助函数 4: 更新群聊关系 ---
 async def _update_group_memberships(
     entity_service: "EntityGraphService",
     self_account_uid: str,
     platform_id: str,
-    profile_data: dict
+    profile_data: dict,
 ) -> bool:
     if not (group_list_data := profile_data.get("groups")) or not isinstance(group_list_data, dict):
         logger.info("自身档案中未包含任何群聊信息，跳过群聊更新。")
@@ -87,11 +91,7 @@ async def _update_group_memberships(
     logger.info(f"获取到 {len(group_list_data)} 个群聊档案，开始并发更新...")
     tasks = [
         _update_single_group_info(
-            entity_service,
-            self_account_uid,
-            str(group_id),
-            platform_id,
-            group_profile
+            entity_service, self_account_uid, str(group_id), platform_id, group_profile
         )
         for group_id, group_profile in group_list_data.items()
         if group_id and isinstance(group_profile, dict)
@@ -107,12 +107,13 @@ async def _update_group_memberships(
     logger.success("所有群聊存在关系及会话档案已成功更新。")
     return True
 
+
 async def _update_single_group_info(
     entity_service: "EntityGraphService",
     entity_uid: str,
     conversation_id: str,
     platform: str,
-    group_profile: dict
+    group_profile: dict,
 ) -> None:
     try:
         conversation_entity = await entity_service.get_or_create_conversation_entity(
@@ -140,12 +141,13 @@ async def _update_single_group_info(
         logger.error(f"更新群聊 '{conversation_id}' 的实体信息时在底层失败: {e}", exc_info=True)
         raise e
 
+
 # --- 辅助函数 5: 持久化好友列表 ---
 async def _persist_friends(
     entity_service: "EntityGraphService",
     self_account_uid: str,
     platform_id: str,
-    profile_data: dict
+    profile_data: dict,
 ) -> bool:
     if not (friend_list := profile_data.get("friends")) or not isinstance(friend_list, list):
         logger.info("自身档案中未包含好友列表信息，跳过好友关系更新。")
@@ -174,7 +176,8 @@ async def _persist_friends(
     friend_entity_results = await asyncio.gather(*tasks, return_exceptions=True)
 
     friend_account_uids = [
-        res[1] for res in friend_entity_results
+        res[1]
+        for res in friend_entity_results
         if isinstance(res, tuple) and len(res) > 1 and res[1]
     ]
 
@@ -187,6 +190,7 @@ async def _persist_friends(
         return success
 
     return True
+
 
 # --- 主函数 (编排者) ---
 async def inspect_and_initialize_self_profile(
@@ -204,9 +208,11 @@ async def inspect_and_initialize_self_profile(
     if not (new_profile_data := await _fetch_new_profile_from_adapter(action_handler, platform_id)):
         return False, None
 
-    if not (self_account_uid := await _persist_new_profile(
-        entity_service, platform_id, new_profile_data
-        )):
+    if not (
+        self_account_uid := await _persist_new_profile(
+            entity_service, platform_id, new_profile_data
+        )
+    ):
         return False, None
 
     group_task = _update_group_memberships(

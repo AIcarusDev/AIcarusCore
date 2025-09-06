@@ -149,7 +149,7 @@ class ActionHandler:
                 result_text = await asyncio.to_thread(
                     self.filesystem_service.get_aggregated_content, params
                 )
-            elif action_name == "delete_workspace_file": # 修正方法名
+            elif action_name == "delete_workspace_file":  # 修正方法名
                 result_text = await asyncio.to_thread(self.filesystem_service.delete_file, params)
             else:
                 logger.error(f"收到了一个未知的核心动作: '{action_name}'")
@@ -202,7 +202,7 @@ class ActionHandler:
             return
 
         action_event_dict = action_event.to_dict()
-        action_event_dict['platform'] = platform_id
+        action_event_dict["platform"] = platform_id
 
         action_result = await self._execute_platform_action(
             action_to_send=action_event_dict,
@@ -214,7 +214,7 @@ class ActionHandler:
             doc_key_for_updates,
             f"{platform_id}.{action_name}",
             action_event_dict,
-            metadata
+            metadata,
         )
 
     async def handle_aicos_gui_action(
@@ -238,7 +238,7 @@ class ActionHandler:
         self, params: dict, window_manager: WindowManager, container: ServiceContainer
     ) -> None:
         """从 GUI 动作参数中解析、构建并发送复杂消息."""
-        target_window_id = params.get("target_window_id") # 注意：JSON Schema中是 target_window_id
+        target_window_id = params.get("target_window_id")  # 注意：JSON Schema中是 target_window_id
         if not target_window_id:
             # 兼容旧的 target_conversation_uid
             target_window_id = params.get("target_conversation_uid")
@@ -252,8 +252,11 @@ class ActionHandler:
 
         # 窗口和会话的有效性检查
         window = window_manager.get_window(target_window_id)
-        if not window or window.window_class != "conversation" or \
-                window.status == WindowStatus.MINIMIZE:
+        if (
+            not window
+            or window.window_class != "conversation"
+            or window.status == WindowStatus.MINIMIZE
+        ):
             logger.error(f"AI 试图向无效、非聊天或最小化的窗口 '{target_window_id}' 发送消息。")
             return
 
@@ -300,28 +303,24 @@ class ActionHandler:
         if not self.application_manager:
             logger.error("ActionHandler 未能获取到 ApplicationManager 实例。")
             return ActionResult(
-                action_id="",
-                is_success=False,
-                error_message="ApplicationManager 未初始化。"
+                action_id="", is_success=False, error_message="ApplicationManager 未初始化。"
             )
         builder = self.application_manager.get_builder_by_name(platform_id)
         if not builder:
             return ActionResult(
                 action_id="",
                 is_success=False,
-                error_message=f"找不到平台 '{platform_id}' 的构建器。"
+                error_message=f"找不到平台 '{platform_id}' 的构建器。",
             )
 
         action_event = builder.build_action_event(action_name, params, bot_id=bot_id)
         if not action_event:
             return ActionResult(
-                action_id="",
-                is_success=False,
-                error_message=f"构建动作 '{action_name}' 失败。"
+                action_id="", is_success=False, error_message=f"构建动作 '{action_name}' 失败。"
             )
 
         action_event_dict = action_event.to_dict()
-        action_event_dict['platform'] = platform_id
+        action_event_dict["platform"] = platform_id
 
         return await self._execute_platform_action(
             action_to_send=action_event_dict,
@@ -366,7 +365,7 @@ class ActionHandler:
         thought_doc_key: str | None,
         description: str,
         sent_dict: dict,
-        metadata: ActionMetadata
+        metadata: ActionMetadata,
     ) -> None:
         """统一处理 ActionResult 的后续所有流程."""
         # 1. 更新动作日志
@@ -377,7 +376,7 @@ class ActionHandler:
                 "response_timestamp": int(time.time() * 1000),
                 "error_info": result.error_message,
                 "result_details": result.payload,
-            }
+            },
         )
 
         # 2. 将结果写入思考链

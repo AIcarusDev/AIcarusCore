@@ -158,7 +158,7 @@ class RequestExecutor:
                         f"尝试密钥 ...{current_key[-4:]} 失败: {type(e).__name__} - {e!s}"
                     )
                     # 检查异常对象是否有 response_text 属性
-                    if hasattr(e, 'response_text') and e.response_text:
+                    if hasattr(e, "response_text") and e.response_text:
                         error_details += f"\n--> API 响应体: {e.response_text}"
 
                     # 尝试记录发送的 payload

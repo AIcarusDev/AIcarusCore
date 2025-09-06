@@ -90,9 +90,9 @@ class BaseAppBuilder(ABC):
         """告知 Core，此平台连接后是否需要执行安检。默认为 False."""
         return False
 
-    async def run_on_connect_inspection(self, container: ServiceContainer) -> None:
-        """
-        由 CoreWebsocketServer 调用的、平台专属的安检流程。
+    async def run_on_connect_inspection(self, container: ServiceContainer) -> None:  # noqa: B027
+        """由 CoreWebsocketServer 调用的、平台专属的安检流程.
+
         默认实现为空，需要安检的平台应重写此方法。
         """
         pass

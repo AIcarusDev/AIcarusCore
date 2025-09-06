@@ -7,6 +7,7 @@ from src.os.models import Application
 
 class QQAppDefinition(IAppDefinition):
     """QQ 应用的静态清单实现."""
+
     @property
     def app_info(self) -> Application:
         """返回 QQ 应用的信息.
@@ -21,6 +22,7 @@ class QQAppDefinition(IAppDefinition):
     @property
     def builder_class(self) -> type[QQBuilder]:  # noqa: D102
         return QQBuilder
+
 
 # 关键：导出一个名为 `app_definition` 的实例，供应用管理器发现
 app_definition = QQAppDefinition()

@@ -154,4 +154,3 @@ class QQChatSession(ISession):
         # 在这里可以添加其他需要清理的逻辑，比如保存最终状态等
         # 目前主要逻辑在 deactivate_session 中，这里作为一个预留接口
         logger.info(f"[{self.conversation_id}] 关闭清理完成。")
-

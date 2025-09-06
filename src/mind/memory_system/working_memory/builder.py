@@ -10,6 +10,7 @@ from .models import MemoryFragment
 
 logger = get_logger(__name__)
 
+
 class WorkingMemoryBuilder:
     """负责构建结构化的、带衰减机制的工作记忆."""
 
@@ -38,10 +39,8 @@ class WorkingMemoryBuilder:
         return "decaying"
 
     def _extract_memory_content(
-            self,
-            thought: ThoughtChainDocument,
-            status: str
-        ) -> dict[str, Any] | None:
+        self, thought: ThoughtChainDocument, status: str
+    ) -> dict[str, Any] | None:
         """JSON 提取器，根据记忆状态对完整的思考文档进行衰减."""
         full_response = thought.action_payload
         if not full_response:
@@ -53,9 +52,9 @@ class WorkingMemoryBuilder:
         if status == "retained":
             retained_content = {}
             if "internal_state" in full_response and "intent" in full_response["internal_state"]:
-                retained_content[
-                    "internal_state"
-                    ] = {"intent": full_response["internal_state"]["intent"]}
+                retained_content["internal_state"] = {
+                    "intent": full_response["internal_state"]["intent"]
+                }
             if "action" in full_response:
                 retained_content["action"] = full_response["action"]
             return retained_content if retained_content else None
@@ -65,17 +64,15 @@ class WorkingMemoryBuilder:
             if "action" in full_response:
                 decaying_content["action"] = full_response["action"]
             elif "internal_state" in full_response and "intent" in full_response["internal_state"]:
-                decaying_content[
-                    "internal_state"
-                    ] = {"intent": full_response["internal_state"]["intent"]}
+                decaying_content["internal_state"] = {
+                    "intent": full_response["internal_state"]["intent"]
+                }
             return decaying_content if decaying_content else None
 
         return None
 
     def build_fragments(
-        self,
-        recent_thoughts: list[dict[str, Any]],
-        last_external_info_snapshot: str | None
+        self, recent_thoughts: list[dict[str, Any]], last_external_info_snapshot: str | None
     ) -> list[MemoryFragment]:
         """从数据库文档列表构建记忆片段列表."""
         fragments = []
@@ -114,20 +111,14 @@ class WorkingMemoryBuilder:
             if thought.action_result:
                 content["_action_result"] = thought.action_result
 
-            fragments.append(MemoryFragment(
-                cycle_ago=cycle_ago,
-                status=status,
-                content=content
-            ))
+            fragments.append(MemoryFragment(cycle_ago=cycle_ago, status=status, content=content))
         return fragments
 
     def render_to_xml_string(self, fragments: list[MemoryFragment]) -> str:
         """将记忆片段列表渲染为最终的 XML 字符串."""
         lines = []
         if not fragments:
-            lines.append(
-                '  <memory cycle_ago="more" status="forgotten"/>\n'
-            )
+            lines.append('  <memory cycle_ago="more" status="forgotten"/>\n')
 
         for frag in fragments:
             lines.append(f'  <memory cycle_ago="{frag.cycle_ago}" status="{frag.status}">')
@@ -153,7 +144,7 @@ class WorkingMemoryBuilder:
                 compressed_action_result = " ".join(action_result.split())
                 lines.append(
                     f"    <additional_content><![CDATA[{compressed_action_result}]]></additional_content>"  # noqa: E501
-                    )
+                )
 
             lines.append("  </memory>")
 

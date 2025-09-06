@@ -387,7 +387,7 @@ class Client:
         if (prompt is None or not isinstance(prompt, str)) and prompt_parts is None:
             raise ValueError(
                 "非嵌入类型的 LLM 请求必须提供一个有效的 'prompt' 字符串或 'prompt_parts' 列表。"
-                )
+            )
 
         final_prompt_parts = prompt_parts
         if prompt:
@@ -396,7 +396,6 @@ class Client:
         if is_stream:
             if not task_id:
                 raise ValueError("流式请求 (is_stream=True) 必须提供一个 'task_id'。")
-
 
             logger.info(f"路由到内部 _StreamingWorkflowManager 以处理流式任务: {task_id}")
             return await self._streaming_manager.process_streaming_task(
@@ -415,7 +414,6 @@ class Client:
                 **additional_generation_params,
             )
         else:
-
             logger.info("路由到内部 UnderlyingLLMClient.make_request 以进行非流式请求。")
             result = await self.llm_client.make_request(
                 prompt_parts=final_prompt_parts,

@@ -19,6 +19,7 @@ class IAppDefinition(ABC):
 
     每个应用目录都必须提供一个此接口的实现。
     """
+
     @property
     @abstractmethod
     def app_info(self) -> Application:
