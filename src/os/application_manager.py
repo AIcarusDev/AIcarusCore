@@ -17,24 +17,24 @@ class ApplicationManager:
 
     def __init__(self) -> None:
         self._applications: dict[str, Application] = {}  # Key: app.id
-        self._builders: dict[str, BaseAppBuilder] = {}     # Key: app.name
+        self._builders: dict[str, BaseAppBuilder] = {}  # Key: app.name
         self._self_bot_ids_map: dict[str, str] = {}
 
-    def discover_and_load_apps(self, package:type) -> None:
+    def discover_and_load_apps(self, package: type) -> None:
         """在系统启动时，自动扫描 apps 包，发现并加载所有应用."""
         logger.info(f"应用管理器：开始从包 '{package.__name__}' 自动发现应用...")
 
-        if not hasattr(package, '__path__'):
+        if not hasattr(package, "__path__"):
             logger.error(f"提供的包 '{package.__name__}' 不是一个有效的包。")
             return
 
-        for module_info in pkgutil.iter_modules(package.__path__, package.__name__ + '.'):
+        for module_info in pkgutil.iter_modules(package.__path__, package.__name__ + "."):
             if not module_info.ispkg:
                 continue
 
             try:
                 module = importlib.import_module(module_info.name)
-                if hasattr(module, 'app_definition'):
+                if hasattr(module, "app_definition"):
                     definition = module.app_definition
                     app_info = definition.app_info
                     builder_class = definition.builder_class
@@ -112,10 +112,8 @@ class ApplicationManager:
         return list(self._applications.values())
 
     def build_base_interaction_schema(
-            self,
-            ui_mapping: dict,
-            allow_only_click: bool = False
-        ) -> dict:
+        self, ui_mapping: dict, allow_only_click: bool = False
+    ) -> dict:
         """根据当前的 UI 映射，构建基础交互动作的 JSON Schema."""
         properties = {}
         # Click

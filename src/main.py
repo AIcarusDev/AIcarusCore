@@ -40,8 +40,9 @@ async def start_core_system() -> None:
         if container.deliberation_service and hasattr(
             container.deliberation_service, "set_cycle_trigger"
         ):
-            container.deliberation_service.set_cycle_trigger(cognitive_cycle.trigger_immediate_thought_cycle)
-
+            container.deliberation_service.set_cycle_trigger(
+                cognitive_cycle.trigger_immediate_thought_cycle
+            )
 
         # 4. 启动核心服务
         # 启动WS服务器，它会开始接受连接并进行安检
@@ -78,7 +79,7 @@ async def start_core_system() -> None:
         for task in done:
             if exc := task.exception():
                 logger.critical(f"核心任务 '{task.get_name()}' 异常终止: {exc!r}", exc_info=exc)
-                raise exc # 重新抛出以触发 finally
+                raise exc  # 重新抛出以触发 finally
             else:
                 logger.info(f"核心任务 '{task.get_name()}' 正常完成。")
 

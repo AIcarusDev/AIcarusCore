@@ -161,7 +161,7 @@ class CoreWebsocketServer:
             except Exception as e:
                 logger.error(
                     f"在为适配器 '{builder.app_name}' 举行后台安检仪式时发生严重错误: {e}",
-                    exc_info=True
+                    exc_info=True,
                 )
 
         logger.critical(f"后台安检仪式在经过 {max_retries + 1} 次尝试后彻底失败！")
@@ -361,7 +361,7 @@ class CoreWebsocketServer:
                             logger.debug(
                                 f"适配器 '{display_name}({adapter_id})' 的心跳已收到，计时器已重置~"
                             )
-                        continue # 处理完毕
+                        continue  # 处理完毕
 
                 except (json.JSONDecodeError, KeyError, TypeError, AttributeError):
                     # 解析失败或不是有效事件对象，说明是普通消息，交由下面处理
@@ -460,7 +460,6 @@ class CoreWebsocketServer:
                 await self.server.wait_closed()
             logger.info("AIcarus 核心 WebSocket 服务器已关闭。")
             self.server = None
-
 
     async def stop(self) -> None:
         """停止WebSocket服务器和所有活动连接.

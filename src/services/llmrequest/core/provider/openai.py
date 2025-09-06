@@ -99,12 +99,14 @@ class OpenAIApiHandler(ApiProviderHandler):
                 elif "inline_data" in part:
                     # 将我们的内部格式转换为 OpenAI Vision API 格式
                     image_data = part["inline_data"]
-                    user_content_parts.append({
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:{image_data['mime_type']};base64,{image_data['data']}"
+                    user_content_parts.append(
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{image_data['mime_type']};base64,{image_data['data']}"
+                            },
                         }
-                    })
+                    )
             messages.append({"role": "user", "content": user_content_parts})
 
             payload = {"model": model_name, "messages": messages}

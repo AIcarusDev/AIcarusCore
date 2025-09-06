@@ -51,9 +51,7 @@ class EntityGraphService:
 
         current_sender_id = user_info.get("user_id") or user_info.get("id") or ""
         is_self_sender = bool(
-            platform
-            and current_sender_id
-            and self_bot_ids.get(platform) == str(current_sender_id)
+            platform and current_sender_id and self_bot_ids.get(platform) == str(current_sender_id)
         )
 
         friend_remark = (
@@ -132,10 +130,8 @@ class EntityGraphService:
         tx.query(insert_query).resolve()
 
     async def establish_friendships(
-            self,
-            self_account_uid: str,
-            friend_account_uids: list[str]
-        ) -> bool:
+        self, self_account_uid: str, friend_account_uids: list[str]
+    ) -> bool:
         """批量建立双向好友关系."""
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
@@ -151,6 +147,7 @@ class EntityGraphService:
                     """
                     tx.query(query).resolve()
                 tx.commit()
+
         try:
             await asyncio.to_thread(db_write)
             return True
@@ -176,20 +173,24 @@ class EntityGraphService:
         select $uid, $nick, $remark;
         """
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
+
         def db_read() -> list[dict]:
             with driver.transaction(db_name, TransactionType.READ) as tx:
                 results = []
                 for ans in tx.query(query).resolve().as_concept_rows():
-                    results.append({
-                        "uid": ans.get("uid").as_attribute().get_value(),
-                        "name": (
-                            ans.get("remark").as_attribute().get_value()
-                            if ans.get("remark")
-                            else ans.get("nick").as_attribute().get_value()
-                        ),
-                        "type": "private",
-                    })
+                    results.append(
+                        {
+                            "uid": ans.get("uid").as_attribute().get_value(),
+                            "name": (
+                                ans.get("remark").as_attribute().get_value()
+                                if ans.get("remark")
+                                else ans.get("nick").as_attribute().get_value()
+                            ),
+                            "type": "private",
+                        }
+                    )
                 return results
+
         return await asyncio.to_thread(db_read)
 
     async def get_all_groups_for_account(self, self_account_uid: str) -> list[dict]:
@@ -202,13 +203,18 @@ class EntityGraphService:
         select $uid, $name;
         """
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
+
         def db_read() -> list[dict]:
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                return [{
-                    "uid": ans.get("uid").as_attribute().get_value(),
-                    "name": ans.get("name").as_attribute().get_value(),
-                    "type": "group"
-                } for ans in tx.query(query).resolve().as_concept_rows()]
+                return [
+                    {
+                        "uid": ans.get("uid").as_attribute().get_value(),
+                        "name": ans.get("name").as_attribute().get_value(),
+                        "type": "group",
+                    }
+                    for ans in tx.query(query).resolve().as_concept_rows()
+                ]
+
         return await asyncio.to_thread(db_read)
 
     def _update_conversation_name_if_changed_sync(

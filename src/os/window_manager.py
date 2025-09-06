@@ -81,9 +81,9 @@ class WindowManager:
         # 按 z_order 降序查找，确保找到最顶层的那个
         for window in sorted(self._windows.values(), key=lambda w: w.z_order, reverse=True):
             if (
-                window.is_popup and
-                window.popup_type == 'modal' and
-                window.status != WindowStatus.MINIMIZE
+                window.is_popup
+                and window.popup_type == "modal"
+                and window.status != WindowStatus.MINIMIZE
             ):
                 return window
         return None
@@ -124,8 +124,7 @@ class WindowManager:
         # 规则2: 普通窗口数量限制
         # 弹窗不计入普通窗口数量限制
         normal_windows = [
-            w for w in self._windows.values()
-            if w.status == WindowStatus.NORMAL and not w.is_popup
+            w for w in self._windows.values() if w.status == WindowStatus.NORMAL and not w.is_popup
         ]
 
         if len(normal_windows) > MAX_NORMAL_WINDOWS:

@@ -341,13 +341,13 @@ class StickerStorageService:
         """
         sticker_uid = f"{platform_id}_sticker_{sticker_id}"
         query = f"""
-        match
-            $s isa sticker, has sticker-uid "{sticker_uid}";
-        fetch
-            filename: $s.filename,
-            impression: $s.impression,
-            source_image_hash: $s.image-hash,
-            perceptual_hash: $s.perceptual-hash;
+        match $s isa sticker, has sticker-uid "{sticker_uid}";
+        fetch {{
+            "filename": $s.filename,
+            "impression": $s.impression,
+            "source_image_hash": $s.image-hash,
+            "perceptual_hash": $s.perceptual-hash
+        }};
         """
         driver = self.conn_manager.get_driver()
         db_name = self.conn_manager.database_name

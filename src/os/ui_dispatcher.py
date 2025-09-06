@@ -54,13 +54,9 @@ async def handle_os_interaction(
 
             # 将 container 传递给 ActionHandler，让它有能力调用其他服务
             await container.action_handler.handle_aicos_gui_action(
-                platform_id,
-                action_name,
-                params,
-                window_manager,
-                container
+                platform_id, action_name, params, window_manager, container
             )
-            break # 一个决策只执行一个平台的动作
+            break  # 一个决策只执行一个平台的动作
 
 
 async def _handle_base_ui_interaction(
@@ -195,7 +191,7 @@ async def _handle_base_ui_interaction(
                 window_class="system_error_modal",
                 content_state={"error_message": error_message or "发生未知启动错误。"},
                 is_popup=True,
-                popup_type='modal',
+                popup_type="modal",
             )
             window_manager.open_window(error_popup)
             return

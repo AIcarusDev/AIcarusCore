@@ -78,7 +78,6 @@ class EventReceiver:
                 self._background_tasks.add(task)
                 task.add_done_callback(self._background_tasks.discard)
 
-
                 # 2. 分发给 OS 实时反应流水线
                 builder = self.container.application_manager.get_builder_by_name(adapter_id)
                 if builder and hasattr(builder, "handle_os_level_event"):
@@ -90,9 +89,9 @@ class EventReceiver:
         except json.JSONDecodeError:
             logger.error(
                 f"从适配器 '{display_name}({adapter_id})' 解码 JSON 失败: {message_str[:200]}"
-                )
+            )
         except Exception as e:
             logger.error(
-                f"处理来自适配器 '{display_name}({adapter_id})' 的消息时发生错误: "
-                f"{e}", exc_info=True
+                f"处理来自适配器 '{display_name}({adapter_id})' 的消息时发生错误: {e}",
+                exc_info=True,
             )

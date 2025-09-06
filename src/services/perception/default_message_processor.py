@@ -61,7 +61,7 @@ class DefaultMessageProcessor:
 
         logger.debug(
             f"[Mind Pipeline] 开始处理事件: {proto_event.event_type}, ID: {proto_event.event_id}"
-            )
+        )
 
         try:
             saved_event_doc = await self._handle_event_persistence(
@@ -92,7 +92,7 @@ class DefaultMessageProcessor:
                     data["hash"] = full_hash
                     logger.debug(
                         f"为事件 {event_dict.get('event_id')} 中的图片注入哈希: {full_hash[:8]}"
-                        )
+                    )
                 except Exception as e:
                     logger.error(f"为事件 {event_dict.get('event_id')} 的图片计算哈希时出错: {e}")
 
@@ -184,7 +184,7 @@ class DefaultMessageProcessor:
             await self.entity_service.update_presence_in_conversation(
                 account_entity_uid=acc_uid,
                 conversation_entity_uid=conv_entity_uid,
-                user_info=user_info
+                user_info=user_info,
             )
         return sender_profile_id, sender_account_uid
 

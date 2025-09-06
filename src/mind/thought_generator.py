@@ -88,7 +88,6 @@ class ThoughtGenerator:
 
         logger.debug("=" * 41 + " END OF DEBUG " + "=" * 41)
 
-
         # --- 2. 构建图文混合的 parts 列表 ---
         user_prompt_parts = []
         if not image_references:
@@ -99,12 +98,12 @@ class ThoughtGenerator:
             # 1. 构建一个正则表达式，用于查找所有占位符
             # e.g., r"(\[图片_1\]|\[动画表情_2\]|...)"
             placeholder_pattern_str = "|".join(
-                re.escape(img['placeholder']) for img in image_references
+                re.escape(img["placeholder"]) for img in image_references
             )
             placeholder_pattern = re.compile(f"({placeholder_pattern_str})")
 
             # 2. 创建一个从占位符文本到图像数据的映射，方便快速查找
-            image_map = {img['placeholder']: img for img in image_references}
+            image_map = {img["placeholder"]: img for img in image_references}
 
             # 3. 分割文本
             text_fragments = placeholder_pattern.split(user_prompt)
@@ -117,12 +116,14 @@ class ThoughtGenerator:
                 if fragment in image_map:
                     # 如果这个片段是我们的占位符，就插入图片数据
                     image_data = image_map[fragment]
-                    user_prompt_parts.append({
-                        "inline_data": {
-                            "mime_type": image_data["mime_type"],
-                            "data": image_data["data"]
+                    user_prompt_parts.append(
+                        {
+                            "inline_data": {
+                                "mime_type": image_data["mime_type"],
+                                "data": image_data["data"],
+                            }
                         }
-                    })
+                    )
                 else:
                     # 否则，它就是普通的文本片段
                     user_prompt_parts.append({"text": fragment})

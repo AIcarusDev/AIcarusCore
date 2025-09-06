@@ -64,13 +64,12 @@ class CognitiveCycle:
         if not self.stop_event.is_set():
             logger.info(f"--- {config.persona.bot_name} 的认知周期正在停止 ---")
             self.stop_event.set()
-            self.immediate_thought_trigger.set() # 确保循环可以立即退出等待
+            self.immediate_thought_trigger.set()  # 确保循环可以立即退出等待
             if self._main_loop_task:
                 with contextlib.suppress(asyncio.CancelledError):
                     await self._main_loop_task
                 self._main_loop_task = None
             logger.info("认知周期任务已处理完毕。")
-
 
     async def _run_loop(self, interval: float) -> None:
         """核心循环的实现."""
@@ -87,7 +86,6 @@ class CognitiveCycle:
                 await asyncio.sleep(10)
         logger.info(f"--- {config.persona.bot_name} 的认知周期已停止 ---")
 
-
     async def _wait_for_next_cycle(self, interval: float) -> None:
         """等待下一个思考周期，可以被立即中断."""
         if self.stop_event.is_set():
@@ -96,10 +94,9 @@ class CognitiveCycle:
             await asyncio.wait_for(self.immediate_thought_trigger.wait(), timeout=interval)
             logger.info("被动思考被触发，立即开始新一轮思考。")
         except TimeoutError:
-            pass # 正常超时
+            pass  # 正常超时
         finally:
             self.immediate_thought_trigger.clear()
-
 
     async def _run_full_thought_cycle(self) -> None:
         """执行一次完整的“感知-思考-行动”周期."""
@@ -108,7 +105,7 @@ class CognitiveCycle:
             prompt_builder = self.container.prompt_builder
             (
                 prompt_components,
-                _, # session is handled internally by prompt_builder now
+                _,  # session is handled internally by prompt_builder now
                 ui_mapping,
                 current_external_info_snapshot,
             ) = await prompt_builder.build_prompts_components(
@@ -185,9 +182,7 @@ class CognitiveCycle:
         logger.info(f"编排内部动作: '{action_name}'")
 
         if action_name == "manage_goals":
-            await self.container.goal_manager.add_goals(
-                params.get("add", {}).get("goals", [])
-            )
+            await self.container.goal_manager.add_goals(params.get("add", {}).get("goals", []))
             await self.container.goal_manager.remove_goals(
                 params.get("remove", {}).get("goal_ids", [])
             )
@@ -201,13 +196,14 @@ class CognitiveCycle:
                 # This part is a bit tricky, the result needs to be formatted for memory
                 # We can borrow the formatting logic
                 from xml.etree.ElementTree import Element, SubElement, tostring
+
                 root = Element("deliberation_result")
                 SubElement(root, "summary").text = resolution.get("summary", "无总结。")
                 final_state = SubElement(root, "final_internal_state")
                 SubElement(final_state, "mood").text = resolution.get("final_mood", "平静")
                 SubElement(final_state, "think").text = resolution.get("final_think", "...")
                 SubElement(final_state, "intent").text = resolution.get("final_intent", "无")
-                result_str = tostring(root, encoding='unicode')
+                result_str = tostring(root, encoding="unicode")
 
                 await self.container.thought_storage_service.save_action_result_to_thought(
                     thought_key=thought_key, result_text=result_str

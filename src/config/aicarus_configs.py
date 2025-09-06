@@ -24,9 +24,11 @@ class PersonaSettings(ConfigBase):
     slow_thought_persona: str = "你的思考风格是审慎、多疑、逻辑严密且极度客观的。"
     """祂的理性思考方式."""
 
+
 @dataclass
 class MemoryClarityLevels(ConfigBase):
     """定义工作记忆中不同清晰度等级的数量."""
+
     vivid: int = 1
     active: int = 1
     retained: int = 3
@@ -44,9 +46,11 @@ class MemoryClarityLevels(ConfigBase):
         if self.decaying < 0:
             raise ValueError("decaying memory count cannot be negative.")
 
+
 @dataclass
 class WorkingMemorySettings(ConfigBase):
     """工作记忆系统的配置."""
+
     depth: int = 8
     clarity_levels: MemoryClarityLevels = field(default_factory=MemoryClarityLevels)
 
@@ -54,10 +58,10 @@ class WorkingMemorySettings(ConfigBase):
     def __post_init__(self) -> None:
         """验证配置."""
         total_clarity_levels = (
-            self.clarity_levels.vivid +
-            self.clarity_levels.active +
-            self.clarity_levels.retained +
-            self.clarity_levels.decaying
+            self.clarity_levels.vivid
+            + self.clarity_levels.active
+            + self.clarity_levels.retained
+            + self.clarity_levels.decaying
         )
         if self.depth < 4:
             raise ValueError("Working memory depth must be at least 4.")
@@ -66,6 +70,7 @@ class WorkingMemorySettings(ConfigBase):
                 f"Memory depth ({self.depth}) does not match the sum of "
                 f"clarity levels ({total_clarity_levels})."
             )
+
 
 @dataclass
 class LLMClientSettings(ConfigBase):

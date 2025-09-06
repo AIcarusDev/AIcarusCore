@@ -57,9 +57,7 @@ async def initialize_session_state() -> None:
 
 # --- [核心新增] 新的动作分发辅助函数 ---
 async def _dispatch_harness_action(
-    decision_json: dict,
-    ui_mapping: dict,
-    container: ServiceContainer
+    decision_json: dict, ui_mapping: dict, container: ServiceContainer
 ) -> None:
     """将测试工具中的交互转换为对 action_orchestrator 的调用."""
     # 为模拟动作创建一个临时的 thought_key
@@ -107,16 +105,15 @@ async def main() -> None:
         if innate_actions:
             with st.expander("🧠 Innate Abilities", expanded=True):
                 if "connect" in innate_actions and st.button(
-                    "Connect to AIC-OS",
-                    key="connect_btn"
-                    ):
+                    "Connect to AIC-OS", key="connect_btn"
+                ):
                     decision_json = {
                         "action": {
                             "external": {
                                 "innate": {
                                     "connect": {
                                         "device_name": "AIC-OS",
-                                        "motivation": "Harness user command"
+                                        "motivation": "Harness user command",
                                     }
                                 }
                             }
@@ -141,9 +138,7 @@ async def main() -> None:
                             decision_json = {
                                 "action": {
                                     "external": {
-                                        "AIC-OS": {
-                                            "base": {"click": {"target_id": click_id}}
-                                        }
+                                        "AIC-OS": {"base": {"click": {"target_id": click_id}}}
                                     }
                                 }
                             }
@@ -154,10 +149,14 @@ async def main() -> None:
 
         if "double_click" in base_interactions:
             with st.expander("💨 Double Click Actions"):
-                double_clickable_ids = base_interactions["double_click"]["properties"]["target_id"]["enum"]  # noqa: E501
+                double_clickable_ids = base_interactions["double_click"]["properties"]["target_id"][
+                    "enum"
+                ]
                 if double_clickable_ids:
                     for dbl_click_id in double_clickable_ids:
-                        if st.button(f"Double Click: {dbl_click_id}", key=f"dbl_click_btn_{dbl_click_id}"):  # noqa: E501
+                        if st.button(
+                            f"Double Click: {dbl_click_id}", key=f"dbl_click_btn_{dbl_click_id}"
+                        ):
                             decision_json = {
                                 "action": {
                                     "external": {
@@ -174,9 +173,9 @@ async def main() -> None:
 
         if "send_message" in qq_interactions:
             with st.expander("💬 Send Message Actions"):
-                chat_window_ids = qq_interactions["send_message"]["properties"][
-                    "target_window_id"
-                ]["enum"]
+                chat_window_ids = qq_interactions["send_message"]["properties"]["target_window_id"][
+                    "enum"
+                ]
                 if chat_window_ids:
                     selected_window_id = st.selectbox("Select chat window:", chat_window_ids)
                     message_content = st.text_area(
@@ -190,8 +189,13 @@ async def main() -> None:
                                         "qq": {
                                             "send_message": {
                                                 "target_window_id": selected_window_id,
-                                                "steps": [{"command": "text", "params": {"content": message_content}}],  # noqa: E501
-                                                "motivation": "User initiated test message"
+                                                "steps": [
+                                                    {
+                                                        "command": "text",
+                                                        "params": {"content": message_content},
+                                                    }
+                                                ],
+                                                "motivation": "User initiated test message",
                                             }
                                         }
                                     }
@@ -202,6 +206,7 @@ async def main() -> None:
                         st.rerun()
                 else:
                     st.write("No active chat windows.")
+
 
 if __name__ == "__main__":
     asyncio.run(main())

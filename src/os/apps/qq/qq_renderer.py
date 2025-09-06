@@ -68,26 +68,19 @@ class QQWindowRenderer:
         if window.window_class != "qq_new_message_popup":
             return
 
-        content_node = SubElement(
-            parent_element,
-            "content",
-            attrib={"type": "new_message_alert"}
-        )
+        content_node = SubElement(parent_element, "content", attrib={"type": "new_message_alert"})
         state = window.content_state
-        SubElement(
-            content_node, "sender_name").text = state.get("sender_name", "未知发件人")
-        SubElement(
-            content_node,
-            "message_snippet"
-        ).text = state.get("message_snippet", "...")
+        SubElement(content_node, "sender_name").text = state.get("sender_name", "未知发件人")
+        SubElement(content_node, "message_snippet").text = state.get("message_snippet", "...")
 
         actions_node = SubElement(content_node, "actions")
         view_btn_path = [*current_path, "content", "view_now"]
         view_btn_id = self._generate_semantic_id(view_btn_path)
 
         SubElement(
-            actions_node, "button",
-            attrib={"id": view_btn_id, "name": "view_now", "title": "立即查看"}
+            actions_node,
+            "button",
+            attrib={"id": view_btn_id, "name": "view_now", "title": "立即查看"},
         )
         self.ui_mapping[view_btn_id] = {
             "action_type": "click",
@@ -101,7 +94,7 @@ class QQWindowRenderer:
         current_path: list[str],
         window: Window,
         bot_ids_map: dict,
-        image_collector: list[dict]
+        image_collector: list[dict],
     ) -> None:
         """[重构] 视图分发器."""
         # --- 1. 渲染通用部分：视图切换器 ---
@@ -114,16 +107,13 @@ class QQWindowRenderer:
             await self._render_conversation_list(parent_element, current_path, window, bot_ids_map)
         elif current_view == "contacts_list":
             await self._render_contacts_list(parent_element, current_path, window, bot_ids_map)
-        elif window.window_class == "conversation": # 兼容旧的聊天窗口逻辑
+        elif window.window_class == "conversation":  # 兼容旧的聊天窗口逻辑
             await self._render_conversation_window(
                 parent_element, current_path, window, bot_ids_map, image_collector
             )
 
     def _render_view_switcher(
-        self,
-        window_node: Element,
-        current_path: list[str],
-        window: Window
+        self, window_node: Element, current_path: list[str], window: Window
     ) -> None:
         """渲染视图切换按钮栏."""
         current_view = window.content_state.get("view", "conversation_list")
@@ -137,7 +127,7 @@ class QQWindowRenderer:
             SubElement(
                 switcher_node,
                 "button",
-                attrib={"id": btn_id, "name": view_name, "title": view_title, "status": btn_status}
+                attrib={"id": btn_id, "name": view_name, "title": view_title, "status": btn_status},
             )
             if btn_status == "inactive":
                 self.ui_mapping[btn_id] = {
@@ -178,17 +168,17 @@ class QQWindowRenderer:
             contacts_node, current_path, window, "friends", "好友", friends
         )
         await self._render_collapsible_list(
-            contacts_node,
-            current_path,
-            window,
-            "groups",
-            "群聊",
-            groups
-            )
+            contacts_node, current_path, window, "groups", "群聊", groups
+        )
 
     async def _render_collapsible_list(
-        self, parent_node: Element, current_path: list[str], window: Window,
-        list_name: str, list_title: str, items: list[dict]
+        self,
+        parent_node: Element,
+        current_path: list[str],
+        window: Window,
+        list_name: str,
+        list_title: str,
+        items: list[dict],
     ) -> None:
         """通用辅助方法，用于渲染一个可折叠、可分页的列表."""
         list_states = window.content_state.get("collapsible_lists", {})
@@ -259,12 +249,14 @@ class QQWindowRenderer:
                 SubElement(
                     pagination_node,
                     "button",
-                    attrib={"id": prev_btn_id,
-                    "name": "prev_page", "title": "上一页"}
+                    attrib={"id": prev_btn_id, "name": "prev_page", "title": "上一页"},
                 )
                 self.ui_mapping[prev_btn_id] = {
-                    "action_type": "click", "action": "paginate_collapsible_list",
-                    "target_uid": window.name, "list_name": list_name, "direction": "prev"
+                    "action_type": "click",
+                    "action": "paginate_collapsible_list",
+                    "target_uid": window.name,
+                    "list_name": list_name,
+                    "direction": "prev",
                 }
 
             SubElement(pagination_node, "desc").text = f"第 {current_page} / {total_pages} 页"
@@ -274,11 +266,14 @@ class QQWindowRenderer:
                 SubElement(
                     pagination_node,
                     "button",
-                    attrib={"id": next_btn_id, "name": "next_page", "title": "下一页"}
+                    attrib={"id": next_btn_id, "name": "next_page", "title": "下一页"},
                 )
                 self.ui_mapping[next_btn_id] = {
-                    "action_type": "click", "action": "paginate_collapsible_list",
-                    "target_uid": window.name, "list_name": list_name, "direction": "next"
+                    "action_type": "click",
+                    "action": "paginate_collapsible_list",
+                    "target_uid": window.name,
+                    "list_name": list_name,
+                    "direction": "next",
                 }
 
     async def _render_self_platform_profile(self, window_node: Element, platform_id: str) -> None:
@@ -371,7 +366,7 @@ class QQWindowRenderer:
         current_path: list[str],
         window: Window,
         bot_ids_map: dict,
-        image_collector: list[dict]
+        image_collector: list[dict],
     ) -> None:
         conversation_uid = window.content_state.get("conversation_uid")
         if not conversation_uid:
@@ -484,11 +479,8 @@ class QQWindowRenderer:
         SubElement(action_bar_node, "desc").text = "你可以使用 send_message 动作来回复。"
 
     async def _render_rich_content(
-            self,
-            content_node: Element,
-            segments: list[dict],
-            image_collector: list[dict]
-        ) -> None:
+        self, content_node: Element, segments: list[dict], image_collector: list[dict]
+    ) -> None:
         """渲染富文本消息内容，处理文本、图片、引用等."""
         for seg in segments:
             seg_type = seg.get("type")
@@ -514,9 +506,9 @@ class QQWindowRenderer:
                 # 3. 收集图像数据和元信息
                 image_info = {
                     "id": placeholder_id,
-                    "placeholder": placeholder_text, # 存储占位符本身，方便后续查找
+                    "placeholder": placeholder_text,  # 存储占位符本身，方便后续查找
                     "mime_type": data.get("mime_type", "image/png"),
-                    "data": base64_data
+                    "data": base64_data,
                 }
                 image_collector.append(image_info)
 

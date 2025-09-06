@@ -181,7 +181,7 @@ class ServiceBuilder:
             interruption_broker=interruption_broker,
             narrative_vectorizer=narrative_vectorizer,
             core_comm_layer=None,  # 稍后填充
-            core_logic=None,      # 稍后填充
+            core_logic=None,  # 稍后填充
             window_manager=window_manager,
             application_manager=application_manager,
             aicos_state_generator=aicos_state_generator,
@@ -191,14 +191,12 @@ class ServiceBuilder:
             goal_manager=goal_manager,
         )
 
-
         # 接收完整的容器实例
         event_receiver = EventReceiver(
             mind_event_callback=message_processor.process_event,
             action_handler_instance=action_handler,
             service_container=container,
         )
-
 
         core_comm_layer = CoreWebsocketServer(
             container=container,
@@ -210,7 +208,6 @@ class ServiceBuilder:
             action_handler_instance=action_handler,
             entity_service=db_services["entity_graph_service"],
         )
-
 
         core_logic = CoreLogic(
             thought_generator=container.thought_generator,

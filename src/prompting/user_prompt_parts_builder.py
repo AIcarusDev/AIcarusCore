@@ -9,6 +9,7 @@ if TYPE_CHECKING:
 
 class UserPromptPartsBuilder:
     """构建用户提示的各个部分，用于组合成完整的用户提示."""
+
     def __init__(
         self,
         thought_storage_service: "ThoughtStorageService",
@@ -22,6 +23,6 @@ class UserPromptPartsBuilder:
         # 只保留 external_info_block
         # action_response_block 现在是工作记忆的一部分了
         return {
-            "action_response_block": "", # 确保模板中有这个键，但内容为空
+            "action_response_block": "",  # 确保模板中有这个键，但内容为空
             "external_info_block": external_info_block,
         }

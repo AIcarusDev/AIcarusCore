@@ -21,6 +21,7 @@ class AIStateManager:
     通过这种方式，AIStateManager 确保 AI 在任何时候都能够获取到最新的状态信息，
     并且在思想链断裂时也能提供有用的默认信息，确保生成的 Prompt 始终具有上下文相关性。
     """
+
     def __init__(
         self,
         thought_service: ThoughtStorageService,

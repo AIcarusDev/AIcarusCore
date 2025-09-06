@@ -15,17 +15,30 @@ from typedb.driver import TransactionType
 
 # --- [新增] 可配置的数据生成参数 ---
 NUM_FRIENDS = 35  # 确保超过一页
-NUM_GROUPS = 25   # 确保超过一页
-LONG_CHAT_MESSAGES = 50 # 确保超过一页
+NUM_GROUPS = 25  # 确保超过一页
+LONG_CHAT_MESSAGES = 50  # 确保超过一页
 BOT_USER_ID = "10001"
 BOT_NICKNAME = "霜"
 # ------------------------------------
 
 ENTITY_TYPES_TO_DELETE = [
-    "aic_self", "external_person", "account", "conversation", "platform",
-    "sticker", "event", "thought-chain-node", "action-log", "system-pointer",
-    "intrusive-thought", "image-cache", "goal", "friendship", "membership"
+    "aic_self",
+    "external_person",
+    "account",
+    "conversation",
+    "platform",
+    "sticker",
+    "event",
+    "thought-chain-node",
+    "action-log",
+    "system-pointer",
+    "intrusive-thought",
+    "image-cache",
+    "goal",
+    "friendship",
+    "membership",
 ]
+
 
 async def clear_database(container: Any) -> bool | None:
     """清空数据库中的所有测试数据."""
@@ -48,6 +61,7 @@ async def clear_database(container: Any) -> bool | None:
     except Exception as e:
         print(f"!!! 数据库清空失败: {e} !!!")
         return False
+
 
 async def seed_data(entity_service: EntityGraphService, event_service: EventStorageService) -> None:
     """[重构版] 注入丰富且复杂的模拟数据."""
@@ -105,14 +119,21 @@ async def seed_data(entity_service: EntityGraphService, event_service: EventStor
             )
 
         # 注入一条最新消息，时间戳递减，确保列表排序正确
-        msg_timestamp = base_timestamp - (i * 60000) # 每隔1分钟
-        event = ProtocolEvent.from_dict({
-            "event_id": f"group_seed_{i}", "event_type": "message.qq.group", "time": msg_timestamp,
-            "bot_id": BOT_USER_ID,
-            "user_info": {"user_id": f"member_in_group_{i:03d}", "user_nickname": f"群友{i:03d}"},
-            "conversation_info": {"conversation_id": group_id, "type": "group"},
-            "content": [SegBuilder.text(f"这是群 {i:03d} 的最新消息。").to_dict()],
-        })
+        msg_timestamp = base_timestamp - (i * 60000)  # 每隔1分钟
+        event = ProtocolEvent.from_dict(
+            {
+                "event_id": f"group_seed_{i}",
+                "event_type": "message.qq.group",
+                "time": msg_timestamp,
+                "bot_id": BOT_USER_ID,
+                "user_info": {
+                    "user_id": f"member_in_group_{i:03d}",
+                    "user_nickname": f"群友{i:03d}",
+                },
+                "conversation_info": {"conversation_id": group_id, "type": "group"},
+                "content": [SegBuilder.text(f"这是群 {i:03d} 的最新消息。").to_dict()],
+            }
+        )
         event_dict = event.to_dict()
         event_dict["platform"] = "qq"
         await event_service.save_event_document(event_dict)
@@ -126,10 +147,7 @@ async def seed_data(entity_service: EntityGraphService, event_service: EventStor
         long_chat_conv_uid = build_conversation_entity_uid("qq", "private", long_chat_friend_id)
 
         await entity_service.get_or_create_conversation_entity(
-            conversation_id=long_chat_friend_id,
-            platform="qq",
-            conv_type="private",
-            name="好友000"
+            conversation_id=long_chat_friend_id, platform="qq", conv_type="private", name="好友000"
         )
 
         for i in range(LONG_CHAT_MESSAGES):
@@ -138,29 +156,34 @@ async def seed_data(entity_service: EntityGraphService, event_service: EventStor
             sender_name = BOT_NICKNAME if sender_id == BOT_USER_ID else "好友000"
 
             # 注入一条最新消息，时间戳递增，让这个会话排在最前面
-            msg_timestamp = base_timestamp + (i * 1000) # 每隔1秒
+            msg_timestamp = base_timestamp + (i * 1000)  # 每隔1秒
 
-            content = [SegBuilder.text(
-                f"这是长对话的第 {i+1}/{LONG_CHAT_MESSAGES} 条消息。"
-            ).to_dict()]
+            content = [
+                SegBuilder.text(f"这是长对话的第 {i + 1}/{LONG_CHAT_MESSAGES} 条消息。").to_dict()
+            ]
             # 在倒数第二条消息中@机器人，测试高优提醒
             if i == LONG_CHAT_MESSAGES - 2:
                 sender_id = long_chat_friend_id
                 sender_name = "好友000"
                 content = [
                     SegBuilder.text("最后提醒一下，记得看这个！").to_dict(),
-                    SegBuilder.at(BOT_USER_ID, BOT_NICKNAME).to_dict()
+                    SegBuilder.at(BOT_USER_ID, BOT_NICKNAME).to_dict(),
                 ]
 
-            event = ProtocolEvent.from_dict({
-                "event_id": f"long_chat_seed_{i}",
-                "event_type": "message.qq.private",
-                "time": msg_timestamp,
-                "bot_id": BOT_USER_ID,
-                "user_info": {"user_id": sender_id, "user_nickname": sender_name},
-                "conversation_info": {"conversation_id": long_chat_friend_id, "type": "private"},
-                "content": content,
-            })
+            event = ProtocolEvent.from_dict(
+                {
+                    "event_id": f"long_chat_seed_{i}",
+                    "event_type": "message.qq.private",
+                    "time": msg_timestamp,
+                    "bot_id": BOT_USER_ID,
+                    "user_info": {"user_id": sender_id, "user_nickname": sender_name},
+                    "conversation_info": {
+                        "conversation_id": long_chat_friend_id,
+                        "type": "private",
+                    },
+                    "content": content,
+                }
+            )
             event_dict = event.to_dict()
             event_dict["platform"] = "qq"
             await event_service.save_event_document(event_dict)
@@ -169,6 +192,7 @@ async def seed_data(entity_service: EntityGraphService, event_service: EventStor
     # 注意：我们不再手动设置 last_read_timestamp，让系统根据默认值 (0) 和最新消息时间戳
     # 自动计算出正确的未读状态。这更接近真实情况。
     print("--- 模拟数据注入完成 ---")
+
 
 async def main() -> None:
     """主函数，构建服务并执行注入."""
@@ -184,6 +208,7 @@ async def main() -> None:
 
     await seed_data(container.entity_graph_service, container.event_storage_service)
     await container.conn_manager.close_client()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
