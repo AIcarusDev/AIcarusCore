@@ -7,7 +7,7 @@ import uuid
 from typing import TYPE_CHECKING
 from xml.etree.ElementTree import Element
 
-from aicarus_protocols import Event, Seg
+from aicarus_protocols import ConversationInfo, Event, Seg
 from aicarus_protocols import Event as ProtocolEvent
 from src.common.custom_logging.logging_config import get_logger
 from src.common.utils import build_conversation_entity_uid
@@ -354,15 +354,34 @@ class QQBuilder(BaseAppBuilder, IApp):
     def build_action_event(self, action_name: str, params: dict, bot_id: str) -> Event | None:
         """将 Core 的指令转换成发往 Adapter 的标准 Event."""
         if action_name == "send_message":
-            # send_message 的逻辑现在由 DecisionDispatcher 直接处理，这里可以留空或返回一个通用结构
-            # 为保持一致性，我们仍然构建一个事件
+            # 从 params 中提取会话信息
+            conv_id = params.get("conversation_id")
+            conv_type = params.get("conversation_type")
+
+            if not conv_id or not conv_type:
+                logger.error(
+                    "构建 send_message 事件失败：params 中缺少 "
+                    "conversation_id 或 conversation_type。"
+                )
+                return None
+
+            # 创建一个 ConversationInfo 对象
+            conversation_info = ConversationInfo(
+                conversation_id=str(conv_id),
+                type=str(conv_type)
+            )
+
             final_event_type = f"action.{self.app_name}.{action_name}"
-            action_seg = Seg(type="action_params", data=params)
+
+            # content 字段现在应该直接是消息段列表，而不是被 action_params 包裹
+            content_segs = [Seg.from_dict(seg) for seg in params.get("content", [])]
+
             return Event(
                 event_id=str(uuid.uuid4()),
                 event_type=final_event_type,
                 time=int(time.time() * 1000),
                 bot_id=bot_id,
-                content=[action_seg],
+                content=content_segs,
+                conversation_info=conversation_info
             )
         return None

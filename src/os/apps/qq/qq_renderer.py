@@ -455,7 +455,7 @@ class QQWindowRenderer:
 
             sender_name = msg.get("user_info", {}).get("user_cardname") or msg.get(
                 "user_info", {}
-            ).get("user_nickname", "未知用户")
+            ).get("user_nickname")
             timestamp = time.strftime("%H:%M:%S", time.localtime(msg.get("timestamp", 0) / 1000))
 
             SubElement(msg_node, "sender").text = sender_name
