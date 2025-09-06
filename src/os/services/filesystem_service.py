@@ -123,8 +123,7 @@ class FileSystemService:
             #     "required": ["path", "motivation"],
             # },
 
-    # --- 以下方法全部从 ActionHandler 迁移而来，并移除了下划线前缀 ---
-
+    # 方法作废
     def resolve_safe_path(self, user_path: str) -> Path | None:
         """解析用户提供的路径，确保其在工作区内并返回安全路径."""
         workspace_root = self.get_safe_workspace_root()
@@ -149,6 +148,13 @@ class FileSystemService:
             logger.error(f"解析安全路径时发生未知错误: {e}", exc_info=True)
             return None
 
+    # 方法作废
+    def get_safe_workspace_root(self) -> Path:
+        """返回工作区根目录的绝对路径，确保其存在."""
+        self._workspace_root.mkdir(parents=True, exist_ok=True)
+        return self._workspace_root.resolve()
+
+    # 方法作废
     def list_files(self, params: dict) -> str:
         """列出指定路径下的所有文件和目录."""
         path_str = params.get("path", ".")
@@ -171,12 +177,14 @@ class FileSystemService:
             logger.error(f"列出文件时出错 ({path_str}): {e}", exc_info=True)
             return f"错误：列出文件时发生未知错误: {e}"
 
+    # 方法作废
     def read_file(self, safe_path: Path, original_path: str) -> str:
         """验证路径是否为文件并读取其内容。失败时抛出 FileNotFoundError."""
         if not safe_path.is_file():
             raise FileNotFoundError(f"错误：路径 '{original_path}' 不是一个文件或不存在。")
         return safe_path.read_text(encoding="utf-8")
 
+    # 方法作废
     def write_file(self, params: dict) -> str:
         """写入文件内容."""
         path_str = params.get("path")
@@ -204,6 +212,7 @@ class FileSystemService:
             logger.error(f"写入文件时出错 ({path_str}): {e}", exc_info=True)
             return f"错误：写入文件时发生未知错误: {e}"
 
+    # 方法作废
     def edit_file(self, params: dict) -> str:
         """编辑指定路径的文件，替换其中的内容."""
         path_str = params.get("path")
@@ -238,6 +247,7 @@ class FileSystemService:
             logger.error(f"编辑文件时出错 ({path_str}): {e}", exc_info=True)
             return f"错误：编辑文件时发生未知错误: {e}"
 
+    # 方法作废
     def get_aggregated_content(self, params: dict) -> str:
         """聚合指定路径下的所有文件内容."""
         if find_files is None or generate_file_tree is None:
@@ -312,6 +322,7 @@ class FileSystemService:
             logger.error(f"聚合内容时出错 ({source_path_str}): {e}", exc_info=True)
             return f"错误：聚合内容时发生未知错误: {e}"
 
+    # 方法作废
     def delete_file(self, params: dict) -> str:
         """删除指定路径的文件."""
         path_str = params.get("path")

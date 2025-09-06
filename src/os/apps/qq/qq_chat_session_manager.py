@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Optional
 
 from src.common.custom_logging.logging_config import get_logger
 from src.services.action.action_handler import ActionHandler
-from src.services.database.models import ConversationDetails
+from src.services.database.models import ConversationDetails, EnrichedConversationInfo
 from src.services.database.services.event_storage_service import EventStorageService
 from src.services.database.services.thought_storage_service import ThoughtStorageService
 from src.services.llmrequest.llm_processor import Client as LLMProcessorClient
@@ -18,7 +18,6 @@ if TYPE_CHECKING:
         IntelligentInterrupter,
     )
     from src.mind.consciousness_flow import CoreLogic as CoreLogicFlow
-    from src.services.database import EnrichedConversationInfo
     from src.services.database.services.entity_graph_service import EntityGraphService
 
 logger = get_logger(__name__)

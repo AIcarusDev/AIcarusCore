@@ -121,7 +121,7 @@ class QQBuilder(BaseAppBuilder, IApp):
         application_manager = container.application_manager
         entity_service = container.entity_graph_service
 
-        # --- 弹窗决策逻辑 ---
+        # 弹窗逻辑
         # 1. 必须是别人发的消息
         bot_id = application_manager.get_self_bot_ids_map().get(event.get_platform())
         if not bot_id or not event.user_info or str(event.user_info.user_id) == str(bot_id):
@@ -161,10 +161,18 @@ class QQBuilder(BaseAppBuilder, IApp):
             logger.error(f"无法为新消息创建弹窗，因为找不到 name 为 '{self.app_name}' 的应用定义。")
             return
 
-        conv_doc = await entity_service.get_entity_by_key(target_conv_uid)
+        # 使用 get_or_create_conversation_entity 防止竞态条件
+        conv_doc = await entity_service.get_or_create_conversation_entity(
+            conversation_id=event.conversation_info.conversation_id,
+            platform=event.get_platform(),
+            conv_type=event.conversation_info.type,
+            name=event.conversation_info.name
+        )
+
         sender_name = await entity_service.get_sender_display_name_for_event(
             event.to_dict(), conv_doc, application_manager.get_self_bot_ids_map()
         )
+
         snippet = await container.event_storage_service.get_event_text_summary(event.to_dict())
 
         popup = Window(
