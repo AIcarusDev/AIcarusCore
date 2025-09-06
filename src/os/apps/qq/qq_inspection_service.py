@@ -69,11 +69,17 @@ async def _persist_new_profile(
     bot_user_info = ProtocolUserInfo(
         user_id=str(profile_data["user_id"]), user_nickname=profile_data["nickname"]
     )
+    logger.info(f"[Inspection] 正在为平台 '{platform_id}' 持久化新的自身档案: {bot_user_info}")
     _, entity_uid = await entity_service.create_new_profile_with_account_entity(
         user_info=bot_user_info, platform=platform_id, is_self=True
     )
     if not entity_uid:
         logger.critical("检查失败！在数据库中创建自身 Profile 或 Entity 节点时失败。")
+    else:
+        logger.success(
+            f"[Inspection] 成功为平台 '{platform_id}' 创建自身实体，"
+            f"Account UID: {entity_uid}"
+        )
     return entity_uid
 
 
@@ -159,10 +165,15 @@ async def _persist_friends(
         if not isinstance(friend_data, dict) or not friend_data.get("user_id"):
             continue
 
+        # 将 remark 存入 additional_data 字典
+        additional_data = {}
+        if remark := friend_data.get("remark"):
+            additional_data["friend_remark"] = remark
+
         friend_user_info = ProtocolUserInfo(
             user_id=str(friend_data["user_id"]),
             user_nickname=friend_data.get("nickname"),
-            friend_remark=friend_data.get("remark"),
+            additional_data=additional_data,
         )
         # 这会并发地创建所有好友的实体
         task = entity_service.find_or_create_profile_and_account_entity(
@@ -197,29 +208,43 @@ async def inspect_and_initialize_self_profile(
     entity_service: "EntityGraphService",
     action_handler: "ActionHandler",
     platform_id: str,
+    cached_profile_data: dict[str, Any] | None = None,
 ) -> tuple[bool, dict[str, Any] | None]:
     """编排检查和初始化QQ平台自身档案的流程."""
     logger.info(f"--- [QQ App] 开始对平台 '{platform_id}' 进行自我客观信息检查 ---")
 
+    logger.debug("[Inspection] 步骤1: 检查数据库中是否已存在档案...")
     if existing_profile := await _check_for_existing_profile(entity_service, platform_id):
         return True, existing_profile
 
-    logger.info("未发现本地档案，启动首次检查流程。")
-    if not (new_profile_data := await _fetch_new_profile_from_adapter(action_handler, platform_id)):
-        return False, None
+    logger.info("[Inspection] 步骤2: 未发现本地档案，从适配器获取新档案...")
+    profile_to_persist = cached_profile_data
+    if not profile_to_persist:
+        logger.info("[Inspection] 无缓存档案，从适配器实时获取...")
+        profile_to_persist = await _fetch_new_profile_from_adapter(action_handler, platform_id)
 
+    if not profile_to_persist:
+        return False, None
+    logger.info("[Inspection] 步骤3: 持久化新获取的档案...")
     if not (
         self_account_uid := await _persist_new_profile(
-            entity_service, platform_id, new_profile_data
+            entity_service, platform_id, profile_to_persist
         )
     ):
         return False, None
 
-    group_task = _update_group_memberships(
-        entity_service, self_account_uid, platform_id, new_profile_data
+    logger.info(
+        "[Inspection] 步骤4 & 5: 开始并发更新群组 "
+        f"({len(profile_to_persist.get('groups', {}))}) 和好友 "
+        f"({len(profile_to_persist.get('friends', []))}) 关系..."
     )
-    friend_task = _persist_friends(entity_service, self_account_uid, platform_id, new_profile_data)
+    group_task = _update_group_memberships(
+        entity_service, self_account_uid, platform_id, profile_to_persist
+    )
+    friend_task = _persist_friends(
+        entity_service, self_account_uid, platform_id, profile_to_persist
+    )
     await asyncio.gather(group_task, friend_task)
 
     logger.info(f"--- 平台 '{platform_id}' 的自我客观信息检查圆满完成并记录 ---")
-    return True, new_profile_data
+    return True, profile_to_persist

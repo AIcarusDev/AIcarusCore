@@ -135,6 +135,13 @@ class CoreWebsocketServer:
             f"等待其发送 'ready' 信号以启动安检（如果需要）。"
         )
 
+    def get_cached_profile_for_platform(self, platform_id: str) -> dict[str, Any] | None:
+        """获取指定平台缓存的 profile_data."""
+        connection_info = self.adapter_clients_info.get(platform_id)
+        if connection_info:
+            return connection_info.get("bot_profile")
+        return None
+
     async def _run_inspection_ceremony(self, builder: BaseAppBuilder) -> None:
         """后台运行安检的协程 (只负责重试和调用)."""
         max_retries = 3

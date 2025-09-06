@@ -138,6 +138,11 @@ class EntityGraphService:
         def db_write() -> None:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
                 for friend_uid in friend_account_uids:
+                    # 跳过与自己建立好友关系
+                    if friend_uid == self_account_uid:
+                        logger.debug(f"跳过与自身 ({self_account_uid}) 建立好友关系。")
+                        continue
+
                     query = f"""
                     match
                         $me isa account, has account-uid "{self_account_uid}";

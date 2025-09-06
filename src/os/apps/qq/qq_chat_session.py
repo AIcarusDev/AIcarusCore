@@ -113,12 +113,21 @@ class QQChatSession(ISession):
             return self.bot_profile_cache
 
         # --- 步骤 2: 缓存未命中，直接、精确地从数据库获取当前平台实体 ---
+        logger.debug(
+            f"[{self.conversation_id}] 缓存未命中，正在调用 "
+            f"entity_graph_service.get_self_entity_by_platform('{self.platform}')"
+        )
         entity_doc = await self.entity_graph_service.get_self_entity_by_platform(self.platform)
 
         if not (entity_doc and isinstance(entity_doc, dict)):
-            logger.warning(f"[{self.conversation_id}] 未找到祂有效的全局档案。将使用临时基础档案。")
+            logger.warning(
+                f"[{self.conversation_id}] 未找到祂有效的全局档案。将使用临时基础档案。"
+                f" (entity_doc is None: {entity_doc is None}, "
+                f"is dict: {isinstance(entity_doc, dict)})"
+            )
             return {"user_id": self.bot_id, "nickname": config.persona.bot_name}
 
+        logger.debug(f"[{self.conversation_id}] 成功获取到全局档案: {entity_doc}")
         details = entity_doc.get("details") or {}
 
         # 2.1 构建基础档案

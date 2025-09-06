@@ -217,6 +217,7 @@ class ActionLogDocument:
     platform: str
     bot_id: str
     status: str = "pending"
+    action_details: dict[str, Any] | None = None
     response_timestamp: int | None = None
     response_time_ms: int | None = None
     error_info: str | None = None

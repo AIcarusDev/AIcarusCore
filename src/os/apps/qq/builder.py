@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import time
 import uuid
 from typing import TYPE_CHECKING
@@ -50,37 +49,20 @@ class QQBuilder(BaseAppBuilder, IApp):
         """由 CoreWebsocketServer 调用的、平台专属的安检流程."""
         logger.info(f"--- [QQBuilder] 开始执行平台 '{self.app_name}' 的上线安检仪式 ---")
 
-        # 增加一个1秒的延迟，以确保 Adapter 侧的连接状态完全就绪
-        await asyncio.sleep(1)
-
-        # 优先使用从 ready 事件中缓存的档案
-        profile_data = None
-        success = False
-
-        # 尝试从 Websocket 服务器获取缓存的档案
-        ws_server = container.core_comm_layer
-        if ws_server and self.app_name in ws_server.adapter_clients_info:
-            connection_info = ws_server.adapter_clients_info[self.app_name]
-            cached_profile = connection_info.get("bot_profile")
-            if cached_profile:
-                logger.info(f"安检流程：发现已缓存的档案 for '{self.app_name}'，直接使用该档案。")
-                profile_data = cached_profile
-                # 假设数据格式正确，直接认定为成功
-                success = True
-
-        # 如果没有缓存的档案，则回退到主动获取模式
-        if not success:
-            logger.warning(
-                f"安检流程：未发现缓存的档案 for '{self.app_name}'，将回退到主动获取模式。"
-            )
-            success, profile_data = await inspect_and_initialize_self_profile(
-                entity_service=container.entity_graph_service,
-                action_handler=container.action_handler,
-                platform_id=self.app_name,
-            )
+        # 无论档案来源如何，都必须执行完整的检查和持久化流程。
+        # inspect_and_initialize_self_profile 函数内部会处理好一切。
+        success, profile_data = await inspect_and_initialize_self_profile(
+            entity_service=container.entity_graph_service,
+            action_handler=container.action_handler,
+            platform_id=self.app_name,
+            # 将从 WS Server 缓存的档案作为优先数据源传入
+            cached_profile_data=container.core_comm_layer.get_cached_profile_for_platform(
+                self.app_name
+            ),
+        )
 
         if success and profile_data:
-            logger.success("[QQBuilder] 安检成功，获取到自身档案。")
+            logger.success("[QQBuilder] 安检成功，自身档案已确认或更新。")
             bot_id = profile_data.get("user_id")
             if bot_id:
                 container.application_manager.set_self_bot_id_for_platform(

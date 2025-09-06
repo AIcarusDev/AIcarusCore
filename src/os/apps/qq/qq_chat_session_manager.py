@@ -64,6 +64,15 @@ class QQChatSessionManager:
                 return self.sessions[conversation_entity_uid]
 
             logger.info(f"[SessionManager] 为实体 '{conversation_entity_uid}' 创建新的会话实例。")
+
+            if not self.entity_graph_service:
+                logger.error(
+                    "[SessionManager] 严重错误：entity_graph_service 未被注入，无法创建会话！"
+                )
+                return None
+            logger.debug("[SessionManager] entity_graph_service 实例有效，继续创建流程...")
+
+            # 从数据库获取会话实体的详细信息
             conv_entity_doc = await self.entity_graph_service.get_entity_by_key(
                 conversation_entity_uid
             )

@@ -69,14 +69,14 @@ class AICOSStateGenerator:
         # 模态弹窗检查
         active_modal = self.window_manager.get_active_modal_popup()
         if active_modal:
-            logger.info(f"检测到模态弹窗 '{active_modal.id}'，执行劫持渲染。")
+            logger.info(f"检测到模态弹窗 '{active_modal.name}'，执行劫持渲染。")
             desktop_node = SubElement(
                 root,
                 "desktop",
                 attrib={"name": "desktop", "parent": "uti-002", "status": "modal_lock"},
             )
             windows_node = SubElement(desktop_node, "windows", attrib={"name": "windows"})
-            modal_path = ["aicos", "desktop", "modal_" + self._encode_id_part(active_modal.id)]
+            modal_path = ["aicos", "desktop", "modal_" + active_modal.name]
             await self._render_window_frame(windows_node, modal_path, active_modal, image_collector)
         else:
             # 正常渲染
