@@ -53,7 +53,7 @@ class QQChatSession(ISession):
         self.bot_id: str = bot_id
         self.platform: str = conversation_info.platform
         self.conversation_type: str | None = conversation_info.type
-        self.conversation_name: str | None = conversation_info.name
+        self._conversation_name: str | None = conversation_info.name
         self.core_logic = core_logic
         self.chat_session_manager = chat_session_manager
         self.intelligent_interrupter: IntelligentInterrupter = intelligent_interrupter
@@ -89,6 +89,11 @@ class QQChatSession(ISession):
     def conversation_id(self) -> str:
         """返回会话ID."""
         return self._conversation_id
+
+    @property
+    def conversation_name(self) -> str | None:
+        """返回会话的可读名称."""
+        return self._conversation_name
 
     @property
     def working_memory(self) -> dict[str, Any]:
