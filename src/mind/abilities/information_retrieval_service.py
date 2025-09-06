@@ -45,7 +45,6 @@ class InformationRetrievalService:
 
     async def web_search(self, params: dict) -> str:
         """执行网页搜索并返回结果."""
-        await self.initialize_llm_clients()
         query = params.get("query")
         motivation = params.get("motivation", "没有明确动机")
         if not query or not self.web_search_agent_client:
@@ -62,7 +61,6 @@ class InformationRetrievalService:
 
     async def summarize_url(self, params: dict) -> str:
         """访问指定的URL并返回总结结果."""
-        await self.initialize_llm_clients()
         url = params.get("url")
         motivation = params.get("motivation", "没有明确动机")
         if not url or not self.url_context_agent_client:

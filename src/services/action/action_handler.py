@@ -22,6 +22,7 @@ from src.services.database import (
     EventStorageService,
     ThoughtStorageService,
 )
+from src.services.database.models import ActionLogDocument
 
 if TYPE_CHECKING:
     from src.bootstrap.container import ServiceContainer
@@ -238,32 +239,38 @@ class ActionHandler:
         self, params: dict, window_manager: WindowManager, container: ServiceContainer
     ) -> None:
         """从 GUI 动作参数中解析、构建并发送复杂消息."""
-        target_window_id = params.get("target_window_id")  # 注意：JSON Schema中是 target_window_id
-        if not target_window_id:
-            # 兼容旧的 target_conversation_uid
-            target_window_id = params.get("target_conversation_uid")
-
+        target_conversation_uid = params.get("target_conversation_uid")
         steps = params.get("steps")
-        motivation = params.get("motivation", "由AIC-OS GUI交互发起")
+        motivation = params.get("motivation")
 
-        if not target_window_id or not steps:
-            logger.error("send_message 指令缺少 target_window_id 或 steps。")
+        if not target_conversation_uid:
+            logger.error("send_message 指令缺少 target_conversation_uid 参数")
+            return
+        if not steps:
+            logger.error("send_message 指令缺少 steps 参数")
+            return
+        if not motivation:
+            logger.error("send_message 指令缺少 motivation 参数")
             return
 
         # 窗口和会话的有效性检查
-        window = window_manager.get_window(target_window_id)
-        if (
-            not window
-            or window.window_class != "conversation"
-            or window.status == WindowStatus.MINIMIZE
-        ):
-            logger.error(f"AI 试图向无效、非聊天或最小化的窗口 '{target_window_id}' 发送消息。")
+        target_window = next(
+            (
+                w for w in window_manager.get_all_windows_sorted()
+                if w.content_state.get("conversation_uid") == target_conversation_uid
+                and w.status != WindowStatus.MINIMIZE
+            ),
+            None,
+        )
+
+        if not target_window:
+            logger.error(
+                f"执行错误：AI 试图向会话 '{target_conversation_uid}' 发送消息，"
+                f"但其对应的窗口已不可见。动作已取消。"
+            )
             return
 
-        conversation_uid = window.content_state.get("conversation_uid")
-        if not conversation_uid:
-            logger.error(f"窗口 '{target_window_id}' 缺少 conversation_uid 状态。")
-            return
+        conversation_uid = target_conversation_uid
 
         # 获取 QQBuilder 和 Session
         if not self.application_manager:
@@ -286,7 +293,7 @@ class ActionHandler:
 
         if send_success:
             logger.info(f"消息已通过 MessageBuilder 成功发送至会话 '{conversation_uid}'。")
-            window_manager.focus_window(target_window_id)
+            window_manager.focus_window(target_window.name)
         else:
             logger.error(f"通过 MessageBuilder 发送消息至会话 '{conversation_uid}' 失败。")
 
@@ -326,6 +333,27 @@ class ActionHandler:
             action_to_send=action_event_dict,
             original_action_description=description,
         )
+
+    async def _log_action_attempt(self, action_id: str, action_data: dict[str, Any]) -> None:
+        """记录一个动作的尝试."""
+        # 从 action_data 中提取 bot_id
+        bot_id = "unknown"
+        if "bot_id" in action_data:
+            bot_id = action_data["bot_id"]
+        elif "sender" in action_data and "id" in action_data["sender"]:
+            bot_id = action_data["sender"]["id"]
+
+        action_doc = ActionLogDocument(
+            _key=action_id,
+            action_type=action_data.get("event_type", "unknown"),
+            timestamp=int(time.time() * 1000),
+            bot_id=str(bot_id),
+            status="pending",
+            platform=action_data.get("platform", "unknown"),
+            action_details=action_data,
+        )
+        await self.action_log_service.save_action_attempt(action_doc)
+        logger.info(f"动作尝试已记录: {action_id}")
 
     async def _execute_platform_action(
         self,

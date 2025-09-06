@@ -337,31 +337,43 @@ class EntityGraphService:
         def db_write() -> None:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
                 person_type = "aic_self" if is_self else "external_person"
-                if not list(
+
+                # 1. 检查 person 实体是否存在，不存在则创建
+                person_exists_query = (
+                    f'match $p isa person, has person-uid "{profile_uid}";'
+                    f' select $p;'
+                )
+                if not list(tx.query(person_exists_query).resolve()):
                     tx.query(
-                        f'match $p isa {person_type}, has person-uid "{profile_uid}";'
+                        f'insert $p isa {person_type}, '
+                        f'has person-uid "{profile_uid}";'
                     ).resolve()
-                ):
-                    tx.query(
-                        f'insert $p isa {person_type}, has person-uid "{profile_uid}";'
-                    ).resolve()
-                if not list(
-                    tx.query(f'match $plat isa platform, has platform-uid "{platform}";').resolve()
-                ):
+
+                # 2. 检查 platform 实体是否存在，不存在则创建
+                platform_exists_query = (
+                    f'match $plat isa platform, has platform-uid "{platform}";'
+                    f' select $plat;'
+                )
+                if not list(tx.query(platform_exists_query).resolve()):
                     tx.query(
                         f'insert $plat isa platform, has platform-uid "{platform}", '
                         f'has display-name "{platform}";'
                     ).resolve()
-                tx.query(
-                    f'match $p isa person, has person-uid "{profile_uid}"; '
-                    f'$plat isa platform, has platform-uid "{platform}"; '
-                    f'insert $acc isa account, has account-uid "{account_uid}", '
-                    f'has platform-id "{platform_id_val}", '
-                    f'has nickname "{nickname_safe}", '
-                    f'has last-known-nickname "{nickname_safe}"; '
-                    f"(owner: $p, owned-account: $acc) isa identity-ownership; "
-                    f"(resident: $acc, host-platform: $plat) isa residency;"
-                ).resolve()
+
+                # 3. 插入 account 并建立关系
+                insert_account_query = f"""
+                match
+                    $p isa person, has person-uid "{profile_uid}";
+                    $plat isa platform, has platform-uid "{platform}";
+                insert
+                    $acc isa account, has account-uid "{account_uid}",
+                        has platform-id "{platform_id_val}",
+                        has nickname "{nickname_safe}",
+                        has last-known-nickname "{nickname_safe}";
+                    (owner: $p, owned-account: $acc) isa identity-ownership;
+                    (resident: $acc, host-platform: $plat) isa residency;
+                """
+                tx.query(insert_account_query).resolve()
                 tx.commit()
 
         try:

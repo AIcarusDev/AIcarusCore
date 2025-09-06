@@ -112,10 +112,10 @@ class DeliberationService:
             user_prompt = DELIBERATION_USER_PROMPT.format(
                 fast_thought_person_block=persona_block,
                 external_info_block=external_info_for_prompt,
-                mood=current_internal_state.get("mood", "未知"),
-                think=current_internal_state.get("think", "未知"),
-                intent=current_internal_state.get("intent", "未知"),
-                motivation=pipeline_params.get("motivation", "无明确动机"),
+                mood=current_internal_state.get("mood"),
+                think=current_internal_state.get("think"),
+                intent=current_internal_state.get("intent"),
+                motivation=pipeline_params.get("motivation"),
                 opinions_block=opinions_block,
             )
 

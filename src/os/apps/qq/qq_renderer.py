@@ -96,7 +96,15 @@ class QQWindowRenderer:
         bot_ids_map: dict,
         image_collector: list[dict],
     ) -> None:
-        """[重构] 视图分发器."""
+        """视图分发器."""
+        # 优先判断窗口是否为聊天窗口
+        if window.window_class == "conversation":
+            # 如果是聊天窗口，直接渲染聊天内容，不显示视图切换器
+            await self._render_conversation_window(
+                parent_element, current_path, window, bot_ids_map, image_collector
+            )
+            return
+
         # --- 1. 渲染通用部分：视图切换器 ---
         self._render_view_switcher(parent_element, current_path, window)
 
@@ -282,8 +290,8 @@ class QQWindowRenderer:
         if self_entity and self_entity.get("details"):
             details = self_entity["details"]
             profile_attrs = {
-                "user_id": details.get("platform_id", "未知"),
-                "nickname": details.get("nickname", "未知"),
+                "user_id": details.get("platform_id"),
+                "nickname": details.get("nickname"),
             }
             SubElement(window_node, "self_profile_on_platform", attrib=profile_attrs)
 

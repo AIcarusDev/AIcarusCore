@@ -152,7 +152,6 @@ class ThoughtPromptBuilder:
         aicos_properties = {}
 
         # 调用 ApplicationManager 构建基础交互
-        # BUG:build_base_interaction_schema未定义
         base_interactions = self.application_manager.build_base_interaction_schema(ui_mapping)
         if base_interactions:
             aicos_properties["base"] = {
@@ -166,7 +165,7 @@ class ThoughtPromptBuilder:
             if app_schema:
                 aicos_properties[platform_id] = {
                     "type": "object",
-                    "description": f"与 {builder.platform_id.upper()} 应用的交互。",
+                    "description": f"与 {builder.app_name.upper()} 应用的交互。",
                     "properties": app_schema,
                 }
         return aicos_properties
@@ -183,7 +182,7 @@ class ThoughtPromptBuilder:
             ui_mapping,
         ) = await self.aicos_state_generator.build_current_state(image_collector=image_collector)
 
-        _, _, _, session = await self._extract_context_from_ui()  # <--- [修改] await a call
+        _, _, _, session = await self._extract_context_from_ui()
 
         # 2. 将上一轮的快照传递给 SystemPromptPartsBuilder
         system_prompt_blocks = await self.system_prompt_parts_builder.build(

@@ -374,7 +374,7 @@ class QQBuilder(BaseAppBuilder, IApp):
         if action_name == "send_message":
             # send_message 的逻辑现在由 DecisionDispatcher 直接处理，这里可以留空或返回一个通用结构
             # 为保持一致性，我们仍然构建一个事件
-            final_event_type = f"action.{self.platform_id}.{action_name}"
+            final_event_type = f"action.{self.app_name}.{action_name}"
             action_seg = Seg(type="action_params", data=params)
             return Event(
                 event_id=str(uuid.uuid4()),

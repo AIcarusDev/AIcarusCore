@@ -5,7 +5,7 @@ import uuid
 
 from aicarus_protocols import Event, Seg
 from src.common.custom_logging.logging_config import get_logger
-from src.platform_builders.base_builder import BasePlatformBuilder
+from src.platform_builders.base_builder import BasePlatformBuilder  # type: ignore
 
 logger = get_logger(__name__)
 
@@ -25,7 +25,7 @@ class TermuxBuilder(BasePlatformBuilder):
         return True
 
     @property
-    def platform_id(self) -> str:
+    def app_name(self) -> str:
         """Termux平台的唯一标识符.
 
         这个ID必须和TermuxAdapter的config.toml里的一模一样，
@@ -48,7 +48,7 @@ class TermuxBuilder(BasePlatformBuilder):
     def build_action_event(self, action_name: str, params: dict, bot_id: str) -> Event | None:
         """这个方法负责将Core的指令，转换成发往Adapter的标准Event."""
         # 我们的Termux动作都很标准，可以直接用一个通用模板来构建
-        final_event_type = f"action.{self.platform_id}.{action_name}"
+        final_event_type = f"action.{self.app_name}.{action_name}"
         action_seg = Seg(type="action_params", data=params)
 
         return Event(
