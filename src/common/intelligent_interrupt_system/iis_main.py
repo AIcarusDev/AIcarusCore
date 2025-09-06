@@ -71,8 +71,21 @@ class IISBuilder:
 
     def _load_model_from_file(self) -> SemanticMarkovModel:
         logger.info(f"正在从 {self.model_path} 加载昨天的【语义马尔可夫】记忆...")
-        with open(self.model_path, "rb") as f:
-            return pickle.load(f)
+        try:
+            with open(self.model_path, "rb") as f:
+                return pickle.load(f)
+        except (MemoryError, pickle.UnpicklingError, EOFError) as e:
+            logger.error(
+                f"加载记忆模型文件失败，疑似文件损坏或内存不足: {e}。"
+                "即将执行自动修复操作：删除当前文件并强制重建。",
+                exc_info=True,
+            )
+            try:
+                os.remove(self.model_path)
+                logger.info(f"已成功删除损坏的记忆模型文件: {self.model_path}")
+            except OSError as remove_error:
+                logger.error(f"删除损坏的记忆模型文件失败: {remove_error}", exc_info=True)
+            raise  # 重新引发异常，由调用者（get_or_create_model）捕获并处理
 
     async def get_or_create_model(self) -> SemanticMarkovModel:
         """获取或创建语义马尔可夫模型的实例."""
