@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from aicarus_protocols import ConversationInfo, Seg, SegBuilder
 from pypinyin import Style, pinyin
 from src.common.custom_logging.logging_config import get_logger
+from src.domain.models import ActionResult
 
 if TYPE_CHECKING:
     from src.os.apps.qq.qq_chat_session import QQChatSession
@@ -39,7 +40,7 @@ class MessageBuilder:
             f"MessageBuilder 开始为会话 {self.conversation_info.conversation_id} "
             f"处理 {len(steps)} 个指令步骤..."
         )
-        any_message_sent = False
+        sent_messages_info = []
 
         for i, step in enumerate(steps):
             command = step.get("command")
@@ -58,29 +59,29 @@ class MessageBuilder:
             if (
                 command == "send_and_compose_next" or (i == len(steps) - 1)
             ) and self._current_segments:
-                success = await self._send_current_message()
-                if success:
-                    any_message_sent = True
+                action_result, sent_params = await self._send_current_message()
+                if action_result.is_success and sent_params:
+                    sent_messages_info.append((action_result, sent_params))
                 self._clear_segments()
 
-        return any_message_sent
+        return sent_messages_info
 
     def _calculate_typing_delay(self, text: str) -> float:
-        """计算模拟打字延迟 (逻辑保持不变)."""
-        key_delay_min = 0.06
-        key_delay_max = 0.18
-        char_selection_delay_min = 0.1
-        char_selection_delay_max = 0.3
+        """计算模拟打字延迟."""
+        key_delay_min = 0.03
+        key_delay_max = 0.12
+        char_selection_delay_min = 0.08
+        char_selection_delay_max = 0.15
         space_pause = 0.1
-        punctuation_pause_min = 0.4
-        punctuation_pause_max = 0.9
+        punctuation_pause_min = 0.2
+        punctuation_pause_max = 0.45
         punctuation_to_pause = "，。！？；、,."
-        initial_thinking_min = 0.3
-        initial_thinking_max = 0.8
-        max_total_delay = 25.0
+        initial_thinking_min = 0.15
+        initial_thinking_max = 0.4
+        max_total_delay = 20.0
 
         if not text:
-            return 0.0
+            return 0.05
 
         total_delay = random.uniform(initial_thinking_min, initial_thinking_max)
         for char in text:
@@ -186,7 +187,10 @@ class MessageBuilder:
         现在它会处理 ActionResult 并从中提取 action_id 存入 session.
         """
         if not self._current_segments:
-            return False
+            return (
+                ActionResult(action_id="", is_success=False, error_message="No segments to send."),
+                None,
+            )
 
         if any(seg.type == "text" for seg in self._current_segments):
             text_to_send = "".join(
@@ -211,15 +215,17 @@ class MessageBuilder:
             f"'{correct_bot_id}' 来执行 send_message 动作。"
         )
 
-        # execute_simple_action 现在返回 ActionResult 对象
+        # 准备要返回的参数
+        action_params = {
+            "conversation_id": self.conversation_info.conversation_id,
+            "conversation_type": self.conversation_info.type,
+            "content": [seg.to_dict() for seg in self._current_segments],
+        }
+
         action_result = await self.action_handler.execute_simple_action(
             platform_id=self.platform_id,
             action_name="send_message",
-            params={
-                "conversation_id": self.conversation_info.conversation_id,
-                "conversation_type": self.conversation_info.type,
-                "content": [seg.to_dict() for seg in self._current_segments],
-            },
+            params=action_params,
             bot_id=correct_bot_id,
             description="由MessageBuilder拼接并发送",
             motivation=self.motivation,
@@ -227,21 +233,11 @@ class MessageBuilder:
 
         if action_result.is_success:
             logger.info(f"消息发送成功，回执: {action_result.payload}")
-            # 从 ActionResult 对象中获取 action_id
             if action_result.action_id:
                 self.session.sent_action_ids_this_turn.append(action_result.action_id)
-                logger.debug(
-                    f"[{self.session.conversation_id}] 动作ID '{action_result.action_id}' 已记录."
-                )
-            else:
-                logger.warning(
-                    f"[{self.session.conversation_id}] 消息发送成功，"
-                    f"但未能从 ActionResult 中获取到 action_id!"
-                )
-
             self.session.consecutive_bot_messages_count += 1
             await asyncio.sleep(random.uniform(0.5, 1.5))
+            return action_result, action_params  # 返回结果和参数
         else:
             logger.error(f"消息发送失败，原因: {action_result.error_message[:100]}...")
-
-        return action_result.is_success
+            return action_result, None  # 失败时返回 None

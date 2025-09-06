@@ -289,11 +289,36 @@ class ActionHandler:
         # 使用 MessageBuilder 构建和发送消息
         logger.info(f"正在为会话 '{conversation_uid}' 实例化 MessageBuilder...")
         message_builder = MessageBuilder(session, motivation)
-        send_success = await message_builder.process_steps(steps)
+        sent_messages_info = await message_builder.process_steps(steps)
 
-        if send_success:
-            logger.info(f"消息已通过 MessageBuilder 成功发送至会话 '{conversation_uid}'。")
+        if sent_messages_info:
+            logger.info(
+                f"总计 {len(sent_messages_info)} 条消息已通过 MessageBuilder "
+                f"成功发送至会话 '{target_conversation_uid}'。"
+            )
             window_manager.focus_window(target_window.name)
+
+            # 遍历成功发送的消息，并将其作为事件存入数据库
+            for action_result, sent_params in sent_messages_info:
+                # 1. 构造 sent_dict
+                sent_dict = {
+                    "platform": session.platform,
+                    "bot_id": session.bot_id,
+                    "conversation_info": {
+                        "type": sent_params["conversation_type"],
+                        "conversation_id": sent_params["conversation_id"],
+                    },
+                    "content": sent_params["content"],
+                    "event_type": "action.qq.send_message", # 这是原始动作类型
+                }
+                # 2. 构造 metadata
+                metadata = ActionMetadata(motivation=motivation)
+                # 3. 调用存储方法
+                await self._save_successful_action_as_event(
+                    action_result.action_id,
+                    sent_dict,
+                    metadata
+                )
         else:
             logger.error(f"通过 MessageBuilder 发送消息至会话 '{conversation_uid}' 失败。")
 
@@ -439,21 +464,26 @@ class ActionHandler:
         event_to_save = sent_dict.copy()
         event_type_full = event_to_save.get("event_type", "")
 
+        # 只处理 send_message 类型的动作
         if not event_type_full.endswith(".send_message"):
             return
 
+        # 1. 转换 event_type
+        # 从 "action.qq.send_message" 转换为 "message.qq.group" 或 "message.qq.private"
         platform = event_to_save.get("platform", "unknown")
         conv_info = event_to_save.get("conversation_info")
         if conv_info and isinstance(conv_info, dict):
             conv_type = conv_info.get("type", "unknown")
             event_to_save["event_type"] = f"message.{platform}.{conv_type}"
 
+        # 2. 填充/修正关键字段
         event_to_save["event_id"] = action_id
         event_to_save["timestamp"] = int(time.time() * 1000)
         event_to_save["status"] = "read"
         if metadata.motivation and metadata.motivation.strip():
             event_to_save["motivation"] = metadata.motivation
 
+        # 3. 存入数据库
         await self.event_storage_service.save_event_document(event_to_save)
         logger.info(f"成功的发送消息动作 '{action_id}' 已作为事件存入 events 表。")
 
