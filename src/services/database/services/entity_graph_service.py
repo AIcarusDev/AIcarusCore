@@ -172,7 +172,7 @@ class EntityGraphService:
         query = f"""
         match
             $me isa account, has account-uid "{self_account_uid}";
-            (friend_a: $me, friend_b: $friend) isa friendship;
+            (friend: $me, friend: $friend) isa friendship;
         fetch {{
             "uid": $friend.account-uid,
             "name": $friend.nickname,
