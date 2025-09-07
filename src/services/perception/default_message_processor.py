@@ -55,6 +55,11 @@ class DefaultMessageProcessor:
         needs_persistence: bool = True,
     ) -> None:
         """处理来自适配器的事件."""
+        # [NEW] 专门处理图片加载失败的逻辑
+        if any(seg.type == "image_failed" for seg in proto_event.content):
+            await self._handle_image_failed_event(proto_event)
+            return  # 提前终止，不进入常规处理流程
+
         if not (platform_id := proto_event.get_platform()):
             logger.error(f"无法从事件类型 '{proto_event.event_type}' 解析平台ID，处理中止。")
             return
@@ -72,6 +77,25 @@ class DefaultMessageProcessor:
             logger.error(
                 f"处理事件 (ID: {proto_event.event_id}) 的核心逻辑中发生错误: {e}", exc_info=True
             )
+
+    async def _handle_image_failed_event(self, event: ProtocolEvent) -> None:
+        """当检测到图片处理失败时，直接生成一个回复并发布."""
+        logger.warning(f"检测到图片处理失败事件 (ID: {event.event_id})，将直接生成失败反馈。")
+        failed_seg = next((seg for seg in event.content if seg.type == "image_failed"), None)
+        if not failed_seg:
+            return
+
+        reason = failed_seg.data.get("reason", "未知错误")
+        error_message = f"抱歉，图片加载失败了({reason})，可能是链接失效或网络问题，可以尝试再发一次吗？"
+        logger.info(f"向用户发送的错误消息: {error_message}")
+
+        # 构建一个 Stimulus，其内容是直接回复用户
+        stimulus = Stimulus.from_protocol_event(event)
+        stimulus.text_content = error_message  # 我们要让AI说的话
+        stimulus.is_direct_command = True  # 标记为直接指令，让思考逻辑直接执行回复
+
+        await self.interruption_broker.publish(stimulus)
+        logger.debug(f"为图片加载失败事件 '{event.event_id}' 生成的直接回复 Stimulus 已发布。")
 
     def _calculate_and_inject_hashes(self, event_dict: dict) -> None:
         """遍历事件内容，为图片Seg计算并注入哈希值."""
