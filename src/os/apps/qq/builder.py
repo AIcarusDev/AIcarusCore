@@ -388,7 +388,7 @@ class QQBuilder(BaseAppBuilder, IApp):
                         ]
                     }
                 },
-                "motivation": {"type": "string"},
+                "motivation": {"type": "string"}
             },
             "required": ["target_conversation_uid", "steps", "motivation"]
         }
