@@ -302,45 +302,95 @@ class QQBuilder(BaseAppBuilder, IApp):
                         "使用`send_and_compose_next`可分多条发送。"
                     ),
                     "items": {
-                        "type": "object",
-                        "properties": {
-                            "command": {
-                                "title": "操作指令",
-                                "type": "string",
-                                "description": (
-                                    "选择一个具体的操作指令。"
-                                    "这个指令将决定下方`params`对象必须采用的结构。"
-                                ),
-                                "enum": ["reply", "at", "text", "sticker", "send_and_compose_next"],
+                        "description": (
+                            "单个操作步骤，必须包含一个指令(command)和其"
+                            "对应的唯一参数(params)。"
+                        ),
+                        "oneOf": [
+                            {
+                                "title": "引用/回复消息",
+                                "properties": {
+                                "command": { "type": "string", "enum": ["reply"] },
+                                "params": {
+                                    "type": "object",
+                                    "properties": {"message_id": { "type": "string" }},
+                                    "required": ["message_id"],
+                                    "description": (
+                                        "ID从聊天记录中目标用户发言的`div`元素的"
+                                        "`sender_id`属性获取，仅在需要特别提醒某人时使用，避免滥用。"
+                                    ),
+                                }
+                                }
                             },
-                            "params": {
-                                "type": "object",
-                                "description": (
-                                    "一个字典，必须且只能包含一个与上方`command`值对应的键值对。规则如下：\n"
-                                    "- 当 command 为 'reply' 时, "
-                                    'params 必须为 {"message_id": "..."} '
-                                    "(ID从聊天记录中目标消息的`id`属性获取，仅在需要明确上下文时使用，避免滥用)。\n"
-                                    "- 当 command 为 'at' 时, "
-                                    'params 必须为 {"user_id": "..."} '
-                                    "(ID从聊天记录中目标用户发言的`div`元素的`sender_id`属性获取，仅在需要特别提醒某人时使用)。\n"
-                                    "- 当 command 为 'text' 时, "
-                                    'params 必须为 {"content": "..."} '
-                                    "(建议内容简短自然，可省略主语和大部分标点)。\n"
-                                    "- 当 command 为 'sticker' 时, "
-                                    'params 必须为 {"sticker_id": "..."} '
-                                    "(ID从sticker_collection_preview获取)。\n"
-                                    "- 当 command 为 'send_and_compose_next' 时, "
-                                    "params 必须为空对象 {}"
-                                    "(此指令会触发一次发送操作，将其前面所有的指令作为一条消息发送出去。它也标志着下一条新消息的开始)。"
-                                ),
+                            {
+                                "title": "@用户",
+                                "properties": {
+                                "command": { "type": "string", "enum": ["at"] },
+                                "params": {
+                                    "type": "object",
+                                    "properties": {"user_id": {"type": "string"}},
+                                    "required": ["user_id"],
+                                    "description": (
+                                        "ID从聊天记录中目标消息的`id`属性获取，"
+                                        "仅在需要明确上下文时使用，避免滥用。"
+                                    ),
+                                }
+                                }
                             },
-                        },
-                        "required": ["command", "params"],
-                    },
+                            {
+                                "title": "发送文本",
+                                "properties": {
+                                    "command": { "type": "string", "enum": ["text"] },
+                                    "params": {
+                                        "type": "object",
+                                        "properties": { "content": { "type": "string" } },
+                                        "required": ["content"],
+                                        "description": (
+                                            "要发送的文本内容。建议内容简短、自然，"
+                                            "可省略主语和大部分标点符号。"
+                                        )
+                                    }
+                                }
+                            },
+                            {
+                                "title": "发送表情包",
+                                "properties": {
+                                    "command": {"type": "string", "enum": ["sticker"] },
+                                    "params": {
+                                        "type": "object",
+                                        "properties": {"sticker_id": {"type": "string"}},
+                                        "required": ["sticker_id"],
+                                        "description": (
+                                            "从收藏中选择的表情包ID "
+                                            "(从<sticker_collection_preview>获取)。"
+                                        ),
+                                    }
+                                }
+                            },
+                            {
+                                "title": "发送并开启新消息",
+                                "properties": {
+                                    "command": {
+                                        "type": "string",
+                                        "enum": ["send_and_compose_next"]
+                                    },
+                                    "params": {
+                                        "type": "object",
+                                        "properties": {},
+                                        "description": (
+                                            "此指令会触发一次发送操作，"
+                                            "将其前面所有的指令作为一条消息发送出去。"
+                                            "它也标志着下一条新消息的开始"
+                                        )
+                                    }
+                                }
+                            }
+                        ]
+                    }
                 },
                 "motivation": {"type": "string"},
             },
-            "required": ["target_conversation_uid", "steps", "motivation"],
+            "required": ["target_conversation_uid", "steps", "motivation"]
         }
         # 3. 如果找到了可见的聊天窗口，就动态添加 enum 约束
         if visible_conv_uids:
