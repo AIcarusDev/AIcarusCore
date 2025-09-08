@@ -65,7 +65,7 @@ class ThoughtPromptBuilder:
         )
         self.container: ServiceContainer | None = None  # 用于接收容器引用
 
-    def _build_response_schema(self, ui_mapping: dict[str, Any]) -> dict[str, Any]:
+    async def _build_response_schema(self, ui_mapping: dict[str, Any]) -> dict[str, Any]:
         """Schema 构建的总指挥方法."""
         schema_parts = {}
 
@@ -84,7 +84,7 @@ class ThoughtPromptBuilder:
         internal_action_properties.update(self.goal_manager.get_actions_schema())
         internal_action_properties.update(self.deliberation_service.get_actions_schema())
 
-        external_action_properties = self._build_external_action_schema(ui_mapping)
+        external_action_properties = await self._build_external_action_schema(ui_mapping)
 
         action_properties = {}
         if internal_action_properties:
@@ -111,7 +111,7 @@ class ThoughtPromptBuilder:
 
         return self.schema_builder.assemble(schema_parts)
 
-    def _build_external_action_schema(self, ui_mapping: dict) -> dict:
+    async def _build_external_action_schema(self, ui_mapping: dict) -> dict:
         """聚合所有外部动作提供者的 Schema."""
         external_actions = {}
 
@@ -137,7 +137,7 @@ class ThoughtPromptBuilder:
             }
 
         if self.aicos_state_generator.is_connected:
-            aicos_interactions = self._build_aicos_interaction_schema(ui_mapping)
+            aicos_interactions = await self._build_aicos_interaction_schema(ui_mapping)
             if aicos_interactions:
                 external_actions["AIC-OS"] = {
                     "type": "object",
@@ -147,7 +147,7 @@ class ThoughtPromptBuilder:
                 }
         return external_actions
 
-    def _build_aicos_interaction_schema(self, ui_mapping: dict) -> dict:
+    async def _build_aicos_interaction_schema(self, ui_mapping: dict) -> dict:
         """聚合所有 AIC-OS 交互的 Schema."""
         aicos_properties = {}
 
@@ -161,13 +161,17 @@ class ThoughtPromptBuilder:
             }
 
         for platform_id, builder in self.application_manager._builders.items():
-            app_schema = builder.get_action_definitions(self.window_manager)
-            if app_schema:
-                aicos_properties[platform_id] = {
-                    "type": "object",
-                    "description": f"与 {builder.app_name.upper()} 应用的交互。",
-                    "properties": app_schema,
-                }
+            # await 调用，并传入 container
+            if self.container:
+                app_schema = await builder.get_action_definitions(
+                    self.window_manager, self.container
+                )
+                if app_schema:
+                    aicos_properties[platform_id] = {
+                        "type": "object",
+                        "description": f"与 {builder.app_name.upper()} 应用的交互。",
+                        "properties": app_schema,
+                    }
         return aicos_properties
 
     async def build_prompts_components(
@@ -196,7 +200,7 @@ class ThoughtPromptBuilder:
             external_info_block=current_external_info_block
         )
 
-        response_schema = self._build_response_schema(ui_mapping=ui_mapping)
+        response_schema = await self._build_response_schema(ui_mapping=ui_mapping)
 
         prompt_components_obj = PromptComponents(
             system_prompt_blocks=system_prompt_blocks,

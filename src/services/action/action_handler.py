@@ -15,7 +15,6 @@ from src.os.communication.action_sender import ActionSender
 from src.os.models import WindowStatus
 from src.services.action.components.message_builder import MessageBuilder
 from src.services.action.components.pending_action_manager import PendingActionManager
-from src.services.action.services.sticker_service import StickerService
 from src.services.database import (
     ActionLogStorageService,
     EntityGraphService,
@@ -28,6 +27,7 @@ if TYPE_CHECKING:
     from src.bootstrap.container import ServiceContainer
     from src.mind.abilities.information_retrieval_service import InformationRetrievalService
     from src.os.application_manager import ApplicationManager
+    from src.os.apps.qq.sticker_service import QQStickerService
     from src.os.services.filesystem_service import FileSystemService
     from src.os.state_generator import AICOSStateGenerator
     from src.os.window_manager import WindowManager
@@ -51,7 +51,7 @@ class ActionHandler:
         action_log_service: ActionLogStorageService,
         action_sender: ActionSender,
         entity_service: EntityGraphService,
-        sticker_service: StickerService,
+        qq_sticker_service: QQStickerService,
     ) -> None:
         self.aicos_state_generator: AICOSStateGenerator | None = None
         self.application_manager: ApplicationManager | None = None
@@ -63,7 +63,7 @@ class ActionHandler:
         self.action_log_service = action_log_service
         self.action_sender = action_sender
         self.entity_service = entity_service
-        self.sticker_service = sticker_service
+        self.qq_sticker_service = qq_sticker_service
 
         self.pending_action_manager = PendingActionManager()
         logger.info(f"{self.__class__.__name__} instance created (Refactored).")
@@ -225,11 +225,17 @@ class ActionHandler:
         params: dict,
         window_manager: WindowManager,
         container: ServiceContainer,
+        thought_key: str,
     ) -> None:
         """处理由 UI Dispatcher 转发来的、需要与适配器通信的 GUI 动作."""
-        if platform_id == "qq" and action_name == "send_message":
-            # 2. 传入 container
-            await self._handle_gui_send_message(params, window_manager, container)
+        if platform_id == "qq":
+            if action_name == "send_message":
+                await self._handle_gui_send_message(params, window_manager, container)
+            # 路由 manage_stickers 动作
+            elif action_name == "manage_stickers" and self.application_manager:
+                qq_builder = self.application_manager.get_builder_by_name("qq")
+                if qq_builder and hasattr(qq_builder, "handle_sticker_action"):
+                    await qq_builder.handle_sticker_action(params, container, thought_key)
         else:
             logger.warning(
                 f"ActionHandler 收到一个未知的 GUI 动作转发: {platform_id}.{action_name}"
@@ -288,7 +294,7 @@ class ActionHandler:
 
         # 使用 MessageBuilder 构建和发送消息
         logger.info(f"正在为会话 '{conversation_uid}' 实例化 MessageBuilder...")
-        message_builder = MessageBuilder(session, motivation)
+        message_builder = MessageBuilder(session, motivation, self)
         sent_messages_info = await message_builder.process_steps(steps)
 
         if sent_messages_info:
@@ -309,7 +315,7 @@ class ActionHandler:
                         "conversation_id": sent_params["conversation_id"],
                     },
                     "content": sent_params["content"],
-                    "event_type": "action.qq.send_message", # 这是原始动作类型
+                    "event_type": "action.qq.send_message",  # 这是原始动作类型
                 }
                 # 2. 构造 metadata
                 metadata = ActionMetadata(motivation=motivation)

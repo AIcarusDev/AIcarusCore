@@ -516,7 +516,11 @@ class QQWindowRenderer:
                 placeholder_id = len(image_collector) + 1
                 placeholder_text = f"{placeholder_prefix}_{placeholder_id}]"
 
-                # 3. 收集图像数据和元信息
+                # 如果有哈希，附加到占位符后面
+                image_hash = data.get("hash")
+                if image_hash:
+                    placeholder_text += f"(hash: {image_hash})"
+
                 image_info = {
                     "id": placeholder_id,
                     "placeholder": placeholder_text,  # 存储占位符本身，方便后续查找

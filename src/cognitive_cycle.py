@@ -165,7 +165,8 @@ class CognitiveCycle:
 
             # 路由外部动作 (调用OS或ActionHandler)
             if external_action := action_payload.get("external"):
-                await self._route_external_action(external_action, ui_mapping)
+                # [修改] 传递 thought_key
+                await self._route_external_action(external_action, ui_mapping, thought_key)
                 action_taken = True
 
         if action_taken:
@@ -212,16 +213,21 @@ class CognitiveCycle:
         else:
             logger.warning(f"接收到未知的内部动作: {action_name}")
 
-    async def _route_external_action(self, external_action: dict, ui_mapping: dict) -> None:
+    async def _route_external_action(
+        self, external_action: dict, ui_mapping: dict, thought_key: str
+    ) -> None:
         """将外部动作路由到对应的 Service 或 OS 层处理器."""
         # 分发 "innate" 固有能力 (文件、搜索等) 到 ActionHandler
         if innate_action := external_action.get("innate"):
             await self.container.action_handler.process_action_flow(
                 action_id=f"action_{uuid.uuid4().hex[:6]}",
-                doc_key_for_updates=f"thought_for_innate_{uuid.uuid4().hex[:6]}",
+                doc_key_for_updates=thought_key,  # 使用真实的 thought_key
                 action_json={"innate": innate_action},
                 metadata=ActionMetadata(motivation="由 AI 核心决策发起"),
             )
         # 分发所有 AIC-OS 的 UI 交互到 UI Dispatcher
         elif aicos_interaction := external_action.get("AIC-OS"):
-            await handle_os_interaction(aicos_interaction, ui_mapping, self.container)
+            # 传递 thought_key
+            await handle_os_interaction(
+                aicos_interaction, ui_mapping, self.container, thought_key
+            )

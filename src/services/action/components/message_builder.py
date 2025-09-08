@@ -2,7 +2,7 @@
 import asyncio
 import base64
 import random
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from aicarus_protocols import ConversationInfo, Seg, SegBuilder
 from pypinyin import Style, pinyin
@@ -11,6 +11,7 @@ from src.domain.models import ActionResult
 
 if TYPE_CHECKING:
     from src.os.apps.qq.qq_chat_session import QQChatSession
+    from src.services.action.action_handler import ActionHandler
 
 logger = get_logger(__name__)
 
@@ -23,10 +24,13 @@ class MessageBuilder:
     它不再处理中断逻辑，因为中断由更高层的竞速机制处理.
     """
 
-    def __init__(self, session: "QQChatSession", motivation: str | None) -> None:
+    # 构造函数接收 ActionHandler
+    def __init__(
+        self, session: "QQChatSession", motivation: str | None, action_handler: "ActionHandler"
+    ) -> None:
         self.session = session
         self.motivation = motivation
-        self.action_handler = session.action_handler
+        self.action_handler = action_handler
         self.platform_id = session.platform
         self.conversation_info = ConversationInfo(
             conversation_id=session.conversation_info.conversation_id,
@@ -34,7 +38,7 @@ class MessageBuilder:
         )
         self._current_segments: list[Seg] = []
 
-    async def process_steps(self, steps: list[dict]) -> bool:
+    async def process_steps(self, steps: list[dict]) -> list[tuple[ActionResult, dict]]:
         """核心工作方法。它会一步步阅读指令清单（steps），并执行翻译."""
         logger.info(
             f"MessageBuilder 开始为会话 {self.conversation_info.conversation_id} "
@@ -137,19 +141,15 @@ class MessageBuilder:
             logger.warning("MessageBuilder: sticker 指令缺少 sticker_id 参数。")
             return
 
-        # --- vvv 重构后的核心逻辑 vvv ---
-        if not self.action_handler or not self.action_handler.sticker_service:
-            logger.error("MessageBuilder: StickerService 未初始化，无法发送表情包。")
+        # 调用 action_handler 中的 qq_sticker_service
+        if not self.action_handler or not self.action_handler.qq_sticker_service:
+            logger.error("MessageBuilder: QQStickerService 未初始化，无法发送表情包。")
             self._add_text("[系统提示：表情包系统出现故障]")
             return
 
-        filepath = await self.action_handler.sticker_service.get_sticker_file_path(
-            platform_id=self.platform_id, sticker_id=sticker_id
-        )
-        # --- ^^^ 重构后的核心逻辑 ^^^ ---
+        filepath = await self.action_handler.qq_sticker_service.get_sticker_file_path(sticker_id)
 
         if not filepath:
-            # get_sticker_file_path 内部已经记录了详细错误，这里只做回退
             self._add_text(f"[系统提示：我想发送表情包'{sticker_id}'，但我好像没有这个表情包]")
             return
 
@@ -181,7 +181,9 @@ class MessageBuilder:
             logger.error(f"MessageBuilder: 准备表情包 '{filepath}' 时出错: {e}", exc_info=True)
             self._add_text(f"[系统提示：发送表情包'{sticker_id}'时遇到了技术问题]")
 
-    async def _send_current_message(self) -> bool:
+    async def _send_current_message(
+        self,
+    ) -> tuple[ActionResult, dict[str, Any] | None]:
         """将工作台上拼接好的所有消息段打包发送.
 
         现在它会处理 ActionResult 并从中提取 action_id 存入 session.

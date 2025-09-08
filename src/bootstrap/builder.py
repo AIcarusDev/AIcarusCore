@@ -22,6 +22,7 @@ from src.mind.thought_generator import ThoughtGenerator
 from src.mind.thought_persistor import ThoughtPersistor
 from src.os import apps
 from src.os.application_manager import ApplicationManager
+from src.os.apps.qq.sticker_service import QQStickerService
 from src.os.communication.action_sender import ActionSender
 from src.os.communication.core_ws_server import CoreWebsocketServer
 from src.os.communication.event_receiver import EventReceiver
@@ -30,7 +31,6 @@ from src.os.state_generator import AICOSStateGenerator
 from src.os.window_manager import WindowManager
 from src.prompting.orchestrator import ThoughtPromptBuilder
 from src.services.action.action_handler import ActionHandler
-from src.services.action.services.sticker_service import StickerService
 from src.services.database.core.connection_manager import TypeDBConnectionManager
 from src.services.database.services import (
     ActionLogStorageService,
@@ -83,7 +83,8 @@ class ServiceBuilder:
 
         # 基础设施服务
         action_sender = ActionSender()
-        sticker_service = StickerService(
+        # 实例化 QQStickerService
+        qq_sticker_service = QQStickerService(
             sticker_storage_service=db_services["sticker_storage_service"],
             event_storage_service=db_services["event_storage_service"],
         )
@@ -102,7 +103,8 @@ class ServiceBuilder:
             action_log_service=db_services["action_log_service"],
             action_sender=action_sender,
             entity_service=db_services["entity_graph_service"],
-            sticker_service=sticker_service,
+            # 注入 qq_sticker_service
+            qq_sticker_service=qq_sticker_service,
         )
         action_handler.set_application_manager(application_manager)
 
@@ -171,7 +173,8 @@ class ServiceBuilder:
             goal_storage_service=db_services["goal_storage_service"],
             image_analysis_cache_service=db_services["image_analysis_cache_service"],
             action_handler=action_handler,
-            sticker_service=sticker_service,
+            # 注入 qq_sticker_service
+            qq_sticker_service=qq_sticker_service,
             intelligent_interrupter=await self._initialize_interrupt_model(
                 db_services["event_storage_service"]
             ),

@@ -21,13 +21,13 @@ if TYPE_CHECKING:
     from src.mind.thought_generator import ThoughtGenerator
     from src.mind.thought_persistor import ThoughtPersistor
     from src.os.application_manager import ApplicationManager
+    from src.os.apps.qq.sticker_service import QQStickerService
     from src.os.communication.core_ws_server import CoreWebsocketServer
     from src.os.services.filesystem_service import FileSystemService
     from src.os.state_generator import AICOSStateGenerator
     from src.os.window_manager import WindowManager
     from src.prompting.orchestrator import ThoughtPromptBuilder
     from src.services.action.action_handler import ActionHandler
-    from src.services.action.services.sticker_service import StickerService
     from src.services.database.core.connection_manager import TypeDBConnectionManager
     from src.services.database.services import (
         ActionLogStorageService,
@@ -69,7 +69,7 @@ class ServiceContainer:
 
     # 业务逻辑与功能模块
     action_handler: ActionHandler
-    sticker_service: StickerService
+    qq_sticker_service: QQStickerService
     intelligent_interrupter: IntelligentInterrupter
     message_processor: DefaultMessageProcessor
     prompt_builder: ThoughtPromptBuilder
@@ -79,7 +79,6 @@ class ServiceContainer:
     interruption_broker: InterruptionEventBroker
     narrative_vectorizer: NarrativeVectorizer
 
-    # [修改] SchemaBuilder 现在是 ThoughtPromptBuilder 的一部分，这里不再需要独立字段
 
     # 通信与核心循环
     core_comm_layer: CoreWebsocketServer
@@ -91,7 +90,7 @@ class ServiceContainer:
     aicos_state_generator: AICOSStateGenerator
     window_manager: WindowManager
 
-    # [新] 能力与服务
+    # 能力与服务
     filesystem_service: FileSystemService
     info_retrieval_service: InformationRetrievalService
     deliberation_service: DeliberationService

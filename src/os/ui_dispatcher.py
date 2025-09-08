@@ -15,7 +15,7 @@ logger = get_logger(__name__)
 
 
 async def handle_os_interaction(
-    aicos_interaction: dict, ui_mapping: dict, container: "ServiceContainer"
+    aicos_interaction: dict, ui_mapping: dict, container: "ServiceContainer", thought_key: str
 ) -> None:
     """统一处理所有与 AIC-OS GUI 相关的交互.
 
@@ -52,9 +52,9 @@ async def handle_os_interaction(
             params = platform_action[action_name]
             logger.info(f"UI Dispatcher: 路由平台GUI动作 '{platform_id}.{action_name}'")
 
-            # 将 container 传递给 ActionHandler，让它有能力调用其他服务
+            # 将 container 和 thought_key 传递给 ActionHandler
             await container.action_handler.handle_aicos_gui_action(
-                platform_id, action_name, params, window_manager, container
+                platform_id, action_name, params, window_manager, container, thought_key
             )
             break  # 一个决策只执行一个平台的动作
 

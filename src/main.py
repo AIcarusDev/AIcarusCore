@@ -21,8 +21,8 @@ async def start_core_system() -> None:
         logger.info("所有服务实例已成功创建。")
 
         # 在连接依赖前，执行一次表情包垃圾回收
-        if container.sticker_service:
-            await container.sticker_service.run_garbage_collection()
+        if container.qq_sticker_service:
+            await container.qq_sticker_service.run_garbage_collection()
 
         # 2. 连接静态依赖
         wire_dependencies(container)

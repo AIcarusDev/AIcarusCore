@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from src.services.database.services.entity_graph_service import EntityGraphService
     from src.services.database.services.event_storage_service import EventStorageService
 
+
 logger = get_logger(__name__)
 
 
@@ -148,7 +149,7 @@ class QQBuilder(BaseAppBuilder, IApp):
             conversation_id=event.conversation_info.conversation_id,
             platform=event.get_platform(),
             conv_type=event.conversation_info.type,
-            name=event.conversation_info.name
+            name=event.conversation_info.name,
         )
 
         sender_name = await entity_service.get_sender_display_name_for_event(
@@ -172,6 +173,20 @@ class QQBuilder(BaseAppBuilder, IApp):
             transient_cycles_remaining=1,  # 显示一轮
         )
         window_manager.open_window(popup)
+
+    # 处理表情包动作的后端逻辑
+    async def handle_sticker_action(
+        self, params: dict, container: ServiceContainer, thought_key: str
+    ) -> None:
+        """处理 manage_stickers 动作的实际逻辑."""
+        if not container.qq_sticker_service:
+            logger.error("QQStickerService not available in container.")
+            return
+
+        result_message = await container.qq_sticker_service.manage_stickers(params)
+        await container.thought_storage_service.save_action_result_to_thought(
+            thought_key=thought_key, result_text=result_message
+        )
 
     def get_session_manager(self, container: ServiceContainer) -> QQChatSessionManager:
         """按需创建并返回 QQChatSessionManager 的单例.
@@ -262,10 +277,20 @@ class QQBuilder(BaseAppBuilder, IApp):
             window,
         )
 
-    def get_action_definitions(self, window_manager: WindowManager) -> dict:
-        """动态定义 QQ 平台的所有动作，特别是 send_message."""
-        # 这个方法现在只定义了 send_message
-        # 1. 查找所有当前可见的聊天窗口，并提取其对应的会话 UID
+    # 实现动态 Schema
+    async def get_action_definitions(
+        self, window_manager: WindowManager, container: ServiceContainer
+    ) -> dict:
+        """动态定义 QQ 平台的所有动作，特别是 send_message 和 manage_stickers."""
+        all_actions = {}
+        if not container.qq_sticker_service:
+            return {}
+
+        # 1. 获取所有表情包数据
+        all_stickers = await container.qq_sticker_service.get_all_stickers()
+        sticker_ids = [s["sticker_id"] for s in all_stickers]
+
+        # 2. 构建 send_message Schema
         visible_conv_uids = [
             window.content_state.get("conversation_uid")
             for window in window_manager.get_all_windows_sorted()
@@ -273,8 +298,105 @@ class QQBuilder(BaseAppBuilder, IApp):
             and window.status != WindowStatus.MINIMIZE
             and window.content_state.get("conversation_uid")
         ]
-        # 2. 构建 send_message 的 Schema
-        send_message_schema = {
+
+        if visible_conv_uids:
+            send_message_schema = self._build_send_message_schema(visible_conv_uids, sticker_ids)
+            all_actions["send_message"] = send_message_schema
+
+        # 3. 构建 manage_stickers Schema (仅在聊天窗口激活时)
+        if visible_conv_uids:
+            manage_stickers_schema = self._build_manage_stickers_schema(sticker_ids)
+            if manage_stickers_schema["properties"]:  # 确保有内容才添加
+                all_actions["manage_stickers"] = manage_stickers_schema
+
+        return all_actions
+
+    def _build_send_message_schema(
+        self, visible_conv_uids: list[str], sticker_ids: list[str]
+    ) -> dict:
+        """辅助方法：构建 send_message 的 JSON Schema."""
+        # 基础指令
+        steps_oneof = [
+            {
+                "title": "引用/回复消息",
+                "properties": {
+                    "command": {"type": "string", "enum": ["reply"]},
+                    "params": {
+                        "type": "object",
+                        "properties": {"message_id": {"type": "string"}},
+                        "required": ["message_id"],
+                        "description": (
+                            "ID从聊天记录中目标用户发言的`div`元素的"
+                            "`sender_id`属性获取，仅在需要特别提醒某人时使用，避免滥用。"
+                        ),
+                    },
+                },
+            },
+            {
+                "title": "@某人",
+                "properties": {
+                    "command": {"type": "string", "enum": ["at"]},
+                    "params": {
+                        "type": "object",
+                        "properties": {"user_id": {"type": "string"}},
+                        "required": ["user_id"],
+                        "description": (
+                            "ID从聊天记录中目标消息的`id`属性获取，"
+                            "仅在需要明确上下文时使用，避免滥用。"
+                        ),
+                    },
+                },
+            },
+            {
+                "title": "发送文本",
+                "properties": {
+                    "command": {"type": "string", "enum": ["text"]},
+                    "params": {
+                        "type": "object",
+                        "properties": {"content": {"type": "string"}},
+                        "required": ["content"],
+                        "description": (
+                            "要发送的文本内容。建议内容简短、自然，"
+                            "可省略主语和大部分标点符号。"
+                        )
+                    },
+                },
+            },
+            {
+                "title": "发送并开启新消息",
+                "properties": {
+                    "command": {"type": "string", "enum": ["send_and_compose_next"]},
+                    "params": {
+                        "type": "object",
+                        "properties": {},
+                        "description": (
+                            "此指令会触发一次发送操作，"
+                            "将其前面所有的指令作为一条消息发送出去。"
+                            "它也标志着下一条新消息的开始"
+                        )
+                    },
+                },
+            },
+        ]
+
+        # 如果有表情包，才添加发送表情包的选项
+        if sticker_ids:
+            sticker_step = {
+                "title": "发送表情包",
+                "properties": {
+                    "command": {"type": "string", "enum": ["sticker"]},
+                    "params": {
+                        "type": "object",
+                        "properties": {"sticker_id": {"type": "string", "enum": sticker_ids}},
+                        "required": ["sticker_id"],
+                        "description": "从收藏中选择的表情包ID (从<sticker_collection_preview>获取)。",  # noqa: E501
+                    },
+                },
+            }
+            # 插入到倒数第二的位置，在 send_and_compose_next 之前
+            steps_oneof.insert(-1, sticker_step)
+
+        return {
             "type": "object",
             "title": "发送QQ消息",
             "description": (
@@ -292,6 +414,7 @@ class QQBuilder(BaseAppBuilder, IApp):
                     "title": "目标会话ID",
                     "type": "string",
                     "description": "需要是当前屏幕上可见会话的ID。",
+                    "enum": visible_conv_uids,
                 },
                 "steps": {
                     "type": "array",
@@ -306,195 +429,92 @@ class QQBuilder(BaseAppBuilder, IApp):
                             "单个操作步骤，必须包含一个指令(command)和其"
                             "对应的唯一参数(params)。"
                         ),
-                        "oneOf": [
-                            {
-                                "title": "引用/回复消息",
-                                "properties": {
-                                "command": { "type": "string", "enum": ["reply"] },
-                                "params": {
-                                    "type": "object",
-                                    "properties": {"message_id": { "type": "string" }},
-                                    "required": ["message_id"],
-                                    "description": (
-                                        "ID从聊天记录中目标用户发言的`div`元素的"
-                                        "`sender_id`属性获取，仅在需要特别提醒某人时使用，避免滥用。"
-                                    ),
-                                }
-                                }
-                            },
-                            {
-                                "title": "@用户",
-                                "properties": {
-                                "command": { "type": "string", "enum": ["at"] },
-                                "params": {
-                                    "type": "object",
-                                    "properties": {"user_id": {"type": "string"}},
-                                    "required": ["user_id"],
-                                    "description": (
-                                        "ID从聊天记录中目标消息的`id`属性获取，"
-                                        "仅在需要明确上下文时使用，避免滥用。"
-                                    ),
-                                }
-                                }
-                            },
-                            {
-                                "title": "发送文本",
-                                "properties": {
-                                    "command": { "type": "string", "enum": ["text"] },
-                                    "params": {
-                                        "type": "object",
-                                        "properties": { "content": { "type": "string" } },
-                                        "required": ["content"],
-                                        "description": (
-                                            "要发送的文本内容。建议内容简短、自然，"
-                                            "可省略主语和大部分标点符号。"
-                                        )
-                                    }
-                                }
-                            },
-                            {
-                                "title": "发送表情包",
-                                "properties": {
-                                    "command": {"type": "string", "enum": ["sticker"] },
-                                    "params": {
-                                        "type": "object",
-                                        "properties": {"sticker_id": {"type": "string"}},
-                                        "required": ["sticker_id"],
-                                        "description": (
-                                            "从收藏中选择的表情包ID "
-                                            "(从<sticker_collection_preview>获取)。"
-                                        ),
-                                    }
-                                }
-                            },
-                            {
-                                "title": "发送并开启新消息",
-                                "properties": {
-                                    "command": {
-                                        "type": "string",
-                                        "enum": ["send_and_compose_next"]
-                                    },
-                                    "params": {
-                                        "type": "object",
-                                        "properties": {},
-                                        "description": (
-                                            "此指令会触发一次发送操作，"
-                                            "将其前面所有的指令作为一条消息发送出去。"
-                                            "它也标志着下一条新消息的开始"
-                                        )
-                                    }
-                                }
-                            }
-                        ]
+                        "oneOf": steps_oneof
                     }
                 },
-                "motivation": {"type": "string"}
+                "motivation": {"type": "string"},
             },
-            "required": ["target_conversation_uid", "steps", "motivation"]
+            "required": ["target_conversation_uid", "steps", "motivation"],
         }
-        # ==========================================================================================
-        # 备注：下一步添加管理表情包的动作
-        # manage_stickers_schema = {
-        #     "type": "object",
-        #     "description": (
-        #         "管理你在QQ平台的表情包收藏。"
-        #         "你可以执行添加、移除或编辑印象描述的操作。"
-        #     ),
-        #     "properties": {
-        #         "add": {
-        #             "type": "object",
-        #             "description": "从聊天记录中添加一张图片到你的表情包收藏。",
-        #             "properties": {
-        #                 "image_hash": {
-        #                     "type": "string",
-        #                     "description": (
-        #                         "要添加为表情包的图片的哈希ID "
-        #                         "(从聊天记录的 `(hash:...)` 中获取)。"
-        #                     ),
-        #                 },
-        #                 "impression": {
-        #                     "type": "string",
-        #                     "description": "你对这张表情包的主观印象/描述。"
-        #                 }
-        #             },
-        #             "required": ["image_hash", "impression"]
-        #         },
-        #         "remove": {
-        #             "type": "object",
-        #             "description": "从你的表情包收藏中移除一个已有的表情包。",
-        #             "properties": {
-        #                 "sticker_id": {
-        #                     "type": "string",
-        #                     "description": "要移除的表情包的唯一编号 (例如 '001')。"
-        #                 }
-        #             },
-        #             "required": ["sticker_id"]
-        #         },
-        #         "edit_impression": {
-        #             "type": "object",
-        #             "description": "编辑一个已有的表情包的印象/描述。",
-        #             "properties": {
-        #                 "sticker_id": {
-        #                     "type": "string",
-        #                     "description": "要编辑印象/描述的表情包的编号。"
-        #                 },
-        #                 "new_impression": {
-        #                     "type": "string",
-        #                     "description": "新的印象/描述，将覆盖之前的印象/描述。"
-        #                 }
-        #             },
-        #             "required": ["sticker_id", "new_impression"]
-        #         },
-        #         "motivation": {"type": "string"}
-        #     },
-        #     "required": ["motivation"],
-        #     "oneOf": [
-        #         { "required": ["add"] },
-        #         { "required": ["remove"] },
-        #         { "required": ["edit_impression"] }
-        #     ]
-        # }
-        # ==========================================================================================
-        # 3. 如果找到了可见的聊天窗口，就动态添加 enum 约束
-        if visible_conv_uids:
-            send_message_schema["properties"]["target_conversation_uid"]["enum"] = visible_conv_uids
-        else:
-            # 如果没有可见的聊天窗口，不返回 send_message 动作
-            return {}
 
-        return {"send_message": send_message_schema}
+    def _build_manage_stickers_schema(self, sticker_ids: list[str]) -> dict:
+        """辅助方法：构建 manage_stickers 的 JSON Schema."""
+        properties = {
+            "add": {
+                "type": "object",
+                "description": "从聊天记录中添加一张图片到你的表情包收藏。",
+                "properties": {
+                    "image_hash": {
+                        "type": "string",
+                        "description": (
+                            "要添加为表情包的图片的哈希ID "
+                            "(从聊天记录的 `(hash:...)` 中获取)。"
+                        ),
+                    },
+                    "impression": {
+                        "type": "string",
+                        "description": "你对这张表情包的主观印象/描述。",
+                    },
+                },
+                "required": ["image_hash", "impression"],
+            }
+        }
+
+        # 如果有表情包，才添加 remove 和 edit_impression
+        if sticker_ids:
+            properties["remove"] = {
+                "type": "object",
+                "description": "从你的表情包收藏中移除一个已有的表情包。",
+                "properties": {
+                    "sticker_id": {
+                        "type": "string",
+                        "description": "要移除的表情包的唯一编号。",
+                        "enum": sticker_ids,
+                    }
+                },
+                "required": ["sticker_id"],
+            }
+            properties["edit_impression"] = {
+                "type": "object",
+                "description": "编辑一个已有的表情包的印象/描述。",
+                "properties": {
+                    "sticker_id": {
+                        "type": "string",
+                        "description": "要编辑印象/描述的表情包的编号。",
+                        "enum": sticker_ids,
+                    },
+                    "new_impression": {"type": "string", "description": "新的印象/描述。"},
+                },
+                "required": ["sticker_id", "new_impression"],
+            }
+
+        return {
+            "type": "object",
+            "description": "管理你在QQ平台的表情包收藏。",
+            "properties": {
+                **properties,
+                "motivation": {"type": "string"},
+            },
+            "required": ["motivation"],
+            "oneOf": [{"required": [key]} for key in properties],
+        }
 
     def build_action_event(self, action_name: str, params: dict, bot_id: str) -> Event | None:
         """将 Core 的指令转换成发往 Adapter 的标准 Event."""
         if action_name == "send_message":
-            # 从 params 中提取会话信息
             conv_id = params.get("conversation_id")
             conv_type = params.get("conversation_type")
-
             if not conv_id or not conv_type:
-                logger.error(
-                    "构建 send_message 事件失败：params 中缺少 "
-                    "conversation_id 或 conversation_type。"
-                )
+                logger.error("构建 send_message 事件失败：params 中缺少会话信息。")
                 return None
-
-            # 创建一个 ConversationInfo 对象
-            conversation_info = ConversationInfo(
-                conversation_id=str(conv_id),
-                type=str(conv_type)
-            )
-
-            final_event_type = f"action.{self.app_name}.{action_name}"
-
-            # content 字段现在应该直接是消息段列表，而不是被 action_params 包裹
+            conversation_info = ConversationInfo(conversation_id=str(conv_id), type=str(conv_type))
             content_segs = [Seg.from_dict(seg) for seg in params.get("content", [])]
-
             return Event(
                 event_id=str(uuid.uuid4()),
-                event_type=final_event_type,
+                event_type=f"action.{self.app_name}.{action_name}",
                 time=int(time.time() * 1000),
                 bot_id=bot_id,
                 content=content_segs,
-                conversation_info=conversation_info
+                conversation_info=conversation_info,
             )
         return None
