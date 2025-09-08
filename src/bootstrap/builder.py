@@ -136,6 +136,7 @@ class ServiceBuilder:
             info_retrieval_service=info_retrieval_service,
             goal_manager=goal_manager,
             deliberation_service=deliberation_service,
+            qq_sticker_service=qq_sticker_service,
         )
 
         semantic_model = await self._get_semantic_model(db_services["event_storage_service"])

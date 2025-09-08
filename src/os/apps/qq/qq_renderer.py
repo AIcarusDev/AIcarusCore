@@ -1,15 +1,23 @@
 # 文件路径: src/os/apps/qq/qq_renderer.py
 
+import base64
 import time
+from pathlib import Path
 from xml.etree.ElementTree import Element, SubElement
 
 from pypinyin import Style, pinyin
+from src.common.custom_logging.logging_config import get_logger
 from src.common.time_utils import format_relative_time
 from src.common.utils import parse_entity_uid
+from src.config import config
 from src.os.models import Window, WindowStatus
 from src.services.database.services.entity_graph_service import EntityGraphService
 from src.services.database.services.event_storage_service import EventStorageService
 
+logger = get_logger(__name__)
+
+# 定义一个唯一的常量来标识预览图资源
+STICKER_PREVIEW_SOURCE_ID = "qq_stickers_preview"
 
 class QQWindowRenderer:
     """专用于QQ应用的窗口内容渲染器.
@@ -488,8 +496,61 @@ class QQWindowRenderer:
                 "direction": "down",
             }
 
+        # 渲染表情包预览图的逻辑
         action_bar_node = SubElement(window_node, "action_bar")
         SubElement(action_bar_node, "desc").text = "你可以使用 send_message 动作来回复。"
+
+        # 检查预览图是否已被其他窗口加载
+        sticker_preview_placeholder = None
+        existing_preview = next(
+            (img for img in image_collector if img.get("source_id") == STICKER_PREVIEW_SOURCE_ID),
+            None,
+        )
+
+        if existing_preview:
+            # 如果已加载，直接复用其占位符
+            sticker_preview_placeholder = existing_preview["placeholder"]
+            logger.debug(f"复用已加载的表情包预览图: {sticker_preview_placeholder}")
+        else:
+            # 如果未加载，执行加载流程
+            sticker_preview_path = (
+                Path(config.runtime_environment.stickers_dir) / "qq_stickers_preview.jpg"
+            )
+            if sticker_preview_path.exists():
+                try:
+                    with open(sticker_preview_path, "rb") as f:
+                        image_bytes = f.read()
+
+                    base64_data = base64.b64encode(image_bytes).decode("utf-8")
+
+                    placeholder_id = len(image_collector) + 1
+                    placeholder_text = f"[表情包收藏预览_{placeholder_id}]"
+
+                    image_info = {
+                        "id": placeholder_id,
+                        "placeholder": placeholder_text,
+                        "mime_type": "image/jpeg",
+                        "data": base64_data,
+                        "source_id": STICKER_PREVIEW_SOURCE_ID,  # 添加唯一标识符
+                    }
+
+                    image_collector.append(image_info)
+                    sticker_preview_placeholder = placeholder_text
+                    logger.debug(f"首次加载表情包预览图: {sticker_preview_placeholder}")
+
+                except Exception as e:
+                    logger.error(f"加载表情包预览图 '{sticker_preview_path}' 失败: {e}")
+                    SubElement(
+                        action_bar_node, "sticker_collection_preview"
+                    ).text = "[预览图加载失败]"
+
+        # 无论如何，都使用获取到的占位符渲染XML
+        if sticker_preview_placeholder:
+            SubElement(
+                action_bar_node,
+                "sticker_collection_preview",
+                attrib={"src": sticker_preview_placeholder},
+            ).text = "你的表情包收藏预览"
 
     async def _render_rich_content(
         self, content_node: Element, segments: list[dict], image_collector: list[dict]

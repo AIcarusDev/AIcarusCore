@@ -35,7 +35,7 @@ CORE_CYCLE_SYSTEM_PROMPT = """
 {working_memories_block}
 </working_memories>
 
-{sticker_collection_block}
+{sticker_impression_block}
 
 <behavior_guidelines>
 {behavior_guidelines_block}
@@ -43,15 +43,8 @@ CORE_CYCLE_SYSTEM_PROMPT = """
 
 <output_format>
 你的输出是 JSON 格式，你必须**严格**地按照 Schema 的结构和规则来生成 JSON。
-JSON 对象包含三个顶级键: `"internal_state"`, `"internal_action"`, `"external_action"`。
-注意，所有`"internal_action"`和`"external_action"`包含的键都需要填写`"motivation"`字段，作为你转移注意力/做某事的动机或原因。
-以下是可用字段介绍：
-
-- **"internal_state"**: (必需) 你的内心状态。
-
-- **"internal_action"**: (可选) 用于管理你的内部状态，如目标管理或深度思考。
-
-- **"external_action"**: (可选) 用于与 AIC-OS 的图形界面交互。
+JSON 对象包含三个顶级键: `"internal_state"`, `"action"`。
+注意，所有`"action"`内包含的动作都需要填写`"motivation"`字段，作为你做某事的动机或原因。
 </output_format>
 """
 
