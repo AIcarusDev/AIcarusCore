@@ -392,6 +392,69 @@ class QQBuilder(BaseAppBuilder, IApp):
             },
             "required": ["target_conversation_uid", "steps", "motivation"]
         }
+        # ==========================================================================================
+        # 备注：下一步添加管理表情包的动作
+        # manage_stickers_schema = {
+        #     "type": "object",
+        #     "description": (
+        #         "管理你在QQ平台的表情包收藏。"
+        #         "你可以执行添加、移除或编辑印象描述的操作。"
+        #     ),
+        #     "properties": {
+        #         "add": {
+        #             "type": "object",
+        #             "description": "从聊天记录中添加一张图片到你的表情包收藏。",
+        #             "properties": {
+        #                 "image_hash": {
+        #                     "type": "string",
+        #                     "description": (
+        #                         "要添加为表情包的图片的哈希ID "
+        #                         "(从聊天记录的 `(hash:...)` 中获取)。"
+        #                     ),
+        #                 },
+        #                 "impression": {
+        #                     "type": "string",
+        #                     "description": "你对这张表情包的主观印象/描述。"
+        #                 }
+        #             },
+        #             "required": ["image_hash", "impression"]
+        #         },
+        #         "remove": {
+        #             "type": "object",
+        #             "description": "从你的表情包收藏中移除一个已有的表情包。",
+        #             "properties": {
+        #                 "sticker_id": {
+        #                     "type": "string",
+        #                     "description": "要移除的表情包的唯一编号 (例如 '001')。"
+        #                 }
+        #             },
+        #             "required": ["sticker_id"]
+        #         },
+        #         "edit_impression": {
+        #             "type": "object",
+        #             "description": "编辑一个已有的表情包的印象/描述。",
+        #             "properties": {
+        #                 "sticker_id": {
+        #                     "type": "string",
+        #                     "description": "要编辑印象/描述的表情包的编号。"
+        #                 },
+        #                 "new_impression": {
+        #                     "type": "string",
+        #                     "description": "新的印象/描述，将覆盖之前的印象/描述。"
+        #                 }
+        #             },
+        #             "required": ["sticker_id", "new_impression"]
+        #         },
+        #         "motivation": {"type": "string"}
+        #     },
+        #     "required": ["motivation"],
+        #     "oneOf": [
+        #         { "required": ["add"] },
+        #         { "required": ["remove"] },
+        #         { "required": ["edit_impression"] }
+        #     ]
+        # }
+        # ==========================================================================================
         # 3. 如果找到了可见的聊天窗口，就动态添加 enum 约束
         if visible_conv_uids:
             send_message_schema["properties"]["target_conversation_uid"]["enum"] = visible_conv_uids
