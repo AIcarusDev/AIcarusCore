@@ -11,6 +11,7 @@ from PIL import Image
 from sentence_transformers import SentenceTransformer
 from src.common.custom_logging.logging_config import get_logger
 from src.common.json_parser.json_parser import parse_llm_json_response
+from src.config.aicarus_configs import FeatureFlags
 from src.prompting.templates.image_analysis import IMAGE_ANALYSIS_PROMPT, STICKER_ANALYSIS_PROMPT
 from src.services.action.components.llm_client_factory import LLMClientFactory
 from src.services.database import CoreDBCollections, TypeDBConnectionManager
@@ -60,9 +61,11 @@ class ImageAnalysisService:
         self,
         conn_manager: TypeDBConnectionManager,
         cache_service: ImageAnalysisCacheService,
+        feature_flags: FeatureFlags,
     ) -> None:
         self.conn_manager = conn_manager
         self.cache_service = cache_service
+        self.feature_flags = feature_flags
         self.events_collection_name = CoreDBCollections.EVENTS
         self.task_queue: asyncio.Queue[dict] = asyncio.Queue()
         self._worker_task: asyncio.Task | None = None
@@ -171,6 +174,8 @@ class ImageAnalysisService:
         return hashlib.sha256(image_bytes).hexdigest()
 
     async def _calculate_embedding(self, base64_data: str) -> list[float] | None:
+        if not self.feature_flags.enable_vector_embedding:
+            return None
         try:
             image_bytes = base64.b64decode(base64_data)
             image = Image.open(io.BytesIO(image_bytes))
@@ -183,6 +188,8 @@ class ImageAnalysisService:
     async def _generate_description(
         self, image_type: str, base64_data: str, mime_type: str
     ) -> dict[str, Any]:
+        if not self.feature_flags.enable_image_to_text:
+            return {"description": "Image to text feature is disabled."}
         try:
             system_prompt, schema = (
                 (STICKER_ANALYSIS_PROMPT, STICKER_ANALYSIS_SCHEMA)

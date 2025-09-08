@@ -174,6 +174,17 @@ class CoreLogicSettings(ConfigBase):
 
 
 @dataclass
+class FeatureFlags(ConfigBase):
+    """功能开关，用于启用或禁用特定的功能."""
+
+    enable_vector_embedding: bool = False
+    """是否启用向量嵌入功能."""
+
+    enable_image_to_text: bool = False
+    """是否启用图片转文字功能."""
+
+
+@dataclass
 class LoggingSettings(ConfigBase):
     """日志记录相关设置，包括日志级别和日志文件路径."""
 
@@ -279,6 +290,7 @@ class AlcarusRootConfig(ConfigBase):
     llm_client_settings: LLMClientSettings
     persona: PersonaSettings
     core_logic_settings: CoreLogicSettings
+    feature_flags: FeatureFlags = field(default_factory=FeatureFlags)
     llm_models: AllModelPurposesConfig | None = field(default_factory=AllModelPurposesConfig)
     working_memory: WorkingMemorySettings = field(default_factory=WorkingMemorySettings)
     test_function: TestFunctionConfig = field(default_factory=TestFunctionConfig)

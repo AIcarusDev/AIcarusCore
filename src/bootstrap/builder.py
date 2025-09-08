@@ -88,7 +88,9 @@ class ServiceBuilder:
             event_storage_service=db_services["event_storage_service"],
         )
         image_analysis_service = ImageAnalysisService(
-            db_services["conn_manager"], db_services["image_analysis_cache_service"]
+            db_services["conn_manager"],
+            db_services["image_analysis_cache_service"],
+            config.feature_flags,
         )
 
         # ActionHandler 的初始化
