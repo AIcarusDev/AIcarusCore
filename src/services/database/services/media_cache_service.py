@@ -148,7 +148,46 @@ class MediaCacheService:
         sub_dir = self.media_cache_dir / image_hash[:2]
         return sub_dir / image_hash
 
-    # --- [核心新增] 存储和获取原始图片数据 ---
+    async def get_images_b64_by_hashes(self, image_hashes: list[str]) -> dict[str, dict]:
+        """批量通过哈希从文件缓存获取图片的Base64和MIME类型.
+
+        Args:
+            image_hashes: 一个包含多个图片哈希的列表。
+
+        Returns:
+            一个字典，键是图片哈希，值是包含 "base64" 和 "mime_type" 的字典。
+            只包含成功找到的图片。
+        """
+        if not image_hashes:
+            return {}
+
+        # 并发执行所有单个图片的获取任务
+        tasks = [self.get_image_b64_by_hash(h) for h in image_hashes]
+        results = await asyncio.gather(*tasks)
+
+        # 将结果重新组织成以哈希为键的字典
+        # 过滤掉返回 None 的失败结果
+        return {res["hash"]: res for res in results if res and "hash" in res}
+
+    async def save_images_b64(self, images_data: list[dict]) -> None:
+        """批量保存从Adapter获取的图片数据到缓存.
+
+        Args:
+            images_data: 一个字典列表，每个字典包含 "hash", "base64", "mime_type"。
+        """
+        if not images_data:
+            return
+
+        tasks = [
+            self.save_image_b64(
+                img.get("hash", ""), img.get("base64", ""), img.get("mime_type", "")
+            )
+            for img in images_data if isinstance(img, dict)
+        ]
+        await asyncio.gather(*tasks)
+        logger.info(f"已批量缓存 {len(tasks)} 张从Adapter获取的图片。")
+
+    # 存储和获取原始图片数据 ---
     async def get_image_b64_by_hash(self, image_hash: str) -> dict | None:
         """通过哈希从文件缓存获取图片的Base64和MIME类型."""
         file_path = self._get_file_path_for_hash(image_hash)
@@ -188,6 +227,9 @@ class MediaCacheService:
 
     async def save_image_b64(self, image_hash: str, base64_data: str, mime_type: str) -> bool:
         """保存图片的Base64数据到文件缓存，并在数据库中记录元数据."""
+        if not all([image_hash, base64_data, mime_type]):
+            logger.warning("尝试保存空的图片数据到缓存，已跳过。")
+            return False
         file_path = self._get_file_path_for_hash(image_hash)
 
         try:

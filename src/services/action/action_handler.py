@@ -163,6 +163,54 @@ class ActionHandler:
             thought_key=doc_key, result_text=result_text
         )
 
+    async def request_media_from_adapters(self, missing_hashes_map: dict[str, str]) -> list[dict]:
+        """向多个Adapter并发请求缺失的媒体文件.
+
+        Args:
+            missing_hashes_map: 一个字典，键是缺失的图片哈希，值是对应的 platform_id。
+
+        Returns:
+            一个成功获取的图片数据字典列表，每个字典包含 "hash", "base64", "mime_type"。
+        """
+        if not missing_hashes_map:
+            return []
+
+        tasks = []
+        for hash_val, platform_id in missing_hashes_map.items():
+            # bot_id 在这里不重要，因为我们是向平台本身请求资源，而不是代表某个bot
+            # 但为了兼容 execute_simple_action, 我们需要提供一个
+            # 我们可以从 ApplicationManager 获取
+            bot_id = self.application_manager.get_self_bot_ids_map().get(platform_id, "unknown_bot")
+
+            task = self.execute_simple_action(
+                platform_id=platform_id,
+                action_name="media.get",
+                params={"hash": hash_val},
+                bot_id=bot_id,
+                description=f"回源请求媒体文件 {hash_val[:10]}"
+            )
+            tasks.append(task)
+
+        logger.info(f"正在并发地向Adapter回源请求 {len(tasks)} 个媒体文件...")
+        results = await asyncio.gather(*tasks)
+
+        fetched_images = []
+        for res in results:
+            if res.is_success and isinstance(res.payload, dict):
+                # 确认 payload 包含必要字段
+                if all(k in res.payload for k in ["hash", "base64", "mime_type"]):
+                    fetched_images.append(res.payload)
+                else:
+                    logger.warning(
+                        f"Adapter为媒体请求 {res.action_id} 返回了不完整的payload: {res.payload}"
+                    )
+            elif not res.is_success:
+                logger.error(f"媒体回源请求 {res.action_id} 失败: {res.error_message}")
+
+
+        logger.info(f"成功从Adapter获取了 {len(fetched_images)} / {len(tasks)} 个媒体文件。")
+        return fetched_images
+
     async def _execute_platform_action_flow(
         self,
         platform_id: str,

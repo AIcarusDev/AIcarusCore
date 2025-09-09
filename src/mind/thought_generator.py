@@ -8,6 +8,8 @@ from src.common.custom_logging.logging_config import get_logger
 from src.common.json_parser.json_parser import parse_llm_json_response
 
 if TYPE_CHECKING:
+    from src.services.action.action_handler import ActionHandler
+    from src.services.database.services.media_cache_service import MediaCacheService
     from src.services.llmrequest.llm_processor import Client as ProcessorClient
 
 logger = get_logger(__name__)
@@ -24,8 +26,15 @@ class ThoughtGenerator:
         llm_client (ProcessorClient): 用于与 LLM API 交互的客户端实例.
     """
 
-    def __init__(self, llm_client: "ProcessorClient") -> None:
+    def __init__(
+        self,
+        llm_client: "ProcessorClient",
+        action_handler: "ActionHandler",
+        media_cache_service: "MediaCacheService",
+    ) -> None:
         self.llm_client = llm_client
+        self.action_handler = action_handler
+        self.media_cache_service = media_cache_service
         logger.info("ThoughtGenerator 已初始化。")
 
     async def generate_thought(
@@ -89,43 +98,77 @@ class ThoughtGenerator:
         logger.debug("=" * 41 + " END OF DEBUG " + "=" * 41)
 
         # --- 2. 构建图文混合的 parts 列表 ---
+        all_image_data = {}
+
+        if image_references:
+            # 1. 批量从本地缓存获取图片
+            hashes_to_find = [img["hash"] for img in image_references if "hash" in img]
+            logger.debug(f"准备从本地缓存批量获取 {len(hashes_to_find)} 张图片...")
+            cached_images = await self.media_cache_service.get_images_b64_by_hashes(hashes_to_find)
+            all_image_data.update(cached_images)
+            logger.debug(f"本地缓存命中 {len(cached_images)} 张图片。")
+
+            # 2. 找出缓存中没有的图片
+            missing_hashes_map = {
+                img["hash"]: img["platform_id"]
+                for img in image_references
+                if "hash" in img and img["hash"] not in cached_images
+            }
+
+            # 3. 为缺失的图片发起反向请求
+            if missing_hashes_map:
+                logger.info(f"发现 {len(missing_hashes_map)} 张图片不在本地缓存，将向Adapter请求。")
+                fetched_images_list = await self.action_handler.request_media_from_adapters(
+                    missing_hashes_map
+                )
+
+                # 将获取到的图片存入缓存并合并到结果中
+                if fetched_images_list:
+                    await self.media_cache_service.save_images_b64(fetched_images_list)
+                    fetched_images_map = {img["hash"]: img for img in fetched_images_list}
+                    all_image_data.update(fetched_images_map)
+
+        # 4. 构建最终的 user_prompt_parts
         user_prompt_parts = []
         if not image_references:
-            # 如果没有图片，行为和以前一样，是纯文本
             user_prompt_parts.append({"text": user_prompt})
         else:
-            # 如果有图片，执行精巧的“分裂-插入”逻辑
-            # 1. 构建一个正则表达式，用于查找所有占位符
-            # e.g., r"(\[图片_1\]|\[动画表情_2\]|...)"
+            # 使用 `all_image_data` 这个最终的数据源来构建
             placeholder_pattern_str = "|".join(
                 re.escape(img["placeholder"]) for img in image_references
             )
             placeholder_pattern = re.compile(f"({placeholder_pattern_str})")
 
-            # 2. 创建一个从占位符文本到图像数据的映射，方便快速查找
-            image_map = {img["placeholder"]: img for img in image_references}
+            # 创建占位符到哈希的映射
+            placeholder_to_hash_map = {
+                img["placeholder"]: img.get("hash") for img in image_references
+            }
 
-            # 3. 分割文本
             text_fragments = placeholder_pattern.split(user_prompt)
 
-            # 4. 重新组装成 parts 列表
             for fragment in text_fragments:
                 if not fragment:
                     continue
 
-                if fragment in image_map:
-                    # 如果这个片段是我们的占位符，就插入图片数据
-                    image_data = image_map[fragment]
-                    user_prompt_parts.append(
-                        {
-                            "inline_data": {
-                                "mime_type": image_data["mime_type"],
-                                "data": image_data["data"],
-                            }
+                image_hash = placeholder_to_hash_map.get(fragment)
+                if image_hash and image_hash in all_image_data:
+                    # 如果这个片段是占位符，并且我们成功获取了它的数据
+                    image_data = all_image_data[image_hash]
+                    user_prompt_parts.append({
+                        "inline_data": {
+                            "mime_type": image_data["mime_type"],
+                            "data": image_data["base64"],
                         }
+                    })
+                elif fragment in placeholder_to_hash_map:
+                    # 占位符存在，但无法获取图片数据
+                    logger.warning(
+                        f"无法为占位符 {fragment} (哈希: {image_hash}) 获取图片数据，"
+                        f"将在prompt中忽略。"
                     )
+                    user_prompt_parts.append({"text": "[图片加载失败]"})
                 else:
-                    # 否则，它就是普通的文本片段
+                    # 否则，它是普通的文本片段
                     user_prompt_parts.append({"text": fragment})
 
         # --- 3. 调用LLM客户端 ---

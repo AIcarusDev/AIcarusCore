@@ -158,11 +158,18 @@ class ServiceBuilder:
             narrative_vectorizer=narrative_vectorizer,
         )
 
+        thought_generator = ThoughtGenerator(
+            llm_client=llm_clients["main_consciousness_llm_client"],
+            action_handler=action_handler,
+            media_cache_service=db_services["media_cache_service"]
+        )
+
         container = ServiceContainer(
             main_consciousness_llm_client=llm_clients["main_consciousness_llm_client"],
             web_search_agent_client=llm_clients["web_search_agent_client"],
             url_context_agent_client=llm_clients["url_context_agent_client"],
             deliberation_llm_client=llm_clients["deliberation_llm_client"],
+            thought_generator=thought_generator,
             config=config,
             conn_manager=db_services["conn_manager"],
             event_storage_service=db_services["event_storage_service"],
@@ -182,7 +189,6 @@ class ServiceBuilder:
             message_processor=message_processor,
             prompt_builder=prompt_builder,
             state_manager=state_manager,
-            thought_generator=ThoughtGenerator(llm_clients["main_consciousness_llm_client"]),
             thought_persistor=ThoughtPersistor(db_services["thought_storage_service"]),
             interruption_broker=interruption_broker,
             narrative_vectorizer=narrative_vectorizer,
