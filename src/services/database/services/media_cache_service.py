@@ -244,10 +244,13 @@ class MediaCacheService:
 
             def db_write_meta() -> bool:
                 with driver.transaction(db_name, TransactionType.WRITE) as tx:
+                    # 对 Windows 路径中的反斜杠进行转义
+                    safe_file_path = str(file_path.resolve()).replace("\\", "\\\\")
+                    safe_file_path = safe_file_path.replace('"', '\\"')
                     # 使用 put (upsert) 逻辑
                     put_query = f"""
                     match $ic isa image-cache, has image-hash "{image_hash}";
-                    put $ic has file-path "{str(file_path.resolve()).replace('"', '\\"')}",
+                    put $ic has file-path "{safe_file_path}",
                         has mime-type "{mime_type}";
                     """
                     tx.query(put_query).resolve()

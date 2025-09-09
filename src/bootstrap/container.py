@@ -65,7 +65,7 @@ class ServiceContainer:
     image_analysis_service: ImageAnalysisService
     sticker_storage_service: StickerStorageService
     goal_storage_service: GoalStorageService
-    image_analysis_cache_service: MediaCacheService
+    media_cache_service: MediaCacheService
 
     # 业务逻辑与功能模块
     action_handler: ActionHandler

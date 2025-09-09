@@ -154,6 +154,7 @@ class ServiceBuilder:
             action_log_service=db_services["action_log_service"],
             image_analysis_service=image_analysis_service,
             semantic_model=semantic_model,
+            media_cache_service=db_services["media_cache_service"],
             interruption_broker=interruption_broker,
             narrative_vectorizer=narrative_vectorizer,
         )
@@ -179,7 +180,7 @@ class ServiceBuilder:
             image_analysis_service=image_analysis_service,
             sticker_storage_service=db_services["sticker_storage_service"],
             goal_storage_service=db_services["goal_storage_service"],
-            image_analysis_cache_service=db_services["image_analysis_cache_service"],
+            media_cache_service=db_services["media_cache_service"],
             action_handler=action_handler,
             # 注入 qq_sticker_service
             qq_sticker_service=qq_sticker_service,

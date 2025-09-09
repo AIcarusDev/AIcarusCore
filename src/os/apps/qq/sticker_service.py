@@ -45,12 +45,12 @@ class QQStickerService:
 
     async def get_all_stickers(self) -> list[dict[str, Any]]:
         """获取QQ平台的所有表情包元数据."""
-        return await self.sticker_storage_service.get_all_stickers(self.PLATFORM_ID)
+        return await self.sticker_storage_service.get_all_stickers(platform_id=self.PLATFORM_ID)
 
     async def get_sticker_file_path(self, sticker_id: str) -> Path | None:
         """根据表情包ID，获取其在文件系统中的完整路径."""
         sticker_doc = await self.sticker_storage_service.get_sticker_by_id(
-            self.PLATFORM_ID, sticker_id
+            platform_id=self.PLATFORM_ID, sticker_id=sticker_id
         )
         if not sticker_doc:
             logger.error(f"QQStickerService: 找不到编号为 '{sticker_id}' 的表情包。")
@@ -130,7 +130,9 @@ class QQStickerService:
             similarity_tolerance = config.sticker_settings.p_hash_tolerance
             logger.debug(f"正在使用 pHash 容忍度 {similarity_tolerance} 检查相似表情包...")
             similar_sticker = await self.sticker_storage_service.find_similar_sticker_by_phash(
-                self.PLATFORM_ID, perceptual_hash, tolerance=similarity_tolerance
+                platform_id=self.PLATFORM_ID,
+                phash_to_check=perceptual_hash,
+                tolerance=similarity_tolerance,
             )
             if similar_sticker:
                 similar_id = similar_sticker["sticker_uid"].split("_")[-1]
@@ -151,7 +153,11 @@ class QQStickerService:
                 f.write(image_bytes)
 
             sticker_doc = await self.sticker_storage_service.add_sticker(
-                self.PLATFORM_ID, new_filename, impression, image_hash, perceptual_hash
+                platform_id=self.PLATFORM_ID,
+                filename=new_filename,
+                impression=impression,
+                source_image_hash=image_hash,
+                perceptual_hash=perceptual_hash
             )
             if not sticker_doc:
                 save_path.unlink(missing_ok=True)
@@ -172,7 +178,7 @@ class QQStickerService:
             return "错误：移除表情包缺少 sticker_id。"
 
         sticker_doc = await self.sticker_storage_service.get_sticker_by_id(
-            self.PLATFORM_ID, sticker_id
+            platform_id=self.PLATFORM_ID, sticker_id=sticker_id
         )
         if not sticker_doc:
             return f"操作完成，但表情包 '{sticker_id}' 本来就不在你的收藏中。"
@@ -180,7 +186,9 @@ class QQStickerService:
         filepath = self._platform_dir / sticker_doc["filename"]
         filepath.unlink(missing_ok=True)
 
-        if await self.sticker_storage_service.remove_sticker(self.PLATFORM_ID, sticker_id):
+        if await self.sticker_storage_service.remove_sticker(
+            platform_id=self.PLATFORM_ID, sticker_id=sticker_id
+        ):
             return f"成功！已从你的收藏中移除表情包 '{sticker_id}'。"
         else:
             return f"错误：从数据库移除表情包 '{sticker_id}' 时失败。"
@@ -193,7 +201,7 @@ class QQStickerService:
             return "错误：编辑印象缺少 sticker_id 或 new_impression。"
 
         if await self.sticker_storage_service.edit_impression(
-            self.PLATFORM_ID, sticker_id, new_impression
+            platform_id=self.PLATFORM_ID, sticker_id=sticker_id, new_impression=new_impression
         ):
             return f"成功！表情包 '{sticker_id}' 的印象已更新为：“{new_impression}”。"
         else:
@@ -204,7 +212,7 @@ class QQStickerService:
         logger.info(f"正在为平台 '{self.PLATFORM_ID}' 触发表情包缩略图重新生成...")
         try:
             all_stickers_meta = await self.sticker_storage_service.get_all_stickers(
-                self.PLATFORM_ID
+                platform_id=self.PLATFORM_ID
             )
             # 预览图保存在根目录，方便访问
             preview_path = self._stickers_dir / f"{self.PLATFORM_ID}_stickers_preview.jpg"
@@ -246,7 +254,7 @@ class QQStickerService:
 
         try:
             db_stickers = await self.sticker_storage_service.get_all_stickers(
-                platform=self.PLATFORM_ID
+                platform_id=self.PLATFORM_ID
             )
             registered_filenames = {sticker["filename"] for sticker in db_stickers}
 
