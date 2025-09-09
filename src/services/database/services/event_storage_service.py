@@ -578,3 +578,58 @@ class EventStorageService:
             return "[非文本消息]"
 
         return f"{summary[:30]}..." if len(summary) > 30 else summary
+
+    # TODO:优化这个查询，避免在大数据集上进行全文字符串匹配
+    async def get_event_by_platform_message_id(
+        self, conversation_uid: str, platform_message_id: str
+    ) -> dict[str, Any] | None:
+        """通过平台原生的 message_id 在特定会话中查找事件.
+
+        这是一个相对耗时的查询，应谨慎使用。
+        """
+        _, _, conv_native_id = parse_entity_uid(conversation_uid) or (None, None, None)
+        if not conv_native_id or not platform_message_id:
+            return None
+
+        # 在JSON字符串中查找 message_id。需要对双引号进行转义。
+        # "message_id": "-12345" -> \\"message_id\\": \\"-12345\\"
+        message_id_pattern = f'\\"message_id\\": \\"{platform_message_id}\\"'
+
+        # 这个查询结合了会话ID和消息ID模式，以最大化效率
+        query = f"""
+        match
+            $e isa event,
+                has conversation-info-json $ci,
+                has content-json $cj;
+            $ci contains "\\"{conv_native_id}\\"";
+            $cj contains "{message_id_pattern}";
+        select $e;
+        limit 1;
+        """
+        driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
+
+        def db_read() -> dict | None:
+            with driver.transaction(db_name, TransactionType.READ) as tx:
+                answers = list(tx.query(query).resolve().as_concept_rows())
+                if answers and (e_concept := answers[0].get("e")):
+                    # 复用内部帮助函数来获取完整的事件文档
+                    eid_answers = list(
+                        tx.query(
+                            f"match $x iid {e_concept.get_iid()}, has event-id $id; select $id;"
+                        )
+                        .resolve()
+                        .as_concept_rows()
+                    )
+                    if eid_answers and (id_attr := eid_answers[0].get("id")):
+                        return self._get_full_event_doc_sync(tx, id_attr.as_attribute().get_value())
+            return None
+
+        try:
+            return await asyncio.to_thread(db_read)
+        except Exception as e:
+            logger.error(
+                f"通过 platform_message_id '{platform_message_id}' "
+                f"在会话 '{conversation_uid}' 中查找事件失败: {e!r}",
+                exc_info=True
+            )
+            return None
