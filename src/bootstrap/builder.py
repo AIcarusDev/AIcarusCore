@@ -90,7 +90,7 @@ class ServiceBuilder:
         )
         image_analysis_service = ImageAnalysisService(
             db_services["conn_manager"],
-            db_services["image_analysis_cache_service"],
+            db_services["media_cache_service"],
             config.feature_flags,
         )
 
