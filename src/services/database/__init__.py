@@ -18,7 +18,7 @@ from .services import (
     EntityGraphService,
     EventStorageService,
     GoalStorageService,
-    ImageAnalysisCacheService,
+    MediaCacheService,
     StickerStorageService,
     ThoughtStorageService,
 )
@@ -36,8 +36,8 @@ __all__ = [
     "EventStorageService",
     "GoalDocument",
     "GoalStorageService",
-    "ImageAnalysisCacheService",
     "ImageCacheDocument",
+    "MediaCacheService",
     "StickerDocument",
     "StickerStorageService",
     "ThoughtChainDocument",

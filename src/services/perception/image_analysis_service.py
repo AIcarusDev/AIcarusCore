@@ -7,6 +7,7 @@ import io
 import threading
 from typing import Any
 
+from AIcarusCore.src.services.database.services.media_cache_service import MediaCacheService
 from PIL import Image
 from sentence_transformers import SentenceTransformer
 from src.common.custom_logging.logging_config import get_logger
@@ -15,7 +16,6 @@ from src.config.aicarus_configs import FeatureFlags
 from src.prompting.templates.image_analysis import IMAGE_ANALYSIS_PROMPT, STICKER_ANALYSIS_PROMPT
 from src.services.action.components.llm_client_factory import LLMClientFactory
 from src.services.database import CoreDBCollections, TypeDBConnectionManager
-from src.services.database.services.image_analysis_cache_service import ImageAnalysisCacheService
 from src.services.llmrequest.llm_processor import Client as LLMProcessorClient
 
 logger = get_logger(__name__)
@@ -60,7 +60,7 @@ class ImageAnalysisService:
     def __init__(
         self,
         conn_manager: TypeDBConnectionManager,
-        cache_service: ImageAnalysisCacheService,
+        cache_service: MediaCacheService,
         feature_flags: FeatureFlags,
     ) -> None:
         self.conn_manager = conn_manager

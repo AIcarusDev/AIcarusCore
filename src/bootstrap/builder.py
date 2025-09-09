@@ -37,7 +37,7 @@ from src.services.database.services import (
     EntityGraphService,
     EventStorageService,
     GoalStorageService,
-    ImageAnalysisCacheService,
+    MediaCacheService,
     StickerStorageService,
     ThoughtStorageService,
 )
@@ -346,7 +346,7 @@ class ServiceBuilder:
         services_to_create = {
             "thought_storage_service": ThoughtStorageService,
             "action_log_service": ActionLogStorageService,
-            "image_analysis_cache_service": ImageAnalysisCacheService,
+            "media_cache_service": MediaCacheService,
             "sticker_storage_service": StickerStorageService,
             "goal_storage_service": GoalStorageService,
         }

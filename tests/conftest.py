@@ -9,7 +9,7 @@ from src.services.database.services import (
     EntityGraphService,
     EventStorageService,
     GoalStorageService,
-    ImageAnalysisCacheService,
+    MediaCacheService,
     StickerStorageService,
     ThoughtStorageService,
 )
@@ -111,9 +111,9 @@ def goal_storage_service(conn_manager: TypeDBConnectionManager) -> GoalStorageSe
 @pytest.fixture(scope="function")
 def image_analysis_cache_service(
     conn_manager: TypeDBConnectionManager,
-) -> ImageAnalysisCacheService:
-    """提供一个 ImageAnalysisCacheService 实例."""
-    return ImageAnalysisCacheService(conn_manager)
+) -> MediaCacheService:
+    """提供一个 MediaCacheService 实例."""
+    return MediaCacheService(conn_manager)
 
 
 @pytest.fixture(scope="function")

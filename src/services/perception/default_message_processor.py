@@ -16,6 +16,7 @@ from src.services.database import (
     EntityGraphService,
 )
 from src.services.database.services.event_storage_service import EventStorageService
+from src.services.database.services.media_cache_service import MediaCacheService
 from src.services.perception.image_analysis_service import ImageAnalysisService
 from websockets.server import WebSocketServerProtocol
 
@@ -36,6 +37,7 @@ class DefaultMessageProcessor:
         action_log_service: ActionLogStorageService,
         image_analysis_service: "ImageAnalysisService",
         semantic_model: "SemanticModel",
+        media_cache_service: "MediaCacheService",
         interruption_broker: "InterruptionEventBroker",
         narrative_vectorizer: "NarrativeVectorizer",
     ) -> None:
@@ -43,6 +45,7 @@ class DefaultMessageProcessor:
         self.entity_service = entity_service
         self.action_log_service = action_log_service
         self.semantic_model = semantic_model
+        self.media_cache_service = media_cache_service
         self.interruption_broker = interruption_broker
         self.narrative_vectorizer = narrative_vectorizer
         self.image_analysis_service = image_analysis_service
@@ -86,7 +89,10 @@ class DefaultMessageProcessor:
             return
 
         reason = failed_seg.data.get("reason", "未知错误")
-        error_message = f"抱歉，图片加载失败了({reason})，可能是链接失效或网络问题，可以尝试再发一次吗？"
+        error_message = (
+            f"抱歉，图片加载失败了({reason})，"
+            "可能是链接失效或网络问题，可以尝试再发一次吗？"
+        )
         logger.info(f"向用户发送的错误消息: {error_message}")
 
         # 构建一个 Stimulus，其内容是直接回复用户
@@ -128,6 +134,18 @@ class DefaultMessageProcessor:
 
         if not needs_persistence:
             return None
+
+        # 在事件持久化之前，先处理媒体文件
+        content_copy = list(event.content) # 创建副本以安全修改
+        for seg in content_copy:
+            if seg.type in ["image", "video"] and seg.data.get("base64") and seg.data.get("hash"):
+                await self.media_cache_service.save_image_b64(
+                    seg.data["hash"],
+                    seg.data["base64"],
+                    seg.data.get("mime_type", "application/octet-stream")
+                )
+                # 从事件中移除base64，减轻数据库负担
+                del seg.data["base64"]
 
         event_dict = event.to_dict()
         event_dict["platform"] = platform_id
