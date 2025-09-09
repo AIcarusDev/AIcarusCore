@@ -567,75 +567,47 @@ class QQWindowRenderer:
             seg_type = seg.get("type")
             data = seg.get("data", {})
             if seg_type == "text":
-                if content_node.text:
-                    content_node.text += data.get("text", "")
-                else:
-                    content_node.text = data.get("text", "")
+                SubElement(content_node, "text").text = data.get("text", "")
 
-            # --- 合并处理所有我们关心的视觉媒体类型 (图片和动图视频) ---
             elif seg_type in ["image", "video"]:
-                base64_data = data.get("base64")
-                if not base64_data:
-                    continue
-
-                # --- 强制检查哈希 ---
                 image_hash = data.get("hash")
                 if not image_hash:
                     logger.error(
                         f"渲染器错误：收到的视觉媒体消息段缺少必需的 'hash' 字段。数据: {data}"
                     )
-                    error_placeholder = "[图片加载失败]"
-                    if content_node.text:
-                        content_node.text += error_placeholder
-                    else:
-                        content_node.text = error_placeholder
-                    continue # 跳过此段的处理
+                    SubElement(content_node, "text").text = "[图片加载失败]"
+                    continue
 
-                # 1. 精确判断媒体类型以生成正确的占位符
                 placeholder_prefix = None
                 summary = data.get("summary")
 
-                # Case 1: 是由GIF转换来的动图视频
                 if (
-                    seg_type == "video" and summary == "animated_sticker"
-                ) or (seg_type == "image" and summary == "sticker"):
-                    placeholder_prefix = "[动画表情"
-                # Case 3: 是普通静态图片
+                    (seg_type == "video"
+                    and summary == "animated_sticker")
+                    or (seg_type == "image" and summary == "sticker")
+                ):
+                    placeholder_prefix = "动画表情"
                 elif seg_type == "image":
-                    placeholder_prefix = "[图片"
-
-                # =============================================
-                # Case 4: 是普通视频 (未来支持)
-                # elif seg_type == "video":
-                #     placeholder_prefix = "[视频"
-                # =============================================
-
-                # 如果不是以上任何一种情况 (例如一个普通的视频)，则 placeholder_prefix 保持为 None
-
-                # 2. 如果不是我们关心的媒体类型，则直接跳过
+                    placeholder_prefix = "图片"
                 if placeholder_prefix is None:
                     continue
 
-                # 3. 生成唯一的占位符ID
-                placeholder_id = len(image_collector) + 1
-                placeholder_text = f"{placeholder_prefix}_{placeholder_id}](hash: {image_hash})"
+                # --- [核心优化] 废除 placeholder_id，使用短哈希 ---
+                short_hash = image_hash[:8]
+                placeholder_text = f"[{placeholder_prefix}:{short_hash}]"
 
-                # 4. 统一收集媒体信息供 LLM 使用
-                media_info = {
-                    "id": placeholder_id,
-                    "placeholder": placeholder_text,
-                    "mime_type": data.get("mime_type", "application/octet-stream"),
-                    "data": base64_data,
-                }
-                image_collector.append(media_info)
+                # 只有当 base64 存在时 (实时事件)，才加入 collector
+                if base64_data := data.get("base64"):
+                    media_info = {
+                        # "id" 字段已废除
+                        "placeholder": placeholder_text,
+                        "mime_type": data.get("mime_type", "application/octet-stream"),
+                        "data": base64_data,
+                        "hash": image_hash,
+                    }
+                    image_collector.append(media_info)
 
-                # 4. 在XML中直接将占位符作为文本内容添加
-                # 我们不再需要 <media> 标签，因为占位符本身已经足够说明问题
-                # 这也让XML更干净，更接近真实客户端的显示
-                if content_node.text:
-                    content_node.text += placeholder_text
-                else:
-                    content_node.text = placeholder_text
+                SubElement(content_node, "text").text = placeholder_text
 
             elif seg_type == "quote":
                 message_id = data.get("message_id")

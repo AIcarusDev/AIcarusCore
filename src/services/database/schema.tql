@@ -130,7 +130,7 @@ entity image-cache,
     owns analysis-result-json,
     owns version,
     owns timestamp,
-    owns mine-type,
+    owns mime-type,
     owns file-path;
 
 # 目标实体
@@ -242,7 +242,7 @@ attribute error-info, value string;
 attribute bot-id, value string;
 attribute action-platform, value string;
 attribute file-path, value string;
-attribute mine-type, value string;
+attribute mime-type, value string;
 
 # JSON String Attributes
 attribute content-json, value string;
