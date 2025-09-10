@@ -75,11 +75,24 @@ class Stimulus:
         # 创建一个可变副本以避免副作用
         doc_for_protocol = doc.copy()
 
-        # 这里的逻辑是问题的关键：确保 ProtocolEvent.from_dict 能找到它期望的 'time' 键
-        # 我们检查 'time' 是否缺失，如果缺失，就从数据库文档中肯定存在的 'timestamp' 键复制一份过去
-        # 这就像一个“转接头”，完美解决了键名不匹配的问题
+        # --- 兼容性修复区域开始 ---
+
+        # 1. 兼容旧的 'timestamp' 字段
         if "time" not in doc_for_protocol and "timestamp" in doc_for_protocol:
             doc_for_protocol["time"] = doc_for_protocol["timestamp"]
+
+        # 2. 为缺失的 'bot_id' 提供一个明确的默认值
+        if "bot_id" not in doc_for_protocol:
+            # 从其他字段推断，或使用一个安全的未知值
+            # 假设旧事件的 bot_id 可以从 platform 字段推断或默认为 'unknown_bot'
+            platform = doc_for_protocol.get("platform", "unknown")
+            doc_for_protocol["bot_id"] = f"unknown_bot_on_{platform}"
+
+        # 3. 为缺失的 'content' 提供一个空的列表作为默认值
+        if "content" not in doc_for_protocol:
+            doc_for_protocol["content"] = []
+
+        # --- 兼容性修复区域结束 ---
 
         proto_event = ProtocolEvent.from_dict(doc_for_protocol)
         stimulus = cls.from_protocol_event(proto_event)

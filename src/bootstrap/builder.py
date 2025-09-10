@@ -29,6 +29,9 @@ from src.os.services.filesystem_service import FileSystemService
 from src.os.state_generator import AICOSStateGenerator
 from src.os.window_manager import WindowManager
 from src.prompting.orchestrator import ThoughtPromptBuilder
+from src.prompting.strategies import QQPromptStrategy, UIPromptStrategy
+from src.prompting.system_prompt_parts_builder import SystemPromptPartsBuilder
+from src.prompting.user_prompt_parts_builder import UserPromptPartsBuilder
 from src.services.action.action_handler import ActionHandler
 from src.services.action.services.sticker_service import StickerService
 from src.services.database.core.connection_manager import TypeDBConnectionManager
@@ -44,6 +47,7 @@ from src.services.database.services import (
 from src.services.llmrequest.llm_processor import Client as ProcessorClient
 from src.services.perception.default_message_processor import DefaultMessageProcessor
 from src.services.perception.image_analysis_service import ImageAnalysisService
+from src.services.health_check.health_check_service import check_ui_server_status
 
 logger = get_logger(__name__)
 
@@ -60,11 +64,21 @@ class Initializable(Protocol):
 class ServiceBuilder:
     """服务构建器，用于创建和配置核心服务容器."""
 
+    def __init__(self, run_mode: str = "qq"):
+        """
+        初始化 ServiceBuilder。
+
+        Args:
+            run_mode (str): 系统的运行模式 ('qq', 'ui', 'dual').
+        """
+        self.run_mode = run_mode
+
     async def build_container(self) -> ServiceContainer:
         """构建并配置服务容器，包括初始化LLM客户端、数据库服务等."""
         # 初始化应用管理器并加载所有应用
         application_manager = ApplicationManager()
         application_manager.discover_and_load_apps(apps)
+
         # 初始化 LLM 客户端
         llm_clients = self._initialize_llm_clients()
         db_services = await self._initialize_typedb_and_services()
@@ -123,18 +137,43 @@ class ServiceBuilder:
 
         action_handler.set_state_generator(aicos_state_generator)
 
-        prompt_builder = ThoughtPromptBuilder(
-            aicos_state_generator=aicos_state_generator,
-            window_manager=window_manager,
-            application_manager=application_manager,
-            state_manager=state_manager,
-            thought_storage_service=db_services["thought_storage_service"],
-            entity_graph_service=db_services["entity_graph_service"],
-            filesystem_service=filesystem_service,
-            info_retrieval_service=info_retrieval_service,
-            goal_manager=goal_manager,
-            deliberation_service=deliberation_service,
-        )
+        # 根据 run_mode 选择并注入 Prompt 构建策略
+        logger.info(f"系统运行模式: '{self.run_mode}'. 正在选择相应的Prompt策略...")
+        if self.run_mode == 'ui':
+            prompt_strategy = UIPromptStrategy(
+                state_manager=state_manager,
+                thought_storage_service=db_services["thought_storage_service"],
+                goal_manager=goal_manager,
+            )
+            logger.info("已选择 UIPromptStrategy。")
+        else:  # 默认为 'qq' 模式
+            system_prompt_parts_builder = SystemPromptPartsBuilder(
+                state_manager,
+                window_manager,
+                application_manager,
+                db_services["entity_graph_service"],
+            )
+            user_prompt_parts_builder = UserPromptPartsBuilder(
+                db_services["thought_storage_service"],
+                state_manager,
+            )
+            prompt_strategy = QQPromptStrategy(
+                aicos_state_generator=aicos_state_generator,
+                window_manager=window_manager,
+                application_manager=application_manager,
+                state_manager=state_manager,
+                thought_storage_service=db_services["thought_storage_service"],
+                entity_graph_service=db_services["entity_graph_service"],
+                filesystem_service=filesystem_service,
+                info_retrieval_service=info_retrieval_service,
+                goal_manager=goal_manager,
+                deliberation_service=deliberation_service,
+                system_prompt_parts_builder=system_prompt_parts_builder,
+                user_prompt_parts_builder=user_prompt_parts_builder,
+            )
+            logger.info("已选择 QQPromptStrategy。")
+        
+        prompt_builder = ThoughtPromptBuilder(prompt_strategy)
 
         semantic_model = await self._get_semantic_model(db_services["event_storage_service"])
         narrative_vectorizer = NarrativeVectorizer(
@@ -145,17 +184,8 @@ class ServiceBuilder:
         interruption_broker = InterruptionEventBroker()
         await interruption_broker.start()
 
-        message_processor = DefaultMessageProcessor(
-            event_service=db_services["event_storage_service"],
-            entity_service=db_services["entity_graph_service"],
-            action_log_service=db_services["action_log_service"],
-            image_analysis_service=image_analysis_service,
-            semantic_model=semantic_model,
-            interruption_broker=interruption_broker,
-            narrative_vectorizer=narrative_vectorizer,
-        )
-
         container = ServiceContainer(
+            run_mode=self.run_mode,  # <-- 新增：注入运行模式
             main_consciousness_llm_client=llm_clients["main_consciousness_llm_client"],
             web_search_agent_client=llm_clients["web_search_agent_client"],
             url_context_agent_client=llm_clients["url_context_agent_client"],
@@ -175,7 +205,7 @@ class ServiceBuilder:
             intelligent_interrupter=await self._initialize_interrupt_model(
                 db_services["event_storage_service"]
             ),
-            message_processor=message_processor,
+            message_processor=None,  # 稍后填充
             prompt_builder=prompt_builder,
             state_manager=state_manager,
             thought_generator=ThoughtGenerator(llm_clients["main_consciousness_llm_client"]),
@@ -192,6 +222,18 @@ class ServiceBuilder:
             deliberation_service=deliberation_service,
             goal_manager=goal_manager,
         )
+
+        message_processor = DefaultMessageProcessor(
+            event_service=db_services["event_storage_service"],
+            entity_service=db_services["entity_graph_service"],
+            action_log_service=db_services["action_log_service"],
+            image_analysis_service=image_analysis_service,
+            semantic_model=semantic_model,
+            interruption_broker=interruption_broker,
+            narrative_vectorizer=narrative_vectorizer,
+            container=container,  # 注入容器
+        )
+        container.message_processor = message_processor
 
         # 接收完整的容器实例
         event_receiver = EventReceiver(

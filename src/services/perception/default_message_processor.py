@@ -5,6 +5,7 @@ import hashlib
 
 from aicarus_protocols import Event as ProtocolEvent
 from aicarus_protocols import UserInfo as ProtocolUserInfo
+from src.bootstrap.container import ServiceContainer
 from src.common.custom_logging.logging_config import get_logger
 from src.common.intelligent_interrupt_system.models import SemanticModel
 from src.common.interruption_broker import InterruptionEventBroker
@@ -38,6 +39,7 @@ class DefaultMessageProcessor:
         semantic_model: "SemanticModel",
         interruption_broker: "InterruptionEventBroker",
         narrative_vectorizer: "NarrativeVectorizer",
+        container: "ServiceContainer",
     ) -> None:
         self.event_service = event_service
         self.entity_service = entity_service
@@ -46,6 +48,7 @@ class DefaultMessageProcessor:
         self.interruption_broker = interruption_broker
         self.narrative_vectorizer = narrative_vectorizer
         self.image_analysis_service = image_analysis_service
+        self.container = container
         logger.info("DefaultMessageProcessor (纯净版) 初始化完成。")
 
     async def process_event(
@@ -69,6 +72,19 @@ class DefaultMessageProcessor:
         )
 
         try:
+            # [NEW] 如果是UI消息，直接注入CognitiveCycle
+            if (
+                platform_id == "master_ui"
+                and proto_event.event_type == "message.private.text"
+                and (text_content := proto_event.get_text_content())
+            ):
+                cognitive_cycle = self.container.cognitive_cycle
+                if cognitive_cycle:
+                    cognitive_cycle.inject_ui_message(text_content)
+                    logger.debug(f"UI消息已注入认知周期: '{text_content[:50]}...'")
+                else:
+                    logger.error("无法获取CognitiveCycle实例，UI消息注入失败。")
+
             saved_event_doc = await self._handle_event_persistence(
                 proto_event, platform_id, needs_persistence
             )

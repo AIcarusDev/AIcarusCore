@@ -47,6 +47,9 @@ if TYPE_CHECKING:
 class ServiceContainer:
     """一个存放所有核心服务实例的容器，定义了系统的基本组件结构."""
 
+    # 运行模式
+    run_mode: str
+
     # LLM 客户端
     main_consciousness_llm_client: ProcessorClient
     web_search_agent_client: ProcessorClient | None

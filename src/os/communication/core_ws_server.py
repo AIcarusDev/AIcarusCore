@@ -62,6 +62,22 @@ class CoreWebsocketServer:
         self._heartbeat_check_task: asyncio.Task | None = None
         self.active_inspection_tasks: set[asyncio.Task] = set()
 
+    def broadcast(self, event: ProtocolEvent) -> None:
+        """向所有已连接的客户端广播一个事件."""
+        if not self.adapter_clients_info:
+            return
+
+        message_str = json.dumps(event.to_dict())
+        logger.info(f"广播系统事件: {message_str}")
+
+        for adapter_id, info in self.adapter_clients_info.items():
+            websocket = info.get("websocket")
+            if websocket and websocket.open:
+                try:
+                    asyncio.create_task(websocket.send(message_str))
+                except Exception as e:
+                    logger.error(f"向适配器 {adapter_id} 广播消息失败: {e}")
+
     async def _generate_and_store_system_event(
         self, adapter_id: str, display_name: str, event_type_suffix: str, reason: str = ""
     ) -> None:
@@ -341,7 +357,7 @@ class CoreWebsocketServer:
         await websocket.close(code=1008, reason="Invalid or missing registration information")
         return None
 
-    async def _connection_handler(self, websocket: WebSocketServerProtocol, path: str) -> None:
+    async def _connection_handler(self, websocket: WebSocketServerProtocol) -> None:
         """处理单个WebSocket连接的整个生命周期."""
         registration_info = await self._handle_registration(websocket)
         if not registration_info:

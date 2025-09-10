@@ -31,6 +31,12 @@ class CognitiveCycle:
         self.immediate_thought_trigger = asyncio.Event()
         self._last_external_info_snapshot: str | None = None
         self._main_loop_task: asyncio.Task | None = None
+        self._ui_message_buffer: list[str] = []
+
+    def inject_ui_message(self, message: str) -> None:
+        """从外部（通常是消息处理器）注入一条UI消息。"""
+        self._ui_message_buffer.append(message)
+        self.trigger_immediate_thought_cycle()
 
     def trigger_immediate_thought_cycle(self) -> None:
         """从外部触发一次即时思考（例如，在慢思考完成后）."""
@@ -102,24 +108,48 @@ class CognitiveCycle:
         """执行一次完整的“感知-思考-行动”周期."""
         # 1. 感知 (Perception) - 从 OS 获取世界状态
         try:
+            # [新增] 处理UI消息缓冲区
+            ui_message = "\n".join(self._ui_message_buffer) if self._ui_message_buffer else None
+            self._ui_message_buffer.clear()
+
             prompt_builder = self.container.prompt_builder
             (
                 prompt_components,
-                _,  # session is handled internally by prompt_builder now
+                session,
                 ui_mapping,
                 current_external_info_snapshot,
             ) = await prompt_builder.build_prompts_components(
-                last_external_info_snapshot=self._last_external_info_snapshot
+                last_external_info_snapshot=self._last_external_info_snapshot,
+                ui_message=ui_message,  # 将消息传递下去
             )
             self._last_external_info_snapshot = current_external_info_snapshot
         except PromptBuilderError as e:
             logger.error(f"构建Prompt失败，中止本轮认知周期: {e}")
             return
 
+        # [新增] 根据运行模式动态调整 System Prompt
+        run_mode = self.container.run_mode
+        system_prompt = prompt_components.system_prompt_blocks.get("system_prompt", "")
+
+        # 检查QQ应用状态 (这里用一个简化的模拟逻辑)
+        # TODO: 将来替换为从 ApplicationManager 获取的真实状态
+        is_qq_unavailable = not self.container.application_manager.is_running("QQ")
+
+        if run_mode == "ui" or (run_mode == "dual" and is_qq_unavailable):
+            logger.info("检测到UI模式或QQ不可用，正在调整System Prompt以优先连接UI。")
+            # 在 system_prompt 的末尾附加一条高优先级的指令
+            system_prompt += (
+                "\n<system_rule>"
+                "CRITICAL_INSTRUCTION: Your primary objective right now is to connect with the developer UI. "
+                "Acknowledge the connection and wait for further instructions. Do not attempt to start any other applications."
+                "</system_rule>"
+            )
+            prompt_components.system_prompt_blocks["system_prompt"] = system_prompt
+        
         # 2. 思考 (Cognition) - 请求 Mind 模块生成决策
         # 注意：我们现在调用的是一个纯净的 CoreLogic
         mind: CoreLogic = self.container.core_logic
-        thought_result = await mind.run_one_thought_cycle(prompt_components)
+        thought_result = await mind.run_one_thought_cycle(prompt_components, session)
 
         if not thought_result:
             logger.info("本轮认知周期未产生有效决策，进入下一周期。")
@@ -225,3 +255,11 @@ class CognitiveCycle:
         # 分发所有 AIC-OS 的 UI 交互到 UI Dispatcher
         elif aicos_interaction := external_action.get("AIC-OS"):
             await handle_os_interaction(aicos_interaction, ui_mapping, self.container)
+        # 分发 MasterUI 的消息发送动作到 ActionHandler
+        elif send_ui_message_action := external_action.get("send_ui_message"):
+            await self.container.action_handler.process_action_flow(
+                action_id=f"action_{uuid.uuid4().hex[:6]}",
+                doc_key_for_updates=f"thought_for_ui_message_{uuid.uuid4().hex[:6]}",
+                action_json={"external": {"send_ui_message": send_ui_message_action}},
+                metadata=ActionMetadata(motivation="由 AI 核心决策发起，向 MasterUI 发送消息"),
+            )

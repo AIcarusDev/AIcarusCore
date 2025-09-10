@@ -100,6 +100,8 @@ class ActionHandler:
 
         if namespace == "innate":
             await self._handle_innate_action(action_name, params, doc_key_for_updates)
+        elif namespace == "external":
+            await self._handle_ui_action(action_name, params, doc_key_for_updates)
         else:
             await self._execute_platform_action_flow(
                 namespace, action_name, params, doc_key_for_updates, metadata
@@ -158,6 +160,48 @@ class ActionHandler:
         except Exception as e:
             logger.error(f"执行核心动作 '{action_name}' 时发生错误: {e}", exc_info=True)
             result_text = f"错误：执行核心动作 '{action_name}' 时发生内部错误。"
+
+        await self.thought_storage_service.save_action_result_to_thought(
+            thought_key=doc_key, result_text=result_text
+        )
+
+    async def _handle_ui_action(self, action_name: str, params: dict, doc_key: str) -> None:
+        """处理发往 MasterUI 的动作。"""
+        result_text = ""
+        try:
+            if action_name == "send_ui_message":
+                message_content = params.get("message")
+                if not message_content:
+                    result_text = "错误：send_ui_message 动作缺少 'message' 参数。"
+                else:
+                    # 构建发送给UI的事件负载
+                    action_event = {
+                        "event_type": "ui.display_message",
+                        "payload": {
+                            "message": message_content,
+                            "source": "aicarus_core"
+                        },
+                        "event_id": str(uuid.uuid4())
+                    }
+                    
+                    # 使用 action_sender 发送
+                    success = await self.action_sender.send_action_to_adapter_by_id(
+                        'master_ui', action_event
+                    )
+                    
+                    if success:
+                        result_text = f"成功向 MasterUI 发送消息: '{message_content[:50]}...'"
+                        logger.info(f"成功将消息发送到 MasterUI: {message_content}")
+                    else:
+                        result_text = "错误：向 MasterUI 发送消息失败。UI可能未连接。"
+                        logger.warning("尝试向 MasterUI 发送消息失败，适配器 'master_ui' 未连接或发送出错。")
+            else:
+                result_text = f"错误：未知的UI动作 '{action_name}'。"
+                logger.error(f"收到了一个未知的UI动作: '{action_name}'")
+
+        except Exception as e:
+            logger.error(f"执行UI动作 '{action_name}' 时发生错误: {e}", exc_info=True)
+            result_text = f"错误：执行UI动作 '{action_name}' 时发生内部错误。"
 
         await self.thought_storage_service.save_action_result_to_thought(
             thought_key=doc_key, result_text=result_text

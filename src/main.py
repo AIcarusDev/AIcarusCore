@@ -1,6 +1,7 @@
 # src/main.py
 import asyncio
 
+from aicarus_protocols import build_system_status_event
 from src.bootstrap.builder import ServiceBuilder
 from src.bootstrap.wiring import wire_dependencies, wire_dynamic_dependencies
 from src.cognitive_cycle import CognitiveCycle
@@ -9,16 +10,19 @@ from src.common.custom_logging.logging_config import get_logger
 logger = get_logger(__name__)
 
 
-async def start_core_system() -> None:
+async def start_core_system(run_mode: str) -> None:
     """启动 AIcarus Core 系统的全新、优雅的入口."""
     container = None
     cognitive_cycle = None
     background_tasks = set()
     try:
         # 1. 构建服务容器，创建所有服务实例
-        builder = ServiceBuilder()
+        builder = ServiceBuilder(run_mode=run_mode)
         container = await builder.build_container()
-        logger.info("所有服务实例已成功创建。")
+        logger.info(f"所有服务实例已在 '{run_mode}' 模式下成功创建。")
+        container.core_comm_layer.broadcast(
+            build_system_status_event("services_built", "服务实例已创建")
+        )
 
         # 在连接依赖前，执行一次表情包垃圾回收
         if container.sticker_service:
@@ -27,6 +31,9 @@ async def start_core_system() -> None:
         # 2. 连接静态依赖
         wire_dependencies(container)
         logger.info("核心服务依赖已成功连接。")
+        container.core_comm_layer.broadcast(
+            build_system_status_event("dependencies_wired", "核心服务依赖已连接")
+        )
 
         # 初始化有状态的服务 (如 GoalManager)
         if container.state_manager:
@@ -65,11 +72,23 @@ async def start_core_system() -> None:
         logger.info("正在等待动态依赖连接完成...")
         await dynamic_wiring_task
         logger.info("动态依赖连接已完成。")
+        container.core_comm_layer.broadcast(
+            build_system_status_event("dynamic_dependencies_wired", "动态依赖连接已完成")
+        )
 
         # 6. 最后，启动认知周期循环
         logger.info("正在尝试启动认知周期...")
+        container.core_comm_layer.broadcast(
+            build_system_status_event("cognitive_cycle_starting", "认知周期即将启动")
+        )
         logic_task = asyncio.create_task(cognitive_cycle.start(), name="CognitiveCycle")
         background_tasks.add(logic_task)
+
+        # 认知周期启动后，发送 ready 信号
+        # 注意：这里我们假设 create_task 后，循环很快就会开始
+        # 一个更稳妥的方法是在 cognitive_cycle.start() 内部的第一行发送
+        await asyncio.sleep(0.1)  # 短暂等待以确保循环已进入
+        container.core_comm_layer.broadcast(build_system_status_event("ready", "AIcarus Core 已就绪"))
 
         # 7. 等待核心任务（WS服务和认知循环）中任意一个结束
         done, pending = await asyncio.wait(
@@ -131,10 +150,10 @@ async def start_core_system() -> None:
         logger.info("AIcarus Core 系统关闭流程执行完毕。")
 
 
-async def main() -> None:
+async def main(run_mode: str = "qq") -> None:
     """AIcarus Core 的主入口函数."""
     try:
-        await start_core_system()
+        await start_core_system(run_mode)
     except KeyboardInterrupt:
         logger.info("AIcarus Core: 用户中断，正在退出...")
     except Exception as main_exc:

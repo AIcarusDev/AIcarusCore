@@ -62,11 +62,33 @@ class EventReceiver:
             message_dict = json.loads(message_str)
             msg_event_type = message_dict.get("event_type")
 
+            # [新增] 开发者平台事件路由
+            if msg_event_type and msg_event_type.startswith("devplatform."):
+                logger.debug(f"路由开发者平台事件: {msg_event_type}")
+                # 假设 debugging_service 已在容器中注册
+                await self.container.debugging_service.handle_dev_event(message_dict)
+                return  # 结束处理，不进入常规流水线
+
             if msg_event_type and msg_event_type.startswith("action_response."):
                 await self.action_handler.handle_action_response(message_dict)
                 return
 
-            if "event_id" in message_dict and msg_event_type and "content" in message_dict:
+            if "event_id" in message_dict and msg_event_type:
+                # --- 兼容性修复区域开始 ---
+                # 1. 兼容旧的 'timestamp' 字段
+                if "time" not in message_dict and "timestamp" in message_dict:
+                    message_dict["time"] = message_dict["timestamp"]
+
+                # 2. 为缺失的 'bot_id' 提供一个明确的默认值
+                if "bot_id" not in message_dict:
+                    platform = message_dict.get("platform", "unknown")
+                    message_dict["bot_id"] = f"unknown_bot_on_{platform}"
+
+                # 3. 为缺失的 'content' 提供一个空的列表作为默认值
+                if "content" not in message_dict:
+                    message_dict["content"] = []
+                # --- 兼容性修复区域结束 ---
+
                 aicarus_event = ProtocolEvent.from_dict(message_dict)
                 # --- [核心修改] 并行分发 ---
                 # 1. 分发给 Mind 感知流水线 (异步，不阻塞)
