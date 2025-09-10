@@ -247,13 +247,34 @@ class MediaCacheService:
                     # 对 Windows 路径中的反斜杠进行转义
                     safe_file_path = str(file_path.resolve()).replace("\\", "\\\\")
                     safe_file_path = safe_file_path.replace('"', '\\"')
-                    # 使用 put (upsert) 逻辑
-                    put_query = f"""
-                    match $ic isa image-cache, has image-hash "{image_hash}";
-                    put $ic has file-path "{safe_file_path}",
-                        has mime-type "{mime_type}";
-                    """
-                    tx.query(put_query).resolve()
+
+                    # 1. 检查实体是否存在
+                    match_query = (
+                        f'match $ic isa image-cache, has image-hash "{image_hash}";'
+                        f' select $ic;'
+                    )
+                    existing = list(tx.query(match_query).resolve())
+
+                    if existing:
+                        # 2a. 如果存在，使用 update 语句确保属性被添加或覆盖
+                        update_query = f"""
+                        match $ic isa image-cache, has image-hash "{image_hash}";
+                        delete $ic has file-path $fp if present;
+                        delete $ic has mime-type $mt if present;
+                        insert $ic has file-path "{safe_file_path}",
+                                has mime-type "{mime_type}";
+                        """
+                        tx.query(update_query).resolve()
+                    else:
+                        # 2b. 如果不存在，使用 insert 语句创建实体并添加属性
+                        insert_query = f"""
+                        insert $ic isa image-cache,
+                            has image-hash "{image_hash}",
+                            has file-path "{safe_file_path}",
+                            has mime-type "{mime_type}";
+                        """
+                        tx.query(insert_query).resolve()
+
                     tx.commit()
                 return True
 

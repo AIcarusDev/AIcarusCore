@@ -578,15 +578,38 @@ class QQWindowRenderer:
                     SubElement(content_node, "text").text = text_buffer.rstrip()
                     text_buffer = ""
 
+            conversation_uid = window.content_state.get("conversation_uid")
+            conv_doc = (
+                await self.entity_service.get_entity_by_key(conversation_uid)
+                if conversation_uid
+                else None
+            )
+
             for seg in segments:
                 seg_type = seg.get("type")
                 data = seg.get("data", {})
+
+                # 在循环的最开始，直接跳过元数据
+                if seg_type == "message_metadata":
+                    continue
 
                 # 步骤 1: 将所有文本类内容聚合到缓冲区
                 if seg_type == "text":
                     text_buffer += data.get("text", "")
                 elif seg_type == "at":
-                    display_name = data.get("display_name", f"@{data.get('user_id', '未知')}")
+                    user_id = data.get("user_id")
+                    display_name = data.get("display_name") # 依然保留原始的 display_name 作为备用
+
+                    if user_id and conv_doc:
+                        # 主动查询最新的显示名称
+                        latest_name = await self.entity_service.get_sender_display_name_for_event(
+                            {"user_info": {"user_id": user_id}}, # 伪造一个简单的 event
+                            conv_doc,
+                            bot_ids_map
+                        )
+                        display_name = f"@{latest_name}"
+                    elif not display_name:
+                        display_name = f"@{user_id or '未知用户'}"
                     # 为 @ 用户名后附加一个空格，模拟真实输入
                     text_buffer += f"{display_name} "
 
@@ -687,9 +710,5 @@ class QQWindowRenderer:
                     # elif seg_type == "share":
                     #     share_text = f"[分享链接: {data.get('url', 'unknown')}]"
                     #     SubElement(content_node, "share").text = share_text
-
-                    else:
-                        # 未知类型，简单标记
-                        SubElement(content_node, "unknown").text = f"[未知内容类型: {seg_type}]"
             # 最后，冲刷一次缓冲区，确保所有文本都被渲染
             flush_text_buffer()
