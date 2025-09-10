@@ -85,7 +85,7 @@ class QQWindowRenderer:
 
         content_node = SubElement(parent_element, "content", attrib={"type": "new_message_alert"})
         state = window.content_state
-        SubElement(content_node, "sender_name").text = state.get("sender_name", "未知发件人")
+        SubElement(content_node, "sender_name").text = state.get("sender_name")
         SubElement(content_node, "message_snippet").text = state.get("message_snippet", "...")
 
         actions_node = SubElement(content_node, "actions")
@@ -407,9 +407,7 @@ class QQWindowRenderer:
         self_entity = await self.entity_service.get_self_entity_by_platform(platform)
 
         self_profile_attrs = {
-            "name": self_entity.get("details", {}).get("nickname", "未知昵称")
-            if self_entity
-            else "未知昵称",
+            "name": self_entity.get("details", {}).get("nickname"),
             "card": self_presence.get("cardname", "") if self_presence else "",
             "role": self_presence.get("permission_level", "成员") if self_presence else "成员",
         }
@@ -585,49 +583,48 @@ class QQWindowRenderer:
                     SubElement(content_node, "text").text = "[图片加载失败]"
                     continue
 
-                summary = data.get("summary")
-                placeholder_prefix = None
-
-                # 优先判断是否为表情包
+                # 无论缓存是否存在，都必须为 ThoughtGenerator 准备好图片引用。
+                # ThoughtGenerator 自己会处理后续的数据获取（从缓存或从适配器）。
+                conversation_uid = window.content_state.get("conversation_uid")
+                platform, _, _ = (
+                    parse_entity_uid(conversation_uid)
+                    if conversation_uid
+                    else ("unknown", "", "")
+                )
+                short_hash = image_hash[:8]
+                summary = data.get("summary", "image")
+                placeholder_prefix = "图片"
                 if summary in ("sticker", "animated_sticker"):
                     placeholder_prefix = "动画表情"
-                elif seg_type == "image":
-                    placeholder_prefix = "图片"
-                # elif seg_type == "video":
-                #     placeholder_prefix = "视频"
 
-                if placeholder_prefix is None:
-                    continue
-
-                #  废除 placeholder_id，使用短哈希
-                short_hash = image_hash[:8]
                 placeholder_text = f"[{placeholder_prefix}:{short_hash}]"
 
-                # 尝试从缓存中加载图片数据并加入 collector
-                # 无论图片是实时收到的还是从历史记录加载的，都执行此逻辑
-                # get_image_b64_by_hash 会处理缓存命中
-                cached_image_data = await self.media_cache_service.get_image_b64_by_hash(image_hash)
-                if cached_image_data:
-                    media_info = {
+                # 检查 image_collector 中是否已存在此哈希的引用
+                if not any(img.get("hash") == image_hash for img in image_collector):
+                    # 无论缓存中是否有 base64，都添加一个“引用”
+                    # 让 ThoughtGenerator 知道这张图片的存在
+                    image_ref = {
                         "placeholder": placeholder_text,
-                        "mime_type": cached_image_data.get("mime_type", "application/octet-stream"),
-                        "base64": cached_image_data.get("base64"),
                         "hash": image_hash,
+                        "platform_id": platform,
                     }
-                    # 为避免重复添加，先检查 collector 中是否已存在相同哈希的图片
-                    if not any(img.get("hash") == image_hash for img in image_collector):
-                        image_collector.append(media_info)
-                else:
-                    logger.warning(
-                        f"无法为图片 {placeholder_text} (哈希: {image_hash}) "
-                        f"从缓存加载数据，多模态信息可能丢失。"
+
+                    # 尝试从缓存中预加载数据，如果成功就一并加入
+                    cached_image_data = await self.media_cache_service.get_image_b64_by_hash(
+                        image_hash
                     )
+                    if cached_image_data:
+                        image_ref["mime_type"] = cached_image_data.get("mime_type")
+                        image_ref["base64"] = cached_image_data.get("base64")
+
+                    image_collector.append(image_ref)
 
                 SubElement(content_node, "text").text = placeholder_text
 
+
             elif seg_type == "quote":
                 message_id = data.get("message_id")
-                author_name = data.get("nickname", "未知用户")
+                author_name = data.get("nickname")
                 snippet = data.get("text", "...")
 
                 # 尝试从数据库获取更精确的信息

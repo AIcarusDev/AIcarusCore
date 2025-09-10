@@ -76,7 +76,7 @@ class NarrativeVectorizer:
         context = {}
         if event.conversation_info:
             context["platform"] = event.get_platform()
-            context["conversation_name"] = event.conversation_info.name or "未知会话"
+            context["conversation_name"] = event.conversation_info.name
 
         action = {"type": "send_message", "text_content": event.get_text_content()}
 

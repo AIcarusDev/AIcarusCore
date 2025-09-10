@@ -9,7 +9,6 @@ from typing import Any
 from aicarus_protocols import UserInfo as ProtocolUserInfo
 from src.common.custom_logging.logging_config import get_logger
 from src.common.utils import build_conversation_entity_uid
-from src.config import config
 from typedb.driver import Transaction, TransactionType
 
 from ..core.connection_manager import TypeDBConnectionManager
@@ -54,6 +53,33 @@ class EntityGraphService:
             platform and current_sender_id and self_bot_ids.get(platform) == str(current_sender_id)
         )
 
+        # 核心修复：将“是自己”的逻辑完全独立出来，确保它有正确的备用链。
+        if is_self_sender:
+            # 如果是自己，优先尝试获取在当前会话的身份信息（群名片）
+            if platform and conv_doc and conv_doc._key:
+                presence_info = await self.get_self_presence_in_conversation(
+                    platform=platform,
+                    conversation_entity_uid=conv_doc._key,
+                )
+                if (
+                    conv_type == "group"
+                    and presence_info
+                    and (group_cardname := presence_info.get("cardname"))
+                ):
+                    return group_cardname
+
+            # 如果没有特定会话身份，或不是群聊，则获取在该平台的通用昵称
+            if platform:
+                self_entity = await self.get_self_entity_by_platform(platform)
+                if self_entity and (
+                    platform_nickname := self_entity.get("details", {}).get("nickname")
+                ):
+                    return platform_nickname
+
+            # 如果所有方法都失败了，则引发异常
+            raise ValueError(f"无法确定机器人自身在平台 '{platform}' 上的显示名称。")
+
+        # 如果不是自己，则按原有逻辑处理
         friend_remark = (
             (user_info.get("extra") or {}).get("friend_remark")
             if isinstance(user_info.get("extra"), dict)
@@ -62,28 +88,6 @@ class EntityGraphService:
         cardname = user_info.get("user_cardname")
         nickname = user_info.get("user_nickname")
 
-        if is_self_sender:
-            if platform and conv_doc and conv_doc._key:
-                presence_info = await self.get_self_presence_in_conversation(
-                    platform=platform,
-                    conversation_entity_uid=conv_doc._key,
-                )
-                self_entity = await self.get_self_entity_by_platform(platform)
-
-                if (
-                    conv_type == "group"
-                    and presence_info
-                    and (group_cardname := presence_info.get("cardname"))
-                ):
-                    return group_cardname
-
-                if self_entity and (
-                    platform_nickname := self_entity.get("details", {}).get("nickname")
-                ):
-                    return platform_nickname
-
-            return config.persona.bot_name
-
         if isinstance(friend_remark, str) and friend_remark.strip():
             return friend_remark
         if conv_type == "group" and isinstance(cardname, str) and cardname.strip():
@@ -91,11 +95,9 @@ class EntityGraphService:
         if isinstance(nickname, str) and nickname.strip():
             return nickname
 
+        # 如果所有方法都失败了，则引发异常
         user_id = user_info.get("user_id")
-        if isinstance(user_id, str) and user_id:
-            return f"用户({user_id[-4:]})"
-
-        return "未知用户"
+        raise ValueError(f"无法确定用户 '{user_id}' 的显示名称。")
 
     def _update_account_nickname_if_changed_sync(
         self, tx: Transaction, account_uid: str, new_nickname: str

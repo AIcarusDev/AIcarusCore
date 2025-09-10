@@ -521,11 +521,12 @@ class EventStorageService:
                 # 2. 计算偏移量并获取分页数据
                 offset = (page - 1) * page_size
 
+                # 在排序时，增加 event-id 作为第二排序键，确保排序的稳定性。
                 query = f"""
                 match $e isa event, has conversation-info-json $ci;
                 $ci contains "\\"{conv_native_id}\\"";
-                $e has timestamp $ts;
-                sort $ts desc; offset {offset}; limit {page_size};
+                $e has timestamp $ts, has event-id $event_id;
+                sort $ts desc, $event_id desc; offset {offset}; limit {page_size};
                 select $e;
                 """
 

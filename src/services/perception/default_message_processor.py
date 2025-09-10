@@ -82,8 +82,7 @@ class DefaultMessageProcessor:
             saved_event_doc = await self._handle_event_persistence(
                 proto_event, platform_id, needs_persistence
             )
-
-            # --- 在持久化后，检查并实时更新已读时间戳 ---
+            # 核心修复：在事件持久化后，立即检查并更新激活窗口的已读时间戳。
             if proto_event.event_type.startswith("message."):
                 await self._update_timestamp_for_active_chat(proto_event)
 
@@ -104,7 +103,7 @@ class DefaultMessageProcessor:
             event.conversation_info.conversation_id,
         )
 
-        # 检查是否有窗口匹配此 UID 且处于激活状态
+        # 检查是否有窗口匹配此 UID 且处于激活状态 (非最小化)
         is_window_active = any(
             w.content_state.get("conversation_uid") == conv_uid
             and w.status != WindowStatus.MINIMIZE
@@ -118,7 +117,6 @@ class DefaultMessageProcessor:
             await self.entity_service.update_conversation_last_read_timestamp(
                 conv_uid, float(event.time)
             )
-    # --- [优化结束] ---
 
     async def _handle_image_failed_event(self, event: ProtocolEvent) -> None:
         """当检测到图片处理失败时，直接生成一个回复并发布."""
