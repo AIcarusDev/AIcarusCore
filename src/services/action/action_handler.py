@@ -8,6 +8,7 @@ import uuid
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from aicarus_protocols import UserInfo as ProtocolUserInfo
 from src.common.custom_logging.logging_config import get_logger
 from src.domain.models import ActionMetadata, ActionResult
 from src.os.apps.interfaces import IApp
@@ -522,9 +523,24 @@ class ActionHandler:
         if not event_type_full.endswith(".send_message"):
             return
 
+        platform = event_to_save.get("platform", "unknown")
+        bot_id = event_to_save.get("bot_id", "unknown")
+
+        # 获取机器人在该平台的完整档案，以构建 user_info
+        self_entity = await self.entity_service.get_self_entity_by_platform(platform)
+        if self_entity:
+            details = self_entity.get("details", {})
+            user_info = ProtocolUserInfo(
+                user_id=details.get("platform_id", bot_id),
+                user_nickname=details.get("nickname", "Bot"),
+            )
+            event_to_save["user_info"] = user_info.to_dict()
+        else:
+            # Fallback
+            event_to_save["user_info"] = {"user_id": bot_id, "user_nickname": "Bot"}
+
         # 1. 转换 event_type
         # 从 "action.qq.send_message" 转换为 "message.qq.group" 或 "message.qq.private"
-        platform = event_to_save.get("platform", "unknown")
         conv_info = event_to_save.get("conversation_info")
         if conv_info and isinstance(conv_info, dict):
             conv_type = conv_info.get("type", "unknown")

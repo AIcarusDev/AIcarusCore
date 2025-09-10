@@ -7,6 +7,7 @@ from xml.etree.ElementTree import Element, SubElement, tostring
 from src.common.custom_logging.logging_config import get_logger
 from src.services.database.services.entity_graph_service import EntityGraphService
 from src.services.database.services.event_storage_service import EventStorageService
+from src.services.database.services.media_cache_service import MediaCacheService
 
 from .application_manager import ApplicationManager
 from .models import Window, WindowStatus
@@ -29,11 +30,13 @@ class AICOSStateGenerator:
         application_manager: ApplicationManager,
         entity_service: EntityGraphService,
         event_service: EventStorageService,
+        media_cache_service: MediaCacheService,
     ) -> None:
         self.window_manager = window_manager
         self.application_manager = application_manager
         self.entity_service = entity_service
         self.event_service = event_service
+        self.media_cache_service = media_cache_service
         self._ui_mapping: dict[str, dict] = {}
         self.is_connected = False
         # 预编译正则表达式以提高性能
@@ -297,6 +300,7 @@ class AICOSStateGenerator:
                     "bot_ids_map": self.application_manager.get_self_bot_ids_map(),
                     "entity_service": self.entity_service,
                     "event_service": self.event_service,
+                    "media_cache_service": self.media_cache_service,
                     "ui_mapping": self._ui_mapping,
                     "generate_semantic_id": self._generate_semantic_id,
                     "image_collector": image_collector,

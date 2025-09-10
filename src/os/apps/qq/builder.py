@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from src.bootstrap.container import ServiceContainer
     from src.services.database.services.entity_graph_service import EntityGraphService
     from src.services.database.services.event_storage_service import EventStorageService
+    from src.services.database.services.media_cache_service import MediaCacheService
 
 
 logger = get_logger(__name__)
@@ -211,17 +212,19 @@ class QQBuilder(BaseAppBuilder, IApp):
         self,
         entity_service: EntityGraphService,
         event_service: EventStorageService,
+        media_cache_service: MediaCacheService,
         ui_mapping: dict,
         generate_semantic_id: callable,
     ) -> QQWindowRenderer:
         """按需创建或返回渲染器实例."""
         if self._renderer is None:
             self._renderer = QQWindowRenderer(
-                entity_service, event_service, ui_mapping, generate_semantic_id
+                entity_service, event_service, ui_mapping, generate_semantic_id, media_cache_service
             )
         # 确保 renderer 使用的是当前轮次的上下文
         self._renderer.ui_mapping = ui_mapping
         self._renderer.generate_semantic_id = generate_semantic_id
+        self._renderer.media_cache_service = media_cache_service  # 确保更新
         return self._renderer
 
     # 实现 IApp 接口的方法
@@ -243,13 +246,14 @@ class QQBuilder(BaseAppBuilder, IApp):
         bot_ids_map: dict,
         entity_service: EntityGraphService,
         event_service: EventStorageService,
+        media_cache_service: MediaCacheService, # 新增
         ui_mapping: dict,
         generate_semantic_id: callable,
         image_collector: list[dict],
     ) -> None:
         """实现基类的渲染接口，委托给QQWindowRenderer处理."""
         renderer = self._get_renderer(
-            entity_service, event_service, ui_mapping, generate_semantic_id
+            entity_service, event_service, media_cache_service, ui_mapping, generate_semantic_id
         )
         await renderer.render_content(
             parent_element, current_path, window, bot_ids_map, image_collector
@@ -263,13 +267,14 @@ class QQBuilder(BaseAppBuilder, IApp):
         bot_ids_map: dict,
         entity_service: EntityGraphService,
         event_service: EventStorageService,
+        media_cache_service: MediaCacheService,
         ui_mapping: dict,
         generate_semantic_id: callable,
         image_collector: list[dict],
     ) -> None:
         """实现弹窗渲染，委托给QQWindowRenderer处理。."""
         renderer = self._get_renderer(
-            entity_service, event_service, ui_mapping, generate_semantic_id
+            entity_service, event_service, media_cache_service, ui_mapping, generate_semantic_id
         )
         await renderer.render_popup_content(
             parent_element,

@@ -3,6 +3,7 @@
 import base64
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 from xml.etree.ElementTree import Element, SubElement
 
 from pypinyin import Style, pinyin
@@ -13,6 +14,10 @@ from src.config import config
 from src.os.models import Window, WindowStatus
 from src.services.database.services.entity_graph_service import EntityGraphService
 from src.services.database.services.event_storage_service import EventStorageService
+
+if TYPE_CHECKING:
+    from src.services.database.services.media_cache_service import MediaCacheService
+
 
 logger = get_logger(__name__)
 
@@ -31,11 +36,13 @@ class QQWindowRenderer:
         event_service: EventStorageService,
         ui_mapping: dict,
         generate_semantic_id: callable,
+        media_cache_service: "MediaCacheService", # 新增 media_cache_service
     ) -> None:
         self.entity_service = entity_service
         self.event_service = event_service
         self.ui_mapping = ui_mapping
         self._generate_semantic_id = generate_semantic_id
+        self.media_cache_service = media_cache_service # 存储实例
 
     async def _get_message_priority_tag(self, event: dict, bot_ids_map: dict) -> str:
         """检查事件内容，如果包含@我或回复我，则返回一个高亮标签."""
@@ -578,38 +585,43 @@ class QQWindowRenderer:
                     SubElement(content_node, "text").text = "[图片加载失败]"
                     continue
 
-                placeholder_prefix = None
                 summary = data.get("summary")
+                placeholder_prefix = None
 
-                if (
-                    (
-                        seg_type == "video"
-                        and summary == "animated_sticker"
-                    )
-                    or (
-                        seg_type == "image" and summary == "sticker"
-                    )
-                ):
+                # 优先判断是否为表情包
+                if summary in ("sticker", "animated_sticker"):
                     placeholder_prefix = "动画表情"
                 elif seg_type == "image":
                     placeholder_prefix = "图片"
+                # elif seg_type == "video":
+                #     placeholder_prefix = "视频"
+
                 if placeholder_prefix is None:
                     continue
 
-                # --- [核心优化] 废除 placeholder_id，使用短哈希 ---
+                #  废除 placeholder_id，使用短哈希
                 short_hash = image_hash[:8]
                 placeholder_text = f"[{placeholder_prefix}:{short_hash}]"
 
-                # 只有当 base64 存在时 (实时事件)，才加入 collector
-                if base64_data := data.get("base64"):
+                # 尝试从缓存中加载图片数据并加入 collector
+                # 无论图片是实时收到的还是从历史记录加载的，都执行此逻辑
+                # get_image_b64_by_hash 会处理缓存命中
+                cached_image_data = await self.media_cache_service.get_image_b64_by_hash(image_hash)
+                if cached_image_data:
                     media_info = {
-                        # "id" 字段已废除
                         "placeholder": placeholder_text,
-                        "mime_type": data.get("mime_type", "application/octet-stream"),
-                        "data": base64_data,
+                        "mime_type": cached_image_data.get("mime_type", "application/octet-stream"),
+                        "base64": cached_image_data.get("base64"),
                         "hash": image_hash,
                     }
-                    image_collector.append(media_info)
+                    # 为避免重复添加，先检查 collector 中是否已存在相同哈希的图片
+                    if not any(img.get("hash") == image_hash for img in image_collector):
+                        image_collector.append(media_info)
+                else:
+                    logger.warning(
+                        f"无法为图片 {placeholder_text} (哈希: {image_hash}) "
+                        f"从缓存加载数据，多模态信息可能丢失。"
+                    )
 
                 SubElement(content_node, "text").text = placeholder_text
 

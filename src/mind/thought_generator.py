@@ -91,8 +91,9 @@ class ThoughtGenerator:
             logger.debug(f"--- [IMAGE REFERENCES ({len(image_references)})] ---")
             for img_ref in image_references:
                 logger.debug(
-                    f"  - ID: {img_ref['id']}, "
-                    f"Placeholder: {img_ref['placeholder']}, MIME: {img_ref['mime_type']}"
+                    f"  - ID: {img_ref.get('id', 'N/A')}, "
+                    f"Placeholder: {img_ref.get('placeholder', 'N/A')}, "
+                    f"MIME: {img_ref.get('mime_type', 'N/A')}"
                 )
 
         logger.debug("=" * 41 + " END OF DEBUG " + "=" * 41)

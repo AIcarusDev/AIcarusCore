@@ -1,5 +1,6 @@
 # 文件路径: src/os/ui_dispatcher.py
 
+import time
 from typing import TYPE_CHECKING
 
 from src.common.custom_logging.logging_config import get_logger
@@ -126,6 +127,17 @@ async def _handle_base_ui_interaction(
         if closed_window:
             window_manager.close_window(target_uid)
             app_id = closed_window.parent_app_id
+
+            # 如果关闭的是会话窗口，则停用会话以更新时间戳
+            if closed_window.window_class == "conversation":
+                conversation_uid = closed_window.content_state.get("conversation_uid")
+                app = application_manager.get_app_by_id(app_id)
+                # 检查 container 中是否有 qq_chat_session_manager
+                session_manager = getattr(container, 'qq_chat_session_manager', None)
+                if conversation_uid and app and session_manager:
+                    logger.info(f"正在为已关闭的窗口停用会话: {conversation_uid}")
+                    await session_manager.deactivate_session(conversation_uid)
+
             app_windows = [
                 w for w in window_manager.get_all_windows_sorted() if w.parent_app_id == app_id
             ]
@@ -203,6 +215,12 @@ async def _handle_base_ui_interaction(
         window_manager.open_window(main_window)
 
     elif internal_command == "open_conversation_window":
+        # 在打开窗口前，立即将会话标记为已读
+        logger.info(f"进入会话 '{target_uid}'，立即将其标记为已读。")
+        await container.entity_graph_service.update_conversation_last_read_timestamp(
+            target_uid, time.time() * 1000
+        )
+
         # 这里的逻辑也应该更通用
         platform_id = target_uid.split("_")[0]
         app = next((a for a in application_manager.get_all_apps() if a.name == platform_id), None)

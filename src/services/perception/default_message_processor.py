@@ -1,7 +1,7 @@
 # 文件路径: src/services/perception/default_message_processor.py
 
 import dataclasses
-import hashlib
+from typing import TYPE_CHECKING
 
 from aicarus_protocols import Event as ProtocolEvent
 from aicarus_protocols import UserInfo as ProtocolUserInfo
@@ -9,8 +9,10 @@ from src.common.custom_logging.logging_config import get_logger
 from src.common.intelligent_interrupt_system.models import SemanticModel
 from src.common.interruption_broker import InterruptionEventBroker
 from src.common.narrative_vectorizer.narrative_vectorizer import NarrativeVectorizer
+from src.common.utils import build_conversation_entity_uid
 from src.config import config
 from src.domain.models import Stimulus
+from src.os.models import WindowStatus
 from src.services.database import (
     ActionLogStorageService,
     EntityGraphService,
@@ -19,6 +21,9 @@ from src.services.database.services.event_storage_service import EventStorageSer
 from src.services.database.services.media_cache_service import MediaCacheService
 from src.services.perception.image_analysis_service import ImageAnalysisService
 from websockets.server import WebSocketServerProtocol
+
+if TYPE_CHECKING:
+    from src.os.window_manager import WindowManager
 
 logger = get_logger(__name__)
 
@@ -40,6 +45,7 @@ class DefaultMessageProcessor:
         media_cache_service: "MediaCacheService",
         interruption_broker: "InterruptionEventBroker",
         narrative_vectorizer: "NarrativeVectorizer",
+        window_manager: "WindowManager",
     ) -> None:
         self.event_service = event_service
         self.entity_service = entity_service
@@ -49,6 +55,7 @@ class DefaultMessageProcessor:
         self.interruption_broker = interruption_broker
         self.narrative_vectorizer = narrative_vectorizer
         self.image_analysis_service = image_analysis_service
+        self.window_manager = window_manager
         logger.info("DefaultMessageProcessor (纯净版) 初始化完成。")
 
     async def process_event(
@@ -75,11 +82,43 @@ class DefaultMessageProcessor:
             saved_event_doc = await self._handle_event_persistence(
                 proto_event, platform_id, needs_persistence
             )
+
+            # --- 在持久化后，检查并实时更新已读时间戳 ---
+            if proto_event.event_type.startswith("message."):
+                await self._update_timestamp_for_active_chat(proto_event)
+
             await self._dispatch_event_action(proto_event, saved_event_doc)
         except Exception as e:
             logger.error(
                 f"处理事件 (ID: {proto_event.event_id}) 的核心逻辑中发生错误: {e}", exc_info=True
             )
+
+    async def _update_timestamp_for_active_chat(self, event: ProtocolEvent) -> None:
+        """如果消息来自一个当前打开的聊天窗口，则立即更新其已读时间戳."""
+        if not event.conversation_info or not event.conversation_info.conversation_id:
+            return
+
+        conv_uid = build_conversation_entity_uid(
+            event.get_platform(),
+            event.conversation_info.type,
+            event.conversation_info.conversation_id,
+        )
+
+        # 检查是否有窗口匹配此 UID 且处于激活状态
+        is_window_active = any(
+            w.content_state.get("conversation_uid") == conv_uid
+            and w.status != WindowStatus.MINIMIZE
+            for w in self.window_manager.get_all_windows_sorted()
+        )
+
+        if is_window_active:
+            logger.debug(
+                f"消息来自激活的聊天窗口 '{conv_uid}'，实时更新已读时间戳至 {event.time}。"
+            )
+            await self.entity_service.update_conversation_last_read_timestamp(
+                conv_uid, float(event.time)
+            )
+    # --- [优化结束] ---
 
     async def _handle_image_failed_event(self, event: ProtocolEvent) -> None:
         """当检测到图片处理失败时，直接生成一个回复并发布."""
@@ -97,8 +136,9 @@ class DefaultMessageProcessor:
 
         # 构建一个 Stimulus，其内容是直接回复用户
         stimulus = Stimulus.from_protocol_event(event)
-        stimulus.text_content = error_message  # 我们要让AI说的话
-        stimulus.is_direct_command = True  # 标记为直接指令，让思考逻辑直接执行回复
+        # 正确的用法是使用 dataclasses.replace
+        stimulus = dataclasses.replace(stimulus, text_content=error_message)
+
 
         await self.interruption_broker.publish(stimulus)
         logger.debug(f"为图片加载失败事件 '{event.event_id}' 生成的直接回复 Stimulus 已发布。")
@@ -118,7 +158,8 @@ class DefaultMessageProcessor:
                 and (b64 := data.get("base64"))
             ):
                 try:
-                    full_hash = hashlib.sha256(b64.encode("utf-8")).hexdigest()
+                    # 使用 image_analysis_service 的内部方法来确保哈希算法一致
+                    full_hash = self.image_analysis_service._calculate_image_hash(b64)
                     data["hash"] = full_hash
                     logger.debug(
                         f"为事件 {event_dict.get('event_id')} 中的图片注入哈希: {full_hash[:8]}"
@@ -135,22 +176,25 @@ class DefaultMessageProcessor:
         if not needs_persistence:
             return None
 
+        event_dict = event.to_dict()
+        self._calculate_and_inject_hashes(event_dict)
+
         # 在事件持久化之前，先处理媒体文件
-        content_copy = list(event.content) # 创建副本以安全修改
+        content_copy = event_dict.get("content", [])
         for seg in content_copy:
-            if seg.type in ["image", "video"] and seg.data.get("base64") and seg.data.get("hash"):
+            if seg.get("type") in ["image", "video"] and \
+                seg.get("data", {}).get("base64") and \
+                seg.get("data",{}).get("hash"):
                 await self.media_cache_service.save_image_b64(
-                    seg.data["hash"],
-                    seg.data["base64"],
-                    seg.data.get("mime_type", "application/octet-stream")
+                    seg["data"]["hash"],
+                    seg["data"]["base64"],
+                    seg["data"].get("mime_type", "application/octet-stream")
                 )
                 # 从事件中移除base64，减轻数据库负担
-                del seg.data["base64"]
+                del seg["data"]["base64"]
 
-        event_dict = event.to_dict()
         event_dict["platform"] = platform_id
         event_dict["person_id_associated"] = person_id
-        self._calculate_and_inject_hashes(event_dict)
 
         if self.narrative_vectorizer and event.event_type.startswith("message."):
             logger.debug(f"事件 {event.event_id} 正在进入叙事化向量流程...")
@@ -165,7 +209,10 @@ class DefaultMessageProcessor:
 
         if await self.event_service.save_event_document(event_dict):
             logger.debug(f"事件文档 '{event.event_id}' 已保存。")
-            if any(seg.type == "image" for seg in event.content) and self.image_analysis_service:
+            if (
+                any(seg.get("type") == "image" for seg in event_dict.get("content", []))
+                and self.image_analysis_service
+            ):
                 await self.image_analysis_service.submit_event_for_analysis(event_dict)
             return event_dict
         return None
