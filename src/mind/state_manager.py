@@ -3,7 +3,7 @@ from typing import Any
 
 from src.common.custom_logging.logging_config import get_logger
 from src.mind.goal_manager import GoalManager
-from src.services.database import ActionLogStorageService, GoalStorageService, ThoughtStorageService
+from src.services.database import ActionLogStorageService, ThoughtStorageService
 
 logger = get_logger(__name__)
 
@@ -26,17 +26,14 @@ class AIStateManager:
         self,
         thought_service: ThoughtStorageService,
         action_log_service: ActionLogStorageService,
-        goal_storage_service: GoalStorageService,
+        goal_manager: GoalManager,
     ) -> None:
         """初始化需要 thought_storage_service 和 action_log_service 才能干活，哼."""
         self.thought_service = thought_service
         self.action_log_service = action_log_service
-        self.goal_manager = GoalManager(goal_storage_service)
+        self.goal_manager = goal_manager
         self._strategic_memos: list[dict[str, Any]] = []
-        # GoalManager 现在是纯内存组件，不再需要 GoalStorageService
         logger.info("AIStateManager 初始化完毕。")
-
-    # -- 修改点 2: 移除了 initialize 方法，因为它不再需要从数据库加载目标
 
     async def initialize(self) -> None:
         """初始化所有需要异步加载的状态组件."""

@@ -560,99 +560,136 @@ class QQWindowRenderer:
             ).text = "你的表情包收藏预览"
 
     async def _render_rich_content(
-        self,
-        content_node: Element,
-        segments: list[dict],
-        image_collector: list[dict],
-        window: Window,
-        bot_ids_map: dict,
-    ) -> None:
-        """渲染富文本消息内容，处理文本、图片、引用、视频等."""
-        for seg in segments:
-            seg_type = seg.get("type")
-            data = seg.get("data", {})
-            if seg_type == "text":
-                SubElement(content_node, "text").text = data.get("text", "")
+            self,
+            content_node: Element,
+            segments: list[dict],
+            image_collector: list[dict],
+            window: Window,
+            bot_ids_map: dict,
+        ) -> None:
+            """渲染富文本消息内容，精确分离文本和多模态元素，并保持原始顺序."""
+            text_buffer = ""
 
-            elif seg_type in ["image", "video"]:
-                image_hash = data.get("hash")
-                if not image_hash:
-                    logger.error(
-                        f"渲染器错误：收到的视觉媒体消息段缺少必需的 'hash' 字段。数据: {data}"
-                    )
-                    SubElement(content_node, "text").text = "[图片加载失败]"
-                    continue
+            def flush_text_buffer() -> None:
+                """内部辅助函数：如果缓冲区有内容，则写入 <text> 标签并清空."""
+                nonlocal text_buffer
+                if text_buffer:
+                    # 移除可能由 @ 段产生的尾部多余空格
+                    SubElement(content_node, "text").text = text_buffer.rstrip()
+                    text_buffer = ""
 
-                # 无论缓存是否存在，都必须为 ThoughtGenerator 准备好图片引用。
-                # ThoughtGenerator 自己会处理后续的数据获取（从缓存或从适配器）。
-                conversation_uid = window.content_state.get("conversation_uid")
-                platform, _, _ = (
-                    parse_entity_uid(conversation_uid)
-                    if conversation_uid
-                    else ("unknown", "", "")
-                )
-                short_hash = image_hash[:8]
-                summary = data.get("summary", "image")
-                placeholder_prefix = "图片"
-                if summary in ("sticker", "animated_sticker"):
-                    placeholder_prefix = "动画表情"
+            for seg in segments:
+                seg_type = seg.get("type")
+                data = seg.get("data", {})
 
-                placeholder_text = f"[{placeholder_prefix}:{short_hash}]"
+                # 步骤 1: 将所有文本类内容聚合到缓冲区
+                if seg_type == "text":
+                    text_buffer += data.get("text", "")
+                elif seg_type == "at":
+                    display_name = data.get("display_name", f"@{data.get('user_id', '未知')}")
+                    # 为 @ 用户名后附加一个空格，模拟真实输入
+                    text_buffer += f"{display_name} "
 
-                # 检查 image_collector 中是否已存在此哈希的引用
-                if not any(img.get("hash") == image_hash for img in image_collector):
-                    # 无论缓存中是否有 base64，都添加一个“引用”
-                    # 让 ThoughtGenerator 知道这张图片的存在
-                    image_ref = {
-                        "placeholder": placeholder_text,
-                        "hash": image_hash,
-                        "platform_id": platform,
-                    }
+                # 步骤 2: 遇到非文本元素，先处理缓冲区，再处理该元素
+                else:
+                    flush_text_buffer()  # 冲刷掉此前的文本
 
-                    # 尝试从缓存中预加载数据，如果成功就一并加入
-                    cached_image_data = await self.media_cache_service.get_image_b64_by_hash(
-                        image_hash
-                    )
-                    if cached_image_data:
-                        image_ref["mime_type"] = cached_image_data.get("mime_type")
-                        image_ref["base64"] = cached_image_data.get("base64")
+                    # 现在处理非文本元素
+                    if seg_type in ["image", "video"]:
+                        image_hash = data.get("hash")
+                        if not image_hash:
+                            # 如果图片加载失败，也用一个专门的标签
+                            SubElement(content_node, "error").text = "[图片加载失败]"
+                            continue
 
-                    image_collector.append(image_ref)
-
-                SubElement(content_node, "text").text = placeholder_text
-
-
-            elif seg_type == "quote":
-                message_id = data.get("message_id")
-                author_name = data.get("nickname")
-                snippet = data.get("text", "...")
-
-                # 尝试从数据库获取更精确的信息
-                if message_id and window.content_state.get("conversation_uid"):
-                    # 获取当前窗口的 conversation_uid
-                    conv_uid = window.content_state.get("conversation_uid")
-                    # 调用新方法回查事件
-                    quoted_event_doc = await self.event_service.get_event_by_platform_message_id(
-                        conv_uid, message_id
-                    )
-
-                    if quoted_event_doc:
-                        # 如果找到了，使用高保真信息
-                        conv_doc = await self.entity_service.get_entity_by_key(conv_uid)
-                        author_name = await self.entity_service.get_sender_display_name_for_event(
-                            quoted_event_doc, conv_doc, bot_ids_map
+                        # 生成占位符和收集图片信息的逻辑保持不变
+                        conversation_uid = window.content_state.get("conversation_uid")
+                        platform, _, _ = (
+                            parse_entity_uid(conversation_uid)
+                            if conversation_uid
+                            else ("unknown", "", "")
                         )
-                        snippet = await self.event_service.get_event_text_summary(quoted_event_doc)
+                        short_hash = image_hash[:8]
+                        summary = data.get("summary", "image")
+                        placeholder_prefix = "图片"
+                        if summary in ("sticker", "animated_sticker"):
+                            placeholder_prefix = "动画表情"
 
-                # 渲染最终结果（无论是精确的还是降级的）
-                if len(snippet) > 20:
-                    snippet = snippet[:20] + "..."
-                SubElement(
-                    content_node,
-                    "quote",
-                    attrib={
-                        "author": author_name,
-                        "message_id": str(message_id or "unknown"),
-                        "snippet": snippet,
-                    },
-                )
+                        placeholder_text = f"[{placeholder_prefix}:{short_hash}]"
+
+                        if not any(img.get("hash") == image_hash for img in image_collector):
+                            image_ref = {
+                                "placeholder": placeholder_text,
+                                "hash": image_hash,
+                                "platform_id": platform,
+                            }
+                            cached_image_data = (
+                                await self.media_cache_service.get_image_b64_by_hash(
+                                    image_hash
+                                )
+                            )
+                            if cached_image_data:
+                                image_ref["mime_type"] = cached_image_data.get("mime_type")
+                                image_ref["base64"] = cached_image_data.get("base64")
+                            image_collector.append(image_ref)
+
+                        # 使用你建议的 <image> 标签
+                        SubElement(content_node, "image").text = placeholder_text
+
+
+                    elif seg_type == "quote":
+                        message_id = data.get("message_id")
+                        author_name = data.get("nickname")
+                        snippet = data.get("text", "...")
+
+                        # 尝试从数据库获取更精确的信息
+                        if message_id and window.content_state.get("conversation_uid"):
+                            # 获取当前窗口的 conversation_uid
+                            conv_uid = window.content_state.get("conversation_uid")
+                            # 调用新方法回查事件
+                            quoted_event_doc = (
+                                await self.event_service.get_event_by_platform_message_id(
+                                    conv_uid, message_id
+                                )
+                            )
+
+                            if quoted_event_doc:
+                                # 如果找到了，使用高保真信息
+                                conv_doc = await self.entity_service.get_entity_by_key(conv_uid)
+                                author_name = (
+                                    await self.entity_service.get_sender_display_name_for_event(
+                                        quoted_event_doc,
+                                        conv_doc,
+                                        bot_ids_map,
+                                    )
+                                )
+                                snippet = await self.event_service.get_event_text_summary(
+                                    quoted_event_doc
+                                )
+
+                        # 渲染最终结果（无论是精确的还是降级的）
+                        if len(snippet) > 20:
+                            snippet = snippet[:20] + "..."
+                        SubElement(
+                            content_node,
+                            "quote",
+                            attrib={
+                                "author": author_name,
+                                "message_id": str(message_id or "unknown"),
+                                "snippet": snippet,
+                            },
+                        )
+
+                    # 以后可以为其他非文本类型（如文件、分享链接）添加 elif
+                    # elif seg_type == "file":
+                    #     file_name = data.get('file_name', 'unknown')
+                    #     SubElement(content_node, "file").text = f"[文件: {file_name}]"
+                    # elif seg_type == "share":
+                    #     share_text = f"[分享链接: {data.get('url', 'unknown')}]"
+                    #     SubElement(content_node, "share").text = share_text
+
+                    else:
+                        # 未知类型，简单标记
+                        SubElement(content_node, "unknown").text = f"[未知内容类型: {seg_type}]"
+            # 最后，冲刷一次缓冲区，确保所有文本都被渲染
+            flush_text_buffer()

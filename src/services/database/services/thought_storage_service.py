@@ -197,19 +197,16 @@ class ThoughtStorageService:
             return None
 
     async def get_recent_thought_documents(
-        self, limit: int = 8, max_age_seconds: int = 60
+        self, limit: int = 8
     ) -> list[dict[str, Any]]:
         """获取最近的N条或在指定时间内的思考记录，用于构建工作记忆."""
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
-        current_ts_ms = int(time.time() * 1000)
-        min_ts = current_ts_ms - (max_age_seconds * 1000)
 
         def db_read() -> list[dict[str, Any]]:
             with driver.transaction(db_name, TransactionType.READ) as tx:
                 query = f"""
                 match
                     $t isa thought-chain-node, has timestamp $ts;
-                    $ts > {min_ts};
                 sort $ts desc;
                 limit {limit};
                 select $t;

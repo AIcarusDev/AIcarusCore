@@ -112,7 +112,7 @@ class ServiceBuilder:
         state_manager = AIStateManager(
             thought_service=db_services["thought_storage_service"],
             action_log_service=db_services["action_log_service"],
-            goal_storage_service=db_services["goal_storage_service"],
+            goal_manager=goal_manager,
         )
 
         # Prompting 层服务
