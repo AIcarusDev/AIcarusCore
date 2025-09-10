@@ -582,9 +582,13 @@ class QQWindowRenderer:
                 summary = data.get("summary")
 
                 if (
-                    (seg_type == "video"
-                    and summary == "animated_sticker")
-                    or (seg_type == "image" and summary == "sticker")
+                    (
+                        seg_type == "video"
+                        and summary == "animated_sticker"
+                    )
+                    or (
+                        seg_type == "image" and summary == "sticker"
+                    )
                 ):
                     placeholder_prefix = "动画表情"
                 elif seg_type == "image":

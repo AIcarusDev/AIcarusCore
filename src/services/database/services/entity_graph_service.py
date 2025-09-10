@@ -186,19 +186,11 @@ class EntityGraphService:
                 results = []
                 # fetch 查询的结果需要用 as_concept_documents() 解析
                 for doc in tx.query(query).resolve().as_concept_documents():
-                    # doc.get() 返回 Concept 对象，需要进一步提取值
-                    remark_concept = doc.get("remark")
-                    remark_val = (
-                        remark_concept.as_attribute().get_value()
-                        if remark_concept
-                        else None
-                    )
-
-                    nick_concept = doc.get("name")
-                    nick_val = nick_concept.as_attribute().get_value()
-
-                    uid_concept = doc.get("uid")
-                    uid_val = uid_concept.as_attribute().get_value()
+                    # as_concept_documents() 返回的 doc 是一个字典，其 value 是 Python 原生类型
+                    # 我们不再需要调用 .as_attribute().get_value()
+                    remark_val = doc.get("remark")
+                    nick_val = doc.get("name")
+                    uid_val = doc.get("uid")
 
                     if not uid_val:
                         continue  # 跳过无效数据
@@ -207,9 +199,15 @@ class EntityGraphService:
                     display_name = remark_val if remark_val else nick_val
 
                     # 构建与 get_all_groups_for_account 兼容的返回格式
-                    # uid 现在是 account-uid，渲染器逻辑需要它来构建 conversation-uid
-                    # 现在的 uid 已经是 qq_private_xxxxxx 的格式了
-                    conv_uid = build_conversation_entity_uid("qq", "private", uid_val.split("_")[1])
+                    # uid 现在是 account-uid (例如 qq_123456)，渲染器需要 conversation-uid
+                    # 所以我们在这里进行转换
+                    try:
+                        platform, user_id = uid_val.split("_", 1)
+                        conv_uid = build_conversation_entity_uid(platform, "private", user_id)
+                    except ValueError:
+                        logger.warning(f"无法解析好友的 account-uid: {uid_val}，跳过此联系人。")
+                        continue
+
 
                     results.append(
                         {
