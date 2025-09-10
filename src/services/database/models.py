@@ -3,6 +3,10 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
+from src.common.custom_logging.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 
 @dataclass
 class EnrichedConversationInfo:
@@ -114,13 +118,14 @@ class EntityDocument:
         if not data:
             # 返回一个空的或默认的实例，或者抛出异常，取决于业务需求
             # 这里我们选择返回一个带有 'unknown' 类型的默认实例
+            logger.warning("尝试从空字典创建 EntityDocument，返回默认实例。")
             return cls(
                 _key="unknown",
                 entity_uid="unknown",
                 entity_type="unknown",
-                details={},
+                details=None,
             )
-        entity_type = data.get("entity_type", "unknown")
+        entity_type = data.get("entity_type")
         details_data = data.get("details")
         details_class = ENTITY_TYPE_TO_DETAILS_CLASS.get(entity_type)  # type: ignore
 

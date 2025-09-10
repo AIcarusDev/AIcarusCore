@@ -57,10 +57,10 @@ class EventStorageService:
                 )
                 put_parts = [
                     f'$e isa event, has event-id "{event_id}"',
-                    f'has event-type "{event_doc_data.get("event_type", "unknown")}"',
+                    f'has event-type "{event_doc_data.get("event_type")}"',
                     f"has timestamp {timestamp_value}",
-                    f'has bot-id "{event_doc_data.get("bot_id", "unknown")}"',
-                    f'has status "{event_doc_data.get("status", "unread")}"',
+                    f'has bot-id "{event_doc_data.get("bot_id")}"',
+                    f'has status "{event_doc_data.get("status")}"',
                 ]
 
                 # 处理 JSON 字符串属性

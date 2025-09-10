@@ -12,6 +12,7 @@ from aicarus_protocols import UserInfo as ProtocolUserInfo
 from src.common.custom_logging.logging_config import get_logger
 from src.domain.models import ActionMetadata, ActionResult
 from src.os.apps.interfaces import IApp
+from src.os.apps.qq.builder import QQBuilder
 from src.os.communication.action_sender import ActionSender
 from src.os.models import WindowStatus
 from src.services.action.components.message_builder import MessageBuilder
@@ -181,7 +182,7 @@ class ActionHandler:
             # bot_id 在这里不重要，因为我们是向平台本身请求资源，而不是代表某个bot
             # 但为了兼容 execute_simple_action, 我们需要提供一个
             # 我们可以从 ApplicationManager 获取
-            bot_id = self.application_manager.get_self_bot_ids_map().get(platform_id, "unknown_bot")
+            bot_id = self.application_manager.get_self_bot_ids_map().get(platform_id)
 
             task = self.execute_simple_action(
                 platform_id=platform_id,
@@ -282,9 +283,14 @@ class ActionHandler:
                 await self._handle_gui_send_message(params, window_manager, container)
             # 路由 manage_stickers 动作
             elif action_name == "manage_stickers" and self.application_manager:
-                qq_builder = self.application_manager.get_builder_by_name("qq")
-                if qq_builder and hasattr(qq_builder, "handle_sticker_action"):
-                    await qq_builder.handle_sticker_action(params, container, thought_key)
+                builder = self.application_manager.get_builder_by_name("qq")
+                if isinstance(builder, QQBuilder):
+                    await builder.handle_sticker_action(params, container, thought_key)
+                elif builder:
+                    logger.warning(
+                        "ActionHandler: 'manage_stickers' 动作需要 QQBuilder，"
+                        f"但获取到的是 {type(builder).__name__}"
+                    )
         else:
             logger.warning(
                 f"ActionHandler 收到一个未知的 GUI 动作转发: {platform_id}.{action_name}"
@@ -425,11 +431,11 @@ class ActionHandler:
 
         action_doc = ActionLogDocument(
             _key=action_id,
-            action_type=action_data.get("event_type", "unknown"),
+            action_type=action_data.get("event_type"),
             timestamp=int(time.time() * 1000),
             bot_id=str(bot_id),
             status="pending",
-            platform=action_data.get("platform", "unknown"),
+            platform=action_data.get("platform"),
             action_details=action_data,
         )
         await self.action_log_service.save_action_attempt(action_doc)
@@ -447,7 +453,7 @@ class ActionHandler:
 
         try:
             send_success = await self.action_sender.send_action_to_adapter_by_id(
-                action_to_send.get("platform", "unknown"), action_to_send
+                action_to_send.get("platform"), action_to_send
             )
             if not send_success:
                 return ActionResult(
@@ -523,8 +529,8 @@ class ActionHandler:
         if not event_type_full.endswith(".send_message"):
             return
 
-        platform = event_to_save.get("platform", "unknown")
-        bot_id = event_to_save.get("bot_id", "unknown")
+        platform = event_to_save.get("platform")
+        bot_id = event_to_save.get("bot_id")
 
         # 获取机器人在该平台的完整档案，以构建 user_info
         self_entity = await self.entity_service.get_self_entity_by_platform(platform)
@@ -543,7 +549,7 @@ class ActionHandler:
         # 从 "action.qq.send_message" 转换为 "message.qq.group" 或 "message.qq.private"
         conv_info = event_to_save.get("conversation_info")
         if conv_info and isinstance(conv_info, dict):
-            conv_type = conv_info.get("type", "unknown")
+            conv_type = conv_info.get("type")
             event_to_save["event_type"] = f"message.{platform}.{conv_type}"
 
         # 2. 填充/修正关键字段

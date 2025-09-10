@@ -165,7 +165,7 @@ class CognitiveCycle:
 
             # 路由外部动作 (调用OS或ActionHandler)
             if external_action := action_payload.get("external"):
-                # [修改] 传递 thought_key
+                # 传递 thought_key
                 await self._route_external_action(external_action, ui_mapping, thought_key)
                 action_taken = True
 
@@ -199,11 +199,11 @@ class CognitiveCycle:
                 from xml.etree.ElementTree import Element, SubElement, tostring
 
                 root = Element("deliberation_result")
-                SubElement(root, "summary").text = resolution.get("summary", "无总结。")
+                SubElement(root, "summary").text = resolution.get("summary")
                 final_state = SubElement(root, "final_internal_state")
-                SubElement(final_state, "mood").text = resolution.get("final_mood", "平静")
-                SubElement(final_state, "think").text = resolution.get("final_think", "...")
-                SubElement(final_state, "intent").text = resolution.get("final_intent", "无")
+                SubElement(final_state, "mood").text = resolution.get("final_mood")
+                SubElement(final_state, "think").text = resolution.get("final_think")
+                SubElement(final_state, "intent").text = resolution.get("final_intent")
                 result_str = tostring(root, encoding="unicode")
 
                 await self.container.thought_storage_service.save_action_result_to_thought(

@@ -459,13 +459,22 @@ class QQWindowRenderer:
             # "发言方向"自我识别
             align = "right" if str(msg_sender_id) == str(bot_id) else "left"
 
-            # 移除多余的 name 属性
+            # 在这里提取正确的 message_id
+            platform_msg_id = None
+            for seg in msg.get("content", []):
+                if seg.get("type") == "message_metadata":
+                    platform_msg_id = seg.get("data", {}).get("message_id")
+                    break
+            if not platform_msg_id:
+                logger.error(f"致命错误：消息缺少 message_id，无法渲染: {msg}")
+                continue
+
             msg_node = SubElement(
                 list_node,
                 "div",
                 attrib={
                     "class": "message",
-                    "id": msg.get("event_id"),
+                    "id": platform_msg_id,
                     "align": align,
                     "sender_id": str(msg_sender_id),
                 },
@@ -595,7 +604,7 @@ class QQWindowRenderer:
 
                 # 步骤 1: 将所有文本类内容聚合到缓冲区
                 if seg_type == "text":
-                    text_buffer += data.get("text", "")
+                    text_buffer += data.get("text")
                 elif seg_type == "at":
                     user_id = data.get("user_id")
                     display_name = data.get("display_name") # 依然保留原始的 display_name 作为备用
@@ -608,8 +617,9 @@ class QQWindowRenderer:
                             bot_ids_map
                         )
                         display_name = f"@{latest_name}"
-                    elif not display_name:
-                        display_name = f"@{user_id or '未知用户'}"
+                    else:
+                        logger.error(f"致命错误：无法解析 @ 段的用户信息: {data}")
+                        continue
                     # 为 @ 用户名后附加一个空格，模拟真实输入
                     text_buffer += f"{display_name} "
 
@@ -621,6 +631,7 @@ class QQWindowRenderer:
                     if seg_type in ["image", "video"]:
                         image_hash = data.get("hash")
                         if not image_hash:
+                            logger.error(f"致命错误：图片/视频段缺少 hash 信息: {data}")
                             # 如果图片加载失败，也用一个专门的标签
                             SubElement(content_node, "error").text = "[图片加载失败]"
                             continue
@@ -630,7 +641,9 @@ class QQWindowRenderer:
                         platform, _, _ = (
                             parse_entity_uid(conversation_uid)
                             if conversation_uid
-                            else ("unknown", "", "")
+                            else logger.error(
+                                f"致命错误：无法解析 conversation_uid: {conversation_uid}"
+                            )
                         )
                         short_hash = image_hash[:8]
                         summary = data.get("summary", "image")
@@ -663,7 +676,7 @@ class QQWindowRenderer:
                     elif seg_type == "quote":
                         message_id = data.get("message_id")
                         author_name = data.get("nickname")
-                        snippet = data.get("text", "...")
+                        snippet = data.get("text")
 
                         # 尝试从数据库获取更精确的信息
                         if message_id and window.content_state.get("conversation_uid"):
@@ -698,17 +711,17 @@ class QQWindowRenderer:
                             "quote",
                             attrib={
                                 "author": author_name,
-                                "message_id": str(message_id or "unknown"),
+                                "message_id": str(message_id),
                                 "snippet": snippet,
                             },
                         )
 
                     # 以后可以为其他非文本类型（如文件、分享链接）添加 elif
                     # elif seg_type == "file":
-                    #     file_name = data.get('file_name', 'unknown')
+                    #     file_name = data.get('file_name')
                     #     SubElement(content_node, "file").text = f"[文件: {file_name}]"
                     # elif seg_type == "share":
-                    #     share_text = f"[分享链接: {data.get('url', 'unknown')}]"
+                    #     share_text = f"[分享链接: {data.get('url')}]"
                     #     SubElement(content_node, "share").text = share_text
             # 最后，冲刷一次缓冲区，确保所有文本都被渲染
             flush_text_buffer()
