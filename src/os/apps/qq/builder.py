@@ -246,7 +246,7 @@ class QQBuilder(BaseAppBuilder, IApp):
         bot_ids_map: dict,
         entity_service: EntityGraphService,
         event_service: EventStorageService,
-        media_cache_service: MediaCacheService, # 新增
+        media_cache_service: MediaCacheService,  # 新增
         ui_mapping: dict,
         generate_semantic_id: callable,
         image_collector: list[dict],
@@ -361,9 +361,8 @@ class QQBuilder(BaseAppBuilder, IApp):
                         "properties": {"content": {"type": "string"}},
                         "required": ["content"],
                         "description": (
-                            "要发送的文本内容。建议内容简短、自然，"
-                            "可省略主语和大部分标点符号。"
-                        )
+                            "要发送的文本内容。建议内容简短、自然，可省略主语和大部分标点符号。"
+                        ),
                     },
                 },
             },
@@ -378,7 +377,7 @@ class QQBuilder(BaseAppBuilder, IApp):
                             "此指令会触发一次发送操作，"
                             "将其前面所有的指令作为一条消息发送出去。"
                             "它也标志着下一条新消息的开始"
-                        )
+                        ),
                     },
                 },
             },
@@ -431,11 +430,10 @@ class QQBuilder(BaseAppBuilder, IApp):
                     ),
                     "items": {
                         "description": (
-                            "单个操作步骤，必须包含一个指令(command)和其"
-                            "对应的唯一参数(params)。"
+                            "单个操作步骤，必须包含一个指令(command)和其对应的唯一参数(params)。"
                         ),
-                        "oneOf": steps_oneof
-                    }
+                        "oneOf": steps_oneof,
+                    },
                 },
                 "motivation": {"type": "string"},
             },
@@ -452,8 +450,7 @@ class QQBuilder(BaseAppBuilder, IApp):
                     "image_hash": {
                         "type": "string",
                         "description": (
-                            "要添加为表情包的图片的哈希ID "
-                            "(从聊天记录的 `(hash:...)` 中获取)。"
+                            "要添加为表情包的图片的哈希ID (从聊天记录的 `(hash:...)` 中获取)。"
                         ),
                     },
                     "impression": {

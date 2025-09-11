@@ -57,7 +57,7 @@ class SystemPromptPartsBuilder:
 
         lines = [
             '<sticker_impression platform="qq">',
-            '  <desc>这是你对你在 QQ 平台上已收藏的表情包的印象。</desc>',
+            "  <desc>这是你对你在 QQ 平台上已收藏的表情包的印象。</desc>",
         ]
 
         # 限制数量，防止 Prompt 过长
@@ -69,12 +69,11 @@ class SystemPromptPartsBuilder:
                 impression.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
             )
             lines.append(f'  <sticker id="{sticker_id}">')
-            lines.append(f'    <impression>{impression_safe}</impression>')
-            lines.append('  </sticker>')
+            lines.append(f"    <impression>{impression_safe}</impression>")
+            lines.append("  </sticker>")
 
         lines.append("</sticker_impression>")
         return "\n".join(lines)
-
 
     # 修改 build 方法的签名以接收 session
     async def build(

@@ -18,6 +18,7 @@ logger = get_logger(__name__)
 
 class MediaCacheService:
     """服务：同时管理媒体文件缓存(数据库)和原始媒体文件缓存(本地文件系统)."""
+
     CACHE_VERSION = "v1.0"
     CACHE_TTL_SECONDS = 7 * 24 * 3600
 
@@ -182,7 +183,8 @@ class MediaCacheService:
             self.save_image_b64(
                 img.get("hash", ""), img.get("base64", ""), img.get("mime_type", "")
             )
-            for img in images_data if isinstance(img, dict)
+            for img in images_data
+            if isinstance(img, dict)
         ]
         await asyncio.gather(*tasks)
         logger.info(f"已批量缓存 {len(tasks)} 张从Adapter获取的图片。")
@@ -199,7 +201,7 @@ class MediaCacheService:
             # 文件的MIME类型存储在TypeDB的image-cache实体中
             query = (
                 f'match $ic isa image-cache, has image-hash "{image_hash}"; '
-                f'$ic has mime-type $mime; select $mime;'
+                f"$ic has mime-type $mime; select $mime;"
             )
             driver = self.conn_manager.get_driver()
             db_name = self.conn_manager.database_name
@@ -218,7 +220,7 @@ class MediaCacheService:
                 mime_type = "application/octet-stream"
 
             image_bytes = await asyncio.to_thread(file_path.read_bytes)
-            b64_data = base64.b64encode(image_bytes).decode('utf-8')
+            b64_data = base64.b64encode(image_bytes).decode("utf-8")
 
             return {"hash": image_hash, "base64": b64_data, "mime_type": mime_type}
         except Exception as e:
@@ -250,8 +252,7 @@ class MediaCacheService:
 
                     # 1. 检查实体是否存在
                     match_query = (
-                        f'match $ic isa image-cache, has image-hash "{image_hash}";'
-                        f' select $ic;'
+                        f'match $ic isa image-cache, has image-hash "{image_hash}"; select $ic;'
                     )
                     existing = list(tx.query(match_query).resolve())
 

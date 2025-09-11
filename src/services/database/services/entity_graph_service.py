@@ -210,7 +210,6 @@ class EntityGraphService:
                         logger.warning(f"无法解析好友的 account-uid: {uid_val}，跳过此联系人。")
                         continue
 
-
                     results.append(
                         {
                             "uid": conv_uid,
@@ -369,19 +368,16 @@ class EntityGraphService:
 
                 # 1. 检查 person 实体是否存在，不存在则创建
                 person_exists_query = (
-                    f'match $p isa person, has person-uid "{profile_uid}";'
-                    f' select $p;'
+                    f'match $p isa person, has person-uid "{profile_uid}"; select $p;'
                 )
                 if not list(tx.query(person_exists_query).resolve()):
                     tx.query(
-                        f'insert $p isa {person_type}, '
-                        f'has person-uid "{profile_uid}";'
+                        f'insert $p isa {person_type}, has person-uid "{profile_uid}";'
                     ).resolve()
 
                 # 2. 检查 platform 实体是否存在，不存在则创建
                 platform_exists_query = (
-                    f'match $plat isa platform, has platform-uid "{platform}";'
-                    f' select $plat;'
+                    f'match $plat isa platform, has platform-uid "{platform}"; select $plat;'
                 )
                 if not list(tx.query(platform_exists_query).resolve()):
                     tx.query(

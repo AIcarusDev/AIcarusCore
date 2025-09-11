@@ -133,7 +133,7 @@ async def _handle_base_ui_interaction(
                 conversation_uid = closed_window.content_state.get("conversation_uid")
                 app = application_manager.get_app_by_id(app_id)
                 # 检查 container 中是否有 qq_chat_session_manager
-                session_manager = getattr(container, 'qq_chat_session_manager', None)
+                session_manager = getattr(container, "qq_chat_session_manager", None)
                 if conversation_uid and app and session_manager:
                     logger.info(f"正在为已关闭的窗口停用会话: {conversation_uid}")
                     await session_manager.deactivate_session(conversation_uid)

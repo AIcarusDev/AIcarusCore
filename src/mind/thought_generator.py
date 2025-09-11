@@ -155,12 +155,14 @@ class ThoughtGenerator:
                 if image_hash and image_hash in all_image_data:
                     # 如果这个片段是占位符，并且我们成功获取了它的数据
                     image_data = all_image_data[image_hash]
-                    user_prompt_parts.append({
-                        "inline_data": {
-                            "mime_type": image_data["mime_type"],
-                            "data": image_data["base64"],
+                    user_prompt_parts.append(
+                        {
+                            "inline_data": {
+                                "mime_type": image_data["mime_type"],
+                                "data": image_data["base64"],
+                            }
                         }
-                    })
+                    )
                 elif fragment in placeholder_to_hash_map:
                     # 占位符存在，但无法获取图片数据
                     logger.warning(

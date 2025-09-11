@@ -631,6 +631,6 @@ class EventStorageService:
             logger.error(
                 f"通过 platform_message_id '{platform_message_id}' "
                 f"在会话 '{conversation_uid}' 中查找事件失败: {e!r}",
-                exc_info=True
+                exc_info=True,
             )
             return None

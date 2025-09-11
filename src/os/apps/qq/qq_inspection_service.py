@@ -77,8 +77,7 @@ async def _persist_new_profile(
         logger.critical("检查失败！在数据库中创建自身 Profile 或 Entity 节点时失败。")
     else:
         logger.success(
-            f"[Inspection] 成功为平台 '{platform_id}' 创建自身实体，"
-            f"Account UID: {entity_uid}"
+            f"[Inspection] 成功为平台 '{platform_id}' 创建自身实体，Account UID: {entity_uid}"
         )
     return entity_uid
 

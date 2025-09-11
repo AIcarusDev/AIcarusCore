@@ -196,9 +196,7 @@ class ThoughtStorageService:
             logger.error(f"获取最新思想点时发生错误: {e}", exc_info=True)
             return None
 
-    async def get_recent_thought_documents(
-        self, limit: int = 8
-    ) -> list[dict[str, Any]]:
+    async def get_recent_thought_documents(self, limit: int = 8) -> list[dict[str, Any]]:
         """获取最近的N条或在指定时间内的思考记录，用于构建工作记忆."""
         driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 

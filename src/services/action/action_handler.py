@@ -12,7 +12,6 @@ from aicarus_protocols import UserInfo as ProtocolUserInfo
 from src.common.custom_logging.logging_config import get_logger
 from src.domain.models import ActionMetadata, ActionResult
 from src.os.apps.interfaces import IApp
-from src.os.apps.qq.builder import QQBuilder
 from src.os.communication.action_sender import ActionSender
 from src.os.models import WindowStatus
 from src.services.action.components.message_builder import MessageBuilder
@@ -29,6 +28,7 @@ if TYPE_CHECKING:
     from src.bootstrap.container import ServiceContainer
     from src.mind.abilities.information_retrieval_service import InformationRetrievalService
     from src.os.application_manager import ApplicationManager
+    from src.os.apps.qq.builder import QQBuilder
     from src.os.apps.qq.sticker_service import QQStickerService
     from src.os.services.filesystem_service import FileSystemService
     from src.os.state_generator import AICOSStateGenerator
@@ -189,7 +189,7 @@ class ActionHandler:
                 action_name="media.get",
                 params={"hash": hash_val},
                 bot_id=bot_id,
-                description=f"回源请求媒体文件 {hash_val[:10]}"
+                description=f"回源请求媒体文件 {hash_val[:10]}",
             )
             tasks.append(task)
 
@@ -208,7 +208,6 @@ class ActionHandler:
                     )
             elif not res.is_success:
                 logger.error(f"媒体回源请求 {res.action_id} 失败: {res.error_message}")
-
 
         logger.info(f"成功从Adapter获取了 {len(fetched_images)} / {len(tasks)} 个媒体文件。")
         return fetched_images
@@ -317,7 +316,8 @@ class ActionHandler:
         # 窗口和会话的有效性检查
         target_window = next(
             (
-                w for w in window_manager.get_all_windows_sorted()
+                w
+                for w in window_manager.get_all_windows_sorted()
                 if w.content_state.get("conversation_uid") == target_conversation_uid
                 and w.status != WindowStatus.MINIMIZE
             ),
@@ -376,9 +376,7 @@ class ActionHandler:
                 metadata = ActionMetadata(motivation=motivation)
                 # 3. 调用存储方法
                 await self._save_successful_action_as_event(
-                    action_result.action_id,
-                    sent_dict,
-                    metadata
+                    action_result.action_id, sent_dict, metadata
                 )
         else:
             logger.error(f"通过 MessageBuilder 发送消息至会话 '{conversation_uid}' 失败。")

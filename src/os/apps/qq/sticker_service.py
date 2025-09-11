@@ -157,7 +157,7 @@ class QQStickerService:
                 filename=new_filename,
                 impression=impression,
                 source_image_hash=image_hash,
-                perceptual_hash=perceptual_hash
+                perceptual_hash=perceptual_hash,
             )
             if not sticker_doc:
                 save_path.unlink(missing_ok=True)

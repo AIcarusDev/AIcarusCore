@@ -228,6 +228,4 @@ class CognitiveCycle:
         # 分发所有 AIC-OS 的 UI 交互到 UI Dispatcher
         elif aicos_interaction := external_action.get("AIC-OS"):
             # 传递 thought_key
-            await handle_os_interaction(
-                aicos_interaction, ui_mapping, self.container, thought_key
-            )
+            await handle_os_interaction(aicos_interaction, ui_mapping, self.container, thought_key)

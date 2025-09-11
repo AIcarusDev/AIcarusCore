@@ -24,6 +24,7 @@ logger = get_logger(__name__)
 # 定义一个唯一的常量来标识预览图资源
 STICKER_PREVIEW_SOURCE_ID = "qq_stickers_preview"
 
+
 class QQWindowRenderer:
     """专用于QQ应用的窗口内容渲染器.
 
@@ -36,13 +37,13 @@ class QQWindowRenderer:
         event_service: EventStorageService,
         ui_mapping: dict,
         generate_semantic_id: callable,
-        media_cache_service: "MediaCacheService", # 新增 media_cache_service
+        media_cache_service: "MediaCacheService",  # 新增 media_cache_service
     ) -> None:
         self.entity_service = entity_service
         self.event_service = event_service
         self.ui_mapping = ui_mapping
         self._generate_semantic_id = generate_semantic_id
-        self.media_cache_service = media_cache_service # 存储实例
+        self.media_cache_service = media_cache_service  # 存储实例
 
     async def _get_message_priority_tag(self, event: dict, bot_ids_map: dict) -> str:
         """检查事件内容，如果包含@我或回复我，则返回一个高亮标签."""
@@ -569,159 +570,156 @@ class QQWindowRenderer:
             ).text = "你的表情包收藏预览"
 
     async def _render_rich_content(
-            self,
-            content_node: Element,
-            segments: list[dict],
-            image_collector: list[dict],
-            window: Window,
-            bot_ids_map: dict,
-        ) -> None:
-            """渲染富文本消息内容，精确分离文本和多模态元素，并保持原始顺序."""
-            text_buffer = ""
+        self,
+        content_node: Element,
+        segments: list[dict],
+        image_collector: list[dict],
+        window: Window,
+        bot_ids_map: dict,
+    ) -> None:
+        """渲染富文本消息内容，精确分离文本和多模态元素，并保持原始顺序."""
+        text_buffer = ""
 
-            def flush_text_buffer() -> None:
-                """内部辅助函数：如果缓冲区有内容，则写入 <text> 标签并清空."""
-                nonlocal text_buffer
-                if text_buffer:
-                    # 移除可能由 @ 段产生的尾部多余空格
-                    SubElement(content_node, "text").text = text_buffer.rstrip()
-                    text_buffer = ""
+        def flush_text_buffer() -> None:
+            """内部辅助函数：如果缓冲区有内容，则写入 <text> 标签并清空."""
+            nonlocal text_buffer
+            if text_buffer:
+                # 移除可能由 @ 段产生的尾部多余空格
+                SubElement(content_node, "text").text = text_buffer.rstrip()
+                text_buffer = ""
 
-            conversation_uid = window.content_state.get("conversation_uid")
-            conv_doc = (
-                await self.entity_service.get_entity_by_key(conversation_uid)
-                if conversation_uid
-                else None
-            )
+        conversation_uid = window.content_state.get("conversation_uid")
+        conv_doc = (
+            await self.entity_service.get_entity_by_key(conversation_uid)
+            if conversation_uid
+            else None
+        )
 
-            for seg in segments:
-                seg_type = seg.get("type")
-                data = seg.get("data", {})
+        for seg in segments:
+            seg_type = seg.get("type")
+            data = seg.get("data", {})
 
-                # 在循环的最开始，直接跳过元数据
-                if seg_type == "message_metadata":
-                    continue
+            # 在循环的最开始，直接跳过元数据
+            if seg_type == "message_metadata":
+                continue
 
-                # 步骤 1: 将所有文本类内容聚合到缓冲区
-                if seg_type == "text":
-                    text_buffer += data.get("text")
-                elif seg_type == "at":
-                    user_id = data.get("user_id")
-                    display_name = data.get("display_name") # 依然保留原始的 display_name 作为备用
+            # 步骤 1: 将所有文本类内容聚合到缓冲区
+            if seg_type == "text":
+                text_buffer += data.get("text")
+            elif seg_type == "at":
+                user_id = data.get("user_id")
+                display_name = data.get("display_name")  # 依然保留原始的 display_name 作为备用
 
-                    if user_id and conv_doc:
-                        # 主动查询最新的显示名称
-                        latest_name = await self.entity_service.get_sender_display_name_for_event(
-                            {"user_info": {"user_id": user_id}}, # 伪造一个简单的 event
-                            conv_doc,
-                            bot_ids_map
-                        )
-                        display_name = f"@{latest_name}"
-                    else:
-                        logger.error(f"致命错误：无法解析 @ 段的用户信息: {data}")
-                        continue
-                    # 为 @ 用户名后附加一个空格，模拟真实输入
-                    text_buffer += f"{display_name} "
-
-                # 步骤 2: 遇到非文本元素，先处理缓冲区，再处理该元素
+                if user_id and conv_doc:
+                    # 主动查询最新的显示名称
+                    latest_name = await self.entity_service.get_sender_display_name_for_event(
+                        {"user_info": {"user_id": user_id}},  # 伪造一个简单的 event
+                        conv_doc,
+                        bot_ids_map,
+                    )
+                    display_name = f"@{latest_name}"
                 else:
-                    flush_text_buffer()  # 冲刷掉此前的文本
+                    logger.error(f"致命错误：无法解析 @ 段的用户信息: {data}")
+                    continue
+                # 为 @ 用户名后附加一个空格，模拟真实输入
+                text_buffer += f"{display_name} "
 
-                    # 现在处理非文本元素
-                    if seg_type in ["image", "video"]:
-                        image_hash = data.get("hash")
-                        if not image_hash:
-                            logger.error(f"致命错误：图片/视频段缺少 hash 信息: {data}")
-                            # 如果图片加载失败，也用一个专门的标签
-                            SubElement(content_node, "error").text = "[图片加载失败]"
-                            continue
+            # 步骤 2: 遇到非文本元素，先处理缓冲区，再处理该元素
+            else:
+                flush_text_buffer()  # 冲刷掉此前的文本
 
-                        # 生成占位符和收集图片信息的逻辑保持不变
-                        conversation_uid = window.content_state.get("conversation_uid")
-                        platform, _, _ = (
-                            parse_entity_uid(conversation_uid)
-                            if conversation_uid
-                            else logger.error(
-                                f"致命错误：无法解析 conversation_uid: {conversation_uid}"
+                # 现在处理非文本元素
+                if seg_type in ["image", "video"]:
+                    image_hash = data.get("hash")
+                    if not image_hash:
+                        logger.error(f"致命错误：图片/视频段缺少 hash 信息: {data}")
+                        # 如果图片加载失败，也用一个专门的标签
+                        SubElement(content_node, "error").text = "[图片加载失败]"
+                        continue
+
+                    # 生成占位符和收集图片信息的逻辑保持不变
+                    conversation_uid = window.content_state.get("conversation_uid")
+                    platform, _, _ = (
+                        parse_entity_uid(conversation_uid)
+                        if conversation_uid
+                        else logger.error(
+                            f"致命错误：无法解析 conversation_uid: {conversation_uid}"
+                        )
+                    )
+                    short_hash = image_hash[:8]
+                    summary = data.get("summary", "image")
+                    placeholder_prefix = "图片"
+                    if summary in ("sticker", "animated_sticker"):
+                        placeholder_prefix = "动画表情"
+
+                    placeholder_text = f"[{placeholder_prefix}:{short_hash}]"
+
+                    if not any(img.get("hash") == image_hash for img in image_collector):
+                        image_ref = {
+                            "placeholder": placeholder_text,
+                            "hash": image_hash,
+                            "platform_id": platform,
+                        }
+                        cached_image_data = await self.media_cache_service.get_image_b64_by_hash(
+                            image_hash
+                        )
+                        if cached_image_data:
+                            image_ref["mime_type"] = cached_image_data.get("mime_type")
+                            image_ref["base64"] = cached_image_data.get("base64")
+                        image_collector.append(image_ref)
+
+                    # 使用你建议的 <image> 标签
+                    SubElement(content_node, "image").text = placeholder_text
+
+                elif seg_type == "quote":
+                    message_id = data.get("message_id")
+                    author_name = data.get("nickname")
+                    snippet = data.get("text")
+
+                    # 尝试从数据库获取更精确的信息
+                    if message_id and window.content_state.get("conversation_uid"):
+                        # 获取当前窗口的 conversation_uid
+                        conv_uid = window.content_state.get("conversation_uid")
+                        # 调用新方法回查事件
+                        quoted_event_doc = (
+                            await self.event_service.get_event_by_platform_message_id(
+                                conv_uid, message_id
                             )
                         )
-                        short_hash = image_hash[:8]
-                        summary = data.get("summary", "image")
-                        placeholder_prefix = "图片"
-                        if summary in ("sticker", "animated_sticker"):
-                            placeholder_prefix = "动画表情"
 
-                        placeholder_text = f"[{placeholder_prefix}:{short_hash}]"
-
-                        if not any(img.get("hash") == image_hash for img in image_collector):
-                            image_ref = {
-                                "placeholder": placeholder_text,
-                                "hash": image_hash,
-                                "platform_id": platform,
-                            }
-                            cached_image_data = (
-                                await self.media_cache_service.get_image_b64_by_hash(
-                                    image_hash
+                        if quoted_event_doc:
+                            # 如果找到了，使用高保真信息
+                            conv_doc = await self.entity_service.get_entity_by_key(conv_uid)
+                            author_name = (
+                                await self.entity_service.get_sender_display_name_for_event(
+                                    quoted_event_doc,
+                                    conv_doc,
+                                    bot_ids_map,
                                 )
                             )
-                            if cached_image_data:
-                                image_ref["mime_type"] = cached_image_data.get("mime_type")
-                                image_ref["base64"] = cached_image_data.get("base64")
-                            image_collector.append(image_ref)
-
-                        # 使用你建议的 <image> 标签
-                        SubElement(content_node, "image").text = placeholder_text
-
-
-                    elif seg_type == "quote":
-                        message_id = data.get("message_id")
-                        author_name = data.get("nickname")
-                        snippet = data.get("text")
-
-                        # 尝试从数据库获取更精确的信息
-                        if message_id and window.content_state.get("conversation_uid"):
-                            # 获取当前窗口的 conversation_uid
-                            conv_uid = window.content_state.get("conversation_uid")
-                            # 调用新方法回查事件
-                            quoted_event_doc = (
-                                await self.event_service.get_event_by_platform_message_id(
-                                    conv_uid, message_id
-                                )
+                            snippet = await self.event_service.get_event_text_summary(
+                                quoted_event_doc
                             )
 
-                            if quoted_event_doc:
-                                # 如果找到了，使用高保真信息
-                                conv_doc = await self.entity_service.get_entity_by_key(conv_uid)
-                                author_name = (
-                                    await self.entity_service.get_sender_display_name_for_event(
-                                        quoted_event_doc,
-                                        conv_doc,
-                                        bot_ids_map,
-                                    )
-                                )
-                                snippet = await self.event_service.get_event_text_summary(
-                                    quoted_event_doc
-                                )
+                    # 渲染最终结果（无论是精确的还是降级的）
+                    if len(snippet) > 20:
+                        snippet = snippet[:20] + "..."
+                    SubElement(
+                        content_node,
+                        "quote",
+                        attrib={
+                            "author": author_name,
+                            "message_id": str(message_id),
+                            "snippet": snippet,
+                        },
+                    )
 
-                        # 渲染最终结果（无论是精确的还是降级的）
-                        if len(snippet) > 20:
-                            snippet = snippet[:20] + "..."
-                        SubElement(
-                            content_node,
-                            "quote",
-                            attrib={
-                                "author": author_name,
-                                "message_id": str(message_id),
-                                "snippet": snippet,
-                            },
-                        )
-
-                    # 以后可以为其他非文本类型（如文件、分享链接）添加 elif
-                    # elif seg_type == "file":
-                    #     file_name = data.get('file_name')
-                    #     SubElement(content_node, "file").text = f"[文件: {file_name}]"
-                    # elif seg_type == "share":
-                    #     share_text = f"[分享链接: {data.get('url')}]"
-                    #     SubElement(content_node, "share").text = share_text
-            # 最后，冲刷一次缓冲区，确保所有文本都被渲染
-            flush_text_buffer()
+                # 以后可以为其他非文本类型（如文件、分享链接）添加 elif
+                # elif seg_type == "file":
+                #     file_name = data.get('file_name')
+                #     SubElement(content_node, "file").text = f"[文件: {file_name}]"
+                # elif seg_type == "share":
+                #     share_text = f"[分享链接: {data.get('url')}]"
+                #     SubElement(content_node, "share").text = share_text
+        # 最后，冲刷一次缓冲区，确保所有文本都被渲染
+        flush_text_buffer()

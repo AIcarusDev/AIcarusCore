@@ -164,7 +164,7 @@ class ServiceBuilder:
         thought_generator = ThoughtGenerator(
             llm_client=llm_clients["main_consciousness_llm_client"],
             action_handler=action_handler,
-            media_cache_service=db_services["media_cache_service"]
+            media_cache_service=db_services["media_cache_service"],
         )
 
         container = ServiceContainer(

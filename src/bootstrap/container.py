@@ -79,7 +79,6 @@ class ServiceContainer:
     interruption_broker: InterruptionEventBroker
     narrative_vectorizer: NarrativeVectorizer
 
-
     # 通信与核心循环
     core_comm_layer: CoreWebsocketServer
     core_logic: CoreLogic

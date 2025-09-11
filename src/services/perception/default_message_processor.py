@@ -127,8 +127,7 @@ class DefaultMessageProcessor:
 
         reason = failed_seg.data.get("reason", "未知错误")
         error_message = (
-            f"抱歉，图片加载失败了({reason})，"
-            "可能是链接失效或网络问题，可以尝试再发一次吗？"
+            f"抱歉，图片加载失败了({reason})，可能是链接失效或网络问题，可以尝试再发一次吗？"
         )
         logger.info(f"向用户发送的错误消息: {error_message}")
 
@@ -136,7 +135,6 @@ class DefaultMessageProcessor:
         stimulus = Stimulus.from_protocol_event(event)
         # 正确的用法是使用 dataclasses.replace
         stimulus = dataclasses.replace(stimulus, text_content=error_message)
-
 
         await self.interruption_broker.publish(stimulus)
         logger.debug(f"为图片加载失败事件 '{event.event_id}' 生成的直接回复 Stimulus 已发布。")
@@ -180,13 +178,15 @@ class DefaultMessageProcessor:
         # 在事件持久化之前，先处理媒体文件
         content_copy = event_dict.get("content", [])
         for seg in content_copy:
-            if seg.get("type") in ["image", "video"] and \
-                seg.get("data", {}).get("base64") and \
-                seg.get("data",{}).get("hash"):
+            if (
+                seg.get("type") in ["image", "video"]
+                and seg.get("data", {}).get("base64")
+                and seg.get("data", {}).get("hash")
+            ):
                 await self.media_cache_service.save_image_b64(
                     seg["data"]["hash"],
                     seg["data"]["base64"],
-                    seg["data"].get("mime_type", "application/octet-stream")
+                    seg["data"].get("mime_type", "application/octet-stream"),
                 )
                 # 从事件中移除base64，减轻数据库负担
                 del seg["data"]["base64"]
