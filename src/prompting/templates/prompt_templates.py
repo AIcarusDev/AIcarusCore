@@ -11,9 +11,7 @@
 """
 
 CORE_CYCLE_SYSTEM_PROMPT = """
-<system_rule>
 {aicarus_rule_block}
-</system_rule>
 
 <current_time>
 当前时间：{current_time}

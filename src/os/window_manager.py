@@ -2,10 +2,9 @@
 
 import time
 
-from .models import Window, WindowStatus
+from src.config import config
 
-# 从配置文件或常量中定义窗口限制
-MAX_NORMAL_WINDOWS = 4
+from .models import Window, WindowStatus
 
 
 class WindowManager:
@@ -121,13 +120,18 @@ class WindowManager:
                     window.status = WindowStatus.MINIMIZE
             return  # 独占规则优先，直接返回
 
+        # 从配置中读取最大窗口数
+        max_windows = config.os.max_normal_windows
+        if max_windows < 1 or max_windows is None:
+            max_windows = 4  # 默认值
+
         # 规则2: 普通窗口数量限制
         # 弹窗不计入普通窗口数量限制
         normal_windows = [
             w for w in self._windows.values() if w.status == WindowStatus.NORMAL and not w.is_popup
         ]
 
-        if len(normal_windows) > MAX_NORMAL_WINDOWS:
+        if len(normal_windows) > max_windows:
             # 找出需要被最小化的窗口
             # 我们不最小化刚刚被打开或操作的窗口
             windows_to_consider = [w for w in normal_windows if w.name != newly_opened_window_name]
@@ -135,6 +139,6 @@ class WindowManager:
             # 按 last_focused_timestamp 排序，最旧的在前面
             windows_to_consider.sort(key=lambda w: w.last_focused_timestamp)
 
-            num_to_minimize = len(normal_windows) - MAX_NORMAL_WINDOWS
+            num_to_minimize = len(normal_windows) - max_windows
             for i in range(num_to_minimize):
                 windows_to_consider[i].status = WindowStatus.MINIMIZE

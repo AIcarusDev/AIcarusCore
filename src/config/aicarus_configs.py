@@ -279,6 +279,24 @@ class RuntimeEnvironmentSettings(ConfigBase):
     """用于机器学习模型计算的设备。可选值: "auto", "cuda", "cpu"."""
 
 
+# OS 相关配置
+@dataclass
+class OSSettings(ConfigBase):
+    """AIC-OS 相关的配置."""
+
+    max_normal_windows: int = 4
+    """桌面上最多能同时存在的普通窗口（非最小化、非弹窗）数量。"""
+
+
+# Prompt 相关配置
+@dataclass
+class PromptSettings(ConfigBase):
+    """与 Prompt 构建相关的配置."""
+
+    inject_aicarus_rule: bool = True
+    """是否在 System Prompt 中注入 AICARUS_RULE 核心规则。"""
+
+
 @dataclass
 class AlcarusRootConfig(ConfigBase):
     """Aicarus 的根配置类，包含所有核心设置和模型配置.
@@ -301,3 +319,6 @@ class AlcarusRootConfig(ConfigBase):
         default_factory=RuntimeEnvironmentSettings
     )
     sticker_settings: StickerSettings = field(default_factory=StickerSettings)
+    # [新增] 将新的配置类添加到主配置中
+    os: OSSettings = field(default_factory=OSSettings)
+    prompt: PromptSettings = field(default_factory=PromptSettings)

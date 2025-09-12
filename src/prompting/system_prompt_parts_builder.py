@@ -100,7 +100,8 @@ class SystemPromptPartsBuilder:
         sticker_impression_block = await self._build_sticker_impression_block()
 
         return {
-            "aicarus_rule_block": AICARUS_RULE,
+            # 根据配置决定是否注入 AICARUS_RULE
+            "aicarus_rule_block": AICARUS_RULE if config.prompt.inject_aicarus_rule else "",
             "current_time": get_formatted_time_for_llm(),
             "persona_block": (
                 f'你是"{config.persona.bot_name}"；\n'
