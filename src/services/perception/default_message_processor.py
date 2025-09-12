@@ -1,5 +1,6 @@
 # 文件路径: src/services/perception/default_message_processor.py
 
+import asyncio
 import dataclasses
 from typing import TYPE_CHECKING
 
@@ -24,6 +25,7 @@ from websockets.server import WebSocketServerProtocol
 
 if TYPE_CHECKING:
     from src.os.window_manager import WindowManager
+    from src.services.action.action_handler import ActionHandler
 
 logger = get_logger(__name__)
 
@@ -46,6 +48,7 @@ class DefaultMessageProcessor:
         interruption_broker: "InterruptionEventBroker",
         narrative_vectorizer: "NarrativeVectorizer",
         window_manager: "WindowManager",
+        action_handler: "ActionHandler",
     ) -> None:
         self.event_service = event_service
         self.entity_service = entity_service
@@ -56,6 +59,8 @@ class DefaultMessageProcessor:
         self.narrative_vectorizer = narrative_vectorizer
         self.image_analysis_service = image_analysis_service
         self.window_manager = window_manager
+        self.action_handler = action_handler
+        self._background_tasks: set[asyncio.Task] = set()
         logger.info("DefaultMessageProcessor (纯净版) 初始化完成。")
 
     async def process_event(
@@ -218,10 +223,11 @@ class DefaultMessageProcessor:
     async def _associate_person_and_update_membership(
         self, event: ProtocolEvent, platform_id: str
     ) -> tuple[str | None, str | None]:
-        """统一处理事件参与者与会话的关系，使用字典避免哈希问题."""
+        """统一处理事件参与者与会话的关系，并触发按需同步."""
         if not (sender_user_info := event.user_info) or not sender_user_info.user_id:
             return None, None
 
+        # 1. 查找或创建发送者的实体
         (
             sender_profile_id,
             sender_account_uid,
@@ -233,6 +239,7 @@ class DefaultMessageProcessor:
             logger.error(f"无法为事件 {event.event_id} 的发送者找到或创建 account_entity_uid。")
             return sender_profile_id, None
 
+        # 处理好友请求
         if event.event_type.endswith("request.friend.add"):
             request_data = event.content[0].data if event.content else {}
             await self.entity_service.update_friend_request_status(
@@ -245,6 +252,7 @@ class DefaultMessageProcessor:
         if not (conv_info := event.conversation_info) or not conv_info.conversation_id:
             return sender_profile_id, sender_account_uid
 
+        # 2. 查找或创建会话实体
         conversation_name = conv_info.name
         if conv_info.type == "private":
             conversation_name = sender_user_info.user_nickname
@@ -257,22 +265,51 @@ class DefaultMessageProcessor:
         )
         if not conv_entity or not conv_entity._key:
             return sender_profile_id, sender_account_uid
+
         conv_entity_uid = conv_entity._key
 
-        participants = {sender_account_uid: sender_user_info}
+        # 3. 立即、精准地更新当前发言人的信息
+        await self.entity_service.update_presence_in_conversation(
+            account_entity_uid=sender_account_uid,
+            conversation_entity_uid=conv_entity_uid,
+            user_info=sender_user_info,
+        )
+        logger.debug(f"已更新发言者 {sender_account_uid} 在会话 {conv_entity_uid} 中的存在信息。")
+
+        # 4. 检查是否需要触发对整个群的后台批量同步 (哨兵逻辑)
+        if conv_info.type == "group":
+            # action_handler 在 __init__ 中已经注入，可以直接使用
+            if hasattr(self, 'action_handler') and self.action_handler:
+                if await self.entity_service.is_group_sync_due(
+                    conv_entity_uid, ttl_seconds=86400
+                ): # 24小时同步一次
+                    logger.info(
+                        f"检测到群聊 '{conv_entity_uid}' 需要进行后台成员列表同步，"
+                        f"已启动任务。"
+                    )
+                    sync_task = asyncio.create_task(
+                        self.action_handler.trigger_group_member_sync(conv_entity_uid)
+                    )
+                    self._background_tasks.add(sync_task)
+                    sync_task.add_done_callback(self._background_tasks.discard)
+            else:
+                logger.error(
+                    "ActionHandler 未在 DefaultMessageProcessor 中初始化，"
+                    "无法触发后台同步。"
+                )
+
+        # 5. 更新机器人自身在会话中的存在
         if sender_user_info.user_id != event.bot_id:
             bot_account_uid = f"{platform_id}_{event.bot_id}"
             bot_user_info = ProtocolUserInfo(
                 user_id=event.bot_id, user_nickname=config.persona.bot_name
             )
-            participants[bot_account_uid] = bot_user_info
-
-        for acc_uid, user_info in participants.items():
             await self.entity_service.update_presence_in_conversation(
-                account_entity_uid=acc_uid,
+                account_entity_uid=bot_account_uid,
                 conversation_entity_uid=conv_entity_uid,
-                user_info=user_info,
+                user_info=bot_user_info,
             )
+
         return sender_profile_id, sender_account_uid
 
     async def _dispatch_event_action(

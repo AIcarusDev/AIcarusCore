@@ -43,7 +43,6 @@ class ThoughtGenerator:
         user_prompt: str,
         image_references: list[dict],  # 接收收集到的图片数据
         response_schema: dict[str, Any] | None = None,
-        focus_path: str | None = None,
     ) -> dict[str, Any] | None:
         """生成思考结果的核心方法.
 
@@ -62,7 +61,6 @@ class ThoughtGenerator:
         """
         # 在这里打印所有即将发送给LLM的信息
         logger.debug("=" * 40 + " LLM DEBUG PROMPT " + "=" * 40)
-        logger.debug(f"当前注意力焦点 (Focus Path): {focus_path or 'core'}")
 
         # 2. 创建一个专门用于日志打印的 prompt 版本
         prompt_for_logging = re.sub(

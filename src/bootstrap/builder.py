@@ -122,6 +122,7 @@ class ServiceBuilder:
             entity_service=db_services["entity_graph_service"],
             event_service=db_services["event_storage_service"],
             media_cache_service=db_services["media_cache_service"],
+            action_handler=action_handler,
         )
 
         action_handler.set_state_generator(aicos_state_generator)
@@ -159,6 +160,7 @@ class ServiceBuilder:
             interruption_broker=interruption_broker,
             narrative_vectorizer=narrative_vectorizer,
             window_manager=window_manager,
+            action_handler=action_handler,
         )
 
         thought_generator = ThoughtGenerator(

@@ -5,6 +5,7 @@ from xml.dom.minidom import parseString
 from xml.etree.ElementTree import Element, SubElement, tostring
 
 from src.common.custom_logging.logging_config import get_logger
+from src.services.action.action_handler import ActionHandler
 from src.services.database.services.entity_graph_service import EntityGraphService
 from src.services.database.services.event_storage_service import EventStorageService
 from src.services.database.services.media_cache_service import MediaCacheService
@@ -31,12 +32,14 @@ class AICOSStateGenerator:
         entity_service: EntityGraphService,
         event_service: EventStorageService,
         media_cache_service: MediaCacheService,
+        action_handler: ActionHandler,
     ) -> None:
         self.window_manager = window_manager
         self.application_manager = application_manager
         self.entity_service = entity_service
         self.event_service = event_service
         self.media_cache_service = media_cache_service
+        self.action_handler = action_handler
         self._ui_mapping: dict[str, dict] = {}
         self.is_connected = False
         # 预编译正则表达式以提高性能
@@ -293,9 +296,11 @@ class AICOSStateGenerator:
             builder = self.application_manager.get_builder_by_name(app.name) if app else None
 
             if builder:
+                content_node = SubElement(window_node, "content")
+                window_path = [*current_path, "content"]
                 render_args = {
-                    "parent_element": window_node,
-                    "current_path": current_path,
+                    "parent_element": content_node,
+                    "current_path": window_path,
                     "window": window,
                     "bot_ids_map": self.application_manager.get_self_bot_ids_map(),
                     "entity_service": self.entity_service,
@@ -304,6 +309,7 @@ class AICOSStateGenerator:
                     "ui_mapping": self._ui_mapping,
                     "generate_semantic_id": self._generate_semantic_id,
                     "image_collector": image_collector,
+                    "action_handler": self.action_handler,
                 }
                 if window.is_popup:
                     await builder.render_popup_content(**render_args)

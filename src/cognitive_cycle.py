@@ -49,6 +49,7 @@ class CognitiveCycle:
             if is_continuous
             else config.core_logic_settings.thinking_interval_seconds
         )
+        await asyncio.sleep(5)  # 给系统一些时间初始化其余组件
         mode_desc = (
             f"连续认知周期模式 (间隔: {active_interval}s)"
             if is_continuous

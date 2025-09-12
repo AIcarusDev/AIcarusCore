@@ -16,6 +16,7 @@ from src.services.database.services.entity_graph_service import EntityGraphServi
 from src.services.database.services.event_storage_service import EventStorageService
 
 if TYPE_CHECKING:
+    from src.services.action.action_handler import ActionHandler
     from src.services.database.services.media_cache_service import MediaCacheService
 
 
@@ -37,13 +38,15 @@ class QQWindowRenderer:
         event_service: EventStorageService,
         ui_mapping: dict,
         generate_semantic_id: callable,
-        media_cache_service: "MediaCacheService",  # 新增 media_cache_service
+        media_cache_service: "MediaCacheService",
+        action_handler: "ActionHandler",
     ) -> None:
         self.entity_service = entity_service
         self.event_service = event_service
         self.ui_mapping = ui_mapping
         self._generate_semantic_id = generate_semantic_id
-        self.media_cache_service = media_cache_service  # 存储实例
+        self.media_cache_service = media_cache_service
+        self.action_handler = action_handler
 
     async def _get_message_priority_tag(self, event: dict, bot_ids_map: dict) -> str:
         """检查事件内容，如果包含@我或回复我，则返回一个高亮标签."""
@@ -467,8 +470,8 @@ class QQWindowRenderer:
                     platform_msg_id = seg.get("data", {}).get("message_id")
                     break
             if not platform_msg_id:
-                logger.error(f"致命错误：消息缺少 message_id，无法渲染: {msg}")
-                continue
+                logger.error(f"致命错误：消息缺少 message_id: {msg}")
+                platform_msg_id = "未知错误，ID无法获取"
 
             msg_node = SubElement(
                 list_node,
@@ -515,7 +518,7 @@ class QQWindowRenderer:
 
         # 渲染表情包预览图的逻辑
         action_bar_node = SubElement(window_node, "action_bar")
-        SubElement(action_bar_node, "desc").text = "你可以使用 send_message 动作来回复。"
+        SubElement(action_bar_node, "desc").text = "可以使用 send_message 动作来回复。"
 
         # 检查预览图是否已被其他窗口加载
         sticker_preview_placeholder = None
@@ -608,21 +611,41 @@ class QQWindowRenderer:
                 text_buffer += data.get("text")
             elif seg_type == "at":
                 user_id = data.get("user_id")
-                display_name = data.get("display_name")  # 依然保留原始的 display_name 作为备用
+                display_name = data.get("display_name")
 
                 if user_id and conv_doc:
-                    # 主动查询最新的显示名称
-                    latest_name = await self.entity_service.get_sender_display_name_for_event(
-                        {"user_info": {"user_id": user_id}},  # 伪造一个简单的 event
-                        conv_doc,
-                        bot_ids_map,
-                    )
-                    display_name = f"@{latest_name}"
+                    try:
+                        latest_name = (
+                            await self.entity_service.get_sender_display_name_for_event(
+                                {"user_info": {"user_id": user_id}},
+                                conv_doc,
+                                bot_ids_map,
+                            )
+                        )
+                        display_name = f"@{latest_name}"
+                    except ValueError:
+                        logger.warning(f"无法获取用户 {user_id} 的显示名称，尝试从适配器获取...")
+                        if await self._fetch_and_update_user_info(user_id, conv_doc, bot_ids_map):
+                            try:
+                                latest_name = (
+                                    await self.entity_service.get_sender_display_name_for_event(
+                                        {"user_info": {"user_id": user_id}},
+                                        conv_doc,
+                                        bot_ids_map,
+                                    )
+                                )
+                                display_name = f"@{latest_name}"
+                            except ValueError:
+                                logger.error(
+                                    f"从适配器获取信息后，仍然无法获取用户 {user_id} 的显示名称。"
+                                )
+                                display_name = f"@{user_id}"
+                        else:
+                            display_name = f"@{user_id}"
                 else:
                     logger.error(f"致命错误：无法解析 @ 段的用户信息: {data}")
                     continue
-                # 为 @ 用户名后附加一个空格，模拟真实输入
-                text_buffer += f"{display_name} "
+                text_buffer += f"{display_name}"
 
             # 步骤 2: 遇到非文本元素，先处理缓冲区，再处理该元素
             else:
@@ -723,3 +746,37 @@ class QQWindowRenderer:
                 #     SubElement(content_node, "share").text = share_text
         # 最后，冲刷一次缓冲区，确保所有文本都被渲染
         flush_text_buffer()
+
+    async def _fetch_and_update_user_info(
+        self, user_id: str, conv_doc: dict, bot_ids_map: dict
+    ) -> bool:
+        """从适配器获取用户信息并更新数据库."""
+        platform = conv_doc.details.platform
+        bot_id = bot_ids_map.get(platform)
+        if not bot_id:
+            return False
+
+        action_name = "get_group_member_info"
+        params = {
+            "group_id": conv_doc.details.conversation_id,
+            "user_id": user_id,
+        }
+
+        result = await self.action_handler.execute_simple_action(
+            platform_id=platform,
+            action_name=action_name,
+            params=params,
+            bot_id=bot_id,
+            description=f"获取群 {conv_doc.details.conversation_id} 成员 {user_id} 的信息",
+        )
+
+        if result.is_success and result.payload:
+            user_info = result.payload
+            account_uid = f"{platform}_{user_id}"
+            await self.entity_service.update_presence_in_conversation(
+                account_entity_uid=account_uid,
+                conversation_entity_uid=conv_doc._key,
+                user_info=user_info,
+            )
+            return True
+        return False

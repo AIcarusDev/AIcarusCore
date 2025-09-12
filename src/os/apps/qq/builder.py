@@ -215,16 +215,23 @@ class QQBuilder(BaseAppBuilder, IApp):
         media_cache_service: MediaCacheService,
         ui_mapping: dict,
         generate_semantic_id: callable,
+        action_handler: callable,
     ) -> QQWindowRenderer:
         """按需创建或返回渲染器实例."""
         if self._renderer is None:
             self._renderer = QQWindowRenderer(
-                entity_service, event_service, ui_mapping, generate_semantic_id, media_cache_service
+                entity_service,
+                event_service,
+                ui_mapping,
+                generate_semantic_id,
+                media_cache_service,
+                action_handler,
             )
         # 确保 renderer 使用的是当前轮次的上下文
         self._renderer.ui_mapping = ui_mapping
         self._renderer.generate_semantic_id = generate_semantic_id
-        self._renderer.media_cache_service = media_cache_service  # 确保更新
+        self._renderer.media_cache_service = media_cache_service
+        self._renderer.action_handler = action_handler
         return self._renderer
 
     # 实现 IApp 接口的方法
@@ -246,14 +253,20 @@ class QQBuilder(BaseAppBuilder, IApp):
         bot_ids_map: dict,
         entity_service: EntityGraphService,
         event_service: EventStorageService,
-        media_cache_service: MediaCacheService,  # 新增
+        media_cache_service: MediaCacheService,
         ui_mapping: dict,
         generate_semantic_id: callable,
         image_collector: list[dict],
+        action_handler: callable,
     ) -> None:
         """实现基类的渲染接口，委托给QQWindowRenderer处理."""
         renderer = self._get_renderer(
-            entity_service, event_service, media_cache_service, ui_mapping, generate_semantic_id
+            entity_service,
+            event_service,
+            media_cache_service,
+            ui_mapping,
+            generate_semantic_id,
+            action_handler,
         )
         await renderer.render_content(
             parent_element, current_path, window, bot_ids_map, image_collector
@@ -271,10 +284,16 @@ class QQBuilder(BaseAppBuilder, IApp):
         ui_mapping: dict,
         generate_semantic_id: callable,
         image_collector: list[dict],
+        action_handler: callable,
     ) -> None:
         """实现弹窗渲染，委托给QQWindowRenderer处理。."""
         renderer = self._get_renderer(
-            entity_service, event_service, media_cache_service, ui_mapping, generate_semantic_id
+            entity_service,
+            event_service,
+            media_cache_service,
+            ui_mapping,
+            generate_semantic_id,
+            action_handler,
         )
         await renderer.render_popup_content(
             parent_element,
@@ -286,8 +305,8 @@ class QQBuilder(BaseAppBuilder, IApp):
     async def get_action_definitions(
         self, window_manager: WindowManager, container: ServiceContainer
     ) -> dict:
-        """动态定义 QQ 平台的所有动作，特别是 send_message 和 manage_stickers."""
-        all_actions = {}
+        """动态定义 QQ 平台提供给LLM的所有动作."""
+        llm_actions = {}
         if not container.qq_sticker_service:
             return {}
 
@@ -306,15 +325,15 @@ class QQBuilder(BaseAppBuilder, IApp):
 
         if visible_conv_uids:
             send_message_schema = self._build_send_message_schema(visible_conv_uids, sticker_ids)
-            all_actions["send_message"] = send_message_schema
+            llm_actions["send_message"] = send_message_schema
 
         # 3. 构建 manage_stickers Schema (仅在聊天窗口激活时)
         if visible_conv_uids:
             manage_stickers_schema = self._build_manage_stickers_schema(sticker_ids)
-            if manage_stickers_schema["properties"]:  # 确保有内容才添加
-                all_actions["manage_stickers"] = manage_stickers_schema
+            if manage_stickers_schema["properties"]:
+                llm_actions["manage_stickers"] = manage_stickers_schema
 
-        return all_actions
+        return llm_actions
 
     def _build_send_message_schema(
         self, visible_conv_uids: list[str], sticker_ids: list[str]
@@ -503,6 +522,7 @@ class QQBuilder(BaseAppBuilder, IApp):
 
     def build_action_event(self, action_name: str, params: dict, bot_id: str) -> Event | None:
         """将 Core 的指令转换成发往 Adapter 的标准 Event."""
+        # LLM 可用动作: send_message
         if action_name == "send_message":
             conv_id = params.get("conversation_id")
             conv_type = params.get("conversation_type")
@@ -519,4 +539,22 @@ class QQBuilder(BaseAppBuilder, IApp):
                 content=content_segs,
                 conversation_info=conversation_info,
             )
+
+        # 系统内部动作: get_group_member_list
+        elif action_name == "get_group_member_list":
+            # 内部动作通常参数简单，直接构建
+            return Event(
+                event_id=str(uuid.uuid4()),
+                event_type=f"action.{self.app_name}.{action_name}",
+                time=int(time.time() * 1000),
+                bot_id=bot_id,
+                content=[Seg(type="action_params", data=params)],
+            )
+
+        # 其他未来可能添加的内部动作...
+        # elif action_name == "get_bot_profile":
+        #     ...
+
+        # 如果动作未被识别
+        logger.warning(f"QQBuilder 无法为未知的动作 '{action_name}' 构建事件。")
         return None

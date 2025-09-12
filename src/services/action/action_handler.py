@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from aicarus_protocols import UserInfo as ProtocolUserInfo
 from src.common.custom_logging.logging_config import get_logger
+from src.common.utils import parse_entity_uid
 from src.domain.models import ActionMetadata, ActionResult
 from src.os.apps.interfaces import IApp
 from src.os.communication.action_sender import ActionSender
@@ -376,7 +377,7 @@ class ActionHandler:
                 metadata = ActionMetadata(motivation=motivation)
                 # 3. 调用存储方法
                 await self._save_successful_action_as_event(
-                    action_result.action_id, sent_dict, metadata
+                    action_result, sent_dict, metadata
                 )
         else:
             logger.error(f"通过 MessageBuilder 发送消息至会话 '{conversation_uid}' 失败。")
@@ -501,7 +502,7 @@ class ActionHandler:
         # 3. 如果成功，处理副作用
         if result.is_success:
             await self._handle_successful_action_side_effects(sent_dict, result.payload)
-            await self._save_successful_action_as_event(result.action_id, sent_dict, metadata)
+            await self._save_successful_action_as_event(result, sent_dict, metadata)
 
     def _create_final_result_message(self, description: str, result: ActionResult) -> str:
         """辅助方法：根据 ActionResult 创建最终的结果消息."""
@@ -517,7 +518,7 @@ class ActionHandler:
         return f"动作 '{description}' 执行失败: {result.error_message}"
 
     async def _save_successful_action_as_event(
-        self, action_id: str, sent_dict: dict[str, Any], metadata: ActionMetadata
+        self, action_result: ActionResult, sent_dict: dict[str, Any], metadata: ActionMetadata
     ) -> None:
         """将成功的动作（通常是send_message）存储为事件."""
         event_to_save = sent_dict.copy()
@@ -550,8 +551,37 @@ class ActionHandler:
             conv_type = conv_info.get("type")
             event_to_save["event_type"] = f"message.{platform}.{conv_type}"
 
+        # 从 ActionResult 中提取 platform_msg_id 并注入
+        platform_msg_id = None
+        if action_result.payload and isinstance(action_result.payload, dict):
+            platform_msg_id = (
+                action_result.payload.get("sent_message_id")
+                or action_result.payload.get("message_id")
+            )
+
+        if platform_msg_id:
+            from aicarus_protocols import SegBuilder
+
+            metadata_seg = SegBuilder.message_metadata(str(platform_msg_id))
+            # 确保 content 字段存在且是列表
+            if "content" not in event_to_save or not isinstance(event_to_save["content"], list):
+                event_to_save["content"] = []
+            # 将元数据段插入到内容列表的最前面
+            event_to_save["content"].insert(0, metadata_seg.to_dict())
+            logger.info(
+                f"成功将会话回执 ID '{platform_msg_id}' 注入到事件 "
+                f"{action_result.action_id} 中。"
+            )
+        else:
+            logger.warning(
+                f"动作 {action_result.action_id} 的成功回执中未找到 "
+                f"'message_id'，无法注入元数据。"
+            )
+
         # 2. 填充/修正关键字段
-        event_to_save["event_id"] = action_id
+        event_to_save["event_id"] = (
+            action_result.action_id
+        )  # 使用 action_id 作为 event_id 保证唯一性
         event_to_save["timestamp"] = int(time.time() * 1000)
         event_to_save["status"] = "read"
         if metadata.motivation and metadata.motivation.strip():
@@ -559,32 +589,30 @@ class ActionHandler:
 
         # 3. 存入数据库
         await self.event_storage_service.save_event_document(event_to_save)
-        logger.info(f"成功的发送消息动作 '{action_id}' 已作为事件存入 events 表。")
+        logger.info(f"成功的发送消息动作 '{action_result.action_id}' 已作为事件存入 events 表。")
 
     async def _handle_successful_action_side_effects(
-        self, sent_dict: dict[str, Any], details: dict | None
+        self, sent_dict: dict, payload: dict | None
     ) -> None:
-        """处理动作成功后的副作用."""
-        original_action_type = sent_dict.get("event_type")
-        if not original_action_type:
+        """处理特定成功动作的副作用，例如在获取列表后主动创建实体."""
+        if not payload or not isinstance(payload, dict):
             return
 
-        if original_action_type.endswith(".get_list"):
-            await self._proactively_create_conversation_docs_from_list(details, sent_dict)
-
-    async def _proactively_create_conversation_docs_from_list(
-        self, details: dict | None, sent_dict: dict
-    ) -> None:
-        if not details or not isinstance(details, dict):
+        event_type = sent_dict.get("event_type", "")
+        # 此副作用仅适用于 get_list 类型的动作
+        if not event_type.endswith((".get_friend_list", ".get_group_list")):
             return
+
         list_type = sent_dict.get("content", [{}])[0].get("data", {}).get("list_type")
         platform_id = sent_dict.get("platform")
         if not list_type or not platform_id:
             logger.warning("无法从 get_list 的原始请求中获取足够信息来创建会话实体。")
             return
-        items = details.get("friends", []) if list_type == "friend" else details.get("groups", [])
+
+        items = payload.get("friends", []) if list_type == "friend" else payload.get("groups", [])
         if not items or not isinstance(items, list):
             return
+
         logger.info(
             f"收到 get_list({list_type}) 的成功响应，"
             f"准备为 {len(items)} 个项目主动创建/更新会话实体。"
@@ -592,6 +620,7 @@ class ActionHandler:
         if not self.entity_service:
             logger.error("EntityGraphService 未注入到 ActionHandler，无法主动创建会话实体。")
             return
+
         entity_service = self.entity_service
         conv_type = "private" if list_type == "friend" else "group"
         creation_tasks = []
@@ -612,3 +641,49 @@ class ActionHandler:
         if creation_tasks:
             await asyncio.gather(*creation_tasks)
             logger.info(f"已完成对 {len(creation_tasks)} 个项目的会话实体主动更新。")
+
+    async def trigger_group_member_sync(self, conversation_uid: str) -> None:
+        """在后台触发对单个群组的完整成员列表同步.
+
+        这是一个内部维护任务，不直接返回结果给思考链。
+        """
+        try:
+            logger.info(f"[后台同步] 开始为群聊 {conversation_uid} 同步成员列表...")
+            platform, _, group_id = parse_entity_uid(conversation_uid)
+            if not platform or not group_id:
+                logger.error(f"[后台同步] 无法从 {conversation_uid} 解析平台或群号。")
+                return
+
+            bot_id = self.application_manager.get_self_bot_ids_map().get(platform)
+            if not bot_id:
+                logger.error(f"[后台同步] 找不到平台 {platform} 的 bot_id，无法执行同步。")
+                return
+
+            action_result = await self.execute_simple_action(
+                platform_id=platform,
+                action_name="get_group_member_list",
+                params={"group_id": group_id},
+                bot_id=bot_id,
+                description=f"后台自动同步群 {group_id} 的成员列表"
+            )
+
+            if action_result.is_success and isinstance(action_result.payload, list):
+                member_list = action_result.payload
+                logger.info(
+                    f"[后台同步] 成功从Adapter获取到 {len(member_list)} 位成员信息，"
+                    "正在写入数据库..."
+                )
+                await self.entity_service.batch_update_group_members_and_mark_synced(
+                    conversation_uid, member_list
+                )
+            else:
+                logger.error(
+                    f"[后台同步] 获取群 {conversation_uid} "
+                    f"成员列表失败: {action_result.error_message}"
+                )
+
+        except Exception as e:
+            logger.error(
+                f"[后台同步] 执行群聊 {conversation_uid} 成员同步任务时发生意外错误: {e}",
+                exc_info=True,
+            )

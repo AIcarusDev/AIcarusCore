@@ -40,6 +40,7 @@ entity conversation,
     owns type,
     owns display-name,
     owns last-read-timestamp,
+    owns last-full-sync-timestamp,
     plays membership:group,
     plays residency:resident,
     plays read-status:readable;
@@ -265,3 +266,4 @@ attribute response-time-ms, value integer;
 attribute created-at, value integer;
 attribute updated-at, value integer;
 attribute last-read-timestamp, value integer;
+attribute last-full-sync-timestamp, value integer;

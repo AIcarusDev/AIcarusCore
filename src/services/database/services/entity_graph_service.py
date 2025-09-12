@@ -8,7 +8,7 @@ from typing import Any
 
 from aicarus_protocols import UserInfo as ProtocolUserInfo
 from src.common.custom_logging.logging_config import get_logger
-from src.common.utils import build_conversation_entity_uid
+from src.common.utils import build_conversation_entity_uid, parse_entity_uid
 from typedb.driver import Transaction, TransactionType
 
 from ..core.connection_manager import TypeDBConnectionManager
@@ -53,7 +53,7 @@ class EntityGraphService:
             platform and current_sender_id and self_bot_ids.get(platform) == str(current_sender_id)
         )
 
-        # 核心修复：将“是自己”的逻辑完全独立出来，确保它有正确的备用链。
+        # 将“是自己”的逻辑完全独立出来，确保它有正确的备用链。
         if is_self_sender:
             # 如果是自己，优先尝试获取在当前会话的身份信息（群名片）
             if platform and conv_doc and conv_doc._key:
@@ -279,50 +279,58 @@ class EntityGraphService:
     async def find_or_create_profile_and_account_entity(
         self, user_info: ProtocolUserInfo, platform: str
     ) -> tuple[str | None, str | None]:
-        """查找或创建 Profile 和 Account 实体.
+        """查找或创建 Profile 和 Account 实体，复用同步核心逻辑."""
+        driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
-        Args:
-            user_info (ProtocolUserInfo): 包含用户信息的 ProtocolUserInfo 对象。
-            platform (str): 平台名称。
+        def db_op() -> tuple[str | None, str | None]:
+            with driver.transaction(db_name, TransactionType.WRITE) as tx:
+                result = self._find_or_create_profile_and_account_entity_sync(
+                    tx,
+                    user_info,
+                    platform
+                )
+                tx.commit()
+                return result
 
-        Returns:
-            tuple[str | None, str | None]: 包含 profile_id 和 account_uid 的元组。
-                                            如果创建或查找失败，则返回 (None, None)。
-        """
+        try:
+            return await asyncio.to_thread(db_op)
+        except Exception as e:
+            logger.error(f"查找或创建实体时（异步封装）失败: {e}", exc_info=True)
+            return None, None
+
+    # find_or_create_profile_and_account_entity 的同步版本
+    def _find_or_create_profile_and_account_entity_sync(
+        self, tx: Transaction, user_info: ProtocolUserInfo, platform: str
+    ) -> tuple[str | None, str | None]:
+        """在一个已存在的事务中，查找或创建 Profile 和 Account 实体."""
         if not user_info or not user_info.user_id:
             return None, None
+
         account_uid = f"{platform}_{user_info.user_id}"
-        driver = self.conn_manager.get_driver()
-        db_name = self.conn_manager.database_name
 
-        def db_read_and_update() -> tuple[str | None, str | None]:
-            with driver.transaction(db_name, TransactionType.WRITE) as tx:
-                find_query = (
-                    f'match $acc isa account, has account-uid "{account_uid}"; '
-                    f"(owner: $p, owned-account: $acc) isa identity-ownership; "
-                    f"$p isa person, has person-uid $p_uid; select $p_uid;"
-                )
-                answers = list(tx.query(find_query).resolve().as_concept_rows())
-                if answers:
-                    p_uid = (
-                        answers[0].get("p_uid").as_attribute().get_value()
-                        if answers[0].get("p_uid")
-                        else None
-                    )
-                    if user_info.user_nickname:
-                        self._update_account_nickname_if_changed_sync(
-                            tx, account_uid, user_info.user_nickname
-                        )
-                    tx.commit()
-                    return p_uid, account_uid
-                return None, None
-
-        profile_id, entity_uid = await asyncio.to_thread(db_read_and_update)
-        return (
-            (profile_id, entity_uid)
-            if entity_uid
-            else await self.create_new_profile_with_account_entity(user_info, platform)
+        # 查找现有实体
+        find_query = (
+            f'match $acc isa account, has account-uid "{account_uid}"; '
+            f"(owner: $p, owned-account: $acc) isa identity-ownership; "
+            f"$p isa person, has person-uid $p_uid; "
+            f"select $p_uid;"
         )
+        answers = list(
+            tx.query(find_query).resolve().as_concept_rows()
+        )
+
+        if answers:
+            p_uid = answers[0].get("p_uid").as_attribute().get_value()
+            if user_info.user_nickname:
+                self._update_account_nickname_if_changed_sync(
+                    tx,
+                    account_uid,
+                    user_info.user_nickname
+                )
+            return p_uid, account_uid
+
+        # 如果找不到，则创建
+        return self._create_new_profile_with_account_entity_sync(tx, user_info, platform)
 
     async def create_new_profile_with_account_entity(
         self,
@@ -330,23 +338,34 @@ class EntityGraphService:
         platform: str,
         is_self: bool = False,
     ) -> tuple[str | None, str | None]:
-        """创建新的 Profile 和 Account 实体.
+        """创建新的 Profile 和 Account 实体，复用同步核心逻辑."""
+        # 兼容字典输入
+        if isinstance(user_info, dict):
+            user_info = ProtocolUserInfo.from_dict(user_info)
 
-        Args:
-            user_info (ProtocolUserInfo): 包含用户信息的 ProtocolUserInfo 对象。
-            platform (str): 平台名称。
-            is_self (bool): 是否为自身实体。
+        driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
-        Returns:
-            tuple[str | None, str | None]: 包含 profile_id 和 account_uid 的元组。
-                                            如果创建失败，则返回 (None, None)。
-        """
-        user_id = user_info.get("user_id") if isinstance(user_info, dict) else user_info.user_id
-        nickname = (
-            user_info.get("user_nickname")
-            if isinstance(user_info, dict)
-            else user_info.user_nickname
-        )
+        def db_op() -> tuple[str | None, str | None]:
+            with driver.transaction(db_name, TransactionType.WRITE) as tx:
+                result = self._create_new_profile_with_account_entity_sync(
+                    tx, user_info, platform, is_self
+                )
+                tx.commit()
+                return result
+
+        try:
+            return await asyncio.to_thread(db_op)
+        except Exception as e:
+            logger.error(f"创建新实体时（异步封装）失败: {e}", exc_info=True)
+            return None, None
+
+    # create_new_profile_with_account_entity 的同步版本
+    def _create_new_profile_with_account_entity_sync(
+        self, tx: Transaction, user_info: ProtocolUserInfo, platform: str, is_self: bool = False
+    ) -> tuple[str | None, str | None]:
+        """在一个已存在的事务中，创建新的 Profile 和 Account 实体."""
+        user_id = user_info.user_id
+        nickname = user_info.user_nickname
 
         if not user_id:
             logger.error("传入的 user_info 中缺少 user_id，无法创建实体。")
@@ -356,57 +375,47 @@ class EntityGraphService:
         account_uid = f"{platform}_{user_id}"
 
         # 使用已经提取出来的值
-        nickname_safe = (nickname or "").replace('"', '\\"')
-        platform_id_val = (user_id or "").replace('"', '\\"')
+        nickname_safe = str(nickname or "").replace('"', '\\"')
+        platform_id_val = str(user_id or "").replace('"', '\\"')
 
-        driver = self.conn_manager.get_driver()
-        db_name = self.conn_manager.database_name
+        person_type = "aic_self" if is_self else "external_person"
 
-        def db_write() -> None:
-            with driver.transaction(db_name, TransactionType.WRITE) as tx:
-                person_type = "aic_self" if is_self else "external_person"
+        # 1. 检查并创建 person 实体
+        person_exists_query = f'match $p isa person, has person-uid "{profile_uid}"; select $p;'
+        if not list(tx.query(person_exists_query).resolve()):
+            tx.query(
+                f'insert $p isa {person_type}, has person-uid "{profile_uid}";'
+            ).resolve()
 
-                # 1. 检查 person 实体是否存在，不存在则创建
-                person_exists_query = (
-                    f'match $p isa person, has person-uid "{profile_uid}"; select $p;'
-                )
-                if not list(tx.query(person_exists_query).resolve()):
-                    tx.query(
-                        f'insert $p isa {person_type}, has person-uid "{profile_uid}";'
-                    ).resolve()
+        # 2. 检查并创建 platform 实体
+        platform_exists_query = (
+            f'match $plat isa platform, '
+            f'has platform-uid "{platform}"; '
+            f'select $plat;'
+        )
+        if not list(tx.query(platform_exists_query).resolve()):
+            tx.query(
+                f'insert $plat isa platform,'
+                f'has platform-uid "{platform}", '
+                f'has display-name "{platform}";'
+            ).resolve()
 
-                # 2. 检查 platform 实体是否存在，不存在则创建
-                platform_exists_query = (
-                    f'match $plat isa platform, has platform-uid "{platform}"; select $plat;'
-                )
-                if not list(tx.query(platform_exists_query).resolve()):
-                    tx.query(
-                        f'insert $plat isa platform, has platform-uid "{platform}", '
-                        f'has display-name "{platform}";'
-                    ).resolve()
+        # 3. 插入 account 并建立关系
+        insert_account_query = f"""
+        match
+            $p isa person, has person-uid "{profile_uid}";
+            $plat isa platform, has platform-uid "{platform}";
+        insert
+            $acc isa account, has account-uid "{account_uid}",
+                has platform-id "{platform_id_val}",
+                has nickname "{nickname_safe}",
+                has last-known-nickname "{nickname_safe}";
+            (owner: $p, owned-account: $acc) isa identity-ownership;
+            (resident: $acc, host-platform: $plat) isa residency;
+        """
+        tx.query(insert_account_query).resolve()
 
-                # 3. 插入 account 并建立关系
-                insert_account_query = f"""
-                match
-                    $p isa person, has person-uid "{profile_uid}";
-                    $plat isa platform, has platform-uid "{platform}";
-                insert
-                    $acc isa account, has account-uid "{account_uid}",
-                        has platform-id "{platform_id_val}",
-                        has nickname "{nickname_safe}",
-                        has last-known-nickname "{nickname_safe}";
-                    (owner: $p, owned-account: $acc) isa identity-ownership;
-                    (resident: $acc, host-platform: $plat) isa residency;
-                """
-                tx.query(insert_account_query).resolve()
-                tx.commit()
-
-        try:
-            await asyncio.to_thread(db_write)
-            return profile_uid, account_uid
-        except Exception as e:
-            logger.error(f"创建 Profile 和 Account Entity 的事务执行失败: {e}", exc_info=True)
-            return None, None
+        return profile_uid, account_uid
 
     async def get_all_self_entities(self) -> list[dict[str, Any]]:
         """获取所有自身实体信息."""
@@ -455,45 +464,86 @@ class EntityGraphService:
         conversation_entity_uid: str,
         user_info: ProtocolUserInfo,
     ) -> bool:
-        """更新用户在对话中的存在状态."""
-        cardname = (user_info.user_cardname or "").replace('"', '\\"')
-        perm_level = (user_info.permission_level or "member").replace('"', '\\"')
-        timestamp = int(time.time() * 1000)
-        driver = self.conn_manager.get_driver()
-        db_name = self.conn_manager.database_name
+        """更新用户在对话中的存在状态，复用同步核心逻辑."""
+        driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
 
-        def db_upsert_membership_and_name() -> None:
+        def db_op() -> None:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
-                # 步骤 1: 更新或插入成员关系 (membership)
-                delete_membership_query = f"""
-                match
-                    $acc isa account, has account-uid "{account_entity_uid}";
-                    $conv isa conversation, has conversation-uid "{conversation_entity_uid}";
-                    $mem isa membership, links(member: $acc, group: $conv);
-                delete
-                    $mem;
-                """
-                tx.query(delete_membership_query).resolve()
-
-                insert_membership_query = f"""
-                match
-                    $acc isa account, has account-uid "{account_entity_uid}";
-                    $conv isa conversation, has conversation-uid "{conversation_entity_uid}";
-                insert
-                    $new_mem isa membership, links(member: $acc, group: $conv),
-                        has cardname "{cardname}",
-                        has permission-level "{perm_level}",
-                        has timestamp {timestamp};
-                """
-                tx.query(insert_membership_query).resolve()
+                self._update_presence_in_conversation_sync(
+                    tx,
+                    account_entity_uid,
+                    conversation_entity_uid,
+                    user_info
+                )
                 tx.commit()
 
         try:
-            await asyncio.to_thread(db_upsert_membership_and_name)
+            await asyncio.to_thread(db_op)
             return True
         except Exception as e:
-            logger.error(f"更新存在关系时失败: {e}", exc_info=True)
+            logger.error(f"更新存在关系时（异步封装）失败: {e}", exc_info=True)
             return False
+
+    # update_presence_in_conversation 的同步版本
+    def _update_presence_in_conversation_sync(
+        self, tx: Transaction, account_uid: str, conv_uid: str, user_info: ProtocolUserInfo
+    ) -> None:
+        """在一个已存在的事务中，更新用户在会话中的存在状态."""
+        # 先删除旧关系
+        self.delete_presence_in_conversation_sync(tx, account_uid, conv_uid)
+        # 再插入新关系
+        self.create_presence_in_conversation_sync(tx, account_uid, conv_uid, user_info)
+
+    def delete_presence_in_conversation_sync(
+        self, tx: Transaction, account_uid: str, conv_uid: str
+    ) -> None:
+        """在一个已存在的事务中，删除用户在会话中的存在状态."""
+        if not account_uid or not conv_uid:
+            logger.warning(
+                f"尝试删除存在关系时，提供的 account_uid 或 conv_uid 为空: "
+                f"account_uid='{account_uid}', conv_uid='{conv_uid}'"
+            )
+            return
+        if account_uid and conv_uid:
+            logger.info(f"开始删除用户 '{account_uid}' 在会话 '{conv_uid}' 中的存在关系。")
+            delete_query = f"""
+            match
+                $账号 isa account, has account-uid "{account_uid}";
+                $会话 isa conversation, has conversation-uid "{conv_uid}";
+                $存在关系 isa membership, links(member: $账号, group: $会话);
+            delete
+                $存在关系;
+            """
+        tx.query(delete_query).resolve()
+
+    def create_presence_in_conversation_sync(
+        self, tx: Transaction, account_uid: str, conv_uid: str, user_info: ProtocolUserInfo
+    ) -> None:
+        """在一个已存在的事务中，创建用户在会话中的存在状态."""
+        if not account_uid or not conv_uid:
+            logger.warning(
+                f"尝试创建存在关系时，提供的 account_uid 或 conv_uid 为空: "
+                f"account_uid='{account_uid}', conv_uid='{conv_uid}'"
+            )
+            return
+        cardname = str(user_info.user_cardname or "").replace('"', '\\"')
+        perm_level = str(user_info.permission_level or "member").replace('"', '\\"')
+        timestamp = int(time.time() * 1000)
+        logger.info(
+            f"开始创建用户 '{account_uid}' 在会话 '{conv_uid}' 中的存在关系，"
+            f"cardname='{cardname}', permission_level='{perm_level}', timestamp={timestamp}"
+        )
+        insert_query = f"""
+        match
+            $账号 isa account, has account-uid "{account_uid}";
+            $会话 isa conversation, has conversation-uid "{conv_uid}";
+        insert
+            membership (member: $账号, group: $会话),
+                has cardname "{cardname}",
+                has permission-level "{perm_level}",
+                has timestamp {timestamp};
+        """
+        tx.query(insert_query).resolve()
 
     async def get_or_create_platform_entity(
         self, platform_id: str, display_name: str | None = None
@@ -804,10 +854,8 @@ class EntityGraphService:
                     if attr_type_concept and attr_concept:
                         attr_label = attr_type_concept.as_type().get_label()
 
-                        # ========================= [FIX START] =========================
                         # 优先使用映射，如果没有则使用默认规则
                         py_key = attr_to_field_map.get(attr_label, attr_label.replace("-", "_"))
-                        # ========================== [FIX END] ==========================
 
                         py_value = attr_concept.as_attribute().get_value()
                         if isinstance(py_value, str) and "_json" in attr_label:
@@ -1095,3 +1143,121 @@ class EntityGraphService:
         end_index = start_index + page_size
 
         return platform_convs[start_index:end_index], total_pages
+
+    async def batch_update_group_members_and_mark_synced(
+        self, conversation_uid: str, member_list: list[dict]
+    ) -> bool:
+        """在一个原子事务中批量更新群成员信息，并标记该群为已同步."""
+        if not member_list:
+            # 如果列表为空，我们依然需要标记为已同步，表示我们已经检查过了
+            logger.info(f"群聊 {conversation_uid} 成员列表为空，仅更新同步时间戳。")
+            await self.mark_group_as_synced(conversation_uid)
+            return True
+
+        platform, _, _ = parse_entity_uid(conversation_uid)
+        driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
+
+        def db_write_atomic_transaction() -> None:
+            """这个纯同步函数包含了所有数据库操作，以保证原子性."""
+            with driver.transaction(db_name, TransactionType.WRITE) as tx:
+                logger.info(
+                    f"启动原子事务：为群聊 {conversation_uid} 批量更新 {len(member_list)} 位成员..."
+                )
+                for member_data in member_list:
+                    # Napcat 返回的成员列表里的每个对象，其结构和 sender 对象一致
+                    user_info = ProtocolUserInfo.from_dict(member_data)
+                    if not user_info.user_id:
+                        continue
+
+                    # 在同一个事务tx中，调用我们准备好的同步“积木块”
+                    _, account_uid = self._find_or_create_profile_and_account_entity_sync(
+                        tx, user_info, platform
+                    )
+                    if account_uid:
+                        self._update_presence_in_conversation_sync(
+                            tx, account_uid, conversation_uid, user_info
+                        )
+
+                # 在同一个事务中，更新同步时间戳
+                current_ts = int(time.time() * 1000)
+                # 先删除可能存在的旧属性
+                tx.query(
+                    f'match $c isa conversation, has conversation-uid "{conversation_uid}"; '
+                    f'$c has last-full-sync-timestamp $old_ts; '
+                    f'delete $old_ts of $c;'
+                ).resolve()
+                # 再插入新属性
+                tx.query(
+                    f'match $c isa conversation, has conversation-uid "{conversation_uid}"; '
+                    f'insert $c has last-full-sync-timestamp {current_ts};'
+                ).resolve()
+
+                logger.info(f"原子事务即将提交：群聊 {conversation_uid} 成员列表及同步标记。")
+                tx.commit()
+
+        try:
+            # 将整个原子操作作为一个单元，扔到后台线程执行
+            await asyncio.to_thread(db_write_atomic_transaction)
+            logger.success(f"群聊 {conversation_uid} 成员列表批量更新成功。")
+            return True
+        except Exception as e:
+            logger.error(f"批量更新群聊 {conversation_uid} 成员的原子事务失败: {e}", exc_info=True)
+            return False
+
+    # 一个独立的标记函数，用于处理成员列表为空的情况
+    async def mark_group_as_synced(self, conversation_uid: str) -> None:
+        """仅将会话标记为已同步，不处理成员列表."""
+        driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
+
+        def db_write_mark() -> None:
+            with driver.transaction(db_name, TransactionType.WRITE) as tx:
+                current_ts = int(time.time() * 1000)
+                tx.query(
+                    f'match $c isa conversation, '
+                    f'has conversation-uid "{conversation_uid}"; '
+                    f'$c has last-full-sync-timestamp $old_ts; delete $c has $old_ts;'
+                ).resolve()
+                tx.query(
+                    f'match $c isa conversation, '
+                    f'has conversation-uid "{conversation_uid}"; '
+                    f'insert $c has last-full-sync-timestamp {current_ts};'
+                ).resolve()
+                tx.commit()
+
+        try:
+            await asyncio.to_thread(db_write_mark)
+        except Exception as e:
+            logger.error(f"标记群聊 {conversation_uid} 为已同步时失败: {e}", exc_info=True)
+
+    async def is_group_sync_due(self, conversation_uid: str, ttl_seconds: int = 86400) -> bool:
+        """检查群组是否需要进行完整的成员列表同步（例如超过24小时未同步）."""
+        query = f"""
+        match
+            $c isa conversation, has conversation-uid "{conversation_uid}";
+        fetch {{ "last_sync": $c.last-full-sync-timestamp }};
+        """
+        driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
+
+        def db_read() -> bool:
+            with driver.transaction(db_name, TransactionType.READ) as tx:
+                answers = list(tx.query(query).resolve().as_concept_documents())
+                if not answers or "last_sync" not in answers[0] :
+                    logger.debug(f"群聊 {conversation_uid} 从未进行过成员同步。")
+                    return True  # 从未同步过，需要同步
+
+                last_sync_ts = answers[0]["last_sync"]
+                if last_sync_ts is None:
+                    logger.debug(f"群聊 {conversation_uid} 从未进行过成员同步。")
+                    return True
+
+                if (time.time() * 1000 - last_sync_ts) > (ttl_seconds * 1000): # 使用毫秒进行比较
+                    logger.debug(f"群聊 {conversation_uid} 的成员列表缓存已过期。")
+                    return True # 同步时间已过期
+
+                return False
+
+        try:
+            return await asyncio.to_thread(db_read)
+        except Exception as e:
+            logger.error(f"检查群聊 {conversation_uid} 同步状态时失败: {e}", exc_info=True)
+            return False # 出错时保守地返回False，避免频繁触发
