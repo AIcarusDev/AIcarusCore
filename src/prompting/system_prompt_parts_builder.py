@@ -116,10 +116,14 @@ class SystemPromptPartsBuilder:
 
     def _get_current_state_block(self, session: ISession | None) -> str:
         """根据 WindowManager 的状态和当前会话构建状态描述."""
+        all_windows = self.window_manager.get_all_windows_sorted()
+        if not all_windows:
+            return "你当前在发呆/没干嘛"
+
         active_window = next(
             (
                 w
-                for w in reversed(self.window_manager.get_all_windows_sorted())
+                for w in reversed(all_windows)
                 if w.status != WindowStatus.MINIMIZE
             ),
             None,
