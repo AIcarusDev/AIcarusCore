@@ -1,7 +1,7 @@
 # src/main.py
 import asyncio
-import os
 import glob
+import os
 from datetime import datetime
 
 from src.bootstrap.builder import ServiceBuilder
@@ -22,7 +22,7 @@ def get_last_log_time() -> str | None:
             return None
         latest_file = max(list_of_files, key=os.path.getctime)
 
-        with open(latest_file, "r", encoding="utf-8") as f:
+        with open(latest_file, encoding="utf-8") as f:
             lines = f.readlines()
             if not lines:
                 return None
@@ -54,18 +54,17 @@ async def start_core_system() -> None:
             )
         else:
             interruption_message = (
-                "<meta_info>与OS的连接因意外中断。"
-                "请你发送指令重新连接。</meta_info>"
+                "<meta_info>与OS的连接因意外中断。请你发送指令重新连接。</meta_info>"
             )
 
     # 2. 创建运行标志
     try:
         with open(running_flag_path, "w") as f:
             f.write("running")
-    except IOError as e:
+    except OSError as e:
         logger.error(f"无法创建 .running 文件: {e}")
         # 即使无法创建文件，也继续尝试运行
-        
+
     container = None
     cognitive_cycle = None
     background_tasks = set()

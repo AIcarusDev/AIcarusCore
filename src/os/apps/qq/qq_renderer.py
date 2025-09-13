@@ -404,7 +404,7 @@ class QQWindowRenderer:
         platform, _, _ = parse_entity_uid(conversation_uid)
         bot_id = bot_ids_map.get(platform)
 
-        # [重构] 提前判断会话类型，以便后续逻辑复用
+        # 前判断会话类型，以便后续逻辑复用
         try:
             conv_type = conversation_uid.split("_")[1]
             is_private_chat = conv_type == "private"
@@ -418,8 +418,12 @@ class QQWindowRenderer:
         )
         self_entity = await self.entity_service.get_self_entity_by_platform(platform)
 
-        # [优化] 根据会话类型动态设置 role 属性
-        role_value = str(bot_id) if is_private_chat else (self_presence.get("permission_level", "成员") if self_presence else "成员")
+        # 根据会话类型动态设置 role 属性
+        role_value = (
+            str(bot_id)
+            if is_private_chat
+            else (self_presence.get("permission_level", "成员") if self_presence else "成员")
+        )
 
         self_profile_attrs = {
             "name": self_entity.get("details", {}).get("nickname"),
@@ -641,12 +645,10 @@ class QQWindowRenderer:
 
                 if user_id and conv_doc:
                     try:
-                        latest_name = (
-                            await self.entity_service.get_sender_display_name_for_event(
-                                {"user_info": {"user_id": user_id}},
-                                conv_doc,
-                                bot_ids_map,
-                            )
+                        latest_name = await self.entity_service.get_sender_display_name_for_event(
+                            {"user_info": {"user_id": user_id}},
+                            conv_doc,
+                            bot_ids_map,
                         )
                         display_name = f"@{latest_name}"
                     except ValueError:

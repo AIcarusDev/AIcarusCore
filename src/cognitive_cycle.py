@@ -196,7 +196,6 @@ class CognitiveCycle:
                 external_info_snapshot=external_info_snapshot,
             )
             if resolution:
-
                 root = Element("deliberation_result")
                 SubElement(root, "summary").text = resolution.get("summary")
                 final_state = SubElement(root, "final_internal_state")

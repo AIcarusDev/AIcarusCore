@@ -122,11 +122,7 @@ class SystemPromptPartsBuilder:
             return "你当前在发呆/没干嘛"
 
         active_window = next(
-            (
-                w
-                for w in reversed(all_windows)
-                if w.status != WindowStatus.MINIMIZE
-            ),
+            (w for w in reversed(all_windows) if w.status != WindowStatus.MINIMIZE),
             None,
         )
 

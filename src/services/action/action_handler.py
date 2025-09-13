@@ -376,9 +376,7 @@ class ActionHandler:
                 # 2. 构造 metadata
                 metadata = ActionMetadata(motivation=motivation)
                 # 3. 调用存储方法
-                await self._save_successful_action_as_event(
-                    action_result, sent_dict, metadata
-                )
+                await self._save_successful_action_as_event(action_result, sent_dict, metadata)
         else:
             logger.error(f"通过 MessageBuilder 发送消息至会话 '{conversation_uid}' 失败。")
 
@@ -554,10 +552,9 @@ class ActionHandler:
         # 从 ActionResult 中提取 platform_msg_id 并注入
         platform_msg_id = None
         if action_result.payload and isinstance(action_result.payload, dict):
-            platform_msg_id = (
-                action_result.payload.get("sent_message_id")
-                or action_result.payload.get("message_id")
-            )
+            platform_msg_id = action_result.payload.get(
+                "sent_message_id"
+            ) or action_result.payload.get("message_id")
 
         if platform_msg_id:
             from aicarus_protocols import SegBuilder
@@ -569,13 +566,11 @@ class ActionHandler:
             # 将元数据段插入到内容列表的最前面
             event_to_save["content"].insert(0, metadata_seg.to_dict())
             logger.info(
-                f"成功将会话回执 ID '{platform_msg_id}' 注入到事件 "
-                f"{action_result.action_id} 中。"
+                f"成功将会话回执 ID '{platform_msg_id}' 注入到事件 {action_result.action_id} 中。"
             )
         else:
             logger.warning(
-                f"动作 {action_result.action_id} 的成功回执中未找到 "
-                f"'message_id'，无法注入元数据。"
+                f"动作 {action_result.action_id} 的成功回执中未找到 'message_id'，无法注入元数据。"
             )
 
         # 2. 填充/修正关键字段
@@ -664,7 +659,7 @@ class ActionHandler:
                 action_name="get_group_member_list",
                 params={"group_id": group_id},
                 bot_id=bot_id,
-                description=f"后台自动同步群 {group_id} 的成员列表"
+                description=f"后台自动同步群 {group_id} 的成员列表",
             )
 
             if action_result.is_success and isinstance(action_result.payload, list):
@@ -678,8 +673,7 @@ class ActionHandler:
                 )
             else:
                 logger.error(
-                    f"获取群 {conversation_uid} "
-                    f"成员列表失败: {action_result.error_message}"
+                    f"获取群 {conversation_uid} 成员列表失败: {action_result.error_message}"
                 )
 
         except Exception as e:

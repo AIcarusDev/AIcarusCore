@@ -279,13 +279,12 @@ class DefaultMessageProcessor:
         # 4. 检查是否需要触发对整个群的后台批量同步 (哨兵逻辑)
         if conv_info.type == "group":
             # action_handler 在 __init__ 中已经注入，可以直接使用
-            if hasattr(self, 'action_handler') and self.action_handler:
+            if hasattr(self, "action_handler") and self.action_handler:
                 if await self.entity_service.is_group_sync_due(
                     conv_entity_uid, ttl_seconds=86400
-                ): # 24小时同步一次
+                ):  # 24小时同步一次
                     logger.info(
-                        f"检测到群聊 '{conv_entity_uid}' 需要进行后台成员列表同步，"
-                        f"已启动任务。"
+                        f"检测到群聊 '{conv_entity_uid}' 需要进行后台成员列表同步，已启动任务。"
                     )
                     sync_task = asyncio.create_task(
                         self.action_handler.trigger_group_member_sync(conv_entity_uid)
@@ -294,8 +293,7 @@ class DefaultMessageProcessor:
                     sync_task.add_done_callback(self._background_tasks.discard)
             else:
                 logger.error(
-                    "ActionHandler 未在 DefaultMessageProcessor 中初始化，"
-                    "无法触发后台同步。"
+                    "ActionHandler 未在 DefaultMessageProcessor 中初始化，无法触发后台同步。"
                 )
 
         # 5. 更新机器人自身在会话中的存在

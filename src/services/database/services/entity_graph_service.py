@@ -285,9 +285,7 @@ class EntityGraphService:
         def db_op() -> tuple[str | None, str | None]:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
                 result = self._find_or_create_profile_and_account_entity_sync(
-                    tx,
-                    user_info,
-                    platform
+                    tx, user_info, platform
                 )
                 tx.commit()
                 return result
@@ -315,17 +313,13 @@ class EntityGraphService:
             f"$p isa person, has person-uid $p_uid; "
             f"select $p_uid;"
         )
-        answers = list(
-            tx.query(find_query).resolve().as_concept_rows()
-        )
+        answers = list(tx.query(find_query).resolve().as_concept_rows())
 
         if answers:
             p_uid = answers[0].get("p_uid").as_attribute().get_value()
             if user_info.user_nickname:
                 self._update_account_nickname_if_changed_sync(
-                    tx,
-                    account_uid,
-                    user_info.user_nickname
+                    tx, account_uid, user_info.user_nickname
                 )
             return p_uid, account_uid
 
@@ -383,19 +377,15 @@ class EntityGraphService:
         # 1. 检查并创建 person 实体
         person_exists_query = f'match $p isa person, has person-uid "{profile_uid}"; select $p;'
         if not list(tx.query(person_exists_query).resolve()):
-            tx.query(
-                f'insert $p isa {person_type}, has person-uid "{profile_uid}";'
-            ).resolve()
+            tx.query(f'insert $p isa {person_type}, has person-uid "{profile_uid}";').resolve()
 
         # 2. 检查并创建 platform 实体
         platform_exists_query = (
-            f'match $plat isa platform, '
-            f'has platform-uid "{platform}"; '
-            f'select $plat;'
+            f'match $plat isa platform, has platform-uid "{platform}"; select $plat;'
         )
         if not list(tx.query(platform_exists_query).resolve()):
             tx.query(
-                f'insert $plat isa platform,'
+                f"insert $plat isa platform,"
                 f'has platform-uid "{platform}", '
                 f'has display-name "{platform}";'
             ).resolve()
@@ -470,10 +460,7 @@ class EntityGraphService:
         def db_op() -> None:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
                 self._update_presence_in_conversation_sync(
-                    tx,
-                    account_entity_uid,
-                    conversation_entity_uid,
-                    user_info
+                    tx, account_entity_uid, conversation_entity_uid, user_info
                 )
                 tx.commit()
 
@@ -1183,13 +1170,13 @@ class EntityGraphService:
                 # 先删除可能存在的旧属性
                 tx.query(
                     f'match $c isa conversation, has conversation-uid "{conversation_uid}"; '
-                    f'$c has last-full-sync-timestamp $old_ts; '
-                    f'delete $old_ts of $c;'
+                    f"$c has last-full-sync-timestamp $old_ts; "
+                    f"delete $old_ts of $c;"
                 ).resolve()
                 # 再插入新属性
                 tx.query(
                     f'match $c isa conversation, has conversation-uid "{conversation_uid}"; '
-                    f'insert $c has last-full-sync-timestamp {current_ts};'
+                    f"insert $c has last-full-sync-timestamp {current_ts};"
                 ).resolve()
 
                 logger.info(f"原子事务即将提交：群聊 {conversation_uid} 成员列表及同步标记。")
@@ -1213,14 +1200,14 @@ class EntityGraphService:
             with driver.transaction(db_name, TransactionType.WRITE) as tx:
                 current_ts = int(time.time() * 1000)
                 tx.query(
-                    f'match $c isa conversation, '
+                    f"match $c isa conversation, "
                     f'has conversation-uid "{conversation_uid}"; '
-                    f'$c has last-full-sync-timestamp $old_ts; delete $c has $old_ts;'
+                    f"$c has last-full-sync-timestamp $old_ts; delete $c has $old_ts;"
                 ).resolve()
                 tx.query(
-                    f'match $c isa conversation, '
+                    f"match $c isa conversation, "
                     f'has conversation-uid "{conversation_uid}"; '
-                    f'insert $c has last-full-sync-timestamp {current_ts};'
+                    f"insert $c has last-full-sync-timestamp {current_ts};"
                 ).resolve()
                 tx.commit()
 
@@ -1241,7 +1228,7 @@ class EntityGraphService:
         def db_read() -> bool:
             with driver.transaction(db_name, TransactionType.READ) as tx:
                 answers = list(tx.query(query).resolve().as_concept_documents())
-                if not answers or "last_sync" not in answers[0] :
+                if not answers or "last_sync" not in answers[0]:
                     logger.debug(f"群聊 {conversation_uid} 从未进行过成员同步。")
                     return True  # 从未同步过，需要同步
 
@@ -1250,9 +1237,9 @@ class EntityGraphService:
                     logger.debug(f"群聊 {conversation_uid} 从未进行过成员同步。")
                     return True
 
-                if (time.time() * 1000 - last_sync_ts) > (ttl_seconds * 1000): # 使用毫秒进行比较
+                if (time.time() * 1000 - last_sync_ts) > (ttl_seconds * 1000):  # 使用毫秒进行比较
                     logger.debug(f"群聊 {conversation_uid} 的成员列表缓存已过期。")
-                    return True # 同步时间已过期
+                    return True  # 同步时间已过期
 
                 return False
 
@@ -1260,4 +1247,4 @@ class EntityGraphService:
             return await asyncio.to_thread(db_read)
         except Exception as e:
             logger.error(f"检查群聊 {conversation_uid} 同步状态时失败: {e}", exc_info=True)
-            return False # 出错时保守地返回False，避免频繁触发
+            return False  # 出错时保守地返回False，避免频繁触发

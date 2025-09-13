@@ -19,7 +19,6 @@ MODULE_CONFIG_MAP = {
     "main": ("主程序", "white"),
     "__main__": ("主程序", "white"),
     "cognitive_cycle": ("认知循环", "light-yellow"),
-
     # AIcarusCore 顶级模块
     "bootstrap": ("引导程序", "cyan"),
     "common": ("通用模块", "white"),
@@ -29,12 +28,10 @@ MODULE_CONFIG_MAP = {
     "os": ("操作系统", "light-blue"),
     "prompting": ("提示工程", "light-cyan"),
     "services": ("核心服务", "purple"),
-
     # bootstrap
     "bootstrap.builder": ("构建器", "cyan"),
     "bootstrap.container": ("依赖容器", "cyan"),
     "bootstrap.wiring": ("模块装配", "cyan"),
-
     # common
     "common.custom_logging": ("日志模块", "white"),
     "common.image_utils": ("图像工具", "white"),
@@ -44,16 +41,13 @@ MODULE_CONFIG_MAP = {
     "common.moe_motion_system": ("混合专家", "light-green"),
     "common.narrative_vectorizer": ("叙事向量化", "green"),
     "common.utils": ("通用工具", "white"),
-
     # config
     "config.aicarus_configs": ("配置定义", "yellow"),
     "config.config_io": ("配置IO", "yellow"),
     "config.config_manager": ("配置管理", "yellow"),
     "config.config_updater": ("配置更新", "yellow"),
-
     # domain
     "domain.models": ("领域模型", "light-green"),
-
     # mind
     "mind.abilities": ("心智能力", "magenta"),
     "mind.consciousness_flow": ("意识流", "yellow"),
@@ -65,8 +59,6 @@ MODULE_CONFIG_MAP = {
     "mind.abilities.deliberation_service": ("深思熟虑", "magenta"),
     "mind.abilities.information_retrieval_service": ("信息检索", "magenta"),
     "mind.memory_system.working_memory": ("工作记忆", "light-magenta"),
-
-
     # os
     "os.application_manager": ("应用管理", "blue"),
     "os.apps": ("应用程序", "blue"),
@@ -80,25 +72,20 @@ MODULE_CONFIG_MAP = {
     "os.communication.core_ws_server": ("核心WS服务", "yellow"),
     "os.communication.event_receiver": ("事件接收", "yellow"),
     "os.services.filesystem_service": ("文件系统", "blue"),
-
-
     # prompting
     "prompting.orchestrator": ("提示编排", "cyan"),
     "prompting.schema_builder": ("结构构建", "cyan"),
     "prompting.system_prompt_parts_builder": ("系统提示构建", "cyan"),
     "prompting.user_prompt_parts_builder": ("用户提示构建", "cyan"),
     "prompting.templates": ("提示模板", "cyan"),
-
     # services
     "services.action": ("动作服务", "light-magenta"),
     "services.database": ("数据库服务", "light-cyan"),
     "services.llmrequest": ("LLM请求", "light-blue"),
     "services.perception": ("感知服务", "magenta"),
-
     # services.action
     "services.action.action_handler": ("动作处理", "light-magenta"),
     "services.action.components": ("动作组件", "magenta"),
-
     # services.database
     "services.database.core": ("数据库核心", "cyan"),
     "services.database.models": ("数据库模型", "cyan"),
@@ -110,12 +97,10 @@ MODULE_CONFIG_MAP = {
     "services.database.services.media_cache_service": ("媒体缓存", "cyan"),
     "services.database.services.sticker_storage_service": ("贴纸存储", "cyan"),
     "services.database.services.thought_storage_service": ("思考存储", "cyan"),
-
     # services.llmrequest
     "services.llmrequest.llm_client": ("LLM客户端", "blue"),
     "services.llmrequest.llm_processor": ("LLM处理器", "light-blue"),
     "services.llmrequest.core.provider": ("LLM供应商", "blue"),
-
     # services.perception
     "services.perception.default_message_processor": ("默认消息处理", "magenta"),
     "services.perception.image_analysis_service": ("图像分析", "magenta"),

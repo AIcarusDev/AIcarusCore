@@ -25,6 +25,7 @@ class AsyncSemanticModelProxy:
 
     它在应用启动时不会阻塞，仅在首次需要使用模型时等待加载完成。
     """
+
     _instance: Optional["SemanticModel"] = None
     _load_task: Optional[asyncio.Task] = None  # noqa: UP045
     _lock = asyncio.Lock()
@@ -180,6 +181,7 @@ class SemanticModel:
 
 class SemanticMarkovModel:
     """结合了语义深度和马尔可夫链逻辑的模型."""
+
     def __init__(self, semantic_model: "AsyncSemanticModelProxy", num_clusters: int = 15) -> None:
         self.semantic_model = semantic_model
         self.num_clusters = num_clusters
@@ -245,7 +247,9 @@ class SemanticMarkovModel:
         return self.kmeans.predict(np.array([vector]))[0]
 
     def calculate_contextual_unexpectedness(
-        self, current_vector: list[float], previous_vector: Optional[list[float]]  # noqa: UP045
+        self,
+        current_vector: list[float],
+        previous_vector: Optional[list[float]],  # noqa: UP045
     ) -> float:
         """计算当前事件向量相对于上一个事件向量的“意外度”."""
         if self.transition_matrix is None or self.kmeans is None:

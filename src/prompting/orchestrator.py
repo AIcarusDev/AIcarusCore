@@ -215,7 +215,6 @@ class ThoughtPromptBuilder:
         else:
             user_prompt_blocks["meta_info"] = ""
 
-
         response_schema = await self._build_response_schema(ui_mapping=ui_mapping)
 
         prompt_components_obj = PromptComponents(

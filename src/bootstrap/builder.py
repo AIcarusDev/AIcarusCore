@@ -62,7 +62,7 @@ class Initializable(Protocol):
 class ServiceBuilder:
     """服务构建器，用于创建和配置核心服务容器."""
 
-    def __init__(self, interruption_message: str = ""):
+    def __init__(self, interruption_message: str = "") -> None:
         self.interruption_message = interruption_message
 
     async def build_container(self) -> ServiceContainer:
@@ -78,7 +78,6 @@ class ServiceBuilder:
         # 这个操作是瞬间完成的，真正的模型加载在后台进行
         semantic_model_proxy = AsyncSemanticModelProxy()
         logger.info("SemanticModelProxy已创建，后台加载任务已启动。")
-
 
         # 创建新的能力/服务实例
         filesystem_service = FileSystemService()
