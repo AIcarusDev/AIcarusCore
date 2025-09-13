@@ -4,6 +4,7 @@ from pathlib import Path
 
 # 项目根目录，指向 AIcarusCore
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent
+LIFECYCLE_STATE_FILE_PATH: Path = Path(__file__).resolve().parent.parent.parent
 
 # 模板文件目录
 TEMPLATE_DIR: Path = PROJECT_ROOT / "template"

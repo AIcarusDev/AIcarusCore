@@ -99,10 +99,12 @@ def format_relative_time(past_timestamp_ms: int) -> str:
     return f"{int(years)}年前"
 
 
-def format_relative_time_for_attention_log(
+def format_relative_time_for_context(
     past_timestamp_ms: int, current_timestamp_ms: int
 ) -> str:
-    """为注意力日志专门设计的、人性化的相对时间格式化函数.
+    """为需要模糊、人性化上下文的时间描述设计的相对时间格式化函数.
+
+    例如 "刚才", "约半小时前".
 
     Args:
         past_timestamp_ms: 历史事件的毫秒时间戳。
@@ -115,21 +117,35 @@ def format_relative_time_for_attention_log(
         return "很久以前"
 
     delta_seconds = (current_timestamp_ms - past_timestamp_ms) / 1000.0
+
+    if delta_seconds < 10:
+        return "刚刚"
+    if delta_seconds < 60:
+        return "刚才"
+
     delta_minutes = delta_seconds / 60
 
-    if delta_minutes < 1:
-        return "刚才"
     if 30 <= delta_minutes <= 40:
         return "约半小时前"
-    if 50 <= delta_minutes < 60:
+    if 50 <= delta_minutes < 70: # 扩大范围
         return "约1小时前"
 
-    if delta_minutes >= 60:
+    if delta_minutes >= 70:
         hours = round(delta_minutes / 60)
-        return f"约{hours}小时前"
+        if hours < 24:
+            return f"约{hours}小时前"
+        days = round(hours / 24)
+        return f"约{days}天前"
 
     # 默认情况
     return f"{round(delta_minutes)}分钟前"
+
+def format_relative_time_for_attention_log(
+    past_timestamp_ms: int, current_timestamp_ms: int
+) -> str:
+    """为注意力日志专门设计的函数，现在调用通用的上下文格式化函数."""
+    # 直接复用新的通用函数
+    return format_relative_time_for_context(past_timestamp_ms, current_timestamp_ms)
 
 
 def format_relative_time_for_memory(past_timestamp_ms: int) -> str:

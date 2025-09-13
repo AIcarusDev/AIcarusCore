@@ -1,10 +1,9 @@
 # src/main.py
 import asyncio
-import glob
-import os
-from datetime import datetime
+import contextlib
 
 from src.bootstrap.builder import ServiceBuilder
+from src.bootstrap.lifecycle_manager import LifecycleManager
 from src.bootstrap.wiring import wire_dependencies, wire_dynamic_dependencies
 from src.cognitive_cycle import CognitiveCycle
 from src.common.custom_logging.logging_config import get_logger
@@ -12,67 +11,25 @@ from src.common.custom_logging.logging_config import get_logger
 logger = get_logger(__name__)
 
 
-def get_last_log_time() -> str | None:
-    """扫描日志文件并返回最新的时间戳."""
-    try:
-        log_dir = "logs"
-        # 查找所有日志目录中的最新文件
-        list_of_files = glob.glob(f"{log_dir}/**/*.log", recursive=True)
-        if not list_of_files:
-            return None
-        latest_file = max(list_of_files, key=os.path.getctime)
-
-        with open(latest_file, encoding="utf-8") as f:
-            lines = f.readlines()
-            if not lines:
-                return None
-            # 解析时间戳，例如 [2025-09-13 19:25:00,123]
-            last_line = lines[-1]
-            if "[" in last_line and "]" in last_line:
-                timestamp_str = last_line.split("]")[0][1:].split(",")[0]
-                # 格式化为更自然的格式
-                dt_object = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
-                return dt_object.strftime("%Y年%m月%d日 %H:%M:%S")
-    except Exception as e:
-        logger.error(f"扫描日志文件失败: {e}")
-    return None
-
-
 async def start_core_system() -> None:
     """启动 AIcarus Core 系统的全新、优雅的入口."""
-    running_flag_path = ".running"
-    interruption_message = ""
-
-    # 1. 中断检测
-    if os.path.exists(running_flag_path):
-        logger.warning("检测到 .running 文件，上次可能为非正常关闭。")
-        last_time = get_last_log_time()
-        if last_time:
-            interruption_message = (
-                f"<meta_info>在 {last_time} 左右，与OS的连接因意外中断。"
-                "请你发送指令重新连接。</meta_info>"
-            )
-        else:
-            interruption_message = (
-                "<meta_info>与OS的连接因意外中断。请你发送指令重新连接。</meta_info>"
-            )
-
-    # 2. 创建运行标志
-    try:
-        with open(running_flag_path, "w") as f:
-            f.write("running")
-    except OSError as e:
-        logger.error(f"无法创建 .running 文件: {e}")
-        # 即使无法创建文件，也继续尝试运行
-
     container = None
     cognitive_cycle = None
+    lifecycle_manager = None
     background_tasks = set()
     try:
-        # 3. 构建服务容器，创建所有服务实例
-        builder = ServiceBuilder(interruption_message=interruption_message)
+        builder = ServiceBuilder()
         container = await builder.build_container()
         logger.info("所有服务实例已成功创建。")
+
+        # --- 启动生命周期管理器 ---
+        lifecycle_manager = LifecycleManager(container)
+        interruption_message = lifecycle_manager.start() # 启动并获取提示信息
+
+        # 将中断信息注入到 PromptBuilder
+        if interruption_message and container.prompt_builder:
+            container.prompt_builder._interruption_message = interruption_message
+            logger.info(f"检测到中断事件，已注入提示: {interruption_message}")
 
         # 在连接依赖前，执行一次表情包垃圾回收
         if container.qq_sticker_service:
@@ -146,6 +103,10 @@ async def start_core_system() -> None:
     finally:
         logger.info("--- AIcarus Core 系统正在进入关闭流程 ---")
 
+        # --- 优雅地停止生命周期管理器 ---
+        if lifecycle_manager:
+            await lifecycle_manager.stop()
+
         # 优雅地关闭认知循环
         if cognitive_cycle:
             await cognitive_cycle.stop()
@@ -154,6 +115,8 @@ async def start_core_system() -> None:
             logger.info(f"正在取消 {len(background_tasks)} 个后台任务...")
             for task in background_tasks:
                 task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
             await asyncio.gather(*background_tasks, return_exceptions=True)
             logger.info("所有后台任务已处理完毕。")
 
@@ -183,14 +146,6 @@ async def start_core_system() -> None:
             logger.info("所有 LLM 客户端已处理完毕。")
 
         logger.info("AIcarus Core 系统关闭流程执行完毕。")
-
-    # 在 finally 块的最后，确保删除标志文件
-    if os.path.exists(running_flag_path):
-        try:
-            os.remove(running_flag_path)
-            logger.info(".running 文件已成功删除。")
-        except OSError as e:
-            logger.error(f"关闭时无法删除 .running 文件: {e}")
 
 
 async def main() -> None:

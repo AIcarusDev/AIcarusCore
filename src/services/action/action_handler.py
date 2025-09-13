@@ -63,8 +63,11 @@ class ActionHandler:
         self.action_log_service = action_log_service
         self.action_sender = action_sender
         self.entity_service = entity_service
-
         self.pending_action_manager = PendingActionManager()
+        # 用于防止群成员同步的竞态条件
+        self._group_syncs_in_progress: set[str] = set()
+        self._group_sync_lock = asyncio.Lock()
+
         logger.info(f"{self.__class__.__name__} instance created (Refactored).")
 
     def set_state_generator(self, state_generator: AICOSStateGenerator) -> None:
@@ -638,15 +641,27 @@ class ActionHandler:
             logger.info(f"已完成对 {len(creation_tasks)} 个项目的会话实体主动更新。")
 
     async def trigger_group_member_sync(self, conversation_uid: str) -> None:
-        """在后台触发对单个群组的完整成员列表同步.
+        """在后台触发对单个群组的完整成员列表同步，并增加锁防止并发执行.
 
         这是一个内部维护任务，不直接返回结果给思考链。
         """
+        # 锁机制
+        async with self._group_sync_lock:
+            if conversation_uid in self._group_syncs_in_progress:
+                logger.info(f"群聊 {conversation_uid} 的同步任务已在进行中，本次请求被忽略。")
+                return
+            self._group_syncs_in_progress.add(conversation_uid)
+
         try:
             logger.info(f"开始为群聊 {conversation_uid} 同步成员列表...")
             platform, _, group_id = parse_entity_uid(conversation_uid)
             if not platform or not group_id:
                 logger.error(f"无法从 {conversation_uid} 解析平台或群号。")
+                return
+
+            # 确保 self.application_manager 存在
+            if not self.application_manager:
+                logger.error("ActionHandler 未初始化 ApplicationManager，无法执行同步。")
                 return
 
             bot_id = self.application_manager.get_self_bot_ids_map().get(platform)
@@ -681,3 +696,8 @@ class ActionHandler:
                 f"执行群聊 {conversation_uid} 成员同步任务时发生意外错误: {e}",
                 exc_info=True,
             )
+        finally:
+            # 确保锁最终被释放
+            async with self._group_sync_lock:
+                self._group_syncs_in_progress.remove(conversation_uid)
+            logger.info(f"群聊 {conversation_uid} 的同步流程已结束，锁已释放。")

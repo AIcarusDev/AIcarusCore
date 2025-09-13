@@ -492,7 +492,7 @@ class EntityGraphService:
             )
             return
         if account_uid and conv_uid:
-            logger.info(f"开始删除用户 '{account_uid}' 在会话 '{conv_uid}' 中的存在关系。")
+            # logger.info(f"开始删除用户 '{account_uid}' 在会话 '{conv_uid}' 中的存在关系。")
             delete_query = f"""
             match
                 $账号 isa account, has account-uid "{account_uid}";
@@ -516,10 +516,10 @@ class EntityGraphService:
         cardname = str(user_info.user_cardname or "").replace('"', '\\"')
         perm_level = str(user_info.permission_level or "member").replace('"', '\\"')
         timestamp = int(time.time() * 1000)
-        logger.info(
-            f"开始创建用户 '{account_uid}' 在会话 '{conv_uid}' 中的存在关系，"
-            f"cardname='{cardname}', permission_level='{perm_level}', timestamp={timestamp}"
-        )
+        # logger.info(
+        #     f"开始创建用户 '{account_uid}' 在会话 '{conv_uid}' 中的存在关系，"
+        #     f"cardname='{cardname}', permission_level='{perm_level}', timestamp={timestamp}"
+        # )
         insert_query = f"""
         match
             $账号 isa account, has account-uid "{account_uid}";

@@ -26,11 +26,10 @@ if TYPE_CHECKING:
 
 
 class ThoughtPromptBuilder:
-    """[最终版] 构建思维提示的总编排器和 Schema 构建总指挥."""
+    """构建思维提示的总编排器和 Schema 构建总指挥."""
 
     def __init__(
         self,
-        interruption_message: str,
         aicos_state_generator: "AICOSStateGenerator",
         window_manager: "WindowManager",
         application_manager: "ApplicationManager",
@@ -43,7 +42,7 @@ class ThoughtPromptBuilder:
         deliberation_service: "DeliberationService",
         qq_sticker_service: "QQStickerService",
     ) -> None:
-        self._interruption_message = interruption_message  # 存储一次性消息
+        self._interruption_message: str = ""  # 存储一次性消息
         self.is_context_switch_flag: bool = False
         self.aicos_state_generator = aicos_state_generator
         self.window_manager = window_manager

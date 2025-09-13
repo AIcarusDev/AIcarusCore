@@ -136,7 +136,6 @@ class ServiceBuilder:
         action_handler.set_state_generator(aicos_state_generator)
 
         prompt_builder = ThoughtPromptBuilder(
-            interruption_message=self.interruption_message,  # 注入中断消息
             aicos_state_generator=aicos_state_generator,
             window_manager=window_manager,
             application_manager=application_manager,
