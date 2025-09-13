@@ -39,7 +39,7 @@ class CoreLogic:
         self.thought_persistor = thought_persistor
         self.prompt_builder = prompt_builder
         self.container: ServiceContainer | None = None  # 仍然需要容器来获取session
-        logger.info(f"{self.__class__.__name__} (纯净版) 已创建。")
+        logger.info(f"{self.__class__.__name__} 已创建。")
 
     async def run_one_thought_cycle(
         self, prompt_components: PromptComponents

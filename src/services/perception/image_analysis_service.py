@@ -80,7 +80,7 @@ class ImageAnalysisService:
 
         self._clip_model: SentenceTransformer | None = None
         self._vision_llm_client: LLMProcessorClient | None = None
-        logger.info("ImageAnalysisService 已初始化 (混合模式升级版)。")
+        logger.info("ImageAnalysisService 已初始化。")
 
     # 公共接口：获取分析结果（带等待机制）
     async def get_analysis_result(

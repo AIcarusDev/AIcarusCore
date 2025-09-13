@@ -19,7 +19,7 @@ AdapterEventCallback = Callable[[ProtocolEvent, WebSocketServerProtocol, bool], 
 
 
 class EventReceiver:
-    """[重构版] 智能事件路由器.
+    """智能事件路由器.
 
     它负责接收所有原始消息，解析它们，然后并行地分发到两个独立的流水线：
     1. OS 实时反应流水线 (通过 PlatformBuilder)。
@@ -36,7 +36,7 @@ class EventReceiver:
         self.action_handler = action_handler_instance
         self.container = service_container
         self._background_tasks = set()
-        logger.info("EventReceiver (智能路由器版) 初始化完成。")
+        logger.info("EventReceiver 初始化完成。")
 
     def _needs_persistence(self, event: ProtocolEvent) -> bool:
         """判断一个事件是否需要被持久化."""

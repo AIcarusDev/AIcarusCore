@@ -61,7 +61,7 @@ class DefaultMessageProcessor:
         self.window_manager = window_manager
         self.action_handler = action_handler
         self._background_tasks: set[asyncio.Task] = set()
-        logger.info("DefaultMessageProcessor (纯净版) 初始化完成。")
+        logger.info("DefaultMessageProcessor 初始化完成。")
 
     async def process_event(
         self,

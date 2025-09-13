@@ -20,7 +20,7 @@ class Goal:
 
 
 class GoalManager:
-    """负责管理AI的短期目标列表 (持久化改造版)."""
+    """负责管理AI的短期目标列表."""
 
     def __init__(self, goal_storage_service: GoalStorageService) -> None:
         self._goals: dict[str, Goal] = {}

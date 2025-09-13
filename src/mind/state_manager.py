@@ -9,7 +9,7 @@ logger = get_logger(__name__)
 
 
 class AIStateManager:
-    """AIStateManager (思想链版) 负责管理 AI 的状态信息，包括心情、内心想法、目标和最近的行动日志等.
+    """AIStateManager 负责管理 AI 的状态信息，包括心情、内心想法、目标和最近的行动日志等.
 
     Attributes:
         thought_service (ThoughtStorageService): 用于存储和获取思想点的服务实例.

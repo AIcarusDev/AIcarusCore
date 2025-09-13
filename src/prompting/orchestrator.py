@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 
 class ThoughtPromptBuilder:
-    """[最终版] 构建思维提示的总编排器和 Schema 构建总指挥."""
+    """构建思维提示的总编排器和 Schema 构建总指挥."""
 
     def __init__(
         self,

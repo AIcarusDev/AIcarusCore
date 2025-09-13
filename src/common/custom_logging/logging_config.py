@@ -321,7 +321,7 @@ def get_logger(module_name: str) -> Logger:
             )
 
             _handlers_created.add(handler_key)
-            logger.debug(f"已为别名 '{alias}' 创建专属日志处理器(视觉居中完美最终版)！")
+            logger.debug(f"已为别名 '{alias}' 创建专属日志处理器")
 
     # 绑定 padded_alias 用于控制台显示，绑定普通 alias 用于文件记录
     return logger.bind(padded_alias=padded_alias, alias=alias)

@@ -64,7 +64,7 @@ async def clear_database(container: Any) -> bool | None:
 
 
 async def seed_data(entity_service: EntityGraphService, event_service: EventStorageService) -> None:
-    """[重构版] 注入丰富且复杂的模拟数据."""
+    """注入丰富且复杂的模拟数据."""
     print("--- 开始注入模拟数据 ---")
     base_timestamp = int(time.time() * 1000)
 
