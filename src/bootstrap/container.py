@@ -13,7 +13,6 @@ if TYPE_CHECKING:
     from src.common.interruption_broker import InterruptionEventBroker
     from src.common.narrative_vectorizer.narrative_vectorizer import NarrativeVectorizer
     from src.config import AlcarusRootConfig
-    from src.mind.abilities.deliberation_service import DeliberationService
     from src.mind.abilities.information_retrieval_service import InformationRetrievalService
     from src.mind.consciousness_flow import CoreLogic
     from src.mind.goal_manager import GoalManager
@@ -51,7 +50,6 @@ class ServiceContainer:
     main_consciousness_llm_client: ProcessorClient
     web_search_agent_client: ProcessorClient | None
     url_context_agent_client: ProcessorClient | None
-    deliberation_llm_client: ProcessorClient | None
     config: AlcarusRootConfig
 
     # 连接管理器
@@ -87,10 +85,7 @@ class ServiceContainer:
     window_manager: WindowManager
     application_manager: ApplicationManager
     aicos_state_generator: AICOSStateGenerator
-    window_manager: WindowManager
-
     # 能力与服务
     filesystem_service: FileSystemService
     info_retrieval_service: InformationRetrievalService
-    deliberation_service: DeliberationService
     goal_manager: GoalManager

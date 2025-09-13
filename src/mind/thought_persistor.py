@@ -51,7 +51,9 @@ class ThoughtPersistor:
             _key=str(uuid.uuid4()),  # 给点一个唯一的key
             timestamp=datetime.datetime.now(datetime.UTC).isoformat(),
             mood=thought_json.get("internal_state", {}).get("mood", "平静"),
-            think=thought_json.get("internal_state", {}).get("think", "我刚才好像走神了。"),
+            think=thought_json.get("internal_state", {}).get(
+                "think", {"fast": "我刚才好像走神了。"}
+            ),
             intent=thought_json.get("internal_state", {}).get("intent"),
             source_type=source_type,
             source_id=source_id,

@@ -68,7 +68,10 @@ class ThoughtStorageService:
                 # 1. 获取上一个思想节点的 key
                 answers = list(
                     tx.query(
-                        f'match $p isa system-pointer, has pointer-name "{LATEST_THOUGHT_POINTER_KEY}"; $p has target-key $key; select $key;'  # noqa: E501
+                        f'match '
+                        f'$p isa system-pointer, has pointer-name "{LATEST_THOUGHT_POINTER_KEY}"; '
+                        f'$p has target-key $key; '
+                        f'select $key;'
                     )
                     .resolve()
                     .as_concept_rows()
@@ -81,9 +84,17 @@ class ThoughtStorageService:
                 # 2. 构建属性插入部分
                 insert_parts = [
                     f'has thought-id "{new_key}"',
-                    f"has timestamp {int(datetime.datetime.fromisoformat(thought_data.timestamp).timestamp() * 1000)}",  # noqa: E501
+                    f"has timestamp {
+                        int(
+                            datetime.datetime.fromisoformat(
+                                thought_data.timestamp
+                            ).timestamp() * 1000
+                        )
+                    }",
                     f'has mood "{thought_data.mood.replace('"', '\\"')}"',
-                    f'has think "{thought_data.think.replace('"', '\\"')}"',
+                    f'has think-json "{
+                        json.dumps(thought_data.think, ensure_ascii=False).replace('"', '\\"')
+                    }"',
                 ]
                 if thought_data.intent:
                     insert_parts.append(f'has intent "{thought_data.intent.replace('"', '\\"')}"')
@@ -152,7 +163,11 @@ class ThoughtStorageService:
             if attr_type_concept and attr_concept:
                 label = attr_type_concept.as_attribute_type().get_label()
                 py_value = attr_concept.as_attribute().get_value()
-                key_map = {"thought-id": "_key", "action-payload-json": "action_payload"}
+                key_map = {
+                    "thought-id": "_key",
+                    "action-payload-json": "action_payload",
+                    "think-json": "think",
+                }
                 doc_key = key_map.get(label, label.replace("-", "_"))
                 if isinstance(py_value, str) and "json" in label:
                     try:

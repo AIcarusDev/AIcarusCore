@@ -15,7 +15,6 @@ from src.common.interruption_broker import InterruptionEventBroker
 from src.common.narrative_vectorizer.narrative_vectorizer import NarrativeVectorizer
 from src.config import config
 from src.config.aicarus_configs import ModelParams
-from src.mind.abilities.deliberation_service import DeliberationService
 from src.mind.abilities.information_retrieval_service import InformationRetrievalService
 from src.mind.consciousness_flow import CoreLogic
 from src.mind.goal_manager import GoalManager
@@ -85,7 +84,6 @@ class ServiceBuilder:
             web_search_agent_client=llm_clients["web_search_agent_client"],
             url_context_agent_client=llm_clients["url_context_agent_client"],
         )
-        deliberation_service = DeliberationService(llm_clients["deliberation_llm_client"])
         goal_manager = GoalManager(db_services["goal_storage_service"])
 
         # OS 层服务
@@ -145,7 +143,6 @@ class ServiceBuilder:
             filesystem_service=filesystem_service,
             info_retrieval_service=info_retrieval_service,
             goal_manager=goal_manager,
-            deliberation_service=deliberation_service,
             qq_sticker_service=qq_sticker_service,
         )
 
@@ -183,7 +180,6 @@ class ServiceBuilder:
             main_consciousness_llm_client=llm_clients["main_consciousness_llm_client"],
             web_search_agent_client=llm_clients["web_search_agent_client"],
             url_context_agent_client=llm_clients["url_context_agent_client"],
-            deliberation_llm_client=llm_clients["deliberation_llm_client"],
             thought_generator=thought_generator,
             config=config,
             conn_manager=db_services["conn_manager"],
@@ -214,7 +210,6 @@ class ServiceBuilder:
             aicos_state_generator=aicos_state_generator,
             filesystem_service=filesystem_service,
             info_retrieval_service=info_retrieval_service,
-            deliberation_service=deliberation_service,
             goal_manager=goal_manager,
         )
 
@@ -244,7 +239,6 @@ class ServiceBuilder:
 
         # 填充容器中之前留空的服务
         container.core_comm_layer = core_comm_layer
-        container.core_websocket_server = core_comm_layer
         container.core_logic = core_logic
 
         return container
@@ -332,7 +326,6 @@ class ServiceBuilder:
             "url_context_agent_client": _create_client(
                 models.url_context_agent, "url_context_agent"
             ),
-            "deliberation_llm_client": _create_client(models.deliberation, "deliberation"),
         }
         if not clients["main_consciousness_llm_client"]:
             raise RuntimeError("主意识LLM客户端初始化失败。")

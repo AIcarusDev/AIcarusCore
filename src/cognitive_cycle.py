@@ -4,7 +4,6 @@ import contextlib
 import traceback
 import uuid
 from typing import TYPE_CHECKING
-from xml.etree.ElementTree import Element, SubElement, tostring
 
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
@@ -137,7 +136,6 @@ class CognitiveCycle:
             decision_json=new_thought_pearl.action_payload,
             ui_mapping=ui_mapping,
             thought_key=saved_key,
-            external_info_snapshot=current_external_info_snapshot,
         )
 
     async def _orchestrate_action(
@@ -145,7 +143,6 @@ class CognitiveCycle:
         decision_json: dict | None,
         ui_mapping: dict,
         thought_key: str,
-        external_info_snapshot: str | None,
     ) -> None:
         """动作总编排器.
 
@@ -160,9 +157,7 @@ class CognitiveCycle:
         if action_payload := decision_json.get("action"):
             # 路由内部动作 (直接调用Mind层服务)
             if internal_action := action_payload.get("internal"):
-                await self._route_internal_action(
-                    internal_action, thought_key, external_info_snapshot
-                )
+                await self._route_internal_action(internal_action)
                 action_taken = True
 
             # 路由外部动作 (调用OS或ActionHandler)
@@ -174,9 +169,7 @@ class CognitiveCycle:
         if action_taken:
             self.trigger_immediate_thought_cycle()
 
-    async def _route_internal_action(
-        self, internal_action: dict, thought_key: str, external_info_snapshot: str | None
-    ) -> None:
+    async def _route_internal_action(self, internal_action: dict) -> None:
         """将内部动作路由到对应的 Mind 层服务执行."""
         action_name = next(iter(internal_action), None)
         if not action_name:
@@ -189,25 +182,6 @@ class CognitiveCycle:
             await self.container.goal_manager.remove_goals(
                 params.get("remove", {}).get("goal_ids", [])
             )
-        elif action_name == "deep_think":
-            resolution = await self.container.deliberation_service.execute(
-                pipeline_params=params,
-                container=self.container,
-                external_info_snapshot=external_info_snapshot,
-            )
-            if resolution:
-                root = Element("deliberation_result")
-                SubElement(root, "summary").text = resolution.get("summary")
-                final_state = SubElement(root, "final_internal_state")
-                SubElement(final_state, "mood").text = resolution.get("final_mood")
-                SubElement(final_state, "think").text = resolution.get("final_think")
-                SubElement(final_state, "intent").text = resolution.get("final_intent")
-                result_str = tostring(root, encoding="unicode")
-
-                await self.container.thought_storage_service.save_action_result_to_thought(
-                    thought_key=thought_key, result_text=result_str
-                )
-                self.trigger_immediate_thought_cycle()
         else:
             logger.warning(f"接收到未知的内部动作: {action_name}")
 

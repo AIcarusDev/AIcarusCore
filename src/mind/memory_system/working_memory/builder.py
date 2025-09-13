@@ -46,9 +46,25 @@ class WorkingMemoryBuilder:
         if not full_response:
             return None
 
+        # 状态为 vivid 或 active 时，保留完整内容
         if status in ["vivid", "active"]:
             return full_response
 
+        internal_state = full_response.get("internal_state", {})
+        think_content = internal_state.get("think", {})
+        is_slow_thought = isinstance(think_content, dict) and "slow" in think_content
+
+        # 实现新的慢思考记忆持久化规则
+        # 如果是慢思考，则在任何衰减阶段都完整保留 think 对象
+        if is_slow_thought:
+            retained_content = {}
+            if "internal_state" in full_response:
+                retained_content["internal_state"] = {"think": think_content}
+            if "action" in full_response:
+                retained_content["action"] = full_response.get("action")
+            return retained_content if retained_content else None
+
+        # --- 如果是快思考，则执行旧的衰减逻辑 ---
         if status == "retained":
             retained_content = {}
             if "internal_state" in full_response and "intent" in full_response["internal_state"]:
@@ -71,13 +87,14 @@ class WorkingMemoryBuilder:
 
         return None
 
+
     def build_fragments(
         self, recent_thoughts: list[dict[str, Any]], last_external_info_snapshot: str | None
     ) -> list[MemoryFragment]:
         """从数据库文档列表构建记忆片段列表."""
         fragments = []
 
-        # [新增] 将字典列表转换为 ThoughtChainDocument 对象列表
+        # 将字典列表转换为 ThoughtChainDocument 对象列表
         thought_objects = []
         for thought_dict in recent_thoughts:
             try:
@@ -108,6 +125,8 @@ class WorkingMemoryBuilder:
             if cycle_ago == 1 and status == "vivid" and last_external_info_snapshot:
                 content["_external_info_snapshot"] = last_external_info_snapshot
 
+            # 移除对 action_result 的特殊处理，因为它现在不再由慢思考产生
+            # 如果其他动作未来会产生 action_result，这里的逻辑依然有效
             if thought.action_result:
                 content["_action_result"] = thought.action_result
 

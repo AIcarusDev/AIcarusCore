@@ -44,19 +44,7 @@ async def start_core_system() -> None:
             await container.state_manager.initialize()
             logger.info("状态管理器及其子组件 (如GoalManager) 已从数据库同步状态。")
 
-        # 3. 实例化顶层协调者
         cognitive_cycle = CognitiveCycle(container)
-        # 将协调者的触发器注入到需要它的地方 (例如慢思考服务)
-        # 注意: 这需要在 builder.py 中为 deliberation_service 设置一个引用
-        if container.deliberation_service and hasattr(
-            container.deliberation_service, "set_cycle_trigger"
-        ):
-            container.deliberation_service.set_cycle_trigger(
-                cognitive_cycle.trigger_immediate_thought_cycle
-            )
-
-        # 4. 启动核心服务
-        # 启动WS服务器，它会开始接受连接并进行安检
         ws_task = asyncio.create_task(container.core_comm_layer.start(), name="CoreWSServer")
         background_tasks.add(ws_task)
 
@@ -134,7 +122,6 @@ async def start_core_system() -> None:
                 container.main_consciousness_llm_client,
                 container.web_search_agent_client,
                 container.url_context_agent_client,
-                container.deliberation_llm_client,
             ]
             close_tasks = [
                 client.llm_client.close()

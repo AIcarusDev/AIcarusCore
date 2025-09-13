@@ -12,7 +12,6 @@ from src.prompting.user_prompt_parts_builder import UserPromptPartsBuilder
 
 if TYPE_CHECKING:
     from src.bootstrap.container import ServiceContainer
-    from src.mind.abilities.deliberation_service import DeliberationService
     from src.mind.abilities.information_retrieval_service import InformationRetrievalService
     from src.mind.goal_manager import GoalManager
     from src.mind.state_manager import AIStateManager
@@ -39,7 +38,6 @@ class ThoughtPromptBuilder:
         filesystem_service: "FileSystemService",
         info_retrieval_service: "InformationRetrievalService",
         goal_manager: "GoalManager",
-        deliberation_service: "DeliberationService",
         qq_sticker_service: "QQStickerService",
     ) -> None:
         self._interruption_message: str = ""  # 存储一次性消息
@@ -51,7 +49,6 @@ class ThoughtPromptBuilder:
         self.filesystem_service = filesystem_service
         self.info_retrieval_service = info_retrieval_service
         self.goal_manager = goal_manager
-        self.deliberation_service = deliberation_service
 
         self.schema_builder = SchemaBuilder()
 
@@ -73,20 +70,70 @@ class ThoughtPromptBuilder:
         """Schema 构建的总指挥方法."""
         schema_parts = {}
 
+        # 使用你设计的全新 internal_state schema
         schema_parts["internal_state"] = {
             "type": "object",
             "description": "你的内心状态。",
             "properties": {
                 "mood": {"type": "string", "description": "你当前的情绪，是下意识的第一反应。"},
-                "think": {"type": "string", "description": "你当前的内心想法，应该真实自然丰富。"},
+                "think": {
+                    "type": "object",
+                    "description": "你的内心想法，可以是快速反应，也可以是深思熟虑。",
+                    "properties": {
+                        "fast": {
+                            "type": "string",
+                            "description": "进行快速简短的思考，应该真实自然丰富。"
+                        },
+                        "slow": {
+                            "type": "object",
+                            "description": "进行客观理性的深度思考，"
+                                            "在遇到陌生、复杂、抽象问题、高风险的决策、"
+                                            "或是任何你觉得需要仔细想想的情况使用。",
+                            "properties": {
+                                "opinions": {
+                                    "type": "array",
+                                    "description": "需要思考的不同观点或策略，数量限制在2-5个。",
+                                    "minItems": 2,
+                                    "maxItems": 5,
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "tag": {
+                                                "type": "string",
+                                                "description": "你对此观点或策略的简短标签。",
+                                            },
+                                            "initial_thought": {
+                                                "type": "string",
+                                                "description": "你对此观点或策略的详细想法。",
+                                            },
+                                        },
+                                        "required": ["tag", "initial_thought"],
+                                    },
+                                },
+                                "deep_analysis": {
+                                    "type": "string",
+                                    "description": "对上述观点或策略进行深入全面的分析推理，"
+                                                    "可以比较它们的优缺点，或分析其中的风险和机会。",
+                                },
+                                "final_decision": {
+                                    "type": "string",
+                                    "description": "基于你的分析，得出的最终结论。",
+                                },
+                            },
+                            "propertyOrder": ["opinions", "deep_analysis", "final_decision"],
+                            "required": ["opinions", "deep_analysis", "final_decision"],
+                        },
+                    },
+                    "oneOf": [{"required": ["fast"]}, {"required": ["slow"]}],
+                },
                 "intent": {"type": "string", "description": "你当前最直接的、短期的意图或打算。"},
             },
+            "propertyOrder": ["mood", "think", "intent"],
             "required": ["mood", "think", "intent"],
         }
 
         internal_action_properties = {}
         internal_action_properties.update(self.goal_manager.get_actions_schema())
-        internal_action_properties.update(self.deliberation_service.get_actions_schema())
 
         external_action_properties = await self._build_external_action_schema(ui_mapping)
 

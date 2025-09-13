@@ -199,7 +199,7 @@ class ThoughtChainDocument:
     _key: str
     timestamp: str
     mood: str
-    think: str
+    think: dict | str
     intent: str | None
     source_type: str
     source_id: str | None = None

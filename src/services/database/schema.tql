@@ -87,7 +87,7 @@ entity thought-chain-node,
     owns thought-id @key,
     owns timestamp,
     owns mood,
-    owns think,
+    owns think-json,
     owns intent,
     owns source-type,
     owns source-id,
@@ -228,7 +228,7 @@ attribute status, value string;
 attribute motivation, value string;
 attribute narrative-sentence, value string;
 attribute mood, value string;
-attribute think, value string;
+attribute think-json, value string;
 attribute intent, value string;
 attribute source-type, value string;
 attribute source-id, value string;
