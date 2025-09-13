@@ -179,3 +179,4 @@ data/
 start.bat
 tmp/
 test_tool/images/*
+pytest.ini

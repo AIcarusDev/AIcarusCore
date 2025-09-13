@@ -1,5 +1,4 @@
-# src/common/intelligent_interrupt_system/iis_builder.py
-
+# src/common/intelligent_interrupt_system/iis_main.py
 import datetime
 import os
 import pickle
@@ -7,39 +6,26 @@ from pathlib import Path
 
 from src.common.custom_logging.logging_config import get_logger
 from src.common.intelligent_interrupt_system.models import SemanticMarkovModel, SemanticModel
-from src.database.services.event_storage_service import EventStorageService
+from src.services.database.services.event_storage_service import EventStorageService
 
 logger = get_logger(__name__)
 
-# 获取项目根目录
-PROJECT_ROOT = (
-    Path(__file__).resolve().parents[3]
-)  # 从 src/common/intelligent_interrupt_system/ 向上4级
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 MODEL_DIR = PROJECT_ROOT / "data" / "models"
 SEMANTIC_MARKOV_MODEL_FILENAME = "iis_markov.pkl"
 
 
 class IISBuilder:
-    """无状态的智能中断系统构建器.
-
-    这个类负责构建和管理语义马尔可夫模型，用于智能中断系统的核心逻辑.
-
-    Attributes:
-        event_storage (EventStorageService): 用于存储和检索事件的服务实例.
-        model_path (str): 语义马尔可夫模型文件的路径.
-        base_semantic_model (SemanticModel): 基础的语义模型，用于初始化和训练.
-    """
+    """无状态的智能中断系统构建器."""
 
     def __init__(self, event_storage: EventStorageService) -> None:
         self.event_storage = event_storage
-        # 我们现在要操作的是这个全新的模型文件
+        self.conn_manager = event_storage.conn_manager
         self.model_path = os.path.join(MODEL_DIR, SEMANTIC_MARKOV_MODEL_FILENAME)
         os.makedirs(MODEL_DIR, exist_ok=True)
-        # 我们需要一个基础的语义模型来启动一切
         self.base_semantic_model = SemanticModel()
 
     def _get_model_last_build_date(self) -> datetime.date | None:
-        """检查记忆文件是否存在，并返回它的构建日期."""
         if not os.path.exists(self.model_path):
             return None
         try:
@@ -51,44 +37,28 @@ class IISBuilder:
 
     async def _build_and_save_new_model(self) -> SemanticMarkovModel:
         """构建一个全新的语义马尔可夫模型，并保存到文件中."""
-        logger.info("记忆已陈旧或不存在，开始重建全新的语义马尔可夫模型...")
+        logger.info("记忆已陈旧或不存在，开始基于【事件向量】重建全新的语义马尔可夫模型...")
 
-        # 1. 从事件存储中获取所有对话的消息
-        conversation_stream = self.event_storage.stream_messages_grouped_by_conversation()
-        logger.info("已连接到事件存储，开始获取对话消息...")
+        logger.info("正在通过 EventStorageService 提取所有预计算的事件向量...")
+        all_conversations_vectors = await self.event_storage.get_all_conversation_vectors_for_iis()
 
-        all_conversations_texts: list[list[str]] = []
-        total_messages_count = 0
-
-        # 2. 遍历每个对话，提取文本内容
-        async for conversation_messages in conversation_stream:
-            text_corpus_for_this_conversation = []
-            for msg in conversation_messages:
-                content_list = msg.get("content", [])
-                if isinstance(content_list, list):
-                    text_parts = [
-                        seg.get("data", {}).get("text", "")
-                        for seg in content_list
-                        if isinstance(seg, dict) and seg.get("type") == "text"
-                    ]
-                    if full_text := "".join(text_parts).strip():
-                        text_corpus_for_this_conversation.append(full_text)
-
-            # 如果这个对话有有效的文本内容，就加入到总列表中
-            if len(text_corpus_for_this_conversation) >= 2:
-                all_conversations_texts.append(text_corpus_for_this_conversation)
-                total_messages_count += len(text_corpus_for_this_conversation)
-
-        logger.info(
-            f"成功从 {len(all_conversations_texts)} 场有效对话中，解析出 {total_messages_count} 条"
-            f"有效文本，开始训练新的语义马尔可夫模型..."
-        )
-
-        new_semantic_markov_model = SemanticMarkovModel(
-            semantic_model=self.base_semantic_model, num_clusters=20
-        )
-        # 注意，我们传进去的是一个二维列表，[[对话1句子...], [对话2句子...]]
-        new_semantic_markov_model.train(all_conversations_texts)
+        if not all_conversations_vectors:
+            logger.warning("未能从数据库中提取到足够的事件向量来训练IIS模型。将创建一个空模型。")
+            new_semantic_markov_model = SemanticMarkovModel(
+                semantic_model=self.base_semantic_model, num_clusters=20
+            )
+            new_semantic_markov_model.initialize_empty()
+        else:
+            total_vectors_count = sum(len(conv) for conv in all_conversations_vectors)
+            logger.info(
+                f"成功从 {len(all_conversations_vectors)} 场有效对话中，"
+                f"提取出 {total_vectors_count} 个事件向量，"
+                f"开始训练新的语义马尔可夫模型..."
+            )
+            new_semantic_markov_model = SemanticMarkovModel(
+                semantic_model=self.base_semantic_model, num_clusters=20
+            )
+            new_semantic_markov_model.train_from_vectors(all_conversations_vectors)
 
         try:
             with open(self.model_path, "wb") as f:
@@ -100,13 +70,25 @@ class IISBuilder:
         return new_semantic_markov_model
 
     def _load_model_from_file(self) -> SemanticMarkovModel:
-        """从文件加载语义马尔可夫模型."""
         logger.info(f"正在从 {self.model_path} 加载昨天的【语义马尔可夫】记忆...")
-        with open(self.model_path, "rb") as f:
-            return pickle.load(f)
+        try:
+            with open(self.model_path, "rb") as f:
+                return pickle.load(f)
+        except (MemoryError, pickle.UnpicklingError, EOFError) as e:
+            logger.error(
+                f"加载记忆模型文件失败，疑似文件损坏或内存不足: {e}。"
+                "即将执行自动修复操作：删除当前文件并强制重建。",
+                exc_info=True,
+            )
+            try:
+                os.remove(self.model_path)
+                logger.info(f"已成功删除损坏的记忆模型文件: {self.model_path}")
+            except OSError as remove_error:
+                logger.error(f"删除损坏的记忆模型文件失败: {remove_error}", exc_info=True)
+            raise  # 重新引发异常，由调用者（get_or_create_model）捕获并处理
 
-    async def get_or_create_model(self) -> SemanticMarkovModel:  # 返回值类型也变了哦
-        """核心方法：检查记忆新鲜度，如果过时或没有，就重建."""
+    async def get_or_create_model(self) -> SemanticMarkovModel:
+        """获取或创建语义马尔可夫模型的实例."""
         today = datetime.date.today()
         last_build_date = self._get_model_last_build_date()
 

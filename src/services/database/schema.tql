@@ -1,0 +1,269 @@
+define
+# 必须要先定义再sub, 否则会显示不存在, 根属性无需sub, 直接使用entity xxx或者relation xxx的方式声明即可. long 类型已改名为 integer 类型。
+# --- 根类型定义 (Base Types) ---
+# 定义了最顶层的抽象概念
+
+entity person @abstract, owns person-uid @key;
+entity objective-entity @abstract;
+
+# --- 实体类型 (Concrete Entities) ---
+entity aic_self,
+    sub person,
+    plays identity-ownership:owner,
+    plays read-status:reader;
+
+# 创建外部用户
+entity external_person,
+    sub person,
+    plays identity-ownership:owner,
+    plays read-status:reader;
+
+entity account,
+    sub objective-entity,
+    owns account-uid @key,
+    owns platform-id,
+    owns nickname,
+    owns last-known-nickname,
+    owns friend-remark,
+    owns flag,
+    owns comment,
+    owns request-timestamp,
+    plays identity-ownership:owned-account,
+    plays membership:member,
+    plays residency:resident,
+    plays friendship:friend;
+
+entity conversation,
+    sub objective-entity,
+    owns conversation-uid @key,
+    owns conversation-id,
+    owns type,
+    owns display-name,
+    owns last-read-timestamp,
+    owns last-full-sync-timestamp,
+    plays membership:group,
+    plays residency:resident,
+    plays read-status:readable;
+
+entity platform,
+    sub objective-entity,
+    owns platform-uid @key,
+    owns display-name,
+    plays residency:host-platform,
+    plays platform-asset:hosting-platform,
+    plays event-source:source-platform,
+    plays action-source:source-platform;
+
+# 表情包实体
+entity sticker,
+    owns sticker-uid @key,
+    owns sticker-id,
+    owns filename,
+    owns impression,
+    owns image-hash,
+    owns perceptual-hash,
+    owns added-at,
+    plays platform-asset:hosted-asset;
+
+# 事件实体
+entity event,
+    owns event-id @key,
+    owns event-type,
+    owns timestamp,
+    owns bot-id,
+    owns content-json,
+    owns user-info-json,
+    owns conversation-info-json,
+    owns status,
+    owns narrative-sentence,
+    owns embedding-json,
+    owns image-analysis-json,
+    owns person-id-associated,
+    owns motivation,
+    plays event-source:sourced-event;
+
+# 思想点实体
+entity thought-chain-node,
+    owns thought-id @key,
+    owns timestamp,
+    owns mood,
+    owns think,
+    owns intent,
+    owns source-type,
+    owns source-id,
+    owns action-id,
+    owns action-payload-json,
+    owns action-result,
+    plays precedes-thought:preceding-thought,
+    plays precedes-thought:succeeding-thought,
+    plays leads-to-action:thought-source;
+
+# 动作日志实体
+entity action-log,
+    owns action-id @key,
+    owns action-type,
+    owns timestamp,
+    owns bot-id,
+    owns action-platform,
+    owns status,
+    owns response-timestamp,
+    owns response-time-ms,
+    owns error-info,
+    owns result-details-json,
+    plays leads-to-action:action-target,
+    plays action-source:sourced-action;
+
+# 系统状态指针实体
+entity system-pointer,
+    owns pointer-name @key,
+    owns target-key;
+
+# 侵入性思维池实体
+entity intrusive-thought,
+    owns thought-id @key,
+    owns thought-text,
+    owns used,
+    owns timestamp-generated;
+
+# 图片分析缓存实体
+entity image-cache,
+    owns image-hash @key,
+    owns analysis-result-json,
+    owns version,
+    owns timestamp,
+    owns mime-type,
+    owns file-path;
+
+# 目标实体
+entity goal,
+    owns goal-id @key,
+    owns goal-text,
+    owns reason-text,
+    owns status,
+    owns created-at,
+    owns updated-at;
+
+
+# --- 关系类型 (Relations) ---
+
+relation identity-ownership,
+    relates owner,
+    relates owned-account;
+
+relation event-source,
+    relates source-platform,
+    relates sourced-event;
+
+relation action-source,
+    relates source-platform,
+    relates sourced-action;
+
+relation membership,
+    owns cardname,
+    owns permission-level,
+    owns timestamp,
+    relates member,
+    relates group;
+
+relation residency,
+    relates resident,
+    relates host-platform;
+
+relation platform-asset,
+    relates hosting-platform,
+    relates hosted-asset;
+
+relation read-status,
+    owns timestamp,
+    relates reader,
+    relates readable;
+
+relation friendship,
+    relates friend @card(2);
+
+relation precedes-thought,
+    relates preceding-thought,
+    relates succeeding-thought;
+
+relation leads-to-action,
+    relates thought-source,
+    relates action-target;
+
+
+# --- 属性类型 (Attributes) ---
+
+# UIDs and IDs
+attribute person-uid, value string;
+attribute account-uid, value string;
+attribute conversation-uid, value string;
+attribute platform-uid, value string;
+attribute sticker-uid, value string;
+attribute platform-id, value string;
+attribute conversation-id, value string;
+attribute event-id, value string;
+attribute person-id-associated, value string;
+attribute thought-id, value string;
+attribute action-id, value string;
+attribute target-key, value string;
+attribute goal-id, value string;
+attribute sticker-id, value integer;
+
+# Common Attributes
+attribute nickname, value string;
+attribute last-known-nickname, value string;
+attribute friend-remark, value string;
+attribute display-name, value string;
+attribute type, value string;
+attribute filename, value string;
+attribute impression, value string;
+attribute image-hash, value string;
+attribute perceptual-hash, value string;
+attribute cardname, value string;
+attribute permission-level, value string;
+attribute flag, value string;
+attribute comment, value string;
+attribute event-type, value string;
+attribute action-type, value string;
+attribute status, value string;
+attribute motivation, value string;
+attribute narrative-sentence, value string;
+attribute mood, value string;
+attribute think, value string;
+attribute intent, value string;
+attribute source-type, value string;
+attribute source-id, value string;
+attribute action-result, value string;
+attribute pointer-name, value string;
+attribute thought-text, value string;
+attribute used, value boolean;
+attribute version, value string;
+attribute goal-text, value string;
+attribute reason-text, value string;
+attribute error-info, value string;
+attribute bot-id, value string;
+attribute action-platform, value string;
+attribute file-path, value string;
+attribute mime-type, value string;
+
+# JSON String Attributes
+attribute content-json, value string;
+attribute user-info-json, value string;
+attribute conversation-info-json, value string;
+attribute embedding-json, value string;
+attribute image-analysis-json, value string;
+attribute action-payload-json, value string;
+attribute result-details-json, value string;
+attribute event-ids-covered-json, value string;
+attribute analysis-result-json, value string;
+
+# Timestamps & Numerics
+attribute timestamp, value integer;
+attribute request-timestamp, sub timestamp;
+attribute added-at, value integer;
+attribute timestamp-generated, value integer;
+attribute response-timestamp, value integer;
+attribute response-time-ms, value integer;
+attribute created-at, value integer;
+attribute updated-at, value integer;
+attribute last-read-timestamp, value integer;
+attribute last-full-sync-timestamp, value integer;

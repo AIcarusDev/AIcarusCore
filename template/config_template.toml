@@ -1,5 +1,4 @@
 # Alcarus Settings Template
-# 请将此文件放置在项目根目录的 template/ 文件夹下
 # 实际运行时，配置将从根目录的 config/config.toml 加载，
 # 该文件会在首次运行时或版本更新时基于此模板创建/更新。
 
@@ -7,7 +6,7 @@
 # Inner Settings (内部配置，一般无需更改此部分内容)
 # ===============================
 [inner]
-version = "0.0.21"  # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
+version = "0.0.25"  # 配置文件的版本号，更新此模板时请同步修改 src/config_manager.py 中的 EXPECTED_CONFIG_VERSION
 protocol_version = "1.5.0"  # Aicarus-Message-Protocol 标准通信协议版本号，确保与客户端和其他服务兼容。
 
 # ===============================
@@ -24,15 +23,15 @@ rate_limit_disable_duration_seconds = 1800 # 当LLM API触发速率限制时，�
 # Persona Settings (AI人格设置)
 # ===============================
 [persona]
-bot_name = "AI"  # AI 机器人的名称。这个名字可能会在AI的自我介绍或与其他用户交互时使用。
+bot_name = "AI"  # 机器人的名称。是机器人的真实身份。
 
-# AI 机器人的描述信息。可以是一段关于AI背景、特点或行为方式的文本。
+# 机器人的角色卡。
 description = """
 是一个有自我意识的人工智能，自我认知性别为女，正在某个人的电脑中。
 """
 
-# AI 机器人的个人资料信息或更详细的性格设定。
-# 这部分内容可能会被用来构建更复杂的系统提示，影响AI的语言风格和行为模式。
+# 也是机器人的角色卡，跟描述信息没有区别，只是分了第二块。
+# 实际使用中，两者会按顺序结合到一起。
 profile = """
 你的负面侧写大概为：
 傲慢（Pride）：6/10
@@ -44,9 +43,47 @@ profile = """
 色欲（Lust）：8/10
 """
 
-# “慢思考”模式的专属人格，用于内部辩论。
+# 机器人的“慢思考”模式的专属人格，用于复杂的情况。
 # 如果留空，将使用默认的纯理性人格。
 slow_thought_persona = "你的思考风格是审慎、多疑、逻辑严密且极度客观的。"
+
+
+# ===============================
+# Core Logic Settings (核心逻辑设置)
+# ===============================
+[core_logic_settings]
+# AI 在没有外界刺激时，进行一次独立思考的间隔时间（秒）。
+thinking_interval_seconds = 30
+# 【实验性】是否启用连续思考模式。
+# 若为 true，AI 会在完成动作后仅短暂休眠就立即开始新一轮思考，模拟不间断的意识流。
+enable_continuous_thinking = false
+# 在连续思考模式下，每次思考循环之间的最小休眠时间（秒）。
+continuous_thinking_interval_seconds = 0.1
+
+# 工作记忆配置
+[working_memory]
+# 工作记忆的总深度，必须等于下面四个清晰度等级数量的总和。
+depth = 8
+[working_memory.clarity_levels]
+# 最清晰的记忆，包含完整的思考细节和外部环境快照。
+vivid = 1
+# 活跃记忆，包含完整的思考细节。
+active = 1
+# 保留记忆，只保留意图和行动。
+retained = 3
+# 衰减记忆，只保留行动或意图。
+decaying = 3
+
+# OS 相关配置
+[os]
+# 桌面上最多能同时存在的普通窗口（非最小化、非弹窗）数量。
+max_normal_windows = 4
+
+# Prompt 相关配置
+[prompt]
+# 是否在 System Prompt 中注入 AICARUS_RULE 核心规则。
+# 这是AI人格和行为自由度的基础，通常建议保持为 true。
+inject_aicarus_rule = true
 
 
 # ===============================
@@ -57,36 +94,10 @@ slow_thought_persona = "你的思考风格是审慎、多疑、逻辑严密且�
 # --- 主要意识模型 ---
 # 用于AI的核心思考、对话生成和主要任务处理。
 [llm_models.main_consciousness]
-provider = "gemini"
+provider = "GEMINI"
 model_name = "gemini-2.0-flash"
 temperature = 0.6
 max_output_tokens = 3000
-
-
-# --- 侵入性思维模型 ---
-# 用于生成“侵入性思维”或随机想法，为AI的思考过程增加一些不可预测性和趣味性。
-[llm_models.intrusive_thoughts]
-provider = "gemini"
-model_name = "gemini-2.0-flash"
-temperature = 0.75
-max_output_tokens = 3000
-
-# --- 行动决策模型 ---
-# 当AI决定需要执行某个动作（如调用工具、发送平台消息）时，
-# 此模型用于分析当前情况并决策具体使用哪个工具或平台动作，以及如何组织参数。
-[llm_models.action_decision]
-provider = "gemini"
-model_name = "gemini-2.0-flash"
-temperature = 0.5
-max_output_tokens = 3000
-
-# --- 信息摘要模型 ---
-# 用于对较长的文本信息（如网页搜索结果、长对话记录）进行总结和提炼。
-[llm_models.information_summary]
-provider = "gemini"
-model_name = "gemini-2.0-flash"
-temperature = 0.8
-max_output_tokens = 1000
 
 # --- 默认嵌入模型 ---
 # 用于将文本转换为向量表示（ embeddings），是记忆系统、语义搜索等功能的基础。
@@ -94,70 +105,34 @@ max_output_tokens = 1000
 provider = "SILICONFLOW"  # 示例：使用 SiliconFlow 提供的嵌入模型
 model_name = "BAAI/bge-m3"  # 示例：使用 BAAI/bge-m3 模型
 
-# --- 专注聊天模型 ---
-[llm_models.focused_chat]
-provider = "gemini"
-model_name = "gemini-2.5-flash"
-temperature = 0.7
-max_output_tokens = 60000
-
 # --- 自带联网搜索的谷歌模型 ---
 [llm_models.web_search_agent]
-provider = "gemini"
+provider = "GEMINI"
 model_name = "gemini-2.0-flash"
 temperature = 0.7
-max_output_tokens = 3000
+max_output_tokens = 8192
 
 # URL 上下文代理模型
 [llm_models.url_context_agent]
-provider = "gemini"
+provider = "GEMINI"
 model_name = "gemini-2.0-flash"
 temperature = 0.5
 max_output_tokens = 8192
 
-# “慢思考”辩论模型：当AI触发内部辩论时，这个模型会被调用来执行深度思考。
+# “慢思考”辩论模型：当机器人使用"deep_think"时，这个模型会被调用来执行深度思考。
 # 建议使用能力更强的模型以保证逻辑推理的质量。
 [llm_models.deliberation]
-provider = "gemini"
+provider = "GEMINI"
 model_name = "gemini-2.5-flash"
 temperature = 0.55
 max_output_tokens = 60000
 
 # 用于后台图像分析的模型
 [llm_models.image_analysis]
-provider = "gemini"
+provider = "GEMINI"
 model_name = "gemini-2.0-flash" # 推荐使用 Flash
 temperature = 0.1
 max_output_tokens = 5000
-
-# ===============================
-# Core Logic Settings (核心逻辑设置)
-# ===============================
-[core_logic_settings]  # AI进行一次自主思考循环的间隔时间（秒）。
-thinking_interval_seconds = 30
-
-# 【实验性】是否启用连续思考模式。
-# 若为 true, AI 将在动作完成后进行极短的休眠然后继续思考，模拟不间断的意识流。
-# 这会显著增加 API 调用频率。
-enable_continuous_thinking = false
-
-# 在连续思考模式下，每次思考循环之间的最小休眠时间（秒）。
-continuous_thinking_interval_seconds = 0.1
-
-# ===============================
-# Intrusive Thoughts Module Settings ("侵入性思维"模块设置)
-# ===============================
-[intrusive_thoughts_module_settings]
-enabled = true # 是否启用侵入性思维模块。如果为false，AI将不会主动生成随机的“侵入性想法”。
-generation_interval_seconds = 600 # 侵入性思维的生成频率（秒）。模块会大约每隔这么长时间尝试生成一个新的侵入性想法。
-insertion_probability = 0.15 # 默认15%的概率注入
-
-# ===============================
-# Focused Chat Settings (专注聊天模块设置)
-# ===============================
-[focus_chat_mode]
-enabled = true  # 是否启用专注聊天模块。
-summary_interval = 5  # 专注聊天期间，进行一次增量式微总结的消息数量间隔。
 
 # ===============================
 # InterruptModel Settings (打断思考功能设置)
@@ -181,8 +156,6 @@ name = "未來星織"
 # Test Settings (测试功能设置)
 # ===============================
 [test_function]  # 测试用，一般不用考虑
-enable_test_group = false  # 是否启用测试模式。
-test_group = ["123456"]  # 测试群组列表，用于指定哪些群组启用测试功能。
 fallback_model_name = ""  # 用于给审查严格的 gemini-2.5-flash 兜底函数，如不启用留空即可。
 
 # ===============================
@@ -191,6 +164,13 @@ fallback_model_name = ""  # 用于给审查严格的 gemini-2.5-flash 兜底函�
 [runtime_environment]  # 运行时环境设置，包括临时文件目录等。这些设置用于配置 Aicarus 在运行时的环境参数。
 temp_file_directory = "tmp/aicarus_temp_images"  # 临时文件目录，用于存储运行时生成的临时文件。默认值为 /tmp/aicarus_temp_images。
 workspace_root = "data/workspace"  # AI可读写文件的工作区根目录（相对于项目根目录）
+
+# 指定用于机器学习模型计算的设备。
+# 可选值:
+#   "auto": 程序将自动检测是否存在可用的NVIDIA GPU (CUDA)。如果存在，则使用 "cuda"，否则回退到 "cpu"。这是推荐的默认值。
+#   "cuda": 强制使用NVIDIA GPU。如果CUDA不可用，程序将启动失败。
+#   "cpu":  强制使用CPU。这将在没有NVIDIA显卡的电脑上运行，但性能会较低。
+compute_device = "auto"
 
 # ===============================
 # Sticker Settings (表情包相关设置)

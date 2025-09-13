@@ -1,7 +1,6 @@
 duckduckgo_search
 aiohttp
 Pillow
-python-arango-async
 tomlkit
 python-dotenv
 loguru
@@ -15,3 +14,5 @@ scikit-learn
 numpy
 pypinyin
 ImageHash
+typedb-driver == 3.4.4
+pyfakefs

@@ -2,7 +2,7 @@
 
 import pytest
 from pytest_mock import MockerFixture
-from src.core_logic.thought_generator import ThoughtGenerator
+from src.mind.thought_generator import ThoughtGenerator
 
 
 @pytest.mark.asyncio

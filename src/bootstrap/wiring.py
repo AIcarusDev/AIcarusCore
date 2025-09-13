@@ -1,76 +1,26 @@
-# src/bootstrap/wiring.py
+# 文件路径: src/bootstrap/wiring.py
+
 from src.bootstrap.container import ServiceContainer
-from src.config import config
-from src.focus_chat_mode.chat_session_manager import ChatSessionManager
+from src.common.custom_logging.logging_config import get_logger
+
+logger = get_logger(__name__)
 
 
 def wire_dependencies(container: ServiceContainer) -> None:
-    """将容器中所有服务的依赖关系连接起来."""
-    action_sender = container.core_comm_layer.action_sender
-
-    # 连接 ActionHandler 的依赖
-    container.action_handler.set_dependencies(
-        thought_service=container.thought_storage_service,
-        event_service=container.event_storage_service,
-        action_log_service=container.action_log_service,
-        action_sender=action_sender,
-        chat_session_manager=container.chat_session_manager,
-        core_logic=container.core_logic,
-        entity_service=container.entity_graph_service,
-        sticker_service=container.sticker_service,  # <-- 确保只传入新的 service，没有旧的
-    )
-    container.action_handler.set_thought_trigger(container.core_logic.immediate_thought_trigger)
-
-    # 连接 MessageProcessor 的依赖
-    container.message_processor.core_comm_layer = container.core_comm_layer
-    container.message_processor.core_logic = container.core_logic
+    """将容器中所有服务的静态依赖关系连接起来."""
+    container.prompt_builder.container = container
 
 
 async def wire_dynamic_dependencies(container: ServiceContainer) -> None:
-    """处理动态依赖，特指 ChatSessionManager，它需要在安检后创建和注入."""
-    # 1. 等待安检完成
+    """此函数只负责处理安检后才能确定的简单信息，如 bot_ids."""
+    logger.info("动态依赖连接器：开始等待安检完成...")
     await container.core_comm_layer.wait_for_all_inspections()
+    logger.info("动态依赖连接器：所有安检已完成。")
 
-    # 2. 获取安检后的 bot_ids
-    all_self_entities = await container.entity_graph_service.get_all_self_entities()
-    # self_bot_ids_map 的构建逻辑需要适配新的实体结构
-    bot_ids_map = (
-        {
-            acc.get("details", {}).get("platform"): acc.get("details", {}).get("platform_id")
-            for acc in all_self_entities
-            if isinstance(acc, dict)
-            and acc.get("details", {}).get("platform")
-            and acc.get("details", {}).get("platform_id")
-        }
-        if all_self_entities
-        else {}
-    )
+    # 注意：bot_id 的设置现在由每个 app builder 的 run_on_connect_inspection 内部处理
+    # ApplicationManager 会自动收集这些信息。
+    # 这里我们只是验证一下结果。
+    bot_ids_map = container.application_manager.get_self_bot_ids_map()
 
-    # 3. 创建并注入 ChatSessionManager
-    if config.focus_chat_mode.enabled and container.focused_chat_llm_client:
-        # 创建 ChatSessionManager
-        chat_session_manager = ChatSessionManager(
-            config=config.focus_chat_mode,
-            llm_client=container.focused_chat_llm_client,
-            deliberation_llm_client=container.deliberation_llm_client,
-            event_storage=container.event_storage_service,
-            action_handler=container.action_handler,
-            self_bot_ids_map=bot_ids_map,
-            summarization_service=container.summarization_service,
-            summary_storage_service=container.summary_storage_service,
-            intelligent_interrupter=container.intelligent_interrupter,
-            thought_storage_service=container.thought_storage_service,
-            internal_info_builder=container.internal_info_builder,
-            core_logic=container.core_logic,
-            entity_graph_service=container.entity_graph_service,
-        )
-        container.chat_session_manager = chat_session_manager
-
-        # 4. 回填所有依赖 ChatSessionManager 的服务
-        container.core_logic.chat_session_manager = chat_session_manager
-        container.action_handler.chat_session_manager = chat_session_manager
-        container.prompt_builder.chat_session_manager = chat_session_manager
-        container.message_processor.qq_chat_session_manager = chat_session_manager
-
-    # 5. 更新 UnreadInfoService
-    container.unread_info_service.update_self_bot_ids(bot_ids_map)
+    logger.info(f"动态依赖连接器：从 ApplicationManager 获取到 Bot ID Map: {bot_ids_map}")
+    logger.info("动态依赖连接流程完成。")

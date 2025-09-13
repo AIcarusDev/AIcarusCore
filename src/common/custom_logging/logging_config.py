@@ -18,80 +18,110 @@ MODULE_CONFIG_MAP = {
     # 根模块
     "main": ("主程序", "white"),
     "__main__": ("主程序", "white"),
+    "cognitive_cycle": ("认知循环", "light-yellow"),
+
     # AIcarusCore 顶级模块
-    "action": ("动作处理", "light-magenta"),
+    "bootstrap": ("引导程序", "cyan"),
     "common": ("通用模块", "white"),
     "config": ("配置管理", "yellow"),
-    "core_communication": ("核心通信", "yellow"),
-    "core_logic": ("核心逻辑", "light-yellow"),
-    "database": ("数据库", "light-cyan"),
-    "focus_chat_mode": ("专注聊天", "light-green"),
-    "llmrequest": ("LLM 请求", "light-blue"),
-    "message_processing": ("消息处理", "magenta"),
-    "plugins": ("插件", "purple"),
-    "tools": ("工具箱", "blue"),
-    # 动作处理
-    "action.action_handler": ("动作处理", "light-magenta"),
-    "action.providers.internal_tools_provider": ("内部工具提供", "magenta"),
-    "action.components.action_decision_maker": ("动作决策", "magenta"),
-    # 通用模块
-    "common.custom_logging.logging_config": ("日志配置", "white"),
-    "common.custom_logging.logger_manager": ("日志管理", "white"),
-    "common.focus_chat_history_builder.chat_prompt_builder": ("聊天提示构建", "green"),
-    "common.intelligent_interrupt_system.iis_main": ("智能中断", "green"),
-    "common.summarization_observation.summarization_service": ("观察摘要", "light-black"),
+    "domain": ("领域模型", "light-green"),
+    "mind": ("心智核心", "light-magenta"),
+    "os": ("操作系统", "light-blue"),
+    "prompting": ("提示工程", "light-cyan"),
+    "services": ("核心服务", "purple"),
+
+    # bootstrap
+    "bootstrap.builder": ("构建器", "cyan"),
+    "bootstrap.container": ("依赖容器", "cyan"),
+    "bootstrap.wiring": ("模块装配", "cyan"),
+
+    # common
+    "common.custom_logging": ("日志模块", "white"),
+    "common.image_utils": ("图像工具", "white"),
+    "common.intelligent_interrupt_system": ("智能中断", "green"),
+    "common.interruption_broker": ("中断代理", "green"),
+    "common.json_parser": ("JSON解析", "white"),
+    "common.moe_motion_system": ("混合专家", "light-green"),
+    "common.narrative_vectorizer": ("叙事向量化", "green"),
     "common.utils": ("通用工具", "white"),
-    "common.summarization_observation": ("观察摘要", "light-black"),
-    "common.json_parser.json_parser": ("JSON 解析", "white"),
-    # 配置
+
+    # config
+    "config.aicarus_configs": ("配置定义", "yellow"),
     "config.config_io": ("配置IO", "yellow"),
     "config.config_manager": ("配置管理", "yellow"),
     "config.config_updater": ("配置更新", "yellow"),
-    "config.config_validator": ("配置验证", "yellow"),
-    # 核心通信
-    "core_communication.action_sender": ("动作发送", "yellow"),
-    "core_communication.core_ws_server": ("核心WS服务", "yellow"),
-    "core_communication.event_receiver": ("事件接收", "yellow"),
-    "core_communication.event_sender": ("事件发送", "yellow"),
-    "core_communication.message_receiver": ("消息接收", "yellow"),
-    # 核心逻辑
-    "core_logic.consciousness_flow": ("核心循环", "yellow"),
-    "core_logic.context_builder": ("上下文构建", "yellow"),
-    "core_logic.intrusive_thoughts": ("侵入思考", "light-red"),
-    "core_logic.prompt_builder": ("提示词构建", "yellow"),
-    "core_logic.state_manager": ("状态管理", "light-yellow"),
-    "core_logic.thought_generator": ("思考生成", "yellow"),
-    "core_logic.thought_persistor": ("思考持久化", "yellow"),
-    "core_logic.unread_info_service": ("未读服务", "yellow"),
-    # 插件
-    # 数据库
-    "database.core.connection_manager": ("数据库核心", "cyan"),
-    "database.models": ("数据库模型", "cyan"),
-    "database.services.action_log_storage_service": ("动作日志", "cyan"),
-    "database.services.conversation_storage_service": ("会话存储", "cyan"),
-    "database.services.event_storage_service": ("事件存储", "cyan"),
-    "database.services.summary_storage_service": ("摘要存储", "cyan"),
-    "database.services.thought_storage_service": ("思考存储", "cyan"),
-    "database.services": ("数据库服务", "cyan"),
-    # 专注聊天
-    "focus_chat_mode.action_executor": ("动作执行", "green"),
-    "focus_chat_mode.chat_session": ("专注会话", "light-green"),
-    "focus_chat_mode.chat_session_manager": ("会话管理", "green"),
-    "focus_chat_mode.focus_chat_cycler": ("专注循环", "green"),
-    "focus_chat_mode.llm_response_handler": ("LLM响应处理", "green"),
-    "focus_chat_mode.summarization_manager": ("摘要管理", "green"),
-    # LLM & 工具
-    "llmrequest.llm_processor": ("LLM 处理", "light-blue"),
-    "llmrequest.utils_model": ("LLM 底层", "blue"),
-    "tools.failure_reporter": ("失败报告", "blue"),
-    "tools.platform_actions": ("平台动作", "blue"),
-    "tools.web_searcher": ("网页搜索", "blue"),
-    "tools.search": ("搜索工具", "blue"),
-    # 消息处理
-    "message_processing.default_message_processor": ("默认消息处理", "magenta"),
+
+    # domain
+    "domain.models": ("领域模型", "light-green"),
+
+    # mind
+    "mind.abilities": ("心智能力", "magenta"),
+    "mind.consciousness_flow": ("意识流", "yellow"),
+    "mind.goal_manager": ("目标管理", "light-yellow"),
+    "mind.memory_system": ("记忆系统", "light-magenta"),
+    "mind.state_manager": ("状态管理", "light-yellow"),
+    "mind.thought_generator": ("思考生成", "yellow"),
+    "mind.thought_persistor": ("思考持久化", "yellow"),
+    "mind.abilities.deliberation_service": ("深思熟虑", "magenta"),
+    "mind.abilities.information_retrieval_service": ("信息检索", "magenta"),
+    "mind.memory_system.working_memory": ("工作记忆", "light-magenta"),
+
+
+    # os
+    "os.application_manager": ("应用管理", "blue"),
+    "os.apps": ("应用程序", "blue"),
+    "os.communication": ("OS通信", "yellow"),
+    "os.state_generator": ("状态生成", "light-blue"),
+    "os.ui_dispatcher": ("UI调度", "light-blue"),
+    "os.window_manager": ("窗口管理", "light-blue"),
+    "os.apps.qq": ("QQ应用", "green"),
+    "os.apps.termux": ("Termux应用", "green"),
+    "os.communication.action_sender": ("动作发送", "yellow"),
+    "os.communication.core_ws_server": ("核心WS服务", "yellow"),
+    "os.communication.event_receiver": ("事件接收", "yellow"),
+    "os.services.filesystem_service": ("文件系统", "blue"),
+
+
+    # prompting
+    "prompting.orchestrator": ("提示编排", "cyan"),
+    "prompting.schema_builder": ("结构构建", "cyan"),
+    "prompting.system_prompt_parts_builder": ("系统提示构建", "cyan"),
+    "prompting.user_prompt_parts_builder": ("用户提示构建", "cyan"),
+    "prompting.templates": ("提示模板", "cyan"),
+
+    # services
+    "services.action": ("动作服务", "light-magenta"),
+    "services.database": ("数据库服务", "light-cyan"),
+    "services.llmrequest": ("LLM请求", "light-blue"),
+    "services.perception": ("感知服务", "magenta"),
+
+    # services.action
+    "services.action.action_handler": ("动作处理", "light-magenta"),
+    "services.action.components": ("动作组件", "magenta"),
+
+    # services.database
+    "services.database.core": ("数据库核心", "cyan"),
+    "services.database.models": ("数据库模型", "cyan"),
+    "services.database.services": ("数据库服务", "cyan"),
+    "services.database.services.action_log_storage_service": ("动作日志", "cyan"),
+    "services.database.services.entity_graph_service": ("实体图谱", "cyan"),
+    "services.database.services.event_storage_service": ("事件存储", "cyan"),
+    "services.database.services.goal_storage_service": ("目标存储", "cyan"),
+    "services.database.services.media_cache_service": ("媒体缓存", "cyan"),
+    "services.database.services.sticker_storage_service": ("贴纸存储", "cyan"),
+    "services.database.services.thought_storage_service": ("思考存储", "cyan"),
+
+    # services.llmrequest
+    "services.llmrequest.llm_client": ("LLM客户端", "blue"),
+    "services.llmrequest.llm_processor": ("LLM处理器", "light-blue"),
+    "services.llmrequest.core.provider": ("LLM供应商", "blue"),
+
+    # services.perception
+    "services.perception.default_message_processor": ("默认消息处理", "magenta"),
+    "services.perception.image_analysis_service": ("图像分析", "magenta"),
 }
 
-# --- Loguru 初始化 (不变) ---
+# --- Loguru 初始化 ---
 logger.remove()
 
 # --- 全局状态与锁 ---
@@ -291,7 +321,7 @@ def get_logger(module_name: str) -> Logger:
             )
 
             _handlers_created.add(handler_key)
-            logger.debug(f"已为别名 '{alias}' 创建专属日志处理器(视觉居中完美最终版)！")
+            logger.debug(f"已为别名 '{alias}' 创建专属日志处理器")
 
     # 绑定 padded_alias 用于控制台显示，绑定普通 alias 用于文件记录
     return logger.bind(padded_alias=padded_alias, alias=alias)

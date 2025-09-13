@@ -5,10 +5,12 @@ import warnings
 
 import jieba
 import numpy as np
+import torch
 from sentence_transformers import SentenceTransformer
 from sklearn.cluster import KMeans
 from sklearn.metrics.pairwise import cosine_similarity
 from src.common.custom_logging.logging_config import get_logger
+from src.config import config  # 导入全局配置对象
 
 logger = get_logger(__name__)
 # 关闭未来警告
@@ -90,8 +92,33 @@ class SemanticModel:
     """
 
     def __init__(self, model_name: str = "BAAI/bge-m3") -> None:
-        self.model = SentenceTransformer(model_name, device="cuda")
-        logger.info(f"语义探针 '{model_name}' 已启动，准备探索深层含义！")
+        # --- 开始智能设备选择 ---
+        device_setting = config.runtime_environment.compute_device.lower()
+        final_device = "cpu"  # 默认安全地使用 CPU
+
+        if device_setting == "auto":
+            if torch.cuda.is_available():
+                final_device = "cuda"
+                logger.info("自动检测到可用的 CUDA 设备，将使用 GPU。")
+            else:
+                final_device = "cpu"
+                logger.info("未检测到可用的 CUDA 设备，将使用 CPU。")
+        elif device_setting == "cuda":
+            if not torch.cuda.is_available():
+                # 如果用户强制要求CUDA但不可用，则抛出明确错误
+                raise RuntimeError(
+                    "配置要求使用 CUDA，但 Torch 检测到 CUDA 不可用。请检查您的 NVIDIA 驱动和 PyTorch 安装。"  # noqa: E501
+                )
+            final_device = "cuda"
+        else:
+            # 对于任何其他值 (包括 "cpu")，都使用 CPU
+            final_device = "cpu"
+
+        logger.info(f"正在为 SentenceTransformer 模型在 '{final_device}' 设备上进行初始化...")
+        # --- 智能设备选择结束 ---
+
+        self.model = SentenceTransformer(model_name, device=final_device)
+        logger.info(f"语义探针 '{model_name}' 已在设备 '{final_device}' 上成功启动！")
 
     def encode(self, texts: list[str] | str) -> np.ndarray:
         """将文本编码为语义向量."""
@@ -103,66 +130,47 @@ class SemanticModel:
 
 
 class SemanticMarkovModel:
-    """结合了语义深度和马尔可夫链逻辑的模型.
-
-    Attributes:
-        semantic_model (SemanticModel): 用于获取文本的语义向量.
-        num_clusters (int): 语义簇的数量，决定了模型的敏感带划分.
-        kmeans (KMeans | None): K-Means 聚类模型，用于划分语义簇.
-        transition_matrix (np.ndarray | None): 记录语义状态跳转概率的矩阵.
-    """
+    """结合了语义深度和马尔可夫链逻辑的模型."""
 
     def __init__(self, semantic_model: SemanticModel, num_clusters: int = 15) -> None:
-        self.semantic_model = semantic_model  # 语义模型
-        self.num_clusters = num_clusters  # 语义簇数量
-        self.kmeans: KMeans | None = None  # K-Means 聚类模型
-        self.transition_matrix: np.ndarray | None = None  # 跳转概率矩阵
+        self.semantic_model = semantic_model
+        self.num_clusters = num_clusters
+        self.kmeans: KMeans | None = None
+        self.transition_matrix: np.ndarray | None = None
         logger.info(f"究极混合体-语义马尔可夫链已准备就绪，将使用 {num_clusters} 个语义簇。")
 
     def train(self, conversations: list[list[str]]) -> None:
-        """训练模型，学习对话中的语义模式和跳转关系.
+        """使用对话文本训练模型."""
+        raise NotImplementedError("train 方法已被废弃，请使用 train_from_vectors。")
 
-        Args:
-            conversations (list[list[str]]): 对话历史记录，每个子列表代表一场对话的所有发言.
-        """
-        all_texts = [text for conversation in conversations for text in conversation]
+    def train_from_vectors(self, conversation_vectors: list[list[list[float]]]) -> None:
+        """直接使用预先计算好的事件向量列表来训练模型."""
+        all_vectors = [
+            np.array(vector) for conversation in conversation_vectors for vector in conversation
+        ]
 
-        if len(all_texts) < self.num_clusters:
+        if len(all_vectors) < self.num_clusters:
             logger.warning(
-                f"注意：提供的对话数量（{len(all_texts)}）少于预期的语义簇数量（{self.num_clusters}）。"
+                f"提供的向量数量 ({len(all_vectors)}) 少于预期的语义簇数量 ({self.num_clusters})。"
             )
-            num_actual_clusters = len(all_texts)
-            # 如果连一句话都没有，那就不训练了
-            # 这可能是因为对话数量太少，无法形成有效的语义簇
-            if num_actual_clusters == 0:
-                logger.warning("没有足够的对话数据来训练模型，无法进行训练")
-                return
+            num_actual_clusters = max(1, len(all_vectors))
         else:
-            # 如果提供的对话数量足够，就用原来的簇数量
             num_actual_clusters = self.num_clusters
 
-        logger.info("第一步：正在将所有对话转化为语义向量...")
-        embeddings = self.semantic_model.encode(all_texts)
-        logger.info(f"已成功转化 {len(embeddings)} 条对话为语义向量，准备进行聚类...")
-
         logger.info(f"第二步：正在用 K-Means 算法探索 {num_actual_clusters} 个语义簇...")
-        # 使用我们动态计算出的数量来初始化！
-        self.kmeans = KMeans(
-            n_clusters=num_actual_clusters, random_state=42, n_init="auto"
-        )  # n_init='auto' 是新版sklearn的推荐哦
-        self.kmeans.fit(embeddings)
+        self.kmeans = KMeans(n_clusters=num_actual_clusters, random_state=42, n_init="auto")
+        self.kmeans.fit(np.array(all_vectors))
         logger.info("探索完成！已经形成了全新的语义分区！")
 
         logger.info("第三步：正在学习语义状态跳转关系...")
-        num_states = num_actual_clusters  # 跳转矩阵的大小就是语义簇的数量
+        num_states = num_actual_clusters
         self.transition_matrix = np.ones((num_states, num_states))
 
-        for conversation_texts in conversations:
-            if len(conversation_texts) < 2:
+        for single_conversation_vectors in conversation_vectors:
+            if len(single_conversation_vectors) < 2:
                 continue
 
-            conversation_embeddings = self.semantic_model.encode(conversation_texts)
-            labels = self.kmeans.predict(conversation_embeddings)
+            labels = self.kmeans.predict(np.array(single_conversation_vectors))
 
             for i in range(len(labels) - 1):
                 current_state = labels[i]
@@ -170,54 +178,42 @@ class SemanticMarkovModel:
                 self.transition_matrix[current_state, next_state] += 1
 
         row_sums = self.transition_matrix.sum(axis=1, keepdims=True)
-        # 检查分母是否为0，避免除零错误
-        # 虽然我们前面有判断，但还是保险起见
         safe_row_sums = np.where(row_sums == 0, 1, row_sums)
         self.transition_matrix = self.transition_matrix / safe_row_sums
         logger.info("语义状态跳转关系学习完成！")
 
-    def _get_state(self, text: str) -> int:
-        """获取文本对应的语义状态.
+    def initialize_empty(self) -> None:
+        """当没有训练数据时，初始化一个空的、但结构完整的模型."""
+        logger.warning("正在初始化一个空的 SemanticMarkovModel，因为它没有收到任何训练数据。")
+        self.kmeans = None
+        self.transition_matrix = np.full(
+            (self.num_clusters, self.num_clusters), 1.0 / self.num_clusters
+        )
 
-        Args:
-            text (str): 输入的文本内容.
-
-        Returns:
-            int: 文本对应的语义状态索引.
-        """
+    def _get_state_from_vector(self, vector: list[float]) -> int:
+        """获取向量对应的语义状态."""
         if self.kmeans is None:
-            raise RuntimeError("模型还没有训练，请先调用 train 方法。")
-        embedding = self.semantic_model.encode([text])
-        return self.kmeans.predict(embedding)[0]
+            raise RuntimeError("模型还没有训练，请先调用 train_from_vectors 方法。")
+        return self.kmeans.predict(np.array([vector]))[0]
 
     def calculate_contextual_unexpectedness(
-        self, current_text: str, previous_text: str | None
+        self, current_vector: list[float], previous_vector: list[float] | None
     ) -> float:
-        """计算当前文本相对于上一文本的“意外度”.
-
-        Args:
-            current_text (str): 当前文本内容.
-            previous_text (str | None): 上一文本内容，如果没有则为 None.
-
-        Returns:
-            float: 意外度分数，越高表示越意外.
-        """
+        """计算当前事件向量相对于上一个事件向量的“意外度”."""
         if self.transition_matrix is None or self.kmeans is None:
             return 0.0
 
-        current_state = self._get_state(current_text)
+        current_state = self._get_state_from_vector(current_vector)
 
-        if previous_text is None:
+        if previous_vector is None:
             return 10.0
 
-        previous_state = self._get_state(previous_text)
+        previous_state = self._get_state_from_vector(previous_vector)
 
         transition_probability = self.transition_matrix[previous_state, current_state]
 
-        # 避免log(0)
         if transition_probability == 0:
-            return 100.0  # 如果是完全没见过的跳转，给一个超高分
+            return 100.0
 
         unexpectedness_score = -math.log(transition_probability)
-
         return unexpectedness_score * 20

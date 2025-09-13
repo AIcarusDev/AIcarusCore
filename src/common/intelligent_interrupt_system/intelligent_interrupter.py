@@ -1,4 +1,5 @@
 # src/common/intelligent_interrupt_system/intelligent_interrupter.py
+from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
@@ -6,26 +7,15 @@ from src.common.custom_logging.logging_config import get_logger
 
 from .models import SemanticMarkovModel
 
+if TYPE_CHECKING:
+    from src.domain.models import Stimulus
+
+
 logger = get_logger(__name__)
 
 
 class IntelligentInterrupter:
-    """这是一个无状态的智能中断器.
-
-    它不保存任何上下文信息，每次判断都需要提供当前消息和上下文消息.
-    它会根据发言者的权重、目标关键词和核心重要概念来判断是否需要中断.
-
-    Attributes:
-        speaker_weights (dict[str, float]): 发言者的权重字典，键是发言者ID，值是权重因子.
-        objective_keywords (list[str]): 目标关键词列表，用于识别需要中断的消息.
-        core_importance_concepts (list[str]): 核心重要概念列表，用于识别需要中断的消息.
-        semantic_markov_model (SemanticMarkovModel): 语义马尔可夫模型，
-            用于计算上下文的意外度和重要性得分.
-        objective_semantic_threshold (float): 目标语义阈值，超过此值则认为消息具有客观重要性.
-        final_threshold (float): 最终得分阈值，超过此值则建议中断.
-        alpha (float): 意外度得分的权重因子.
-        beta (float): 核心重要性得分的权重因子.
-    """
+    """这是一个基于事件向量和领域模型的智能中断器."""
 
     def __init__(
         self,
@@ -65,79 +55,98 @@ class IntelligentInterrupter:
         logger.debug("**[IIS-阶段一]** 未检测到霸道关键词。客观重要性得分为 0.0。")
         return 0.0
 
-    # 阶段二：计算上下文衔接意外度和核心重要性得分
-    # 这里我们会计算当前消息与上下文的衔接意外度
     def _calculate_contextual_scores(
-        self, message_text: str, context_message_text: str | None
-    ) -> float:
+        self, current_vector: list[float], context_vector: list[float] | None
+    ) -> tuple[float, float]:
+        """计算上下文意外度和内容核心重要性分数.
+
+        Returns:
+            一个元组 (意外度分数, 内容重要性分数)。
+        """
         unexpectedness_score = self.semantic_markov_model.calculate_contextual_unexpectedness(
-            current_text=message_text, previous_text=context_message_text
+            current_vector=current_vector, previous_vector=context_vector
         )
         logger.info(
-            f"**[IIS-阶段二-A]** 上下文衔接意外度得分为: {unexpectedness_score:.2f} "
-            f"(对比上文: '{context_message_text[:50]}...')"
+            f"**[IIS-阶段二-A]** 上下文衔接【事件】意外度得分为: {unexpectedness_score:.2f}"
         )
 
         if self.core_concepts_encoded.size == 0:
             importance_score = 0.0
             logger.debug("**[IIS-阶段二-B]** 无核心重要概念，内容重要性得分为 0.0。")
         else:
-            message_vector = self.semantic_model.encode([message_text])
             similarities = cosine_similarity(
-                message_vector,
+                np.array([current_vector]),
                 self.core_concepts_encoded,
             )
             importance_score = np.max(similarities) * 100
             logger.info(f"**[IIS-阶段二-B]** 内容核心重要性得分为: {importance_score:.2f}")
 
-        preliminary_score = self.alpha * unexpectedness_score + self.beta * importance_score
-        logger.info(f"**[IIS-阶段二-C]** 融合后的基础快感分数为: {preliminary_score:.2f}")
-        return preliminary_score
+        return unexpectedness_score, importance_score
 
     def _get_speaker_weight(self, speaker_id: str) -> float:
         weight = self.speaker_weights.get(speaker_id, self.speaker_weights.get("default", 1.0))
         logger.info(f"**[IIS-阶段三]** 发言者 '{speaker_id}' 的主观权重为: {weight}")
         return weight
 
-    def should_interrupt(self, new_message: dict, context_message_text: str | None) -> bool:
-        """判断是否需要中断当前消息的处理.
-
-        Args:
-            new_message (dict): 新消息的字典，必须包含 'text' 和 'speaker_id' 键.
-            context_message_text (str | None): 上下文消息的文本，如果没有则为 None.
-
-        Returns:
-            bool: 如果需要中断返回 True，否则返回 False.
-        """
-        logger.info(
-            f"===== 开始评估新消息: '{new_message.get('text', '')[:50]}...' "
-            f"(来自: {new_message.get('speaker_id')}) ====="
-            f"当前对比上下文: '{context_message_text[:50] if context_message_text else '无'}'"
-        )
-
-        message_text = new_message.get("text", "").strip()
-        if not message_text:
-            logger.info("===== 结论: [不中断]！新消息无文本内容。=====")
+    def should_interrupt(
+        self, new_stimulus: "Stimulus", context_stimulus: Optional["Stimulus"]
+    ) -> bool:
+        """判断是否需要中断。现在接收完整的 Stimulus 领域模型对象."""
+        if new_stimulus.embedding is None:
+            logger.warning(
+                f"事件 {new_stimulus.event_id} 缺少向量，无法进行上下文意外度评估。跳过中断判断。"
+            )
             return False
 
-        if context_message_text is None or not context_message_text.strip():
-            logger.info("===== 结论: [强制不中断]！因为没有有效的上下文消息，跳过中断判断。=====")
+        if context_stimulus and context_stimulus.embedding is None:
+            logger.warning(f"上下文事件 {context_stimulus.event_id} 缺少向量，将作为无上下文处理。")
+            context_stimulus = None
 
-        speaker_id = new_message.get("speaker_id")
+        message_text = new_stimulus.text_content
+        speaker_id = new_stimulus.sender_id
 
+        context_text_for_log = context_stimulus.text_content if context_stimulus else "无"
+
+        logger.info(
+            f"===== 开始评估新事件: '{message_text[:50]}...' "
+            f"(来自: {speaker_id}) ====="
+            f"当前对比上下文事件: '{context_text_for_log[:50]}...'"
+        )
+
+        if not message_text:
+            logger.info("===== 结论: [不中断]！新事件无文本内容。=====")
+            return False
+
+        # --- 阶段一：客观重要性检查 (霸道规则) ---
         objective_score = self._calculate_objective_importance(message_text)
         if objective_score >= 1.0:
             logger.info("===== 结论: [强制中断]！因为检测到客观重要性极高的关键词！ =====")
             return True
 
-        # Only calculate contextual scores if there's a valid context message
-        if context_message_text is None or not context_message_text.strip():
-            logger.info(
-                "=== 结论: [不中断]！无有效上下文消息，无法计算上下文意外度。仅评估客观重要性。==="
-            )
-            return False  # If objective score didn't trigger, and no context, then no interruption.
+        # --- 阶段二：上下文与内容评估 ---
+        current_vector = new_stimulus.embedding
+        context_vector = context_stimulus.embedding if context_stimulus else None
 
-        preliminary_score = self._calculate_contextual_scores(message_text, context_message_text)
+        if context_vector is None:
+            logger.info("=== 结论: [不中断]！无有效上下文事件向量，无法计算上下文意外度。===")
+            return False
+
+        unexpectedness_score, importance_score = self._calculate_contextual_scores(
+            current_vector, context_vector
+        )
+
+        # 增加第二层快速通道：如果内容本身极端重要，直接中断
+        if importance_score >= (self.objective_semantic_threshold * 100):
+            logger.info(
+                f"===== 结论: [强制中断]！内容核心重要性得分 {importance_score:.2f} "
+                f"超越了客观语义阈值 {self.objective_semantic_threshold * 100}！ ====="
+            )
+            return True
+
+        # --- 阶段三：权重加成与最终裁决 ---
+        preliminary_score = self.alpha * unexpectedness_score + self.beta * importance_score
+        logger.info(f"**[IIS-阶段二-C]** 融合后的基础快感分数为: {preliminary_score:.2f}")
+
         speaker_weight = self._get_speaker_weight(speaker_id)
         final_score = preliminary_score * speaker_weight
 

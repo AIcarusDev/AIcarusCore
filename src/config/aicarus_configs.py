@@ -22,7 +22,54 @@ class PersonaSettings(ConfigBase):
     """祂的个人资料信息."""
 
     slow_thought_persona: str = "你的思考风格是审慎、多疑、逻辑严密且极度客观的。"
-    """祂的理性思考方式。"""
+    """祂的理性思考方式."""
+
+
+@dataclass
+class MemoryClarityLevels(ConfigBase):
+    """定义工作记忆中不同清晰度等级的数量."""
+
+    vivid: int = 1
+    active: int = 1
+    retained: int = 3
+    decaying: int = 3
+
+    # 使用 __post_init__ 来验证配置
+    def __post_init__(self) -> None:
+        """验证配置."""
+        if self.vivid < 1:
+            raise ValueError("vivid memory count must be at least 1.")
+        if self.active < 1:
+            raise ValueError("active memory count must be at least 1.")
+        if self.retained < 0:
+            raise ValueError("retained memory count cannot be negative.")
+        if self.decaying < 0:
+            raise ValueError("decaying memory count cannot be negative.")
+
+
+@dataclass
+class WorkingMemorySettings(ConfigBase):
+    """工作记忆系统的配置."""
+
+    depth: int = 8
+    clarity_levels: MemoryClarityLevels = field(default_factory=MemoryClarityLevels)
+
+    # 使用 __post_init__ 进行交叉验证
+    def __post_init__(self) -> None:
+        """验证配置."""
+        total_clarity_levels = (
+            self.clarity_levels.vivid
+            + self.clarity_levels.active
+            + self.clarity_levels.retained
+            + self.clarity_levels.decaying
+        )
+        if self.depth < 4:
+            raise ValueError("Working memory depth must be at least 4.")
+        if self.depth != total_clarity_levels:
+            raise ValueError(
+                f"Memory depth ({self.depth}) does not match the sum of "
+                f"clarity levels ({total_clarity_levels})."
+            )
 
 
 @dataclass
@@ -83,54 +130,22 @@ class AllModelPurposesConfig(ConfigBase):
     """
 
     main_consciousness: ModelParams | None = None
-    """主要意识模型，用于处理核心任务和对话."""
-
-    intrusive_thoughts: ModelParams | None = None
-    """侵入性思维模型，用于生成和处理侵入性思维."""
-
-    action_decision: ModelParams | None = None
-    """行动决策模型，用于生成和处理行动决策相关的思维."""
-
-    information_summary: ModelParams | None = None
-    """信息摘要模型，用于生成和处理信息摘要相关的思维."""
+    """主要循环模型，负责处理机器人的核心循环和对话."""
 
     embedding_default: ModelParams | None = None
     """嵌入模型，用于生成和处理文本嵌入相关的思维."""
-
-    focused_chat: ModelParams | None = None
-    """专注聊天模型，用于处理专注聊天相关的思维."""
 
     web_search_agent: ModelParams | None = None
     """网页搜索代理模型，用于处理web_search动作并总结结果."""
 
     url_context_agent: ModelParams | None = None
-    """URL 上下文代理模型，用于访问特定网址并总结内容。"""
+    """URL 上下文代理模型，用于访问特定网址并总结内容."""
 
     deliberation: ModelParams | None = None
-    """“慢思考”辩论模型，用于内部决策审查。"""
+    """“慢思考”模型，用于复杂决策."""
 
     image_analysis: ModelParams | None = None
-    """图像分析模型，用于处理图像内容的分析和描述。"""
-
-
-@dataclass
-class DatabaseSettings(ConfigBase):
-    """数据库连接设置.
-
-    此处无需修改，无需配置文件中创建对应配置项。该配置将直接被环境变量覆盖.
-    """
-
-    host: str = "http://localhost:8529"
-    """数据库主机地址。默认值为 http://localhost:8529."""
-
-    username: str = "root"
-    """数据库用户名。默认值为 root."""
-
-    password: str = "your_password"
-    """数据库密码。默认值为 your_password."""
-
-    database_name: str = "aicarus_core_db"
-    """数据库名称。默认值为 aicarus_core_db."""
+    """图像分析模型，用于处理图像内容的分析和描述."""
 
 
 @dataclass
@@ -152,24 +167,21 @@ class CoreLogicSettings(ConfigBase):
     """思考间隔时间（秒），用于控制 AI 的思考频率."""
 
     enable_continuous_thinking: bool = False
-    """【实验性】是否启用连续思考模式。若为True，AI将在动作完成后进行极短的休眠然后继续思考，模拟不间断的意识流。"""
+    """【实验性】是否启用连续思考模式。若为True，AI将在动作完成后进行极短的休眠然后继续思考，模拟不间断的意识流."""
 
     continuous_thinking_interval_seconds: float = 0.1
-    """在连续思考模式下，每次思考循环之间的最小休眠时间（秒）。"""
+    """在连续思考模式下，每次思考循环之间的最小休眠时间（秒）."""
 
 
 @dataclass
-class IntrusiveThoughtsSettings(ConfigBase):
-    """侵入性思维模块的设置，包括启用状态、生成间隔和插入概率."""
+class FeatureFlags(ConfigBase):
+    """功能开关，用于启用或禁用特定的功能."""
 
-    enabled: bool = True
-    """是否启用侵入性思维模块."""
+    enable_vector_embedding: bool = False
+    """是否启用向量嵌入功能."""
 
-    generation_interval_seconds: int = 600
-    """生成间隔时间（秒），用于控制侵入性思维的生成频率."""
-
-    insertion_probability: float = 0.15
-    """插入概率，用于控制侵入性思维的插入频率."""
+    enable_image_to_text: bool = False
+    """是否启用图片转文字功能."""
 
 
 @dataclass
@@ -194,28 +206,11 @@ class InnerConfig(ConfigBase):
 
 
 @dataclass
-class FocusChatModeSettings(ConfigBase):
-    """专注聊天模式的设置."""
-
-    enabled: bool = True
-    """是否允许AI进入底层会话"""
-
-    summary_interval: int = 5
-    """渐进式总结的触发消息间隔"""
-
-
-@dataclass
 class TestFunctionConfig(ConfigBase):
     """测试功能配置类，用于测试和调试目的.
 
     这个类将包含一些测试相关的设置，未来可能会被移除.
     """
-
-    enable_test_group: bool = False
-    """是否启用测试模式."""
-
-    test_group: list[str] = field(default_factory=list)
-    """测试群组列表，用于指定哪些群组启用测试功能."""
 
     fallback_model_name: str = ""
     """用于给审查严格的 gemini-2.5-flash 兜底函数，如不启用留空即可."""
@@ -278,7 +273,28 @@ class RuntimeEnvironmentSettings(ConfigBase):
     """定义数据根目录."""
 
     stickers_dir: str = "data/stickers"
-    """定义表情包目录。"""
+    """定义表情包目录."""
+
+    compute_device: str = "auto"
+    """用于机器学习模型计算的设备。可选值: "auto", "cuda", "cpu"."""
+
+
+# OS 相关配置
+@dataclass
+class OSSettings(ConfigBase):
+    """AIC-OS 相关的配置."""
+
+    max_normal_windows: int = 4
+    """桌面上最多能同时存在的普通窗口（非最小化、非弹窗）数量。"""
+
+
+# Prompt 相关配置
+@dataclass
+class PromptSettings(ConfigBase):
+    """与 Prompt 构建相关的配置."""
+
+    inject_aicarus_rule: bool = True
+    """是否在 System Prompt 中注入 AICARUS_RULE 核心规则。"""
 
 
 @dataclass
@@ -292,13 +308,10 @@ class AlcarusRootConfig(ConfigBase):
     llm_client_settings: LLMClientSettings
     persona: PersonaSettings
     core_logic_settings: CoreLogicSettings
-    intrusive_thoughts_module_settings: IntrusiveThoughtsSettings
+    feature_flags: FeatureFlags = field(default_factory=FeatureFlags)
     llm_models: AllModelPurposesConfig | None = field(default_factory=AllModelPurposesConfig)
+    working_memory: WorkingMemorySettings = field(default_factory=WorkingMemorySettings)
     test_function: TestFunctionConfig = field(default_factory=TestFunctionConfig)
-    focus_chat_mode: FocusChatModeSettings = field(
-        default_factory=FocusChatModeSettings
-    )  # 新增专注聊天配置
-    database: DatabaseSettings = field(default_factory=DatabaseSettings)  # 新增数据库配置
     logging: LoggingSettings = field(default_factory=LoggingSettings)
     server: ServerSettings = field(default_factory=ServerSettings)
     interrupt_model: InterruptModelConfig = field(default_factory=InterruptModelConfig)
@@ -306,3 +319,6 @@ class AlcarusRootConfig(ConfigBase):
         default_factory=RuntimeEnvironmentSettings
     )
     sticker_settings: StickerSettings = field(default_factory=StickerSettings)
+    # [新增] 将新的配置类添加到主配置中
+    os: OSSettings = field(default_factory=OSSettings)
+    prompt: PromptSettings = field(default_factory=PromptSettings)
