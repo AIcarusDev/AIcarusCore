@@ -52,6 +52,7 @@ JSON 对象包含三个顶级键: `"internal_state"`, `"action"`。
 {external_info_block} 是外部信息块的内容
 """
 CORE_CYCLE_USER_PROMPT = """
+{meta_info}
 
 <external_info cycle_ago="0" status="CURRENT">
 {external_info_block}

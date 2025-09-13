@@ -62,6 +62,9 @@ class Initializable(Protocol):
 class ServiceBuilder:
     """服务构建器，用于创建和配置核心服务容器."""
 
+    def __init__(self, interruption_message: str = ""):
+        self.interruption_message = interruption_message
+
     async def build_container(self) -> ServiceContainer:
         """构建并配置服务容器，包括初始化LLM客户端、数据库服务等."""
         # 初始化应用管理器并加载所有应用
@@ -134,6 +137,7 @@ class ServiceBuilder:
         action_handler.set_state_generator(aicos_state_generator)
 
         prompt_builder = ThoughtPromptBuilder(
+            interruption_message=self.interruption_message,  # 注入中断消息
             aicos_state_generator=aicos_state_generator,
             window_manager=window_manager,
             application_manager=application_manager,

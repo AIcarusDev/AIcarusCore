@@ -30,6 +30,7 @@ class ThoughtPromptBuilder:
 
     def __init__(
         self,
+        interruption_message: str,
         aicos_state_generator: "AICOSStateGenerator",
         window_manager: "WindowManager",
         application_manager: "ApplicationManager",
@@ -42,6 +43,7 @@ class ThoughtPromptBuilder:
         deliberation_service: "DeliberationService",
         qq_sticker_service: "QQStickerService",
     ) -> None:
+        self._interruption_message = interruption_message  # 存储一次性消息
         self.is_context_switch_flag: bool = False
         self.aicos_state_generator = aicos_state_generator
         self.window_manager = window_manager
@@ -205,6 +207,14 @@ class ThoughtPromptBuilder:
         user_prompt_blocks = await self.user_prompt_parts_builder.build(
             external_info_block=current_external_info_block
         )
+
+        # 注入中断消息（如果有）
+        if self._interruption_message:
+            user_prompt_blocks["meta_info"] = self._interruption_message
+            self._interruption_message = ""  # 清除消息，确保只使用一次
+        else:
+            user_prompt_blocks["meta_info"] = ""
+
 
         response_schema = await self._build_response_schema(ui_mapping=ui_mapping)
 

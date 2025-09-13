@@ -404,20 +404,42 @@ class QQWindowRenderer:
         platform, _, _ = parse_entity_uid(conversation_uid)
         bot_id = bot_ids_map.get(platform)
 
+        # [重构] 提前判断会话类型，以便后续逻辑复用
+        try:
+            conv_type = conversation_uid.split("_")[1]
+            is_private_chat = conv_type == "private"
+        except IndexError:
+            is_private_chat = False
+            logger.warning(f"无法从UID中判断会话类型: {conversation_uid}")
+
         # 获取机器人在当前会话的身份信息
         self_presence = await self.entity_service.get_self_presence_in_conversation(
             platform=platform, conversation_entity_uid=conversation_uid
         )
         self_entity = await self.entity_service.get_self_entity_by_platform(platform)
 
+        # [优化] 根据会话类型动态设置 role 属性
+        role_value = str(bot_id) if is_private_chat else (self_presence.get("permission_level", "成员") if self_presence else "成员")
+
         self_profile_attrs = {
             "name": self_entity.get("details", {}).get("nickname"),
             "card": self_presence.get("cardname", "") if self_presence else "",
-            "role": self_presence.get("permission_level", "成员") if self_presence else "成员",
+            "role": role_value,
         }
         # 过滤掉空的属性
         self_profile_attrs = {k: v for k, v in self_profile_attrs.items() if v}
         SubElement(window_node, "self_profile_in_chat", attrib=self_profile_attrs)
+
+        # --- [新逻辑] 判断会话类型，如果是私聊，则在顶部显示对方信息 ---
+        conversation_doc = await self.entity_service.get_entity_by_key(conversation_uid)
+
+        if is_private_chat:
+            participant_attrs = {
+                "name": conversation_doc.details.name,
+                "uid": conversation_doc.details.conversation_id,
+            }
+            SubElement(window_node, "participant_in_chat", attrib=participant_attrs)
+        # --- [新逻辑结束] ---
 
         # 分页与消息渲染
         page = window.content_state.get("page", 1)
@@ -473,23 +495,27 @@ class QQWindowRenderer:
                 logger.error(f"致命错误：消息缺少 message_id: {msg}")
                 platform_msg_id = "未知错误，ID无法获取"
 
-            msg_node = SubElement(
-                list_node,
-                "div",
-                attrib={
-                    "class": "message",
-                    "id": platform_msg_id,
-                    "align": align,
-                    "sender_id": str(msg_sender_id),
-                },
-            )
+            # --- [最终修改] 根据是否为私聊，动态构建消息 div 的属性 ---
+            msg_attrs = {
+                "class": "message",
+                "id": platform_msg_id,
+                "align": align,
+            }
+            if not is_private_chat:
+                msg_attrs["sender_id"] = str(msg_sender_id)
 
-            sender_name = msg.get("user_info", {}).get("user_cardname") or msg.get(
-                "user_info", {}
-            ).get("user_nickname")
+            msg_node = SubElement(list_node, "div", attrib=msg_attrs)
+            # --- [最终修改结束] ---
+
             timestamp = time.strftime("%H:%M:%S", time.localtime(msg.get("timestamp", 0) / 1000))
 
-            SubElement(msg_node, "sender").text = sender_name
+            # 如果不是私聊（即群聊），则显示每个发言人的名字
+            if not is_private_chat:
+                sender_name = msg.get("user_info", {}).get("user_cardname") or msg.get(
+                    "user_info", {}
+                ).get("user_nickname")
+                SubElement(msg_node, "sender").text = sender_name
+
             SubElement(msg_node, "timestamp").text = timestamp
 
             content_node = SubElement(msg_node, "content")
