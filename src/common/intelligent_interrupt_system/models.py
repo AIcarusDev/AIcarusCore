@@ -1,7 +1,9 @@
 # src/common/intelligent_interrupt_system/models.py
 
+import asyncio
 import math
 import warnings
+from typing import Optional, Union
 
 import jieba
 import numpy as np
@@ -15,6 +17,53 @@ from src.config import config  # 导入全局配置对象
 logger = get_logger(__name__)
 # 关闭未来警告
 warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn")
+
+
+# 异步懒加载代理类
+class AsyncSemanticModelProxy:
+    """一个异步懒加载代理，用于在后台初始化昂贵的 SemanticModel.
+
+    它在应用启动时不会阻塞，仅在首次需要使用模型时等待加载完成。
+    """
+    _instance: Optional["SemanticModel"] = None
+    _load_task: Optional[asyncio.Task] = None  # noqa: UP045
+    _lock = asyncio.Lock()
+
+    def __init__(self, model_name: str = "BAAI/bge-m3") -> None:
+        self.model_name = model_name
+        # 在初始化代理时，立即启动后台加载任务
+        if AsyncSemanticModelProxy._load_task is None:
+            # 使用 create_task 将加载过程放入后台
+            AsyncSemanticModelProxy._load_task = asyncio.create_task(self._load_model())
+
+    async def _load_model(self) -> "SemanticModel":
+        """实际的模型加载逻辑，在后台任务中执行."""
+        async with self._lock:
+            if AsyncSemanticModelProxy._instance is None:
+                # 这里的 to_thread 很重要，因为 SentenceTransformer 的加载是 CPU/IO 密集型同步操作
+                # 它可以防止阻塞事件循环
+                instance = await asyncio.to_thread(SemanticModel, self.model_name)
+                AsyncSemanticModelProxy._instance = instance
+            return AsyncSemanticModelProxy._instance
+
+    async def _get_instance(self) -> "SemanticModel":
+        """确保模型实例已加载并返回它."""
+        if self._load_task is None:
+            raise RuntimeError("模型加载任务未启动。")
+        # 等待后台加载任务完成
+        return await self._load_task
+
+    async def encode(self, texts: Union[list[str], str]) -> np.ndarray:  # noqa: UP007
+        """代理 encode 方法."""
+        instance = await self._get_instance()
+        # SentenceTransformer 的 encode 也是同步的，所以也用 to_thread
+        return await asyncio.to_thread(instance.encode, texts)
+
+    async def calculate_similarity(self, vector1: np.ndarray, vector2: np.ndarray) -> float:
+        """代理 calculate_similarity 方法."""
+        instance = await self._get_instance()
+        # 这个计算很快，可能不需要 to_thread，但为了统一性加上也无妨
+        return await asyncio.to_thread(instance.calculate_similarity, vector1, vector2)
 
 
 class MarkovChainModel:
@@ -120,7 +169,7 @@ class SemanticModel:
         self.model = SentenceTransformer(model_name, device=final_device)
         logger.info(f"语义探针 '{model_name}' 已在设备 '{final_device}' 上成功启动！")
 
-    def encode(self, texts: list[str] | str) -> np.ndarray:
+    def encode(self, texts: Union[list[str], str]) -> np.ndarray:  # noqa: UP007
         """将文本编码为语义向量."""
         return self.model.encode(texts)
 
@@ -131,12 +180,11 @@ class SemanticModel:
 
 class SemanticMarkovModel:
     """结合了语义深度和马尔可夫链逻辑的模型."""
-
-    def __init__(self, semantic_model: SemanticModel, num_clusters: int = 15) -> None:
+    def __init__(self, semantic_model: "AsyncSemanticModelProxy", num_clusters: int = 15) -> None:
         self.semantic_model = semantic_model
         self.num_clusters = num_clusters
-        self.kmeans: KMeans | None = None
-        self.transition_matrix: np.ndarray | None = None
+        self.kmeans: Optional[KMeans] = None  # noqa: UP045
+        self.transition_matrix: Optional[np.ndarray] = None  # noqa: UP045
         logger.info(f"究极混合体-语义马尔可夫链已准备就绪，将使用 {num_clusters} 个语义簇。")
 
     def train(self, conversations: list[list[str]]) -> None:
@@ -197,7 +245,7 @@ class SemanticMarkovModel:
         return self.kmeans.predict(np.array([vector]))[0]
 
     def calculate_contextual_unexpectedness(
-        self, current_vector: list[float], previous_vector: list[float] | None
+        self, current_vector: list[float], previous_vector: Optional[list[float]]  # noqa: UP045
     ) -> float:
         """计算当前事件向量相对于上一个事件向量的“意外度”."""
         if self.transition_matrix is None or self.kmeans is None:

@@ -8,7 +8,9 @@ from src.bootstrap.container import ServiceContainer
 from src.common.custom_logging.logging_config import get_logger
 from src.common.intelligent_interrupt_system.iis_main import IISBuilder
 from src.common.intelligent_interrupt_system.intelligent_interrupter import IntelligentInterrupter
-from src.common.intelligent_interrupt_system.models import SemanticModel
+from src.common.intelligent_interrupt_system.models import (
+    AsyncSemanticModelProxy,
+)
 from src.common.interruption_broker import InterruptionEventBroker
 from src.common.narrative_vectorizer.narrative_vectorizer import NarrativeVectorizer
 from src.config import config
@@ -69,6 +71,12 @@ class ServiceBuilder:
         llm_clients = self._initialize_llm_clients()
         db_services = await self._initialize_typedb_and_services()
 
+        # 1. 创建唯一的 SemanticModel 代理实例
+        # 这个操作是瞬间完成的，真正的模型加载在后台进行
+        semantic_model_proxy = AsyncSemanticModelProxy()
+        logger.info("SemanticModelProxy已创建，后台加载任务已启动。")
+
+
         # 创建新的能力/服务实例
         filesystem_service = FileSystemService()
         info_retrieval_service = InformationRetrievalService(
@@ -94,7 +102,7 @@ class ServiceBuilder:
             config.feature_flags,
         )
 
-        # ActionHandler 需要在 ApplicationManager 之后初始化，以便访问 builders
+        # ActionHandler 的初始化
         action_handler = ActionHandler(
             filesystem_service=filesystem_service,
             info_retrieval_service=info_retrieval_service,
@@ -136,23 +144,26 @@ class ServiceBuilder:
             info_retrieval_service=info_retrieval_service,
             goal_manager=goal_manager,
             deliberation_service=deliberation_service,
+            qq_sticker_service=qq_sticker_service,
         )
 
-        semantic_model = await self._get_semantic_model(db_services["event_storage_service"])
+        # 2. 将代理注入到 NarrativeVectorizer
         narrative_vectorizer = NarrativeVectorizer(
             entity_service=db_services["entity_graph_service"],
             image_analysis_service=image_analysis_service,
-            semantic_model=semantic_model,
+            # 传入代理，而不是 await 真实模型
+            semantic_model=semantic_model_proxy,
         )
         interruption_broker = InterruptionEventBroker()
         await interruption_broker.start()
 
+        # 3. 将代理注入到 DefaultMessageProcessor
         message_processor = DefaultMessageProcessor(
             event_service=db_services["event_storage_service"],
             entity_service=db_services["entity_graph_service"],
             action_log_service=db_services["action_log_service"],
             image_analysis_service=image_analysis_service,
-            semantic_model=semantic_model,
+            semantic_model=semantic_model_proxy,
             media_cache_service=db_services["media_cache_service"],
             interruption_broker=interruption_broker,
             narrative_vectorizer=narrative_vectorizer,
@@ -183,10 +194,10 @@ class ServiceBuilder:
             goal_storage_service=db_services["goal_storage_service"],
             media_cache_service=db_services["media_cache_service"],
             action_handler=action_handler,
-            # 注入 qq_sticker_service
             qq_sticker_service=qq_sticker_service,
+            # 4. 将代理注入到中断模型
             intelligent_interrupter=await self._initialize_interrupt_model(
-                db_services["event_storage_service"]
+                db_services["event_storage_service"], semantic_model_proxy
             ),
             message_processor=message_processor,
             prompt_builder=prompt_builder,
@@ -376,12 +387,17 @@ class ServiceBuilder:
         logger.info("所有核心 TypeDB 数据存储服务均已初始化。")
         return initialized_services
 
+    # 5. 修改 _initialize_interrupt_model 接收代理
     async def _initialize_interrupt_model(
-        self, event_storage_service: EventStorageService
+        self,
+        event_storage_service: EventStorageService,
+        semantic_model_proxy: AsyncSemanticModelProxy,
     ) -> IntelligentInterrupter:
         """初始化中断判断模型."""
         logger.info("=== 开始初始化中断判断模型... ===")
-        iis_builder = IISBuilder(event_storage=event_storage_service)
+        iis_builder = IISBuilder(
+            event_storage=event_storage_service, semantic_model_proxy=semantic_model_proxy
+        )
         semantic_markov_model = await iis_builder.get_or_create_model()
         interrupt_config = config.interrupt_model
         speaker_weights = {entry.id: entry.weight for entry in interrupt_config.speaker_weights}
@@ -396,11 +412,3 @@ class ServiceBuilder:
         )
         logger.info("=== 中断判断模型已成功初始化！ ===")
         return interrupt_model
-
-    async def _get_semantic_model(
-        self, event_storage_service: EventStorageService
-    ) -> SemanticModel:
-        """获取基础语义模型."""
-        iis_builder = IISBuilder(event_storage=event_storage_service)
-        await iis_builder.get_or_create_model()
-        return iis_builder.base_semantic_model

@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Any
 
 from aicarus_protocols import Event as ProtocolEvent
 from src.common.custom_logging.logging_config import get_logger
-from src.common.intelligent_interrupt_system.models import SemanticModel
+from src.common.intelligent_interrupt_system.models import AsyncSemanticModelProxy
 
 if TYPE_CHECKING:
     from src.services.database.services.entity_graph_service import EntityGraphService
@@ -25,7 +25,7 @@ class NarrativeVectorizer:
         self,
         entity_service: "EntityGraphService",
         image_analysis_service: "ImageAnalysisService",
-        semantic_model: SemanticModel,
+        semantic_model: AsyncSemanticModelProxy,
     ) -> None:
         self.entity_service = entity_service
         self.image_analysis_service = image_analysis_service
@@ -50,7 +50,8 @@ class NarrativeVectorizer:
 
             narrative_sentence = self._format_narrative_sentence(descriptor)
 
-            event_vector_list = self.semantic_model.encode([narrative_sentence])
+            # 这里现在调用的是代理的 encode 方法，它会自动处理等待
+            event_vector_list = await self.semantic_model.encode([narrative_sentence])
             event_vector = event_vector_list[0].tolist() if len(event_vector_list) > 0 else None
 
             logger.debug(f"事件 {event.event_id} 已成功向量化。")

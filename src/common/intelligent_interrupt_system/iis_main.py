@@ -5,7 +5,10 @@ import pickle
 from pathlib import Path
 
 from src.common.custom_logging.logging_config import get_logger
-from src.common.intelligent_interrupt_system.models import SemanticMarkovModel, SemanticModel
+from src.common.intelligent_interrupt_system.models import (
+    AsyncSemanticModelProxy,
+    SemanticMarkovModel,
+)
 from src.services.database.services.event_storage_service import EventStorageService
 
 logger = get_logger(__name__)
@@ -18,12 +21,14 @@ SEMANTIC_MARKOV_MODEL_FILENAME = "iis_markov.pkl"
 class IISBuilder:
     """无状态的智能中断系统构建器."""
 
-    def __init__(self, event_storage: EventStorageService) -> None:
+    def __init__(
+        self, event_storage: EventStorageService, semantic_model_proxy: AsyncSemanticModelProxy
+    ) -> None:
         self.event_storage = event_storage
         self.conn_manager = event_storage.conn_manager
         self.model_path = os.path.join(MODEL_DIR, SEMANTIC_MARKOV_MODEL_FILENAME)
         os.makedirs(MODEL_DIR, exist_ok=True)
-        self.base_semantic_model = SemanticModel()
+        self.base_semantic_model_proxy = semantic_model_proxy
 
     def _get_model_last_build_date(self) -> datetime.date | None:
         if not os.path.exists(self.model_path):
@@ -45,7 +50,7 @@ class IISBuilder:
         if not all_conversations_vectors:
             logger.warning("未能从数据库中提取到足够的事件向量来训练IIS模型。将创建一个空模型。")
             new_semantic_markov_model = SemanticMarkovModel(
-                semantic_model=self.base_semantic_model, num_clusters=20
+                semantic_model=self.base_semantic_model_proxy, num_clusters=20
             )
             new_semantic_markov_model.initialize_empty()
         else:
@@ -56,7 +61,7 @@ class IISBuilder:
                 f"开始训练新的语义马尔可夫模型..."
             )
             new_semantic_markov_model = SemanticMarkovModel(
-                semantic_model=self.base_semantic_model, num_clusters=20
+                semantic_model=self.base_semantic_model_proxy, num_clusters=20
             )
             new_semantic_markov_model.train_from_vectors(all_conversations_vectors)
 

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from aicarus_protocols import Event as ProtocolEvent
 from aicarus_protocols import UserInfo as ProtocolUserInfo
 from src.common.custom_logging.logging_config import get_logger
-from src.common.intelligent_interrupt_system.models import SemanticModel
+from src.common.intelligent_interrupt_system.models import AsyncSemanticModelProxy
 from src.common.interruption_broker import InterruptionEventBroker
 from src.common.narrative_vectorizer.narrative_vectorizer import NarrativeVectorizer
 from src.common.utils import build_conversation_entity_uid
@@ -43,7 +43,7 @@ class DefaultMessageProcessor:
         entity_service: EntityGraphService,
         action_log_service: ActionLogStorageService,
         image_analysis_service: "ImageAnalysisService",
-        semantic_model: "SemanticModel",
+        semantic_model: "AsyncSemanticModelProxy",
         media_cache_service: "MediaCacheService",
         interruption_broker: "InterruptionEventBroker",
         narrative_vectorizer: "NarrativeVectorizer",
@@ -207,8 +207,8 @@ class DefaultMessageProcessor:
                 event_dict["embedding"] = vector
                 logger.debug(f"事件 {event.event_id} 成功升维为叙事向量。")
             elif text_content := event.get_text_content():
-                embedding_vector = self.semantic_model.encode([text_content])[0]
-                event_dict["embedding"] = embedding_vector.tolist()
+                embedding_vector = await self.semantic_model.encode([text_content])
+                event_dict["embedding"] = embedding_vector[0].tolist()
 
         if await self.event_service.save_event_document(event_dict):
             logger.debug(f"事件文档 '{event.event_id}' 已保存。")

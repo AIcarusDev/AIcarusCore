@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from src.mind.goal_manager import GoalManager
     from src.mind.state_manager import AIStateManager
     from src.os.application_manager import ApplicationManager
+    from src.os.apps.qq.sticker_service import QQStickerService
     from src.os.services.filesystem_service import FileSystemService
     from src.os.state_generator import AICOSStateGenerator
     from src.os.window_manager import WindowManager
@@ -39,6 +40,7 @@ class ThoughtPromptBuilder:
         info_retrieval_service: "InformationRetrievalService",
         goal_manager: "GoalManager",
         deliberation_service: "DeliberationService",
+        qq_sticker_service: "QQStickerService",
     ) -> None:
         self.is_context_switch_flag: bool = False
         self.aicos_state_generator = aicos_state_generator
@@ -57,6 +59,7 @@ class ThoughtPromptBuilder:
             window_manager,
             application_manager,
             entity_graph_service,
+            qq_sticker_service,
         )
         self.user_prompt_parts_builder = UserPromptPartsBuilder(
             thought_storage_service,
