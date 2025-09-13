@@ -143,7 +143,7 @@ async def seed_data(entity_service: EntityGraphService, event_service: EventStor
     print(f"Step 4: 创建一个包含 {LONG_CHAT_MESSAGES} 条消息的私聊...")
     if friend_uids:
         long_chat_friend_uid = friend_uids[0]
-        long_chat_friend_id = long_chat_friend_uid.split("_")[1]
+        long_chat_friend_id = long_chat_friend_uid.split("_", 1)[1]
         long_chat_conv_uid = build_conversation_entity_uid("qq", "private", long_chat_friend_id)
 
         await entity_service.get_or_create_conversation_entity(
