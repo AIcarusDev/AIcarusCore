@@ -1,5 +1,6 @@
 # 文件路径: src/mind/abilities/deliberation_service.py
 
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 from src.common.custom_logging.logging_config import get_logger
@@ -25,7 +26,13 @@ class DeliberationService:
 
     def __init__(self, deliberation_llm_client: "LLMProcessorClient") -> None:
         self.deliberation_llm_client = deliberation_llm_client
+        self._cycle_trigger: Callable[[], Awaitable[None]] | None = None
         logger.info("慢思考服务初始化完成。")
+
+    def set_cycle_trigger(self, trigger: Callable[[], Awaitable[None]]) -> None:
+        """注入用于触发认知周期的回调函数."""
+        self._cycle_trigger = trigger
+        logger.info("认知周期触发器已成功注入到慢思考服务。")
 
     def get_actions_schema(self) -> dict:
         """返回此服务提供的所有动作的 JSON Schema 定义."""

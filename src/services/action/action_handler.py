@@ -52,8 +52,6 @@ class ActionHandler:
         action_log_service: ActionLogStorageService,
         action_sender: ActionSender,
         entity_service: EntityGraphService,
-        # [移除] 不再注入 qq_sticker_service
-        # qq_sticker_service: QQStickerService,
     ) -> None:
         self.aicos_state_generator: AICOSStateGenerator | None = None
         self.application_manager: ApplicationManager | None = None
@@ -65,8 +63,6 @@ class ActionHandler:
         self.action_log_service = action_log_service
         self.action_sender = action_sender
         self.entity_service = entity_service
-        # [移除] 不再持有 qq_sticker_service 实例
-        # self.qq_sticker_service = qq_sticker_service
 
         self.pending_action_manager = PendingActionManager()
         logger.info(f"{self.__class__.__name__} instance created (Refactored).")
@@ -652,15 +648,15 @@ class ActionHandler:
         这是一个内部维护任务，不直接返回结果给思考链。
         """
         try:
-            logger.info(f"[后台同步] 开始为群聊 {conversation_uid} 同步成员列表...")
+            logger.info(f"开始为群聊 {conversation_uid} 同步成员列表...")
             platform, _, group_id = parse_entity_uid(conversation_uid)
             if not platform or not group_id:
-                logger.error(f"[后台同步] 无法从 {conversation_uid} 解析平台或群号。")
+                logger.error(f"无法从 {conversation_uid} 解析平台或群号。")
                 return
 
             bot_id = self.application_manager.get_self_bot_ids_map().get(platform)
             if not bot_id:
-                logger.error(f"[后台同步] 找不到平台 {platform} 的 bot_id，无法执行同步。")
+                logger.error(f"找不到平台 {platform} 的 bot_id，无法执行同步。")
                 return
 
             action_result = await self.execute_simple_action(
@@ -682,12 +678,12 @@ class ActionHandler:
                 )
             else:
                 logger.error(
-                    f"[后台同步] 获取群 {conversation_uid} "
+                    f"获取群 {conversation_uid} "
                     f"成员列表失败: {action_result.error_message}"
                 )
 
         except Exception as e:
             logger.error(
-                f"[后台同步] 执行群聊 {conversation_uid} 成员同步任务时发生意外错误: {e}",
+                f"执行群聊 {conversation_uid} 成员同步任务时发生意外错误: {e}",
                 exc_info=True,
             )
