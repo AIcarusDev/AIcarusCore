@@ -4,6 +4,7 @@ import contextlib
 import traceback
 import uuid
 from typing import TYPE_CHECKING
+from xml.etree.ElementTree import Element, SubElement, tostring
 
 from src.common.custom_logging.logging_config import get_logger
 from src.config import config
@@ -195,9 +196,6 @@ class CognitiveCycle:
                 external_info_snapshot=external_info_snapshot,
             )
             if resolution:
-                # This part is a bit tricky, the result needs to be formatted for memory
-                # We can borrow the formatting logic
-                from xml.etree.ElementTree import Element, SubElement, tostring
 
                 root = Element("deliberation_result")
                 SubElement(root, "summary").text = resolution.get("summary")
