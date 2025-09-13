@@ -43,17 +43,19 @@ async def handle_os_interaction(
 
     # 2. 解析特定应用的交互 (例如 qq.send_message)
     else:
-        # 遍历 interaction, 找到平台ID (e.g., 'qq')
-        for platform_id, platform_action in aicos_interaction.items():
+        # 这个逻辑现在会将所有非 'base' 的动作都分发给 ActionHandler 的新方法
+        for platform_id, platform_actions in aicos_interaction.items():
             if platform_id == "base":
                 continue
-            action_name = next(iter(platform_action), None)
+
+            action_name = next(iter(platform_actions), None)
             if not action_name:
                 continue
-            params = platform_action[action_name]
-            logger.info(f"UI Dispatcher: 路由平台GUI动作 '{platform_id}.{action_name}'")
+            params = platform_actions[action_name]
 
-            # 将 container 和 thought_key 传递给 ActionHandler
+            logger.info(f"UI Dispatcher: 路由平台LLM动作 '{platform_id}.{action_name}'")
+
+            # 统一调用 ActionHandler 的新入口
             await container.action_handler.handle_aicos_gui_action(
                 platform_id, action_name, params, window_manager, container, thought_key
             )

@@ -74,13 +74,18 @@ class BaseAppBuilder(ABC):
     async def get_action_definitions(
         self, window_manager: WindowManager, container: ServiceContainer
     ) -> dict:
-        """返回平台提供的非UI动作定义.
+        """返回此应用提供的、非UI绑定的、可供LLM调用的动作的JSON Schema.
 
-        Args:
-            window_manager: 窗口管理器实例，用于动态生成与窗口相关的 Schema。
-            container: 服务容器实例，用于访问所需的服务。
+        这是一个动态方法，因为可用的动作可能取决于当前窗口状态。
         """
         return {}
+
+    @abstractmethod
+    async def handle_llm_action(
+        self, action_name: str, params: dict, container: ServiceContainer, thought_key: str
+    ) -> None:
+        """处理由LLM决策的、分发到此应用的特定动作."""
+        pass
 
     def build_action_event(
         self, action_name: str, params: dict[str, Any], bot_id: str

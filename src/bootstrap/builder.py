@@ -94,7 +94,7 @@ class ServiceBuilder:
             config.feature_flags,
         )
 
-        # ActionHandler 的初始化
+        # ActionHandler 需要在 ApplicationManager 之后初始化，以便访问 builders
         action_handler = ActionHandler(
             filesystem_service=filesystem_service,
             info_retrieval_service=info_retrieval_service,
@@ -103,8 +103,6 @@ class ServiceBuilder:
             action_log_service=db_services["action_log_service"],
             action_sender=action_sender,
             entity_service=db_services["entity_graph_service"],
-            # 注入 qq_sticker_service
-            qq_sticker_service=qq_sticker_service,
         )
         action_handler.set_application_manager(application_manager)
 
@@ -138,7 +136,6 @@ class ServiceBuilder:
             info_retrieval_service=info_retrieval_service,
             goal_manager=goal_manager,
             deliberation_service=deliberation_service,
-            qq_sticker_service=qq_sticker_service,
         )
 
         semantic_model = await self._get_semantic_model(db_services["event_storage_service"])

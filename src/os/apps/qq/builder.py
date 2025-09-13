@@ -175,19 +175,23 @@ class QQBuilder(BaseAppBuilder, IApp):
         )
         window_manager.open_window(popup)
 
-    # 处理表情包动作的后端逻辑
-    async def handle_sticker_action(
-        self, params: dict, container: ServiceContainer, thought_key: str
+    # 实现 handle_llm_action 方法
+    async def handle_llm_action(
+        self, action_name: str, params: dict, container: ServiceContainer, thought_key: str
     ) -> None:
-        """处理 manage_stickers 动作的实际逻辑."""
-        if not container.qq_sticker_service:
-            logger.error("QQStickerService not available in container.")
-            return
+        """处理由LLM决策的、分发到QQ应用的特定动作."""
+        # 目前只处理 manage_stickers
+        if action_name == "manage_stickers":
+            if not container.qq_sticker_service:
+                logger.error("QQStickerService not available in container.")
+                return
 
-        result_message = await container.qq_sticker_service.manage_stickers(params)
-        await container.thought_storage_service.save_action_result_to_thought(
-            thought_key=thought_key, result_text=result_message
-        )
+            result_message = await container.qq_sticker_service.manage_stickers(params)
+            await container.thought_storage_service.save_action_result_to_thought(
+                thought_key=thought_key, result_text=result_message
+            )
+        else:
+            logger.warning(f"QQBuilder收到了一个未知的LLM动作请求: {action_name}")
 
     def get_session_manager(self, container: ServiceContainer) -> QQChatSessionManager:
         """按需创建并返回 QQChatSessionManager 的单例.

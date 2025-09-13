@@ -29,8 +29,6 @@ if TYPE_CHECKING:
     from src.bootstrap.container import ServiceContainer
     from src.mind.abilities.information_retrieval_service import InformationRetrievalService
     from src.os.application_manager import ApplicationManager
-    from src.os.apps.qq.builder import QQBuilder
-    from src.os.apps.qq.sticker_service import QQStickerService
     from src.os.services.filesystem_service import FileSystemService
     from src.os.state_generator import AICOSStateGenerator
     from src.os.window_manager import WindowManager
@@ -54,7 +52,8 @@ class ActionHandler:
         action_log_service: ActionLogStorageService,
         action_sender: ActionSender,
         entity_service: EntityGraphService,
-        qq_sticker_service: QQStickerService,
+        # [移除] 不再注入 qq_sticker_service
+        # qq_sticker_service: QQStickerService,
     ) -> None:
         self.aicos_state_generator: AICOSStateGenerator | None = None
         self.application_manager: ApplicationManager | None = None
@@ -66,7 +65,8 @@ class ActionHandler:
         self.action_log_service = action_log_service
         self.action_sender = action_sender
         self.entity_service = entity_service
-        self.qq_sticker_service = qq_sticker_service
+        # [移除] 不再持有 qq_sticker_service 实例
+        # self.qq_sticker_service = qq_sticker_service
 
         self.pending_action_manager = PendingActionManager()
         logger.info(f"{self.__class__.__name__} instance created (Refactored).")
@@ -277,24 +277,28 @@ class ActionHandler:
         container: ServiceContainer,
         thought_key: str,
     ) -> None:
-        """处理由 UI Dispatcher 转发来的、需要与适配器通信的 GUI 动作."""
-        if platform_id == "qq":
-            if action_name == "send_message":
-                await self._handle_gui_send_message(params, window_manager, container)
-            # 路由 manage_stickers 动作
-            elif action_name == "manage_stickers" and self.application_manager:
-                builder = self.application_manager.get_builder_by_name("qq")
-                if isinstance(builder, QQBuilder):
-                    await builder.handle_sticker_action(params, container, thought_key)
-                elif builder:
-                    logger.warning(
-                        "ActionHandler: 'manage_stickers' 动作需要 QQBuilder，"
-                        f"但获取到的是 {type(builder).__name__}"
-                    )
-        else:
+        """处理由 UI Dispatcher 转发来的、需要与适配器通信的 GUI 动作.
+
+        它将动作委托给对应的 App Builder 处理。
+        """
+        if not self.application_manager:
+            logger.error("ActionHandler: ApplicationManager 未初始化，无法分发动作。")
+            return
+
+        builder = self.application_manager.get_builder_by_name(platform_id)
+        if not builder:
             logger.warning(
-                f"ActionHandler 收到一个未知的 GUI 动作转发: {platform_id}.{action_name}"
+                f"ActionHandler 收到一个未知平台的 GUI 动作转发: {platform_id}.{action_name}"
             )
+            return
+
+        # 将动作委托给 builder
+        if action_name == "send_message":
+            # send_message 逻辑比较特殊和通用，暂时保留在 ActionHandler
+            await self._handle_gui_send_message(params, window_manager, container)
+        else:
+            # 其他所有平台专属动作都由 builder 的 handle_llm_action 处理
+            await builder.handle_llm_action(action_name, params, container, thought_key)
 
     async def _handle_gui_send_message(
         self, params: dict, window_manager: WindowManager, container: ServiceContainer

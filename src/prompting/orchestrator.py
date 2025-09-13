@@ -17,7 +17,6 @@ if TYPE_CHECKING:
     from src.mind.goal_manager import GoalManager
     from src.mind.state_manager import AIStateManager
     from src.os.application_manager import ApplicationManager
-    from src.os.apps.qq.sticker_service import QQStickerService
     from src.os.services.filesystem_service import FileSystemService
     from src.os.state_generator import AICOSStateGenerator
     from src.os.window_manager import WindowManager
@@ -26,7 +25,7 @@ if TYPE_CHECKING:
 
 
 class ThoughtPromptBuilder:
-    """构建思维提示的总编排器和 Schema 构建总指挥."""
+    """[最终版] 构建思维提示的总编排器和 Schema 构建总指挥."""
 
     def __init__(
         self,
@@ -40,7 +39,6 @@ class ThoughtPromptBuilder:
         info_retrieval_service: "InformationRetrievalService",
         goal_manager: "GoalManager",
         deliberation_service: "DeliberationService",
-        qq_sticker_service: "QQStickerService",
     ) -> None:
         self.is_context_switch_flag: bool = False
         self.aicos_state_generator = aicos_state_generator
@@ -51,7 +49,6 @@ class ThoughtPromptBuilder:
         self.info_retrieval_service = info_retrieval_service
         self.goal_manager = goal_manager
         self.deliberation_service = deliberation_service
-        self.qq_sticker_service = qq_sticker_service
 
         self.schema_builder = SchemaBuilder()
 
@@ -60,13 +57,13 @@ class ThoughtPromptBuilder:
             window_manager,
             application_manager,
             entity_graph_service,
-            qq_sticker_service=self.qq_sticker_service,
         )
         self.user_prompt_parts_builder = UserPromptPartsBuilder(
             thought_storage_service,
             state_manager,
         )
         self.container: ServiceContainer | None = None  # 用于接收容器引用
+        self.system_prompt_parts_builder.prompt_builder = self
 
     async def _build_response_schema(self, ui_mapping: dict[str, Any]) -> dict[str, Any]:
         """Schema 构建的总指挥方法."""
@@ -163,8 +160,8 @@ class ThoughtPromptBuilder:
                 "properties": base_interactions,
             }
 
+        # 遍历所有 builder 来动态征集 schema
         for platform_id, builder in self.application_manager._builders.items():
-            # await 调用，并传入 container
             if self.container:
                 app_schema = await builder.get_action_definitions(
                     self.window_manager, self.container
@@ -190,6 +187,9 @@ class ThoughtPromptBuilder:
         ) = await self.aicos_state_generator.build_current_state(image_collector=image_collector)
 
         _, _, _, session = await self._extract_context_from_ui()
+
+        # 注入 container
+        self.system_prompt_parts_builder.container = self.container
 
         # 2. 将上一轮的快照传递给 SystemPromptPartsBuilder
         system_prompt_blocks = await self.system_prompt_parts_builder.build(
