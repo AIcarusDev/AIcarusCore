@@ -29,7 +29,6 @@ if TYPE_CHECKING:
     from src.bootstrap.container import ServiceContainer
     from src.mind.abilities.information_retrieval_service import InformationRetrievalService
     from src.os.application_manager import ApplicationManager
-    from src.os.services.filesystem_service import FileSystemService
     from src.os.state_generator import AICOSStateGenerator
     from src.os.window_manager import WindowManager
 
@@ -45,7 +44,6 @@ class ActionHandler:
 
     def __init__(
         self,
-        filesystem_service: FileSystemService,
         info_retrieval_service: InformationRetrievalService,
         thought_storage_service: ThoughtStorageService,
         event_storage_service: EventStorageService,
@@ -55,7 +53,6 @@ class ActionHandler:
     ) -> None:
         self.aicos_state_generator: AICOSStateGenerator | None = None
         self.application_manager: ApplicationManager | None = None
-        self.filesystem_service = filesystem_service
         self.info_retrieval_service = info_retrieval_service
         self._cycle_trigger: Callable[[], None] | None = None
         self.thought_storage_service = thought_storage_service
@@ -133,29 +130,9 @@ class ActionHandler:
                 result_text = await self.info_retrieval_service.web_search(params)
             elif action_name == "summarize_url":
                 result_text = await self.info_retrieval_service.summarize_url(params)
-            elif action_name == "list_files":
-                result_text = await asyncio.to_thread(self.filesystem_service.list_files, params)
-            elif action_name == "read_file":
-                path_str = params.get("path")
-                safe_path = self.filesystem_service.resolve_safe_path(path_str)
-                if not safe_path:
-                    result_text = f"错误：路径 '{path_str}' 不安全或无效。"
-                else:
-                    result_text = await asyncio.to_thread(
-                        self.filesystem_service.read_file, safe_path, path_str
-                    )
-            elif action_name == "write_file":
-                result_text = await asyncio.to_thread(self.filesystem_service.write_file, params)
-            elif action_name == "edit_file":
-                result_text = await asyncio.to_thread(self.filesystem_service.edit_file, params)
-            elif action_name == "get_aggregated_content":
-                result_text = await asyncio.to_thread(
-                    self.filesystem_service.get_aggregated_content, params
-                )
-            elif action_name == "delete_workspace_file":  # 修正方法名
-                result_text = await asyncio.to_thread(self.filesystem_service.delete_file, params)
             else:
-                logger.error(f"收到了一个未知的核心动作: '{action_name}'")
+                # 所有文件操作已被移除
+                logger.error(f"收到了一个未知的或已作废的核心动作: '{action_name}'")
                 result_text = f"错误：未知核心动作 '{action_name}'。"
         except Exception as e:
             logger.error(f"执行核心动作 '{action_name}' 时发生错误: {e}", exc_info=True)

@@ -46,7 +46,7 @@ class UIElement:
 class Window:
     """代表一个窗口的完整内部状态."""
 
-    name: str
+    name: str # 窗口的唯一、固定名称, e.g., "qq_main", "file_explorer_main"
     parent_app_id: str  # 所属应用的ID，例如 "app-001"
     title: str
     window_class: str  # 例如 "conversation_list", "conversation", "editor"
@@ -56,7 +56,9 @@ class Window:
     z_order: int = 0
     last_focused_timestamp: float = field(default_factory=time.time)
 
-    # content_state 用于存储窗口的特定内容状态，例如当前页码
+    # content_state 用于存储窗口的特定内容状态
+    # e.g., for file_explorer: {"current_path": "/desktop/"}
+    # e.g., for text_editor: {"tabs": [...], "active_tab_id": "..."}
     content_state: dict = field(default_factory=dict)
 
     # 弹窗相关属性
@@ -70,7 +72,8 @@ class Window:
 class Application:
     """代表一个应用程序的内部状态."""
 
-    id: str  # 应用的唯一ID，例如 "app-001"
+    id: str  # 应用的唯一ID，例如 "app-qq"
     name: str  # 内部名称，例如 "qq"
     title: str  # 显示名称，例如 "QQ"
+    is_utility: bool = False # 新增：是否为系统工具
     lifecycle: ApplicationLifecycle = ApplicationLifecycle.STOPPED

@@ -14,13 +14,18 @@ class QQAppDefinition(IAppDefinition):
 
         Returns:
             Application: 包含 QQ 应用信息的 Application 实例。
+            is_utility=False
         """
-        # ID 和 name 的定义被内聚到了应用自身
-        # ID 是稳定且唯一的，name 用于关联 Builder
-        return Application(id="app-qq", name="qq", title="QQ")
+        # is_utility=False 表示这是一个普通的应用程序，而不是核心系统工具
+        return Application(id="app-qq", name="qq", title="QQ", is_utility=False)
 
     @property
-    def builder_class(self) -> type[QQBuilder]:  # noqa: D102
+    def builder_class(self) -> type[QQBuilder]:
+        """返回 QQ 应用的构建器类.
+
+        Returns:
+            type[QQBuilder]: QQ 应用的构建器类型。
+        """
         return QQBuilder
 
 

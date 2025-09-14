@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from src.os.application_manager import ApplicationManager
     from src.os.apps.qq.sticker_service import QQStickerService
     from src.os.communication.core_ws_server import CoreWebsocketServer
-    from src.os.services.filesystem_service import FileSystemService
+    from src.os.file_system_manager import FileSystemManager
     from src.os.state_generator import AICOSStateGenerator
     from src.os.window_manager import WindowManager
     from src.prompting.orchestrator import ThoughtPromptBuilder
@@ -85,7 +85,6 @@ class ServiceContainer:
     window_manager: WindowManager
     application_manager: ApplicationManager
     aicos_state_generator: AICOSStateGenerator
-    # 能力与服务
-    filesystem_service: FileSystemService
+    file_system_manager: FileSystemManager
     info_retrieval_service: InformationRetrievalService
     goal_manager: GoalManager

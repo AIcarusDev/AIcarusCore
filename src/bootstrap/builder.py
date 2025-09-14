@@ -27,7 +27,7 @@ from src.os.apps.qq.sticker_service import QQStickerService
 from src.os.communication.action_sender import ActionSender
 from src.os.communication.core_ws_server import CoreWebsocketServer
 from src.os.communication.event_receiver import EventReceiver
-from src.os.services.filesystem_service import FileSystemService
+from src.os.file_system_manager import FileSystemManager
 from src.os.state_generator import AICOSStateGenerator
 from src.os.window_manager import WindowManager
 from src.prompting.orchestrator import ThoughtPromptBuilder
@@ -78,8 +78,10 @@ class ServiceBuilder:
         semantic_model_proxy = AsyncSemanticModelProxy()
         logger.info("SemanticModelProxy已创建，后台加载任务已启动。")
 
+        # 创建物理文件系统管理器
+        file_system_manager = FileSystemManager()
+
         # 创建新的能力/服务实例
-        filesystem_service = FileSystemService()
         info_retrieval_service = InformationRetrievalService(
             web_search_agent_client=llm_clients["web_search_agent_client"],
             url_context_agent_client=llm_clients["url_context_agent_client"],
@@ -104,7 +106,7 @@ class ServiceBuilder:
 
         # ActionHandler 的初始化
         action_handler = ActionHandler(
-            filesystem_service=filesystem_service,
+            # --- [核心修改] 不再需要旧的 FileSystemService ---
             info_retrieval_service=info_retrieval_service,
             thought_storage_service=db_services["thought_storage_service"],
             event_storage_service=db_services["event_storage_service"],
@@ -129,6 +131,7 @@ class ServiceBuilder:
             event_service=db_services["event_storage_service"],
             media_cache_service=db_services["media_cache_service"],
             action_handler=action_handler,
+            file_system_manager=file_system_manager, # 注入新的文件管理器
         )
 
         action_handler.set_state_generator(aicos_state_generator)
@@ -140,10 +143,10 @@ class ServiceBuilder:
             state_manager=state_manager,
             thought_storage_service=db_services["thought_storage_service"],
             entity_graph_service=db_services["entity_graph_service"],
-            filesystem_service=filesystem_service,
             info_retrieval_service=info_retrieval_service,
             goal_manager=goal_manager,
             qq_sticker_service=qq_sticker_service,
+            file_system_manager=file_system_manager, # 注入新的文件管理器
         )
 
         # 2. 将代理注入到 NarrativeVectorizer
@@ -208,7 +211,8 @@ class ServiceBuilder:
             window_manager=window_manager,
             application_manager=application_manager,
             aicos_state_generator=aicos_state_generator,
-            filesystem_service=filesystem_service,
+            # --- [核心修改] 注入新的文件管理器实例 ---
+            file_system_manager=file_system_manager,
             info_retrieval_service=info_retrieval_service,
             goal_manager=goal_manager,
         )

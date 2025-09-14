@@ -1,138 +1,199 @@
 # 文件路径: src/os/apps/text_editor/builder.py
 
+from typing import TYPE_CHECKING, Any
 from xml.etree.ElementTree import SubElement
-from typing import Any, Dict, TYPE_CHECKING
 
-from src.os.models import Window
+from src.common.custom_logging.logging_config import get_logger
+from src.os.models import Window, WindowStatus
 from src.services.action.components.base_builder import BaseAppBuilder
 
 if TYPE_CHECKING:
     from src.bootstrap.container import ServiceContainer
+    from src.os.file_system_manager import FileSystemManager
     from src.os.window_manager import WindowManager
 
+
+logger = get_logger(__name__)
 class TextEditorAppBuilder(BaseAppBuilder):
-    """
-    Builder for the Text Editor application.
-    Responsible for rendering the window content of a text file.
-    """
+    """文本编辑器应用的构建器."""
+
     @property
     def app_name(self) -> str:
-        """返回 app_name."""
+        """返回应用的名称."""
         return "text_editor"
 
     async def on_before_start(self, container: "ServiceContainer") -> tuple[bool, str | None]:
-        """应用启动前."""
+        """在应用启动之前执行的异步操作.
+
+        Args:
+            container: 服务容器，提供对各种服务的访问。
+
+        Returns:
+            一个元组，包含一个布尔值表示是否允许应用启动，以及一个可选的错误消息。
+            如果允许启动，则布尔值为 True，否则为 False。如果启动被阻止，可以提供一个错误消息。
+        """
         return True, None
 
     async def on_after_start(self, container: "ServiceContainer", app_id: str) -> Window:
-        """应用启动后, 返回一个主窗口."""
-        # 文本编辑器通常是通过“打开文件”来启动的，而不是自己有一个主界面。
-        # 但为了遵循 App 协议，我们返回一个不可见的、立即被回收的占位窗口。
+        """应用启动后, 返回一个空的单例主窗口."""
         return Window(
-            name="text_editor_placeholder",
+            name="text_editor_main", # 固定名称
             parent_app_id=app_id,
             title="文本编辑器",
-            window_class="placeholder",
-            transient_cycles_remaining=0,  # 立即被垃圾回收
+            # 初始状态为空，没有打开任何文件
+            content_state={"tabs": [], "active_tab_id": None},
         )
 
-    async def render_popup_content(self, **kwargs) -> None:
-        """渲染弹窗内容 (文本编辑器目前没有弹窗)."""
+    async def render_popup_content(self, **kwargs: Any) -> None:
+        """渲染弹出窗口内容 (当前文本编辑器应用不需要)."""
         pass
 
-    async def render_window_content(self, **kwargs) -> None:
-        """
-        Renders the content of the text editor window, which includes the
-        file content and associated actions.
-        """
+    async def render_window_content(self, **kwargs: Any) -> None:
+        """渲染文本编辑器窗口的内容，包括标签页和激活文件的内容."""
         parent_element = kwargs["parent_element"]
         window: Window = kwargs["window"]
-        
-        # 从窗口状态中获取文件路径和内容
-        file_path = window.content_state.get("path", "未知文件")
-        file_content = window.content_state.get("content", "无法加载文件内容。")
+        ui_mapping = kwargs["ui_mapping"]
+        generate_semantic_id = kwargs["generate_semantic_id"]
+        file_system_manager: FileSystemManager = kwargs["file_system_manager"]
 
-        # 创建编辑器根元素
-        editor_node = SubElement(parent_element, "editor", attrib={"file_path": file_path})
-        
-        # 显示文件内容
-        content_node = SubElement(editor_node, "content")
-        content_node.text = file_content
-        
-        # 根据用户要求，此处不添加“保存”按钮，为自动保存做准备。
-        # 未来可以在这里添加其他UI元素，例如状态栏、字数统计等。
-        actions_node = SubElement(editor_node, "actions")
-        actions_node.text = "编辑内容后将自动保存。"
+        tabs = window.content_state.get("tabs", [])
+        active_tab_id = window.content_state.get("active_tab_id")
+
+        description = "可以浏览编辑所有文本或代码的多功能编辑器，"
+        description += "写入即自动保存。"
+        SubElement(parent_element, "desc").text = description
+
+        tabs_node = SubElement(parent_element, "tabs")
+
+        active_file_path = None
+
+        for tab in tabs:
+            item_id = tab.get("item_id")
+            file_name = tab.get("name")
+            is_active = (item_id == active_tab_id)
+
+            tab_node = SubElement(
+                tabs_node,
+                "tab",
+                attrib={"item_id": item_id, "active": str(is_active).lower()},
+            )
+            SubElement(tab_node, "file_name").text = file_name
+
+            # 为 tab id 中的特殊字符进行转义，以便生成合法的 semantic id
+            safe_tab_id_part = item_id.replace(":", "_").replace("/", "_").replace(".", "_")
+
+            if not is_active:
+                view_btn_id = generate_semantic_id(["text_editor", "tab", safe_tab_id_part, "view"])
+                SubElement(
+                    tab_node,
+                    "button",
+                    attrib={"id": view_btn_id, "name": "view", "title": "查看"}
+                )
+                ui_mapping[view_btn_id] = {
+                    "action_type": "click",
+                    "action": "view_tab",
+                    "target_uid": item_id
+                }
+            else:
+                active_file_path = tab.get("path")
+
+            close_btn_id = generate_semantic_id(["text_editor", "tab", safe_tab_id_part, "close"])
+            SubElement(
+                tab_node,
+                "button",
+                attrib={"id": close_btn_id, "name": "close", "title": "关闭"},
+            )
+            ui_mapping[close_btn_id] = {
+                "action_type": "click",
+                "action": "close_tab",
+                "target_uid": item_id
+            }
+
+        if active_file_path:
+            content_node = SubElement(
+                parent_element,
+                "content",
+                attrib={"file_path": active_file_path}
+            )
+            file_content = file_system_manager.read_file_content(active_file_path)
+            if file_content is not None:
+                content_node.text = file_content
+            else:
+                content_node.text = f"错误：无法读取文件 '{active_file_path}' 的内容。"
 
     async def get_action_definitions(
         self, window_manager: "WindowManager", container: "ServiceContainer"
-    ) -> Dict[str, Any]:
-        """
-        Defines the 'edit_file' action that the LLM can use to modify the file content.
-        """
-        return {
-            "edit_file": {
-                "type": "object",
-                "description": "修改当前打开的文件的内容。此操作会直接覆写整个文件。",
-                "properties": {
-                    "target_window_id": {
-                        "type": "string",
-                        "description": "必须提供当前编辑器窗口的ID。",
+    ) -> dict[str, Any]:
+        """动态构建文本编辑器的可用动作 Schema."""
+        editor_window = window_manager.get_window("text_editor_main")
+
+        # 仅当编辑器窗口打开、非最小化且有激活的标签页时，才提供 edit 动作
+        if (
+            editor_window and
+            editor_window.status != WindowStatus.MINIMIZE and
+            editor_window.content_state.get("active_tab_id")
+        ):
+            return {
+                "text_editor": {
+                    "type": "object",
+                    "description": "在文本编辑器中对当前激活的文件进行内容修改。",
+                    "properties": {
+                        "edit": {
+                            "type": "object",
+                            "description": "编辑当前激活标签页的文件内容。",
+                            "properties": {
+                                "content": {
+                                    "type": "string", "description": "要写入的全新或追加的内容。"
+                                },
+                                "append": {
+                                    "type": "boolean",
+                                    "description": "默认为 false (覆盖)。"
+                                                "若为 true，则在文件末尾追加内容。",
+                                    "default": False,
+                                },
+                            },
+                            "required": ["content"],
+                        },
+                        "motivation": {"type": "string"}
                     },
-                    "content": {
-                        "type": "string",
-                        "description": "要写入文件的全新内容。",
-                    },
-                    "motivation": {"type": "string"},
-                },
-                "required": ["target_window_id", "content", "motivation"],
+                    "required": ["edit", "motivation"]
+                }
             }
-        }
+        return {}
 
-    async def handle_llm_action(self, action_name: str, params: Dict[str, Any], **kwargs) -> str:
-        """
-        Handles the 'edit_file' action triggered by the LLM.
-        """
-        if action_name != "edit_file":
-            return f"错误：文本编辑器应用无法处理 '{action_name}' 动作。"
+    async def handle_llm_action(
+        self,
+        action_name: str,
+        params: dict[str, Any],
+        container: "ServiceContainer",
+        thought_key: str,
+    ) -> None:
+        """处理LLM的文本编辑器动作."""
+        if action_name != "text_editor":
+            return
 
-        container = kwargs.get("container")
-        if not container:
-            return "错误：无法访问服务容器。"
+        fs_manager = container.file_system_manager
+        window_manager = container.window_manager
 
-        window_id = params.get("target_window_id")
-        new_content = params.get("content")
+        command_obj = params.get("edit", {})
+        content = command_obj.get("content")
+        append = command_obj.get("append", False)
 
-        if not window_id or new_content is None:
-            return "错误：缺少窗口ID或写入内容。"
+        if content is None:
+            return
 
-        # 从窗口管理器获取窗口信息
-        window = container.window_manager.get_window(window_id)
-        if not window:
-            return f"错误：找不到ID为 '{window_id}' 的窗口。"
+        editor_window = window_manager.get_window("text_editor_main")
+        if not editor_window:
+            return
 
-        file_path = window.content_state.get("path")
-        if not file_path:
-            return f"错误：窗口 '{window_id}' 中没有文件路径信息。"
+        active_tab_id = editor_window.content_state.get("active_tab_id")
+        if not active_tab_id:
+            return
 
-        # 调用文件系统服务写入文件
-        # 注意：这里的 write_file 默认是覆盖写入 (append=False)
-        write_params = {
-            "path": file_path,
-            "content": new_content,
-            "append": False,
-            "motivation": params.get("motivation", "通过文本编辑器修改文件。")
-        }
-        
-        # FileSystemService 的方法不是 async 的，所以直接调用
-        # 注意：这里的调用方式可能需要根据 FileSystemService 的实际实现调整
-        # 假设 FileSystemManager 提供了直接的文件写入方法
         try:
-            container.file_system_manager.write_file(file_path, new_content)
-            
-            # 更新窗口状态以反映最新的内容
-            window.content_state["content"] = new_content
-            
-            return f"成功将内容写入文件 '{file_path}'。"
-        except Exception as e:
-            return f"错误：写入文件 '{file_path}' 时发生错误: {e}"
+            _type, user_path = active_tab_id.split(":", 1)
+        except ValueError:
+            return
+
+        success = fs_manager.write_file_content(user_path, content, append)
+        logger.info(f"Text editor action 'edit' on '{user_path}' executed. Success: {success}")

@@ -11,6 +11,7 @@ from src.services.database.services.event_storage_service import EventStorageSer
 from src.services.database.services.media_cache_service import MediaCacheService
 
 from .application_manager import ApplicationManager
+from .file_system_manager import FileSystemManager
 from .models import Window, WindowStatus
 from .window_manager import WindowManager
 
@@ -33,6 +34,7 @@ class AICOSStateGenerator:
         event_service: EventStorageService,
         media_cache_service: MediaCacheService,
         action_handler: ActionHandler,
+        file_system_manager: FileSystemManager, # 注入
     ) -> None:
         self.window_manager = window_manager
         self.application_manager = application_manager
@@ -40,6 +42,7 @@ class AICOSStateGenerator:
         self.event_service = event_service
         self.media_cache_service = media_cache_service
         self.action_handler = action_handler
+        self.file_system_manager = file_system_manager # 存储
         self._ui_mapping: dict[str, dict] = {}
         self.is_connected = False
         # 预编译正则表达式以提高性能
@@ -79,7 +82,7 @@ class AICOSStateGenerator:
             desktop_node = SubElement(
                 root,
                 "desktop",
-                attrib={"name": "desktop", "parent": "uti-002", "status": "modal_lock"},
+                attrib={"name": "desktop", "status": "modal_lock"},
             )
             windows_node = SubElement(desktop_node, "windows", attrib={"name": "windows"})
             modal_path = ["aicos", "desktop", "modal_" + active_modal.name]
@@ -105,16 +108,18 @@ class AICOSStateGenerator:
     def _render_softwares(self, parent_element: Element) -> None:
         """渲染 <softwares> 块，代表所有已安装的应用."""
         softwares_node = SubElement(parent_element, "softwares")
+
+        # --- 区分 utilities 和 applications ---
         utilities_node = SubElement(softwares_node, "utilities")
-        SubElement(utilities_node, "utility", id="uti-001", name="task_manager", title="任务管理器")
-        SubElement(
-            utilities_node, "utility", id="uti-002", name="file_explorer", title="资源管理器"
-        )
         applications_node = SubElement(softwares_node, "applications")
 
         # 从 ApplicationManager 动态获取应用列表
+        # 假设 Application 定义中有一个 is_utility 标志
         for app in self.application_manager.get_all_apps():
-            SubElement(applications_node, "application", id=app.id, name=app.name, title=app.title)
+            target_node = utilities_node if app.is_utility else applications_node
+            node_type = "utility" if app.is_utility else "application"
+            SubElement(target_node, node_type, id=app.id, name=app.name, title=app.title)
+
 
     def _render_background_processes(
         self,
@@ -124,51 +129,45 @@ class AICOSStateGenerator:
         bg_processes_node = SubElement(
             parent_element,
             "background_processes",
-            attrib={"name": "background_processes", "parent": "uti-001"},
+            attrib={"name": "background_processes"},
         )
 
-        core_processes = {"task_manager", "file_explorer"}
-
-        # 渲染核心进程 (无交互)
-        SubElement(
-            bg_processes_node, "process", attrib={"name": "task_manager", "title": "任务管理器"}
-        )
-        SubElement(
-            bg_processes_node, "process", attrib={"name": "file_explorer", "title": "资源管理器"}
-        )
-
+        # 渲染所有正在运行的应用作为进程
         for app in self.application_manager.get_running_apps():
-            if app.name in core_processes:
-                continue
-
             proc_path = [app.name]
             proc_node = SubElement(
                 bg_processes_node, "process", attrib={"name": app.name, "title": app.title}
             )
 
-            kill_btn_id = self._generate_semantic_id([*proc_path, "terminate"])
-            SubElement(
-                proc_node,
-                "button",
-                attrib={"id": kill_btn_id, "name": "terminate_process", "title": "结束进程"},
-            )
-            self._ui_mapping[kill_btn_id] = {
-                "action_type": "click",
-                "action": "kill_process",
-                "target_uid": app.id,
-            }
+            # 系统工具通常不允许被关闭
+            if not app.is_utility:
+                kill_btn_id = self._generate_semantic_id([*proc_path, "terminate"])
+                SubElement(
+                    proc_node,
+                    "button",
+                    attrib={"id": kill_btn_id, "name": "terminate_process", "title": "结束进程"},
+                )
+                self._ui_mapping[kill_btn_id] = {
+                    "action_type": "click",
+                    "action": "kill_process",
+                    "target_uid": app.id,
+                }
+
 
     async def _render_desktop(self, parent_element: Element, image_collector: list[dict]) -> None:
         """渲染桌面，包括快捷方式、窗口和系统托盘."""
-        desktop_node = SubElement(parent_element, "desktop", attrib={"parent": "uti-002"})
+        desktop_node = SubElement(parent_element, "desktop")
         is_desktop_visible = not any(
             w.status == WindowStatus.MAXIMIZE for w in self.window_manager.get_all_windows_sorted()
         )
 
         if is_desktop_visible:
             items_node = SubElement(desktop_node, "items")
-            # [重构] 动态渲染所有已安装应用的快捷方式
+            # 动态渲染所有应用的快捷方式
             for app in self.application_manager.get_all_apps():
+                # 系统工具通常没有快捷方式
+                if app.is_utility:
+                    continue
                 shortcut_path = [f"shortcut_{app.name}"]
                 shortcut_id = self._generate_semantic_id(shortcut_path)
                 SubElement(
@@ -186,6 +185,21 @@ class AICOSStateGenerator:
                     "action": "start_app",
                     "target_uid": app.id,
                 }
+
+            # --- 渲染桌面上的物理文件和文件夹 ---
+            desktop_contents = self.file_system_manager.list_directory_contents("/desktop")
+            if desktop_contents:
+                for item in desktop_contents:
+                    SubElement(
+                        items_node, item.type, attrib={"name": item.name, "item_id": item.item_id}
+                    )
+                    # 为桌面上的每个项目创建双击打开的映射
+                    action = "open_folder" if item.type == "folder" else "open_file"
+                    self._ui_mapping[item.item_id] = {
+                        "action_type": "double_click",
+                        "action": action,
+                        "target_uid": item.item_id, # target_uid 就是 item_id
+                    }
 
         windows_node = SubElement(desktop_node, "windows")
         for window in self.window_manager.get_all_windows_sorted():
@@ -219,8 +233,7 @@ class AICOSStateGenerator:
         # 弹窗属性的渲染
         window_attrs = {
             "name": window.name,
-            "parent": window.parent_app_id,
-            "class": window.window_class,
+            "parent_app": window.parent_app_id,
             "title": window.title,
             "status": window.status.value,
         }
@@ -287,6 +300,8 @@ class AICOSStateGenerator:
 
         if window.status != WindowStatus.MINIMIZE:
             if window.window_class == "system_error_modal":
+                logger.warning(f"渲染系统错误弹窗 '{window.name}' 的内容。")
+                # 直接渲染错误信息
                 content_node = SubElement(window_node, "content", attrib={"type": "error_message"})
                 content_node.text = window.content_state.get("error_message", "发生未知系统错误。")
                 return
@@ -296,20 +311,20 @@ class AICOSStateGenerator:
             builder = self.application_manager.get_builder_by_name(app.name) if app else None
 
             if builder:
+                # 统一在一个 content 节点下渲染
                 content_node = SubElement(window_node, "content")
-                window_path = [*current_path, "content"]
                 render_args = {
                     "parent_element": content_node,
-                    "current_path": window_path,
                     "window": window,
+                    "ui_mapping": self._ui_mapping,
+                    "generate_semantic_id": self._generate_semantic_id,
+                    "image_collector": image_collector,
                     "bot_ids_map": self.application_manager.get_self_bot_ids_map(),
                     "entity_service": self.entity_service,
                     "event_service": self.event_service,
                     "media_cache_service": self.media_cache_service,
-                    "ui_mapping": self._ui_mapping,
-                    "generate_semantic_id": self._generate_semantic_id,
-                    "image_collector": image_collector,
                     "action_handler": self.action_handler,
+                    "file_system_manager": self.file_system_manager,
                 }
                 if window.is_popup:
                     await builder.render_popup_content(**render_args)

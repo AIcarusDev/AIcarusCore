@@ -40,26 +40,20 @@ async def handle_os_interaction(
                 application_manager,
                 container,
             )
-
-    # 2. 解析特定应用的交互 (例如 qq.send_message)
     else:
-        # 这个逻辑现在会将所有非 'base' 的动作都分发给 ActionHandler 的新方法
-        for platform_id, platform_actions in aicos_interaction.items():
-            if platform_id == "base":
-                continue
+        # --- 将所有非 'base' 的动作分发给对应的 Builder ---
+        app_name = next(iter(aicos_interaction), None)
+        if not app_name:
+            return
 
-            action_name = next(iter(platform_actions), None)
-            if not action_name:
-                continue
-            params = platform_actions[action_name]
+        builder = application_manager.get_builder_by_name(app_name)
+        if not builder:
+            logger.warning(f"UI Dispatcher: 收到未知应用的动作请求: {app_name}")
+            return
 
-            logger.info(f"UI Dispatcher: 路由平台LLM动作 '{platform_id}.{action_name}'")
-
-            # 统一调用 ActionHandler 的新入口
-            await container.action_handler.handle_aicos_gui_action(
-                platform_id, action_name, params, window_manager, container, thought_key
-            )
-            break  # 一个决策只执行一个平台的动作
+        params = aicos_interaction[app_name]
+        logger.info(f"UI Dispatcher: 路由应用动作 '{app_name}'")
+        await builder.handle_llm_action(app_name, params, container, thought_key)
 
 
 async def _handle_base_ui_interaction(
@@ -84,7 +78,80 @@ async def _handle_base_ui_interaction(
         f"UI操作: '{action_name}({target_id})' -> 内部指令: '{internal_command}({target_uid})'"
     )
 
-    if internal_command == "disconnect_device":
+    # --- 文件和窗口打开逻辑 ---
+    if internal_command == "open_folder":
+        # 获取单例窗口
+        fe_window = window_manager.get_window("file_explorer_main")
+        if not fe_window:  # 如果不存在，则启动应用来创建它
+            await _start_app_and_get_window(
+                "app-file-explorer", application_manager, window_manager, container
+            )
+            fe_window = window_manager.get_window("file_explorer_main")
+
+        if fe_window:
+            # 更新路径状态并聚焦
+            try:
+                _type, user_path = target_uid.split(":", 1)
+                fe_window.content_state["current_path"] = user_path
+                window_manager.focus_window(fe_window.name)
+                logger.info(f"导航到文件夹: {user_path}")
+            except ValueError:
+                logger.error(f"无效的文件夹 item_id: {target_uid}")
+
+    elif internal_command == "open_file":
+        editor_window = window_manager.get_window("text_editor_main")
+        if not editor_window:
+            await _start_app_and_get_window(
+                "app-text-editor", application_manager, window_manager, container
+            )
+            editor_window = window_manager.get_window("text_editor_main")
+
+        if editor_window:
+            try:
+                _type, user_path = target_uid.split(":", 1)
+                file_name = user_path.split('/')[-1]
+
+                # 检查是否已在tab中
+                tabs = editor_window.content_state.setdefault("tabs", [])
+                if any(tab['item_id'] == target_uid for tab in tabs):
+                    # 如果已存在，则仅切换
+                    editor_window.content_state["active_tab_id"] = target_uid
+                else:
+                    # 如果不存在，则添加新tab并切换
+                    tabs.append({"item_id": target_uid, "path": user_path, "name": file_name})
+                    editor_window.content_state["active_tab_id"] = target_uid
+
+                window_manager.focus_window(editor_window.name)
+                logger.info(f"已在文本编辑器中打开或切换到文件: {user_path}")
+            except (ValueError, KeyError):
+                logger.error(f"打开文件失败，无效的 item_id 或窗口状态: {target_uid}")
+
+    elif internal_command == "view_tab":
+        editor_window = window_manager.get_window("text_editor_main")
+        if editor_window:
+            editor_window.content_state["active_tab_id"] = target_uid
+            window_manager.focus_window("text_editor_main")
+
+    elif internal_command == "close_tab":
+        editor_window = window_manager.get_window("text_editor_main")
+        if editor_window:
+            tabs = editor_window.content_state.get("tabs", [])
+            # 移除标签页
+            editor_window.content_state["tabs"] = [
+                t for t in tabs if t.get("item_id") != target_uid
+            ]
+            # 如果关闭的是当前激活的标签页，则激活列表中的最后一个（如果还有的话）
+            if editor_window.content_state.get("active_tab_id") == target_uid:
+                remaining_tabs = editor_window.content_state["tabs"]
+                if remaining_tabs:
+                    editor_window.content_state["active_tab_id"] = remaining_tabs[-1].get("item_id")
+                else:
+                    editor_window.content_state["active_tab_id"] = None
+            window_manager.focus_window("text_editor_main")
+
+
+    # --- 其他UI交互逻辑 ---
+    elif internal_command == "disconnect_device":
         container.aicos_state_generator.is_connected = False
         logger.info("设备 AIC-OS 已断开。")
 
@@ -183,7 +250,7 @@ async def _handle_base_ui_interaction(
             window_manager.focus_window(target_uid)
 
     elif internal_command == "open_folder":
-        window = window_manager.get_window(mapped_info.get("window_name")) # Assuming window_name is passed in mapping
+        window = window_manager.get_window(mapped_info.get("window_name"))
         if window:
             window.content_state["current_path"] = target_uid
             logger.info(f"导航到文件夹: {target_uid}")
@@ -192,10 +259,10 @@ async def _handle_base_ui_interaction(
     elif internal_command == "open_file":
         try:
             file_content = container.file_system_manager.read_file(target_uid)
-            
+
             # 从路径中提取文件名
             file_name = target_uid.split('/')[-1]
-            
+
             # 创建一个新的窗口实例来显示文件内容
             new_window = Window(
                 name=f"editor_{target_uid.replace('/', '_').replace('.', '_')}",
@@ -213,7 +280,7 @@ async def _handle_base_ui_interaction(
         except Exception as e:
             logger.error(f"打开文件时发生未知错误 ({target_uid}): {e}", exc_info=True)
             # 可选：在这里创建一个错误弹窗通知用户
-    
+
     elif internal_command == "delete_item":
         fs_manager = container.file_system_manager
         if fs_manager.delete(target_uid):
@@ -222,38 +289,7 @@ async def _handle_base_ui_interaction(
             logger.error(f"删除项目失败: {target_uid}")
 
     elif internal_command == "start_app":
-        app = next((a for a in application_manager.get_all_apps() if a.id == target_uid), None)
-        if not app:
-            logger.error(f"尝试启动一个不存在的应用: '{target_uid}'")
-            return
-
-        builder = application_manager.get_builder_by_name(app.name)
-        if not builder:
-            logger.error(f"应用 '{app.title}' 没有找到构建器，无法启动。")
-            return
-
-        # 通用的启动前检查流程
-        can_start, error_message = await builder.on_before_start(container)
-        # 检查未通过，弹出错误窗口
-        if not can_start:
-            logger.error(f"应用 '{app.title}' 启动前检查失败: {error_message}")
-            error_popup = Window(
-                name=f"win-error-startup-{app.id}",
-                parent_app_id=app.id,
-                title=f"{app.title} - 启动失败",
-                window_class="system_error_modal",
-                content_state={"error_message": error_message or "发生未知启动错误。"},
-                is_popup=True,
-                popup_type="modal",
-            )
-            window_manager.open_window(error_popup)
-            return
-
-        # 检查通过，执行通用启动流程
-        application_manager.start_app(target_uid)
-        logger.info(f"应用 '{app.title}' 已启动。")
-        main_window = await builder.on_after_start(container, app.id)
-        window_manager.open_window(main_window)
+        await _start_app_and_get_window(target_uid, application_manager, window_manager, container)
 
     elif internal_command == "open_conversation_window":
         # 在打开窗口前，立即将会话标记为已读
@@ -292,3 +328,40 @@ async def _handle_base_ui_interaction(
             window_manager.open_window(conv_window)
         else:
             logger.error(f"无法为 '{target_uid}' 创建会话窗口，获取会话失败。")
+
+async def _start_app_and_get_window(
+    app_id: str,
+    application_manager: "ApplicationManager",
+    window_manager: "WindowManager",
+    container: "ServiceContainer",
+) -> Window | None:
+    """一个辅助函数，用于启动应用并打开其主窗口."""
+    app = application_manager.get_app_by_id(app_id)
+    if not app:
+        logger.error(f"尝试启动一个不存在的应用: '{app_id}'")
+        return None
+
+    builder = application_manager.get_builder_by_name(app.name)
+    if not builder:
+        logger.error(f"应用 '{app.title}' 没有找到构建器，无法启动。")
+        return None
+
+    can_start, error_message = await builder.on_before_start(container)
+    if not can_start:
+        logger.error(f"应用 '{app.title}' 启动前检查失败: {error_message}")
+        error_popup = Window(
+            name=f"win-error-startup-{app.id}",
+            parent_app_id=app.id,
+            title=f"{app.title} - 启动失败",
+            content_state={"error_message": error_message or "发生未知启动错误。"},
+            is_popup=True,
+            popup_type="modal",
+        )
+        window_manager.open_window(error_popup)
+        return None
+
+    application_manager.start_app(app_id)
+    logger.info(f"应用 '{app.title}' 已启动。")
+    main_window = await builder.on_after_start(container, app.id)
+    window_manager.open_window(main_window)
+    return main_window

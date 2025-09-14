@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from src.mind.state_manager import AIStateManager
     from src.os.application_manager import ApplicationManager
     from src.os.apps.qq.sticker_service import QQStickerService
-    from src.os.services.filesystem_service import FileSystemService
+    from src.os.file_system_manager import FileSystemManager
     from src.os.state_generator import AICOSStateGenerator
     from src.os.window_manager import WindowManager
     from src.services.database.services.entity_graph_service import EntityGraphService
@@ -35,18 +35,18 @@ class ThoughtPromptBuilder:
         state_manager: "AIStateManager",
         thought_storage_service: "ThoughtStorageService",
         entity_graph_service: "EntityGraphService",
-        filesystem_service: "FileSystemService",
         info_retrieval_service: "InformationRetrievalService",
         goal_manager: "GoalManager",
         qq_sticker_service: "QQStickerService",
+        file_system_manager: "FileSystemManager", # 注入
     ) -> None:
-        self._interruption_message: str = ""  # 存储一次性消息
+        self._interruption_message: str = ""
         self.is_context_switch_flag: bool = False
         self.aicos_state_generator = aicos_state_generator
         self.window_manager = window_manager
         self.application_manager = application_manager
+        self.file_system_manager = file_system_manager # 存储
 
-        self.filesystem_service = filesystem_service
         self.info_retrieval_service = info_retrieval_service
         self.goal_manager = goal_manager
 
@@ -168,7 +168,6 @@ class ThoughtPromptBuilder:
 
         innate_actions = {}
         innate_actions.update(self.info_retrieval_service.get_actions_schema())
-        innate_actions.update(self.filesystem_service.get_actions_schema())
         if not self.aicos_state_generator.is_connected:
             innate_actions["connect"] = {
                 "type": "object",
@@ -212,17 +211,14 @@ class ThoughtPromptBuilder:
             }
 
         # 遍历所有 builder 来动态征集 schema
-        for platform_id, builder in self.application_manager._builders.items():
+        for _app_name, builder in self.application_manager._builders.items():
             if self.container:
                 app_schema = await builder.get_action_definitions(
                     self.window_manager, self.container
                 )
                 if app_schema:
-                    aicos_properties[platform_id] = {
-                        "type": "object",
-                        "description": f"与 {builder.app_name.upper()} 应用的交互。",
-                        "properties": app_schema,
-                    }
+                    # 将app_schema的内容直接合并到 aicos_properties
+                    aicos_properties.update(app_schema)
         return aicos_properties
 
     async def build_prompts_components(
@@ -304,7 +300,7 @@ class ThoughtPromptBuilder:
 
             return "cellular", platform_id, conversation_uid, session
 
-        return "core", "core", None, None
+        return "platform", platform_id, None, None # 任何非对话窗口都视为平台级
 
     def finalize_prompts(self, components: PromptComponents) -> tuple[str, str, dict[str, Any]]:
         """将所有 Prompt 组件格式化为最终的字符串."""
