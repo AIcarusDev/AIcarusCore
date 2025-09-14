@@ -27,102 +27,101 @@ class FileSystemService:
     def get_actions_schema(self) -> dict[str, Any]:
         """返回此服务提供的所有动作的 JSON Schema 定义."""
         # 这些功能暂时禁用，等待未来集成到OS的文件管理系统中
-        return {}
-        # return {
-        # "list_files": {
-        #     "type": "object",
-        #     "description": "列出指定路径下的文件和文件夹。",
-        #     "properties": {
-        #         "path": {
-        #             "type": "string",
-        #             "description": "要查看的路径，相对于工作区根目录。使用'/'作为分隔符。'.' 代表当前目录。",  # noqa: E501
-        #         },
-        #         "motivation": {"type": "string"},
-        #     },
-        #     "required": ["path", "motivation"],
-        # },
-        # "read_file": {
-        #     "type": "object",
-        #     "description": "读取指定文件的内容。",
-        #     "properties": {
-        #         "path": {
-        #             "type": "string",
-        #             "description": "要读取的文件的路径，相对于工作区根目录。",
-        #         },
-        #         "motivation": {"type": "string"},
-        #     },
-        #     "required": ["path", "motivation"],
-        # },
-        # "write_file": {
-        #     "type": "object",
-        #     "description": "向指定文件写入内容。如果文件不存在，会自动创建。",
-        #     "properties": {
-        #         "path": {
-        #             "type": "string",
-        #             "description": "要写入的文件的路径，相对于工作区根目录。",
-        #         },
-        #         "content": {
-        #             "type": "string",
-        #             "description": "要写入的内容。这是一个标准的JSON字符串，换行符请使用'\\n'进行转义。",  # noqa: E501
-        #         },
-        #         "append": {
-        #             "type": "boolean",
-        #             "description": "是否以追加模式写入。True为追加到末尾，False为覆盖整个文件。默认为True。",  # noqa: E501
-        #             "default": True,
-        #         },
-        #         "motivation": {"type": "string"},
-        #     },
-        #     "required": ["path", "content", "motivation"],
-        # },
-        # "edit_file": {
-        #     "type": "object",
-        #     "description": "在指定文件中搜索并替换内容。",
-        #     "properties": {
-        #         "path": {
-        #             "type": "string",
-        #             "description": "要编辑的文件的路径，相对于工作区根目录。",
-        #         },
-        #         "search_pattern": {"type": "string", "description": "要查找并替换的文本内容。"},  # noqa: E501
-        #         "replace_string": {"type": "string", "description": "用来替换的新文本内容。"},
-        #         "motivation": {"type": "string"},
-        #     },
-        #     "required": ["path", "search_pattern", "replace_string", "motivation"],
-        # },
-        # "get_aggregated_content": {
-        #     "type": "object",
-        #     "description": "扫描工作区内指定路径，将所有符合条件的文件内容聚合后，直接作为字符串返回。",  # noqa: E501
-        #     "properties": {
-        #         "source_path": {
-        #             "type": "string",
-        #             "description": "要扫描的源路径，相对于工作区根目录。例如 '.' 代表整个工作区。",  # noqa: E501
-        #         },
-        #         "extensions": {
-        #             "type": "array",
-        #             "description": "（可选）一个只包含指定文件扩展名的列表。如果省略，将使用默认配置。",  # noqa: E501
-        #             "items": {"type": "string"},
-        #         },
-        #         "ignore_items": {
-        #             "type": "array",
-        #             "description": "（可选）一个要忽略的文件或文件夹名称的列表。如果省略，将使用默认配置。",  # noqa: E501
-        #             "items": {"type": "string"},
-        #         },
-        #         "motivation": {"type": "string"},
-        #     },
-        #     "required": ["source_path", "motivation"],
-        # },
-        # "delete_workspace_file": {
-        #     "type": "object",
-        #     "description": "【危险操作】删除工作区内的指定文件。请谨慎使用！",
-        #     "properties": {
-        #         "path": {
-        #             "type": "string",
-        #             "description": "要删除的文件的路径，【必须】相对于工作区根目录。",
-        #         },
-        #         "motivation": {"type": "string"},
-        #     },
-        #     "required": ["path", "motivation"],
-        # },
-
+        return {
+            "list_files": {
+                "type": "object",
+                "description": "列出指定路径下的文件和文件夹。",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "要查看的路径，相对于工作区根目录。使用'/'作为分隔符。'.' 代表当前目录。",  # noqa: E501
+                    },
+                    "motivation": {"type": "string"},
+                },
+                "required": ["path", "motivation"],
+            },
+            "read_file": {
+                "type": "object",
+                "description": "读取指定文件的内容。",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "要读取的文件的路径，相对于工作区根目录。",
+                    },
+                    "motivation": {"type": "string"},
+                },
+                "required": ["path", "motivation"],
+            },
+            "write_file": {
+                "type": "object",
+                "description": "向指定文件写入内容。如果文件不存在，会自动创建。",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "要写入的文件的路径，相对于工作区根目录。",
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "要写入的内容。这是一个标准的JSON字符串，换行符请使用'\\n'进行转义。",  # noqa: E501
+                    },
+                    "append": {
+                        "type": "boolean",
+                        "description": "是否以追加模式写入。True为追加到末尾，False为覆盖整个文件。默认为True。",  # noqa: E501
+                        "default": True,
+                    },
+                    "motivation": {"type": "string"},
+                },
+                "required": ["path", "content", "motivation"],
+            },
+            "edit_file": {
+                "type": "object",
+                "description": "在指定文件中搜索并替换内容。",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "要编辑的文件的路径，相对于工作区根目录。",
+                    },
+                    "search_pattern": {"type": "string", "description": "要查找并替换的文本内容。"},  # noqa: E501
+                    "replace_string": {"type": "string", "description": "用来替换的新文本内容。"},
+                    "motivation": {"type": "string"},
+                },
+                "required": ["path", "search_pattern", "replace_string", "motivation"],
+            },
+            "get_aggregated_content": {
+                "type": "object",
+                "description": "扫描工作区内指定路径，将所有符合条件的文件内容聚合后，直接作为字符串返回。",  # noqa: E501
+                "properties": {
+                    "source_path": {
+                        "type": "string",
+                        "description": "要扫描的源路径，相对于工作区根目录。例如 '.' 代表整个工作区。",  # noqa: E501
+                    },
+                    "extensions": {
+                        "type": "array",
+                        "description": "（可选）一个只包含指定文件扩展名的列表。如果省略，将使用默认配置。",  # noqa: E501
+                        "items": {"type": "string"},
+                    },
+                    "ignore_items": {
+                        "type": "array",
+                        "description": "（可选）一个要忽略的文件或文件夹名称的列表。如果省略，将使用默认配置。",  # noqa: E501
+                        "items": {"type": "string"},
+                    },
+                    "motivation": {"type": "string"},
+                },
+                "required": ["source_path", "motivation"],
+            },
+            "delete_workspace_file": {
+                "type": "object",
+                "description": "【危险操作】删除工作区内的指定文件。请谨慎使用！",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "要删除的文件的路径，【必须】相对于工作区根目录。",
+                    },
+                    "motivation": {"type": "string"},
+                },
+                "required": ["path", "motivation"],
+            },
+        }
     # 方法作废
     def resolve_safe_path(self, user_path: str) -> Path | None:
         """解析用户提供的路径，确保其在工作区内并返回安全路径."""

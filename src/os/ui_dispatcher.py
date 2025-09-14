@@ -182,6 +182,45 @@ async def _handle_base_ui_interaction(
             logger.info(f"窗口 '{target_uid}' 中列表 '{list_name}' 已翻页。")
             window_manager.focus_window(target_uid)
 
+    elif internal_command == "open_folder":
+        window = window_manager.get_window(mapped_info.get("window_name")) # Assuming window_name is passed in mapping
+        if window:
+            window.content_state["current_path"] = target_uid
+            logger.info(f"导航到文件夹: {target_uid}")
+            window_manager.focus_window(window.name)
+
+    elif internal_command == "open_file":
+        try:
+            file_content = container.file_system_manager.read_file(target_uid)
+            
+            # 从路径中提取文件名
+            file_name = target_uid.split('/')[-1]
+            
+            # 创建一个新的窗口实例来显示文件内容
+            new_window = Window(
+                name=f"editor_{target_uid.replace('/', '_').replace('.', '_')}",
+                parent_app_id="app-text-editor",
+                title=file_name,
+                window_class="text_editor",
+                content_state={"path": target_uid, "content": file_content},
+            )
+            window_manager.open_window(new_window)
+            logger.info(f"已在新的文本编辑器窗口中打开文件: {target_uid}")
+
+        except FileNotFoundError:
+            logger.error(f"打开文件失败：文件 '{target_uid}' 未找到。")
+            # 可选：在这里创建一个错误弹窗通知用户
+        except Exception as e:
+            logger.error(f"打开文件时发生未知错误 ({target_uid}): {e}", exc_info=True)
+            # 可选：在这里创建一个错误弹窗通知用户
+    
+    elif internal_command == "delete_item":
+        fs_manager = container.file_system_manager
+        if fs_manager.delete(target_uid):
+            logger.info(f"已删除项目: {target_uid}")
+        else:
+            logger.error(f"删除项目失败: {target_uid}")
+
     elif internal_command == "start_app":
         app = next((a for a in application_manager.get_all_apps() if a.id == target_uid), None)
         if not app:
