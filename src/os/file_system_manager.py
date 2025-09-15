@@ -1,5 +1,6 @@
 # 文件路径: src/os/file_system_manager.py
 import os
+import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -9,6 +10,14 @@ from src.common.custom_logging.logging_config import get_logger
 from src.config import config
 
 logger = get_logger(__name__)
+
+@dataclass
+class CreateResult:
+    """文件或文件夹创建操作的结果."""
+    success: bool
+    path: Path | None = None
+    message: str = ""
+    renamed: bool = False
 
 # 文件系统节点模型
 @dataclass
@@ -106,6 +115,80 @@ class FileSystemManager:
                 logger.error(f"无法获取项目 '{item}': {e}")
         return contents
 
+    def _get_unique_path(self, path: Path) -> Path:
+        """如果路径已存在，则为其生成一个唯一的新路径，例如 file.txt -> file(1).txt."""
+        if not path.exists():
+            return path
+
+        parent = path.parent
+        stem = path.stem  # 文件名（不含扩展名）
+        suffix = path.suffix # 扩展名
+
+        # 检查文件名是否已经包含 (n) 格式，如果是，则从那里开始计数
+        match = re.search(r'\((\d+)\)$', stem)
+        counter = 1
+        base_stem = stem
+        if match:
+            counter = int(match.group(1)) + 1
+            base_stem = stem[:match.start()].rstrip() # 移除尾部空格
+
+        while True:
+            new_stem = f"{base_stem} ({counter})"
+            new_path = parent / (new_stem + suffix)
+            if not new_path.exists():
+                return new_path
+            counter += 1
+
+    def create(self, item_type: Literal["file", "folder"], user_path: str) -> CreateResult:
+        """在物理工作区中创建新文件或文件夹，并处理命名冲突."""
+        # 命名规则校验
+        file_name = Path(user_path).name
+        # 不允许的字符：/ \ : * ? " < > |
+        if re.search(r'[\\/:*?"<>|]', file_name):
+            logger.warning(f"AI试图创建的文件名 '{file_name}' 包含不允许的字符，将被拒绝。")
+            return CreateResult(success=False, message=f"文件名 '{file_name}' 包含不允许的字符。")
+        if item_type == "file" and '.' not in file_name:
+            logger.warning(f"AI试图创建的文件名 '{file_name}' 不包含扩展名，将被拒绝。")
+            return CreateResult(success=False, message=f"文件名 '{file_name}' 必须包含扩展名。")
+
+        physical_path = self._resolve_safe_path(user_path)
+        if not physical_path:
+            return CreateResult(success=False, message="无效的路径或权限不足。")
+
+        was_renamed = False
+        final_path = physical_path
+
+        if physical_path.exists():
+            if item_type == "folder": # 文件夹冲突直接报错
+                return CreateResult(success=False, message=f"文件夹 '{user_path}' 已存在。")
+            final_path = self._get_unique_path(physical_path)
+            was_renamed = True
+
+        try:
+            final_path.parent.mkdir(parents=True, exist_ok=True)
+            if item_type == "folder":
+                final_path.mkdir()
+                message = f"成功创建文件夹: {self.get_relative_path_str(final_path)}"
+            else: # file
+                final_path.touch()
+                if was_renamed:
+                    message = (
+                        f"文件 '{Path(user_path).name}' 已存在，"
+                        f"已自动重命名为 '{final_path.name}'。"
+                    )
+                else:
+                    message = f"成功创建文件: {self.get_relative_path_str(final_path)}"
+
+            return CreateResult(
+                success=True,
+                path=final_path,
+                message=message,
+                renamed=was_renamed
+            )
+        except Exception as e:
+            logger.error(f"创建 '{item_type}' at '{physical_path}' 时出错: {e}")
+            return CreateResult(success=False, message=f"创建时发生系统错误: {e}")
+
     def read_file_content(self, user_path: str) -> str | None:
         """读取物理工作区中文件的内容."""
         physical_path = self._resolve_safe_path(user_path)
@@ -131,22 +214,6 @@ class FileSystemManager:
             return True
         except Exception as e:
             logger.error(f"Error writing to file '{physical_path}': {e}")
-            return False
-
-    def create(self, item_type: Literal["file", "folder"], user_path: str) -> bool:
-        """在物理工作区中创建新文件或文件夹."""
-        physical_path = self._resolve_safe_path(user_path)
-        if not physical_path or physical_path.exists():
-            return False
-        try:
-            physical_path.parent.mkdir(parents=True, exist_ok=True)
-            if item_type == "folder":
-                physical_path.mkdir()
-            else: # file
-                physical_path.touch()
-            return True
-        except Exception as e:
-            logger.error(f"Error creating '{item_type}' at '{physical_path}': {e}")
             return False
 
     def delete(self, item_id: str) -> bool:

@@ -299,12 +299,15 @@ class AICOSStateGenerator:
         }
 
         if window.status != WindowStatus.MINIMIZE:
-            if window.window_class == "system_error_modal":
-                logger.warning(f"渲染系统错误弹窗 '{window.name}' 的内容。")
-                # 直接渲染错误信息
-                content_node = SubElement(window_node, "content", attrib={"type": "error_message"})
-                content_node.text = window.content_state.get("error_message", "发生未知系统错误。")
-                return
+            if window.window_class in ["system_error_modal", "system_notification_popup"]:
+                content_node = SubElement(window_node, "content", attrib={"type": "system_message"})
+                message_key = (
+                    "error_message"
+                    if window.window_class == "system_error_modal"
+                    else "message"
+                )
+                content_node.text = window.content_state.get(message_key, "发生未知系统事件。")
+                return  # 处理完毕，直接返回
 
             # 委托应用渲染器渲染内容
             app = self.application_manager.get_app_by_id(window.parent_app_id)

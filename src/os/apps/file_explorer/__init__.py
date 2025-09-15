@@ -1,5 +1,6 @@
 # 文件路径: src/os/apps/file_explorer/__init__.py
 
+import uuid
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from xml.etree.ElementTree import SubElement
@@ -228,8 +229,10 @@ class FileExplorerAppBuilder(BaseAppBuilder):
     async def handle_llm_action(
         self, action_name: str, params: dict, container: "ServiceContainer", thought_key: str
     ) -> None:
-        """处理LLM的文件管理器动作."""
+        """处理LLM的文件管理器动作，并根据结果创建弹窗."""
         fs_manager = container.file_system_manager
+        window_manager = container.window_manager # 获取 window_manager
+
         command_obj = params.get("command", {})
         command_name = next(iter(command_obj), None)
         command_params = command_obj.get(command_name, {})
@@ -237,21 +240,87 @@ class FileExplorerAppBuilder(BaseAppBuilder):
         if not command_name:
             return
 
-        success = False
+        # 执行对应的文件系统操作
         if command_name == "create":
-            success = fs_manager.create(command_params.get("type"), command_params.get("path"))
-            if success and command_params.get("type") == 'file' and command_params.get('content'):
-                fs_manager.write_file_content(
-                    command_params.get("path"), command_params.get('content')
+            create_result = fs_manager.create(
+                command_params.get("type"), command_params.get("path")
+            )
+
+            # 根据结果创建不同类型的弹窗
+            if create_result.success:
+                # 如果被重命名，则创建一个非模态、瞬态的通知弹窗
+                if create_result.renamed:
+                    notification_popup = Window(
+                        name=f"win-popup-fs-notify-{uuid.uuid4().hex[:6]}",
+                        parent_app_id=app_info.id,
+                        title="操作通知",
+                        window_class="system_notification_popup", # 自定义一个class
+                        content_state={"message": create_result.message},
+                        is_popup=True,
+                        popup_type="notification", # 非交互式
+                        transient_cycles_remaining=1,  # 只显示一个认知周期
+                    )
+                    window_manager.open_window(notification_popup)
+                # 对于普通的成功，可以只在日志中记录，或者也弹出一个更短暂的通知
+                logger.info(create_result.message)
+
+                # 如果创建的是文件且有内容，则写入
+                if (create_result.path and command_params.get("type") == 'file'
+                        and command_params.get('content')):
+                    fs_manager.write_file_content(
+                        self.get_relative_path_str(create_result.path), # 使用返回的真实路径
+                        command_params.get('content')
+                    )
+            else:
+                # 如果创建失败，则创建一个模态错误弹窗，劫持UI
+                error_popup = Window(
+                    name=f"win-popup-fs-error-{uuid.uuid4().hex[:6]}",
+                    parent_app_id=app_info.id,
+                    title="操作失败",
+                    window_class="system_error_modal", # 使用一个通用的错误class
+                    content_state={"error_message": create_result.message},
+                    is_popup=True,
+                    popup_type="modal", # 模态，会劫持屏幕
                 )
+                window_manager.open_window(error_popup)
 
         elif command_name == "delete":
             success = fs_manager.delete(command_params.get("item_id"))
+            if not success:
+                error_popup = Window(
+                    name=f"win-popup-fs-error-{uuid.uuid4().hex[:6]}",
+                    parent_app_id=app_info.id,
+                    title="删除失败",
+                    window_class="system_error_modal",
+                    content_state={"error_message": "无法删除该项目，可能已被移动或不存在。"},
+                    is_popup=True,
+                    popup_type="modal",
+                )
+                window_manager.open_window(error_popup)
+            else:
+                logger.info(f"成功删除项目: {command_params.get('item_id')}")
 
         elif command_name == "rename":
             success = fs_manager.rename(
                 command_params.get("item_id"), command_params.get("new_name")
             )
+            if not success:
+                error_popup = Window(
+                    name=f"win-popup-fs-error-{uuid.uuid4().hex[:6]}",
+                    parent_app_id=app_info.id,
+                    title="重命名失败",
+                    window_class="system_error_modal",
+                    content_state={"error_message": "无法重命名该项目，可能已被移动或不存在，"
+                                                    "或新名称不合法。"},
+                    is_popup=True,
+                    popup_type="modal",
+                )
+                window_manager.open_window(error_popup)
+            else:
+                logger.info(
+                    f"成功重命名项目: {command_params.get('item_id')} -> "
+                    f"{command_params.get('new_name')}"
+                )
 
         elif command_name == "move":
             # 从目标 item_id 中解析出路径
@@ -262,6 +331,18 @@ class FileExplorerAppBuilder(BaseAppBuilder):
                     success = fs_manager.move(command_params.get("item_id"), dest_user_path)
             except ValueError:
                 success = False
+            if not success:
+                error_popup = Window(
+                    name=f"win-popup-fs-error-{uuid.uuid4().hex[:6]}",
+                    parent_app_id=app_info.id,
+                    title="移动失败",
+                    window_class="system_error_modal",
+                    content_state={"error_message": "无法移动该项目，可能已被移动或不存在，"
+                                                    "或目标路径不合法。"},
+                    is_popup=True,
+                    popup_type="modal",
+                )
+                window_manager.open_window(error_popup)
 
         # 未来可以在此处向 thought_key 中写入更详细的执行结果
         logger.info(f"File explorer action '{command_name}' executed. Success: {success}")
