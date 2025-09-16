@@ -160,6 +160,7 @@ class FileSystemManager:
 
         if physical_path.exists():
             if item_type == "folder": # 文件夹冲突直接报错
+                logger.warning(f"AI试图创建已存在的文件夹 '{user_path}'，操作被拒绝。")
                 return CreateResult(success=False, message=f"文件夹 '{user_path}' 已存在。")
             final_path = self._get_unique_path(physical_path)
             was_renamed = True

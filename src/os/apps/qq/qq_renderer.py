@@ -434,7 +434,7 @@ class QQWindowRenderer:
         self_profile_attrs = {k: v for k, v in self_profile_attrs.items() if v}
         SubElement(window_node, "self_profile_in_chat", attrib=self_profile_attrs)
 
-        # --- [新逻辑] 判断会话类型，如果是私聊，则在顶部显示对方信息 ---
+        # --- 判断会话类型，如果是私聊，则在顶部显示对方信息 ---
         conversation_doc = await self.entity_service.get_entity_by_key(conversation_uid)
 
         if is_private_chat:
@@ -443,7 +443,6 @@ class QQWindowRenderer:
                 "uid": conversation_doc.details.conversation_id,
             }
             SubElement(window_node, "participant_in_chat", attrib=participant_attrs)
-        # --- [新逻辑结束] ---
 
         # 分页与消息渲染
         page = window.content_state.get("page", 1)
@@ -499,7 +498,7 @@ class QQWindowRenderer:
                 logger.error(f"致命错误：消息缺少 message_id: {msg}")
                 platform_msg_id = "未知错误，ID无法获取"
 
-            # --- [最终修改] 根据是否为私聊，动态构建消息 div 的属性 ---
+            # --- 根据是否为私聊，动态构建消息 div 的属性 ---
             msg_attrs = {
                 "class": "message",
                 "id": platform_msg_id,
@@ -509,12 +508,17 @@ class QQWindowRenderer:
                 msg_attrs["sender_id"] = str(msg_sender_id)
 
             msg_node = SubElement(list_node, "div", attrib=msg_attrs)
-            # --- [最终修改结束] ---
 
             timestamp = time.strftime("%H:%M:%S", time.localtime(msg.get("timestamp", 0) / 1000))
 
-            # 如果不是私聊（即群聊），则显示每个发言人的名字
+            # 如果不是私聊（即群聊），则显示每个发言人的名字和群成员总数
             if not is_private_chat:
+                # 群成员总数可能会变动，因此每次都实时查询
+                member_count = await self.entity_service.get_group_member_count(conversation_uid)
+                if member_count > 0:
+                    # 渲染 <group_info> 节点
+                    SubElement(window_node, "group_info", attrib={"count": str(member_count)})
+                # 渲染发言人名字
                 sender_name = msg.get("user_info", {}).get("user_cardname") or msg.get(
                     "user_info", {}
                 ).get("user_nickname")

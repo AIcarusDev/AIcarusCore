@@ -1248,3 +1248,28 @@ class EntityGraphService:
         except Exception as e:
             logger.error(f"检查群聊 {conversation_uid} 同步状态时失败: {e}", exc_info=True)
             return False  # 出错时保守地返回False，避免频繁触发
+
+    async def get_group_member_count(self, conversation_uid: str) -> int:
+        """获取指定群聊的成员数量."""
+        query = f"""
+        match
+            $group isa conversation, has conversation-uid "{conversation_uid}";
+            (member: $member, group: $group) isa membership;
+        reduce $count = count;
+        """
+        driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
+
+        def db_read() -> int:
+            with driver.transaction(db_name, TransactionType.READ) as tx:
+                # 使用 .resolve().as_value() 来直接获取聚合结果
+                result_iterator = tx.query(query).resolve()
+                result_value = next(result_iterator, None)
+                if result_value:
+                    return result_value.as_value().get_integer()
+                return 0
+
+        try:
+            return await asyncio.to_thread(db_read)
+        except Exception as e:
+            logger.error(f"获取群聊 {conversation_uid} 成员数量失败: {e}", exc_info=True)
+            return 0
