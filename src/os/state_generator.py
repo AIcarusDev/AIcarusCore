@@ -46,12 +46,13 @@ class AICOSStateGenerator:
         self._ui_mapping: dict[str, dict] = {}
         self.is_connected = False
         # 预编译正则表达式以提高性能
-        self._invalid_id_chars_pattern = re.compile(r"[^a-zA-Z0-9_\-]")
+        self._invalid_id_chars_pattern = re.compile(r"[^a-zA-Z0-9_\-.]") # [修改] 允许点号
 
     def _generate_semantic_id(self, path_parts: list[str]) -> str:
         """根据语义路径列表生成一个确定性的UI ID."""
-        # 直接用点连接，因为我们现在使用安全的UID
-        return ".".join(path_parts)
+        # 对每个部分进行清理，然后用点连接
+        cleaned_parts = [self._invalid_id_chars_pattern.sub('_', part) for part in path_parts]
+        return ".".join(cleaned_parts)
 
     def _pretty_print_xml(self, element: Element) -> str:
         """将 ElementTree 元素格式化为带缩进的 XML 字符串."""
@@ -85,7 +86,11 @@ class AICOSStateGenerator:
                 attrib={"name": "desktop", "status": "modal_lock"},
             )
             windows_node = SubElement(desktop_node, "windows", attrib={"name": "windows"})
-            modal_path = ["aicos", "desktop", "modal_" + active_modal.name]
+
+            # 模态弹窗路径也使用 . 连接
+            safe_modal_name = self._invalid_id_chars_pattern.sub('_', active_modal.name)
+            modal_path = ["aicos", "desktop", f"modal_{safe_modal_name}"]
+
             await self._render_window_frame(windows_node, modal_path, active_modal, image_collector)
         else:
             # 正常渲染
@@ -190,21 +195,36 @@ class AICOSStateGenerator:
             desktop_contents = self.file_system_manager.list_directory_contents("/desktop")
             if desktop_contents:
                 for item in desktop_contents:
-                    SubElement(
-                        items_node, item.type, attrib={"name": item.name, "item_id": item.item_id}
-                    )
-                    # 为桌面上的每个项目创建双击打开的映射
-                    action = "open_folder" if item.type == "folder" else "open_file"
-                    self._ui_mapping[item.item_id] = {
-                        "action_type": "double_click",
-                        "action": action,
-                        "target_uid": item.item_id, # target_uid 就是 item_id
-                    }
+                    # 为 input_field 生成映射
+                    if item.type == 'input_field':
+                        SubElement(items_node, "input_field", attrib={
+                            "id": item.item_id,
+                            "name": item.name,
+                            "current_value": item.current_value,
+                            "title": item.title
+                        })
+                        self._ui_mapping[item.item_id] = {
+                            "action_type": "input_override",
+                            "target_uid": item.item_id,
+                        }
+                    else:
+                        SubElement(
+                            items_node, item.type, attrib={
+                                "name": item.name, "item_id": item.item_id
+                            }
+                        )
+                        action = "open_folder" if item.type == "folder" else "open_file"
+                        self._ui_mapping[item.item_id] = {
+                            "action_type": "double_click",
+                            "action": action,
+                            "target_uid": item.item_id,
+                        }
 
         windows_node = SubElement(desktop_node, "windows")
         for window in self.window_manager.get_all_windows_sorted():
             # 为每个窗口创建一个基于其稳定ID的路径
-            window_path = [window.name]
+            safe_window_name = self._invalid_id_chars_pattern.sub('_', window.name)
+            window_path = [safe_window_name]
             await self._render_window_frame(windows_node, window_path, window, image_collector)
 
         # 在桌面渲染系统托盘和断开连接按钮
@@ -244,51 +264,57 @@ class AICOSStateGenerator:
 
         window_node = SubElement(parent_element, "window", attrib=window_attrs)
 
-        controls_node = SubElement(window_node, "controls")
-        controls_path = [*current_path, "controls"]
+        # 只有非模态弹窗才有关闭/最小化等控件
+        if window.popup_type != "modal":
+            controls_node = SubElement(window_node, "controls")
+            controls_path = [*current_path, "controls"]
 
-        if window.status == WindowStatus.MINIMIZE:
-            restore_btn_id = self._generate_semantic_id([*controls_path, "restore"])
-            SubElement(
-                controls_node,
-                "button",
-                attrib={"id": restore_btn_id, "name": "restore_down", "title": "还原"},
-            )
-            self._ui_mapping[restore_btn_id] = {
-                "action_type": "click",
-                "action": "restore_window",
-                "target_uid": window.name,
-            }
-        else:
-            minimize_btn_id = self._generate_semantic_id([*controls_path, "minimize"])
-            SubElement(
-                controls_node,
-                "button",
-                attrib={"id": minimize_btn_id, "name": "minimize", "title": "最小化"},
-            )
-            self._ui_mapping[minimize_btn_id] = {
-                "action_type": "click",
-                "action": "minimize_window",
-                "target_uid": window.name,
-            }
+            if window.status == WindowStatus.MINIMIZE:
+                restore_btn_id = self._generate_semantic_id([*controls_path, "restore"])
+                SubElement(
+                    controls_node,
+                    "button",
+                    attrib={"id": restore_btn_id, "name": "restore_down", "title": "还原"},
+                )
+                self._ui_mapping[restore_btn_id] = {
+                    "action_type": "click",
+                    "action": "restore_window",
+                    "target_uid": window.name,
+                }
+            else:
+                minimize_btn_id = self._generate_semantic_id([*controls_path, "minimize"])
+                SubElement(
+                    controls_node,
+                    "button",
+                    attrib={"id": minimize_btn_id, "name": "minimize", "title": "最小化"},
+                )
+                self._ui_mapping[minimize_btn_id] = {
+                    "action_type": "click",
+                    "action": "minimize_window",
+                    "target_uid": window.name,
+                }
 
-        if window.status == WindowStatus.NORMAL:
-            maximize_btn_id = self._generate_semantic_id([*controls_path, "maximize"])
-            SubElement(
-                controls_node,
-                "button",
-                attrib={"id": maximize_btn_id, "name": "maximize", "title": "最大化"},
-            )
-            self._ui_mapping[maximize_btn_id] = {
-                "action_type": "click",
-                "action": "maximize_window",
-                "target_uid": window.name,
-            }
+            if window.status == WindowStatus.NORMAL:
+                maximize_btn_id = self._generate_semantic_id([*controls_path, "maximize"])
+                SubElement(
+                    controls_node,
+                    "button",
+                    attrib={"id": maximize_btn_id, "name": "maximize", "title": "最大化"},
+                )
+                self._ui_mapping[maximize_btn_id] = {
+                    "action_type": "click",
+                    "action": "maximize_window",
+                    "target_uid": window.name,
+                }
 
-        close_btn_id = self._generate_semantic_id([*controls_path, "close"])
-        close_btn_title = "确认" if window.popup_type == "modal" else "关闭"
+        # 关闭按钮对所有窗口都可用，但在模态弹窗中可能扮演“取消”的角色
+        close_btn_id = self._generate_semantic_id([*current_path, "controls", "close"])
+        close_btn_title = "取消" if window.popup_type == "modal" else "关闭"
+        # 模态弹窗的按钮直接放在窗口下，而不是controls下
+        target_node_for_close = window_node if window.popup_type == "modal" else controls_node
+
         SubElement(
-            controls_node,
+            target_node_for_close,
             "button",
             attrib={"id": close_btn_id, "name": "close", "title": close_btn_title},
         )
@@ -328,6 +354,7 @@ class AICOSStateGenerator:
                     "media_cache_service": self.media_cache_service,
                     "action_handler": self.action_handler,
                     "file_system_manager": self.file_system_manager,
+                    "current_path": current_path, # [新增] 传入 current_path
                 }
                 if window.is_popup:
                     await builder.render_popup_content(**render_args)

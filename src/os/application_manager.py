@@ -1,5 +1,4 @@
 # 文件路径: src/os/application_manager.py
-# [重构]
 
 import importlib
 import pkgutil
@@ -148,5 +147,29 @@ class ApplicationManager:
                     },
                     "required": ["target_id", "motivation"],
                 }
+
+        # 通用输入动作
+        input_field_ids = [
+            key for key, info in ui_mapping.items() if info.get("action_type") == "input_override"
+        ]
+        if input_field_ids:
+            properties["input_override"] = {
+                "type": "object",
+                "title": "输入覆盖",
+                "description": "向指定的输入框中填入新内容。",
+                "properties": {
+                    "target_id": {
+                        "type": "string",
+                        "description": "要输入内容的目标输入框的ID。",
+                        "enum": input_field_ids
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "要填入的文本内容。"
+                    },
+                    "motivation": {"type": "string"},
+                },
+                "required": ["target_id", "content", "motivation"],
+            }
 
         return properties

@@ -161,6 +161,17 @@ class TextEditorAppBuilder(BaseAppBuilder):
             }
         return {}
 
+    # 实现 handle_input_override 接口
+    async def handle_input_override(
+        self, target_id: str, content: str, container: "ServiceContainer", thought_key: str
+    ) -> None:
+        """处理文本编辑器应用的 input_override 动作."""
+        # 当前文本编辑器没有输入框，所以这里只是一个占位符实现
+        logger.warning(
+            f"TextEditorAppBuilder 收到一个 input_override 请求，但它没有输入框: {target_id}"
+        )
+        pass
+
     async def handle_llm_action(
         self,
         action_name: str,

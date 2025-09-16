@@ -87,6 +87,15 @@ class BaseAppBuilder(ABC):
         """处理由LLM决策的、分发到此应用的特定动作."""
         pass
 
+    # 抽象方法，用于处理通用的输入覆盖动作
+    @abstractmethod
+    async def handle_input_override(
+        self, target_id: str, content: str, container: ServiceContainer, thought_key: str
+    ) -> None:
+        """处理通用的 `input_override` 动作，由 UI Dispatcher 分发."""
+        pass
+
+
     def build_action_event(
         self, action_name: str, params: dict[str, Any], bot_id: str
     ) -> Event | None:

@@ -25,12 +25,14 @@ async def handle_os_interaction(
     window_manager = container.window_manager
     application_manager = container.application_manager
 
-    # 1. 解析基础UI交互 (click, double_click)
+    # 1. 解析基础UI交互 (click, double_click, input_override)
     if base_interaction := aicos_interaction.get("base"):
         action_name = next(iter(base_interaction), None)
         if not action_name:
             return
         action_params = base_interaction[action_name]
+
+        # 对 input_override 的处理
         if action_name in ["click", "double_click"]:
             await _handle_base_ui_interaction(
                 action_name,
@@ -39,6 +41,10 @@ async def handle_os_interaction(
                 window_manager,
                 application_manager,
                 container,
+            )
+        elif action_name == "input_override":
+            await _handle_input_override_action(
+                action_params, ui_mapping, application_manager, container, thought_key
             )
     else:
         # --- 将所有非 'base' 的动作分发给对应的 Builder ---
@@ -54,6 +60,37 @@ async def handle_os_interaction(
         params = aicos_interaction[app_name]
         logger.info(f"UI Dispatcher: 路由应用动作 '{app_name}'")
         await builder.handle_llm_action(app_name, params, container, thought_key)
+
+# 处理 input_override 动作的函数
+async def _handle_input_override_action(
+    params: dict,
+    ui_mapping: dict,
+    application_manager: "ApplicationManager",
+    container: "ServiceContainer",
+    thought_key: str,
+) -> None:
+    """处理通用的 input_override 动作，并将其分发给对应的 App Builder."""
+    target_id = params.get("target_id")
+    content = params.get("content")
+
+    if not target_id or content is None or target_id not in ui_mapping:
+        logger.error(f"AI 试图向无效的输入框 '{target_id}' 输入内容。行动忽略。")
+        return
+
+    # 从语义化ID中解析出应用名称
+    try:
+        app_name = target_id.split('.')[0]
+    except IndexError:
+        logger.error(f"无法从 target_id '{target_id}' 中解析出应用名称。")
+        return
+
+    builder = application_manager.get_builder_by_name(app_name)
+    if not builder:
+        logger.warning(f"UI Dispatcher: 收到未知应用的 input_override 请求: {app_name}")
+        return
+
+    logger.info(f"UI Dispatcher: 路由 input_override 动作到 App '{app_name}'")
+    await builder.handle_input_override(target_id, content, container, thought_key)
 
 
 async def _handle_base_ui_interaction(
@@ -149,6 +186,14 @@ async def _handle_base_ui_interaction(
                     editor_window.content_state["active_tab_id"] = None
             window_manager.focus_window("text_editor_main")
 
+    # 处理侧边栏切换
+    elif internal_command == "toggle_sidebar":
+        window = window_manager.get_window(target_uid)
+        if window:
+            current_state = window.content_state.get("sidebar_visible", False)
+            window.content_state["sidebar_visible"] = not current_state
+            logger.info(f"窗口 '{target_uid}' 的侧边栏状态已切换为: {not current_state}")
+            window_manager.focus_window(target_uid)
 
     # --- 其他UI交互逻辑 ---
     elif internal_command == "disconnect_device":
@@ -159,7 +204,9 @@ async def _handle_base_ui_interaction(
         application_manager.stop_app(target_uid)
         logger.info(f"应用进程 '{target_uid}' 已被终止。")
         windows_to_close = [
-            w for w in window_manager.get_all_windows_sorted() if w.parent_app_id == target_uid
+            w for w in window_manager.get_all_windows_sorted()
+            if w.parent_app_id == target_uid
+            and not w.is_popup
         ]
         for window in windows_to_close:
             window_manager.close_window(window.name)
@@ -207,12 +254,16 @@ async def _handle_base_ui_interaction(
                     logger.info(f"正在为已关闭的窗口停用会话: {conversation_uid}")
                     await session_manager.deactivate_session(conversation_uid)
 
-            app_windows = [
-                w for w in window_manager.get_all_windows_sorted() if w.parent_app_id == app_id
-            ]
-            if not app_windows and not closed_window.is_popup:
-                application_manager.stop_app(app_id)
-                logger.info(f"应用 '{app_id}' 所有窗口已关闭，进程已停止。")
+            # 只有在关闭的不是弹窗时，才检查是否需要关闭应用
+            if not closed_window.is_popup:
+                # 检查主窗口时也要排除弹窗
+                app_windows = [
+                    w for w in window_manager.get_all_windows_sorted()
+                    if w.parent_app_id == app_id and not w.is_popup
+                ]
+                if not app_windows:
+                    application_manager.stop_app(app_id)
+                    logger.info(f"应用 '{app_id}' 所有主窗口已关闭，进程已停止。")
 
     elif internal_command == "switch_window_view":
         window = window_manager.get_window(target_uid)
@@ -249,45 +300,6 @@ async def _handle_base_ui_interaction(
             logger.info(f"窗口 '{target_uid}' 中列表 '{list_name}' 已翻页。")
             window_manager.focus_window(target_uid)
 
-    elif internal_command == "open_folder":
-        window = window_manager.get_window(mapped_info.get("window_name"))
-        if window:
-            window.content_state["current_path"] = target_uid
-            logger.info(f"导航到文件夹: {target_uid}")
-            window_manager.focus_window(window.name)
-
-    elif internal_command == "open_file":
-        try:
-            file_content = container.file_system_manager.read_file(target_uid)
-
-            # 从路径中提取文件名
-            file_name = target_uid.split('/')[-1]
-
-            # 创建一个新的窗口实例来显示文件内容
-            new_window = Window(
-                name=f"editor_{target_uid.replace('/', '_').replace('.', '_')}",
-                parent_app_id="app-text-editor",
-                title=file_name,
-                window_class="text_editor",
-                content_state={"path": target_uid, "content": file_content},
-            )
-            window_manager.open_window(new_window)
-            logger.info(f"已在新的文本编辑器窗口中打开文件: {target_uid}")
-
-        except FileNotFoundError:
-            logger.error(f"打开文件失败：文件 '{target_uid}' 未找到。")
-            # 可选：在这里创建一个错误弹窗通知用户
-        except Exception as e:
-            logger.error(f"打开文件时发生未知错误 ({target_uid}): {e}", exc_info=True)
-            # 可选：在这里创建一个错误弹窗通知用户
-
-    elif internal_command == "delete_item":
-        fs_manager = container.file_system_manager
-        if fs_manager.delete(target_uid):
-            logger.info(f"已删除项目: {target_uid}")
-        else:
-            logger.error(f"删除项目失败: {target_uid}")
-
     elif internal_command == "start_app":
         await _start_app_and_get_window(target_uid, application_manager, window_manager, container)
 
@@ -323,7 +335,10 @@ async def _handle_base_ui_interaction(
                 parent_app_id=app.id,
                 title=f"与 {session.conversation_name} 的对话",
                 window_class="conversation",
-                content_state={"conversation_uid": target_uid},
+                content_state={
+                    "conversation_uid": target_uid,
+                    "sidebar_visible": False
+                }, # 侧边栏默认关闭
             )
             window_manager.open_window(conv_window)
         else:
@@ -353,6 +368,7 @@ async def _start_app_and_get_window(
             name=f"win-error-startup-{app.id}",
             parent_app_id=app.id,
             title=f"{app.title} - 启动失败",
+            window_class="system_error_modal",
             content_state={"error_message": error_message or "发生未知启动错误。"},
             is_popup=True,
             popup_type="modal",

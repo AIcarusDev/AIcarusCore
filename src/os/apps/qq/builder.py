@@ -10,7 +10,7 @@ from xml.etree.ElementTree import Element
 from aicarus_protocols import ConversationInfo, Event, Seg
 from aicarus_protocols import Event as ProtocolEvent
 from src.common.custom_logging.logging_config import get_logger
-from src.common.utils import build_conversation_entity_uid
+from src.common.utils import build_conversation_entity_uid, parse_entity_uid
 from src.os.apps.interfaces import IApp, ISession
 from src.os.models import Window, WindowStatus
 from src.os.window_manager import WindowManager
@@ -175,7 +175,42 @@ class QQBuilder(BaseAppBuilder, IApp):
         )
         window_manager.open_window(popup)
 
-    # 实现 handle_llm_action 方法
+    # 实现 handle_ui_command 来处理由点击触发的内部指令
+    async def handle_ui_command(
+        self, command: str, target_uid: str, container: ServiceContainer
+    ) -> None:
+        """处理由 UI Dispatcher 转发来的、通过点击触发的应用专属指令."""
+        if command == "initiate_leave_group":
+            await self._handle_initiate_leave_group(
+                {"target_conversation_uid": target_uid}, container
+            )
+        elif command == "confirm_leave_group":
+            # 对于确认操作，我们需要一个 thought_key 来回写结果，但点击事件没有。
+            # 我们可以创建一个临时的，或者让 action_handler 返回结果。
+            # 这里我们简化，直接执行，结果只打印日志。
+            await self._handle_confirm_leave_group(
+                {"target_conversation_uid": target_uid}, container, None
+            )
+        else:
+            logger.warning(f"QQBuilder 收到一个未知的 UI 指令: {command}")
+
+    # 实现 handle_input_override 方法
+    async def handle_input_override(
+        self, target_id: str, content: str, container: ServiceContainer, thought_key: str
+    ) -> None:
+        """处理 QQ 应用专属的 input_override 动作."""
+        if "card_input" in target_id:
+            try:
+                parts = target_id.split('.')
+                conv_uid = parts[1].replace("conv_", "")
+                params = {"target_conversation_uid": conv_uid, "new_card": content}
+                await self._handle_set_self_card(params, container, thought_key)
+            except IndexError:
+                logger.error(f"无法从 input target_id '{target_id}' 中解析出 conversation_uid。")
+        else:
+            logger.warning(f"QQBuilder 收到一个未知的 input_override target_id: {target_id}")
+
+    # [修改] handle_llm_action 现在只处理参数驱动的动作
     async def handle_llm_action(
         self, action_name: str, params: dict, container: ServiceContainer, thought_key: str
     ) -> None:
@@ -192,6 +227,96 @@ class QQBuilder(BaseAppBuilder, IApp):
             )
         else:
             logger.warning(f"QQBuilder收到了一个未知的LLM动作请求: {action_name}")
+
+    async def _handle_set_self_card(
+            self, params: dict, container: ServiceContainer, thought_key: str
+            ) -> None:
+        target_uid = params.get("target_conversation_uid")
+        new_card = params.get("new_card")
+        if not target_uid or new_card is None:
+            return
+
+        _, _, group_id = parse_entity_uid(target_uid)
+        bot_id = container.application_manager.get_self_bot_ids_map().get(self.app_name)
+
+        if not group_id or not bot_id:
+            return
+
+        result = await container.action_handler.execute_simple_action(
+            platform_id=self.app_name,
+            action_name="set_member_card",
+            params={"group_id": group_id, "user_id": bot_id, "card": new_card},
+            bot_id=bot_id,
+            description="修改自身群名片"
+        )
+
+        result_text = f"修改群名片操作完成。结果: {
+            '成功' if result.is_success else '失败: ' + (result.error_message or '未知错误')
+        }"
+        if thought_key:
+            await container.thought_storage_service.save_action_result_to_thought(
+                thought_key=thought_key, result_text=result_text
+            )
+        logger.info(result_text)
+
+    async def _handle_initiate_leave_group(self, params: dict, container: ServiceContainer) -> None:
+        target_uid = params.get("target_conversation_uid")
+        if not target_uid:
+            return
+
+        conv_doc = await container.entity_graph_service.get_entity_by_key(target_uid)
+        group_name = conv_doc.details.name if conv_doc and conv_doc.details else target_uid
+
+        popup = Window(
+            name=f"win-modal-qq-leave-{uuid.uuid4().hex[:6]}",
+            parent_app_id="app-qq",
+            title="确认操作",
+            window_class="qq_confirm_leave_group_modal",
+            content_state={
+                "message": f"你确定要退出群聊 '{group_name}' 吗？此操作不可恢复。",
+                "target_conversation_uid": target_uid,
+            },
+            is_popup=True,
+            popup_type="modal",
+        )
+        container.window_manager.open_window(popup)
+
+    async def _handle_confirm_leave_group(
+            self, params: dict, container: ServiceContainer, thought_key: str | None
+        ) -> None:
+        target_uid = params.get("target_conversation_uid")
+        if not target_uid:
+            return
+
+        _, _, group_id = parse_entity_uid(target_uid)
+        bot_id = container.application_manager.get_self_bot_ids_map().get(self.app_name)
+
+        if not group_id or not bot_id:
+            return
+
+        result = await container.action_handler.execute_simple_action(
+            platform_id=self.app_name,
+            action_name="leave_conversation",
+            params={"group_id": group_id},
+            bot_id=bot_id,
+            description="确认退出群聊"
+        )
+
+        if result.is_success:
+            window_to_close = f"conv_{target_uid}"
+            container.window_manager.close_window(window_to_close)
+            for w in container.window_manager.get_all_windows_sorted():
+                if w.window_class == "qq_confirm_leave_group_modal":
+                    container.window_manager.close_window(w.name)
+
+        result_text = f"退出群聊操作完成。结果: {
+            '成功' if result.is_success else '失败: ' + (result.error_message or '未知错误')
+        }"
+        if thought_key: # 如果是通过 LLM Action 触发的（虽然现在不会），则回写
+            await container.thought_storage_service.save_action_result_to_thought(
+                thought_key=thought_key, result_text=result_text
+            )
+        logger.info(result_text)
 
     def get_session_manager(self, container: ServiceContainer) -> QQChatSessionManager:
         """按需创建并返回 QQChatSessionManager 的单例.
@@ -305,7 +430,7 @@ class QQBuilder(BaseAppBuilder, IApp):
             window,
         )
 
-    # 实现动态 Schema
+    # [修改] 现在只定义参数驱动的动作
     async def get_action_definitions(
         self, window_manager: WindowManager, container: ServiceContainer
     ) -> dict:
@@ -318,26 +443,36 @@ class QQBuilder(BaseAppBuilder, IApp):
         all_stickers = await container.qq_sticker_service.get_all_stickers()
         sticker_ids = [s["sticker_id"] for s in all_stickers]
 
-        # 2. 构建 send_message Schema
-        visible_conv_uids = [
-            window.content_state.get("conversation_uid")
+        visible_conv_windows = [
+            window
             for window in window_manager.get_all_windows_sorted()
             if window.window_class == "conversation"
             and window.status != WindowStatus.MINIMIZE
             and window.content_state.get("conversation_uid")
         ]
 
-        if visible_conv_uids:
-            send_message_schema = self._build_send_message_schema(visible_conv_uids, sticker_ids)
+        send_message_enabled_conv_uids = [
+            w.content_state.get("conversation_uid") for w in visible_conv_windows
+            if not w.content_state.get("sidebar_visible", False)
+        ]
+
+        if send_message_enabled_conv_uids:
+            send_message_schema = self._build_send_message_schema(
+                send_message_enabled_conv_uids, sticker_ids
+            )
             llm_actions["send_message"] = send_message_schema
 
-        # 3. 构建 manage_stickers Schema (仅在聊天窗口激活时)
-        if visible_conv_uids:
+        if visible_conv_windows:
             manage_stickers_schema = self._build_manage_stickers_schema(sticker_ids)
             if manage_stickers_schema["properties"]:
                 llm_actions["manage_stickers"] = manage_stickers_schema
 
-        return llm_actions
+        # [修改] 将应用专属的动作都放在一个 'qq' 的 namespace 下
+        if llm_actions:
+            return {"qq": {"type": "object", "properties": llm_actions}}
+
+        return {}
+
 
     def _build_send_message_schema(
         self, visible_conv_uids: list[str], sticker_ids: list[str]
@@ -537,16 +672,16 @@ class QQBuilder(BaseAppBuilder, IApp):
             content_segs = [Seg.from_dict(seg) for seg in params.get("content", [])]
             return Event(
                 event_id=str(uuid.uuid4()),
-                event_type=f"action.{self.app_name}.{action_name}",
+                event_type=f"action.{self.app_name}.send_message",
                 time=int(time.time() * 1000),
                 bot_id=bot_id,
                 content=content_segs,
                 conversation_info=conversation_info,
             )
 
-        # 系统内部动作: get_group_member_list
-        elif action_name == "get_group_member_list":
-            # 内部动作通常参数简单，直接构建
+        elif action_name in [
+            "get_group_member_list", "set_member_card", "leave_conversation"
+        ]:
             return Event(
                 event_id=str(uuid.uuid4()),
                 event_type=f"action.{self.app_name}.{action_name}",

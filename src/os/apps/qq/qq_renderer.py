@@ -83,29 +83,51 @@ class QQWindowRenderer:
         current_path: list[str],
         window: Window,
     ) -> None:
-        """专门渲染QQ新消息弹窗的内容."""
-        if window.window_class != "qq_new_message_popup":
-            return
+        """专门渲染QQ弹窗的内容."""
+        window_class = window.window_class
+        content_node = parent_element
 
-        content_node = SubElement(parent_element, "content", attrib={"type": "new_message_alert"})
-        state = window.content_state
-        SubElement(content_node, "sender_name").text = state.get("sender_name")
-        SubElement(content_node, "message_snippet").text = state.get("message_snippet", "...")
+        if window_class == "qq_new_message_popup":
+            content_node = SubElement(
+                parent_element, "content", attrib={"type": "new_message_alert"}
+            )
+            state = window.content_state
+            SubElement(content_node, "sender_name").text = state.get("sender_name")
+            SubElement(content_node, "message_snippet").text = state.get("message_snippet", "...")
 
-        actions_node = SubElement(content_node, "actions")
-        view_btn_path = [*current_path, "content", "view_now"]
-        view_btn_id = self._generate_semantic_id(view_btn_path)
+            actions_node = SubElement(content_node, "actions")
+            view_btn_path = [*current_path, "content", "view_now"]
+            view_btn_id = self._generate_semantic_id(view_btn_path)
 
-        SubElement(
-            actions_node,
-            "button",
-            attrib={"id": view_btn_id, "name": "view_now", "title": "立即查看"},
-        )
-        self.ui_mapping[view_btn_id] = {
-            "action_type": "click",
-            "action": "open_conversation_window",
-            "target_uid": state.get("target_conversation_uid"),
-        }
+            SubElement(
+                actions_node,
+                "button",
+                attrib={"id": view_btn_id, "name": "view_now", "title": "立即查看"},
+            )
+            self.ui_mapping[view_btn_id] = {
+                "action_type": "click",
+                "action": "open_conversation_window",
+                "target_uid": state.get("target_conversation_uid"),
+            }
+        elif window_class == "qq_confirm_leave_group_modal":
+            state = window.content_state
+            SubElement(content_node, "message").text = state.get(
+                "message", "你确定要退出这个群聊吗？"
+            )
+
+            actions_node = SubElement(content_node, "actions")
+
+            confirm_btn_id = self._generate_semantic_id([*current_path, "confirm_leave"])
+            SubElement(
+                actions_node,
+                "button",
+                attrib={"id": confirm_btn_id, "name": "confirm", "title": "确定退出"}
+            )
+            self.ui_mapping[confirm_btn_id] = {
+                "action_type": "click",
+                "action": "confirm_leave_group", # 内部指令
+                "target_uid": state.get("target_conversation_uid"),
+            }
 
     async def render_content(
         self,
@@ -134,10 +156,6 @@ class QQWindowRenderer:
             await self._render_conversation_list(parent_element, current_path, window, bot_ids_map)
         elif current_view == "contacts_list":
             await self._render_contacts_list(parent_element, current_path, window, bot_ids_map)
-        elif window.window_class == "conversation":  # 兼容旧的聊天窗口逻辑
-            await self._render_conversation_window(
-                parent_element, current_path, window, bot_ids_map, image_collector
-            )
 
     def _render_view_switcher(
         self, window_node: Element, current_path: list[str], window: Window
@@ -387,6 +405,67 @@ class QQWindowRenderer:
                 "target_uid": conv_uid,
             }
 
+    # 侧边栏渲染
+    async def _render_conversation_sidebar(
+        self,
+        parent_element: Element,
+        current_path: list[str],
+        window: Window,
+        self_presence: dict | None,
+    ) -> None:
+        sidebar_visible = window.content_state.get("sidebar_visible", False)
+
+        toggle_btn_id = self._generate_semantic_id([*current_path, "toggle_sidebar"])
+        toggle_title = "关闭侧边栏" if sidebar_visible else "打开侧边栏"
+        SubElement(
+            parent_element,
+            "button",
+            attrib={"id": toggle_btn_id, "name": "toggle_sidebar", "title": toggle_title}
+        )
+        self.ui_mapping[toggle_btn_id] = {
+            "action_type": "click",
+            "action": "toggle_sidebar",
+            "target_uid": window.name,
+        }
+
+        if not sidebar_visible:
+            return
+
+        sidebar_node = SubElement(parent_element, "sidebar", attrib={"status": "visible"})
+        sidebar_path = [*current_path, "sidebar"]
+
+        card_section = SubElement(sidebar_node, "card_management")
+        current_card = (self_presence.get("cardname") if self_presence else "") or "未设置"
+
+        # 使用 <input_field>
+        card_input_id = self._generate_semantic_id([*sidebar_path, "card_input"])
+        SubElement(card_section, "input_field", attrib={
+            "id": card_input_id,
+            "name": "self_card_name",
+            "current_value": current_card,
+            "title": "你的群名片"
+        })
+        # 为 input_field 生成映射
+        self.ui_mapping[card_input_id] = {
+            "action_type": "input_override",
+            "target_uid": card_input_id, # target_uid 就是它自己
+        }
+
+        SubElement(card_section, "desc").text = "你可以使用 'input_override' 动作来修改你的群名片。"
+
+        leave_section = SubElement(sidebar_node, "group_actions")
+        leave_btn_id = self._generate_semantic_id([*sidebar_path, "leave_group"])
+        SubElement(
+            leave_section,
+            "button",
+            attrib={"id": leave_btn_id, "name": "leave_group", "title": "退出该群聊"}
+        )
+        self.ui_mapping[leave_btn_id] = {
+            "action_type": "click",
+            "action": "initiate_leave_group",
+            "target_uid": window.content_state.get("conversation_uid"),
+        }
+
     async def _render_conversation_window(
         self,
         window_node: Element,
@@ -418,7 +497,14 @@ class QQWindowRenderer:
         )
         self_entity = await self.entity_service.get_self_entity_by_platform(platform)
 
-        # 根据会话类型动态设置 role 属性
+        if not is_private_chat:
+            await self._render_conversation_sidebar(
+                window_node,
+                current_path,
+                window,
+                self_presence
+            )
+
         role_value = (
             str(bot_id)
             if is_private_chat

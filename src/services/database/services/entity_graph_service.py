@@ -9,11 +9,10 @@ from typing import Any
 from aicarus_protocols import UserInfo as ProtocolUserInfo
 from src.common.custom_logging.logging_config import get_logger
 from src.common.utils import build_conversation_entity_uid, parse_entity_uid
+from src.services.database.core.connection_manager import TypeDBConnectionManager
+from src.services.database.models import EntityDocument
+from src.services.database.services.event_storage_service import EventStorageService
 from typedb.driver import Transaction, TransactionType
-
-from ..core.connection_manager import TypeDBConnectionManager
-from ..models import EntityDocument
-from .event_storage_service import EventStorageService
 
 logger = get_logger(__name__)
 
