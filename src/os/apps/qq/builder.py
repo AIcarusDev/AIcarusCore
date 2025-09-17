@@ -22,6 +22,7 @@ from .qq_renderer import QQWindowRenderer
 
 if TYPE_CHECKING:
     from src.bootstrap.container import ServiceContainer
+    from src.os.file_system_manager import FileSystemManager
     from src.services.database.services.entity_graph_service import EntityGraphService
     from src.services.database.services.event_storage_service import EventStorageService
     from src.services.database.services.media_cache_service import MediaCacheService
@@ -387,6 +388,7 @@ class QQBuilder(BaseAppBuilder, IApp):
         generate_semantic_id: callable,
         image_collector: list[dict],
         action_handler: callable,
+        file_system_manager: "FileSystemManager",
     ) -> None:
         """实现基类的渲染接口，委托给QQWindowRenderer处理."""
         renderer = self._get_renderer(
@@ -414,6 +416,7 @@ class QQBuilder(BaseAppBuilder, IApp):
         generate_semantic_id: callable,
         image_collector: list[dict],
         action_handler: callable,
+        file_system_manager: "FileSystemManager",
     ) -> None:
         """实现弹窗渲染，委托给QQWindowRenderer处理。."""
         renderer = self._get_renderer(

@@ -6,12 +6,12 @@ from typing import TYPE_CHECKING, Any
 from xml.etree.ElementTree import SubElement
 
 from src.os.models import Application, Window, WindowStatus
+from src.common.custom_logging.logging_config import get_logger
 from src.os.window_manager import WindowManager
 from src.services.action.components.base_builder import BaseAppBuilder
 
 if TYPE_CHECKING:
     from src.bootstrap.container import ServiceContainer
-    from src.common.custom_logging.logging_config import get_logger
     from src.os.file_system_manager import FileSystemManager
 
 logger = get_logger(__name__)
