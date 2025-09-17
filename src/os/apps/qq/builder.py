@@ -502,7 +502,7 @@ class QQBuilder(BaseAppBuilder, IApp):
             if manage_stickers_schema["properties"]:
                 llm_actions["manage_stickers"] = manage_stickers_schema
 
-        # [修改] 将应用专属的动作都放在一个 'qq' 的 namespace 下
+        # 将应用专属的动作都放在一个 'qq' 的 namespace 下
         if llm_actions:
             return {"qq": {"type": "object", "properties": llm_actions}}
 

@@ -865,6 +865,49 @@ class EntityGraphService:
             logger.error(f"通过 key '{entity_uid}' 获取实体时失败: {e}", exc_info=True)
             return None
 
+    async def get_entity_by_key_with_retry(
+        self,
+        entity_uid: str,
+        max_retries: int = 3,
+        initial_delay: float = 0.1
+    ) -> EntityDocument | None:
+        """通过实体UID获取实体信息，并内置重试机制以处理数据同步延迟.
+
+        Args:
+            entity_uid (str): 实体的唯一标识符.
+            max_retries (int, optional): 最大重试次数. Defaults to 3.
+            initial_delay (float, optional): 初始重试延迟（秒）. Defaults to 0.1.
+
+        Returns:
+            EntityDocument | None: 实体信息，如果未找到则返回 None.
+        """
+        if not entity_uid:
+            return None
+
+        for attempt in range(max_retries + 1):
+            entity_doc = await self.get_entity_by_key(entity_uid) # 调用原始的查询方法
+
+            if entity_doc:
+                # 只要找到了，就立刻返回
+                if attempt > 0:
+                    logger.info(f"在第 {attempt + 1} 次尝试后成功获取到实体 '{entity_uid}'。")
+                return entity_doc
+
+            # 如果没找到，并且还有重试机会
+            if attempt < max_retries:
+                delay = initial_delay * (2 ** attempt)  # 指数退避
+                logger.warning(
+                    f"实体 '{entity_uid}' 暂未找到 (尝试次数 {attempt + 1})。"
+                    f"可能由于数据同步延迟，将在 {delay:.2f} 秒后重试..."
+                )
+                await asyncio.sleep(delay)
+
+        # 所有尝试都失败了
+        logger.error(
+            f"严重错误：在尝试 {max_retries + 1} 次后，仍然找不到实体 '{entity_uid}'！"
+        )
+        return None
+
     async def update_friend_request_status(
         self, entity_uid: str, flag: str, comment: str, timestamp: int
     ) -> bool:
