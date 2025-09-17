@@ -9,9 +9,8 @@ if TYPE_CHECKING:
     from typing import TYPE_CHECKING
 
     from src.bootstrap.container import ServiceContainer
+    from src.os.models import Application
     from src.services.action.components.base_builder import BaseAppBuilder
-
-    from ..models import Application
 
 
 class IAppDefinition(ABC):

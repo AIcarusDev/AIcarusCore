@@ -4,9 +4,8 @@ import importlib
 import pkgutil
 
 from src.common.custom_logging.logging_config import get_logger
+from src.os.models import Application, ApplicationLifecycle
 from src.services.action.components.base_builder import BaseAppBuilder
-
-from .models import Application, ApplicationLifecycle
 
 logger = get_logger(__name__)
 

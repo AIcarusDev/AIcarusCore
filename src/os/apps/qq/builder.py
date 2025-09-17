@@ -12,13 +12,12 @@ from aicarus_protocols import Event as ProtocolEvent
 from src.common.custom_logging.logging_config import get_logger
 from src.common.utils import build_conversation_entity_uid, parse_entity_uid
 from src.os.apps.interfaces import IApp, ISession
+from src.os.apps.qq.qq_chat_session_manager import QQChatSessionManager
+from src.os.apps.qq.qq_inspection_service import inspect_and_initialize_self_profile
+from src.os.apps.qq.qq_renderer import QQWindowRenderer
 from src.os.models import Window, WindowStatus
 from src.os.window_manager import WindowManager
 from src.services.action.components.base_builder import BaseAppBuilder
-
-from .qq_chat_session_manager import QQChatSessionManager
-from .qq_inspection_service import inspect_and_initialize_self_profile
-from .qq_renderer import QQWindowRenderer
 
 if TYPE_CHECKING:
     from src.bootstrap.container import ServiceContainer
