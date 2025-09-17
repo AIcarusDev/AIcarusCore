@@ -20,10 +20,6 @@ from src.os.window_manager import WindowManager
 from src.services.action.components.base_builder import BaseAppBuilder
 from src.services.action.components.message_builder import MessageBuilder
 
-from .qq_chat_session_manager import QQChatSessionManager
-from .qq_inspection_service import inspect_and_initialize_self_profile
-from .qq_renderer import QQWindowRenderer
-
 if TYPE_CHECKING:
     from src.bootstrap.container import ServiceContainer
     from src.os.file_system_manager import FileSystemManager
@@ -215,12 +211,11 @@ class QQBuilder(BaseAppBuilder, IApp):
         else:
             logger.warning(f"QQBuilder 收到一个未知的 input_override target_id: {target_id}")
 
-    # [修改] handle_llm_action 现在只处理参数驱动的动作
+    # handle_llm_action 现在只处理参数驱动的动作
     async def handle_llm_action(
         self, action_name: str, params: dict, container: ServiceContainer, thought_key: str
     ) -> None:
         """处理由LLM决策的、分发到QQ应用的特定动作."""
-        
         # 1. 处理表情包管理动作
         if action_name == "manage_stickers":
             if not container.qq_sticker_service:
@@ -257,7 +252,7 @@ class QQBuilder(BaseAppBuilder, IApp):
                 result_text = f"成功向会话 '{target_uid}' 发送了 {len(sent_messages_info)} 条消息。"
             else:
                 result_text = f"向会话 '{target_uid}' 发送消息失败。"
-            
+
             await container.thought_storage_service.save_action_result_to_thought(
                 thought_key=thought_key, result_text=result_text
             )

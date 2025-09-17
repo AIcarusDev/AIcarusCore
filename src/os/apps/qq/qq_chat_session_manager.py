@@ -55,9 +55,9 @@ class QQChatSessionManager:
         logger.info("QQChatSessionManager 初始化完成。")
 
     async def get_or_create_session(self, conversation_entity_uid: str) -> QQChatSession | None:
-        """
-        根据会话实体的UID获取或创建QQChatSession.
-        【增强版】: 增加了重试机制，以处理因数据同步延迟导致实体暂未创建的情况。
+        """根据会话实体的UID获取或创建QQChatSession.
+
+        增加了重试机制，以处理因数据同步延迟导致实体暂未创建的情况。
         """
         # --- [新增] 定义重试参数 ---
         max_retries = 3
@@ -71,20 +71,28 @@ class QQChatSessionManager:
                     return self.sessions[conversation_entity_uid]
 
                 # 步骤 2: 尝试从数据库获取实体
-                logger.debug(f"[SessionManager] 尝试第 {attempt + 1}/{max_retries + 1} 次获取实体: {conversation_entity_uid}")
+                logger.debug(
+                    f"[SessionManager] 尝试第 {attempt + 1}/{max_retries + 1} "
+                    f"次获取实体: {conversation_entity_uid}"
+                )
                 conv_entity_doc = await self.entity_graph_service.get_entity_by_key(
                     conversation_entity_uid
                 )
 
                 # 步骤 3: 【核心判断】如果成功获取到实体，则继续创建 Session
                 if conv_entity_doc and isinstance(conv_entity_doc.details, ConversationDetails):
-                    logger.info(f"[SessionManager] 成功获取实体，为 '{conversation_entity_uid}' 创建新的会话实例。")
-                    
+                    logger.info(
+                        f"[SessionManager] 成功获取实体，"
+                        f"为 '{conversation_entity_uid}' 创建新的会话实例。"
+                    )
+
                     # --- [原有的创建逻辑] ---
                     conv_details = conv_entity_doc.details
                     bot_id_for_session = self.self_bot_ids_map.get(conv_details.platform)
                     if not bot_id_for_session:
-                        logger.error(f"无法为平台 '{conv_details.platform}' 创建会话，ID地图中找不到对应ID。")
+                        logger.error(
+                            f"无法为平台 '{conv_details.platform}' 创建会话，ID地图中找不到对应ID。"
+                        )
                         return None
 
                     conversation_info_obj = EnrichedConversationInfo(
@@ -93,7 +101,9 @@ class QQChatSessionManager:
                         bot_id=bot_id_for_session,
                         type=conv_details.type,
                         name=conv_details.name,
-                        # ... 其他字段
+                        parent_id=conv_details.parent_id,
+                        avatar=conv_details.avatar,
+                        extra=conv_details.extra,
                     )
 
                     if not self.core_logic:
@@ -106,7 +116,6 @@ class QQChatSessionManager:
                     new_session = QQChatSession(
                         conversation_info=conversation_info_obj,
                         conversation_id=conversation_entity_uid,
-                        # ... 其他参数
                         llm_client=self.llm_client,
                         event_storage=self.event_storage,
                         action_handler=self.action_handler,
@@ -120,12 +129,13 @@ class QQChatSessionManager:
                     )
                     self.sessions[conversation_entity_uid] = new_session
                     return new_session
-                
+
                 # 步骤 4: 如果实体未找到，并且还不是最后一次尝试，则准备重试
                 if attempt < max_retries:
                     delay = initial_delay * (2 ** attempt)  # 指数退避策略
                     logger.warning(
-                        f"[SessionManager] 未找到实体 '{conversation_entity_uid}' (尝试次数 {attempt + 1})。"
+                        f"[SessionManager] 未找到实体 '{conversation_entity_uid}' "
+                        f"(尝试次数 {attempt + 1})。"
                         f"将在 {delay:.2f} 秒后重试..."
                     )
                     # 【关键】跳出 lock 范围，然后异步等待
@@ -136,10 +146,10 @@ class QQChatSessionManager:
                         f"'{conversation_entity_uid}'的会话实体或类型不匹配！"
                     )
                     return None
-            
+
             # 【关键】在 lock 外执行异步等待，避免长时间持有锁
             if attempt < max_retries:
-                 await asyncio.sleep(delay)
+                await asyncio.sleep(delay)
 
         return None # 循环结束后如果还没返回，则最终失败
 

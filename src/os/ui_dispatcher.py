@@ -350,13 +350,13 @@ async def _handle_base_ui_interaction(
             )
             window_manager.open_window(conv_window)
 
-    # [核心修正] 处理所有未被识别的、应用专属的指令
+    # 处理所有未被识别的、应用专属的指令
     else:
         # 新的、更健壮的路由逻辑：根据 target_uid 解析平台/应用名称
         if not target_uid:
             logger.warning(f"内部指令 '{internal_command}' 的 target_uid 为空，无法路由。")
             return
-            
+
         try:
             # 约定：所有需要路由到特定应用的 target_uid 都以 "platform_" 开头，例如 "qq_group_..."
             app_name = target_uid.split('_')[0]
