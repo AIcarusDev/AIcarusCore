@@ -348,6 +348,28 @@ class FileExplorerAppBuilder(BaseAppBuilder):
         logger.info(f"File explorer action '{command_name}' executed. Success: {success}")
 
 
+    # --- [ 新增以下两个方法来修复错误 ] ---
+
+    async def handle_ui_command(
+        self, command: str, target_uid: str, container: "ServiceContainer"
+    ) -> None:
+        """处理文件管理器应用的 UI 点击指令."""
+        # 目前文件资源管理器没有专属的UI指令（如“刷新”），所有操作都通过双击等基础交互完成。
+        # 因此，这里只是一个占位符实现，以满足抽象基类的要求。
+        logger.warning(f"FileExplorerAppBuilder 收到一个未处理的 UI 指令: {command}")
+        pass
+
+    async def handle_input_override(
+        self, target_id: str, content: str, container: "ServiceContainer", thought_key: str
+    ) -> None:
+        """处理文件管理器应用的 input_override 动作."""
+        # 文件资源管理器当前没有输入框，所以这里只是一个占位符实现。
+        logger.warning(
+            f"FileExplorerAppBuilder 收到一个 input_override 请求，但它没有输入框: {target_id}"
+        )
+        pass
+
+
 @dataclass
 class AppDefinition:
     """AppDefinition 数据类，用于封装应用的信息和构建器类."""

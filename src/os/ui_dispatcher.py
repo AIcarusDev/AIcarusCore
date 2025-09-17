@@ -352,24 +352,31 @@ async def _handle_base_ui_interaction(
 
     # [核心修正] 处理所有未被识别的、应用专属的指令
     else:
+        # 新的、更健壮的路由逻辑：根据 target_uid 解析平台/应用名称
+        if not target_uid:
+            logger.warning(f"内部指令 '{internal_command}' 的 target_uid 为空，无法路由。")
+            return
+            
         try:
-            # 约定：所有应用专属指令的 target_id 格式为 app_name.something...
-            app_name = target_id.split('.')[0]
+            # 约定：所有需要路由到特定应用的 target_uid 都以 "platform_" 开头，例如 "qq_group_..."
+            app_name = target_uid.split('_')[0]
             builder = application_manager.get_builder_by_name(app_name)
+
             if builder:
                 logger.info(
                     f"UI Dispatcher: 路由应用专属 UI 指令 '{internal_command}' 到 App '{app_name}'"
                 )
+                # 调用 builder 的 handle_ui_command 方法，这是专门为处理UI点击设计的
                 await builder.handle_ui_command(internal_command, target_uid, container)
             else:
                 logger.warning(
-                    f"收到一个未知的内部指令 '{internal_command}' "
-                    f"且找不到对应的 App Builder。"
+                    f"收到一个未知的内部指令 '{internal_command}'，"
+                    f"无法从 target_uid '{target_uid}' 中找到对应的 App Builder '{app_name}'。"
                 )
         except IndexError:
             logger.warning(
                 f"收到一个未知的内部指令 '{internal_command}'，"
-                f"且其 target_id '{target_id}' 格式不规范。"
+                f"且其 target_uid '{target_uid}' 格式不符合 'app_name_...' 的规范。"
             )
 
 

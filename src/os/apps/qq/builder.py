@@ -18,6 +18,11 @@ from src.os.apps.qq.qq_renderer import QQWindowRenderer
 from src.os.models import Window, WindowStatus
 from src.os.window_manager import WindowManager
 from src.services.action.components.base_builder import BaseAppBuilder
+from src.services.action.components.message_builder import MessageBuilder
+
+from .qq_chat_session_manager import QQChatSessionManager
+from .qq_inspection_service import inspect_and_initialize_self_profile
+from .qq_renderer import QQWindowRenderer
 
 if TYPE_CHECKING:
     from src.bootstrap.container import ServiceContainer
@@ -215,7 +220,8 @@ class QQBuilder(BaseAppBuilder, IApp):
         self, action_name: str, params: dict, container: ServiceContainer, thought_key: str
     ) -> None:
         """处理由LLM决策的、分发到QQ应用的特定动作."""
-        # 目前只处理 manage_stickers
+        
+        # 1. 处理表情包管理动作
         if action_name == "manage_stickers":
             if not container.qq_sticker_service:
                 logger.error("QQStickerService not available in container.")
@@ -225,6 +231,38 @@ class QQBuilder(BaseAppBuilder, IApp):
             await container.thought_storage_service.save_action_result_to_thought(
                 thought_key=thought_key, result_text=result_message
             )
+
+        # 2. 【新增】处理发送消息动作
+        elif action_name == "send_message":
+            target_uid = params.get("target_conversation_uid")
+            steps = params.get("steps")
+            motivation = params.get("motivation")
+
+            if not all([target_uid, steps, motivation]):
+                logger.error(f"send_message 动作缺少必要的参数: {params}")
+                return
+
+            # 通过 IApp 接口获取会话实例，这是最符合项目结构的方式
+            session = await self.get_session(target_uid, container)
+            if not session:
+                logger.error(f"无法为会话 '{target_uid}' 获取到有效的 Session 实例。")
+                return
+
+            # 使用 MessageBuilder 来处理复杂的消息构建和发送逻辑
+            message_builder = MessageBuilder(session, motivation, container.action_handler)
+            sent_messages_info = await message_builder.process_steps(steps)
+
+            # 将执行结果写回思考链，形成闭环
+            if sent_messages_info:
+                result_text = f"成功向会话 '{target_uid}' 发送了 {len(sent_messages_info)} 条消息。"
+            else:
+                result_text = f"向会话 '{target_uid}' 发送消息失败。"
+            
+            await container.thought_storage_service.save_action_result_to_thought(
+                thought_key=thought_key, result_text=result_text
+            )
+
+        # 3. 处理其他未知动作
         else:
             logger.warning(f"QQBuilder收到了一个未知的LLM动作请求: {action_name}")
 
