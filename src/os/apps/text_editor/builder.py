@@ -161,7 +161,15 @@ class TextEditorAppBuilder(BaseAppBuilder):
             }
         return {}
 
-    # 实现 handle_input_override 接口
+    # 实现 handle_ui_command 接口
+    async def handle_ui_command(
+        self, command: str, target_uid: str, container: "ServiceContainer"
+    ) -> None:
+        """处理文本编辑器应用的 UI 点击指令."""
+        # 当前文本编辑器没有专属的 UI 指令，所以这里只是一个占位符实现
+        logger.warning(f"TextEditorAppBuilder 收到一个未处理的 UI 指令: {command}")
+        pass
+
     async def handle_input_override(
         self, target_id: str, content: str, container: "ServiceContainer", thought_key: str
     ) -> None:
@@ -179,32 +187,32 @@ class TextEditorAppBuilder(BaseAppBuilder):
         container: "ServiceContainer",
         thought_key: str,
     ) -> None:
-        """处理LLM的文本编辑器动作."""
-        if action_name != "text_editor":
-            return
-
-        fs_manager = container.file_system_manager
-        window_manager = container.window_manager
-
-        command_obj = params.get("edit", {})
-        content = command_obj.get("content")
-        append = command_obj.get("append", False)
-
+        """处理由 LLM 决策的文本编辑器动作."""
+        if action_name != "edit":
+            return # 动作名现在是 'edit'
+        fs_manager, window_manager = container.file_system_manager, container.window_manager
+        content, append = params.get("content"), params.get("append", False)
         if content is None:
+            logger.warning(f"TextEditorAppBuilder 收到一个未处理的编辑请求，缺少内容: {params}")
             return
-
         editor_window = window_manager.get_window("text_editor_main")
         if not editor_window:
+            logger.warning(
+                f"TextEditorAppBuilder 收到一个未处理的编辑请求，未找到编辑器窗口: {params}"
+            )
             return
-
         active_tab_id = editor_window.content_state.get("active_tab_id")
         if not active_tab_id:
+            logger.warning(
+                f"TextEditorAppBuilder 收到一个未处理的编辑请求，当前没有激活的标签页: {params}"
+            )
             return
-
         try:
             _type, user_path = active_tab_id.split(":", 1)
+            success = fs_manager.write_file_content(user_path, content, append)
+            logger.info(f"Text editor action 'edit' on '{user_path}' executed. Success: {success}")
         except ValueError:
+            logger.error(
+                f"TextEditorAppBuilder 处理编辑请求时，标签页 ID 格式错误: {active_tab_id}"
+            )
             return
-
-        success = fs_manager.write_file_content(user_path, content, append)
-        logger.info(f"Text editor action 'edit' on '{user_path}' executed. Success: {success}")

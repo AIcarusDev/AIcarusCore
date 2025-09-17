@@ -57,11 +57,19 @@ async def handle_os_interaction(
             logger.warning(f"UI Dispatcher: 收到未知应用的动作请求: {app_name}")
             return
 
-        params = aicos_interaction[app_name]
-        logger.info(f"UI Dispatcher: 路由应用动作 '{app_name}'")
-        await builder.handle_llm_action(app_name, params, container, thought_key)
+        # params 现在是 aicos_interaction[app_name] 下的所有动作
+        # 例如 {"send_message": {...}}
+        action_definitions = aicos_interaction[app_name]
+        action_name = next(iter(action_definitions), None)
+        if not action_name:
+            return
 
-# 处理 input_override 动作的函数
+        params = action_definitions[action_name]
+        logger.info(f"UI Dispatcher: 路由应用动作 '{app_name}.{action_name}'")
+        # 将真正的 action_name 传给 builder
+        await builder.handle_llm_action(action_name, params, container, thought_key)
+
+
 async def _handle_input_override_action(
     params: dict,
     ui_mapping: dict,
@@ -341,8 +349,29 @@ async def _handle_base_ui_interaction(
                 }, # 侧边栏默认关闭
             )
             window_manager.open_window(conv_window)
-        else:
-            logger.error(f"无法为 '{target_uid}' 创建会话窗口，获取会话失败。")
+
+    # [核心修正] 处理所有未被识别的、应用专属的指令
+    else:
+        try:
+            # 约定：所有应用专属指令的 target_id 格式为 app_name.something...
+            app_name = target_id.split('.')[0]
+            builder = application_manager.get_builder_by_name(app_name)
+            if builder:
+                logger.info(
+                    f"UI Dispatcher: 路由应用专属 UI 指令 '{internal_command}' 到 App '{app_name}'"
+                )
+                await builder.handle_ui_command(internal_command, target_uid, container)
+            else:
+                logger.warning(
+                    f"收到一个未知的内部指令 '{internal_command}' "
+                    f"且找不到对应的 App Builder。"
+                )
+        except IndexError:
+            logger.warning(
+                f"收到一个未知的内部指令 '{internal_command}'，"
+                f"且其 target_id '{target_id}' 格式不规范。"
+            )
+
 
 async def _start_app_and_get_window(
     app_id: str,

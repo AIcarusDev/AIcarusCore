@@ -28,7 +28,6 @@ class BaseAppBuilder(ABC):
     @abstractmethod
     async def on_before_start(self, container: ServiceContainer) -> tuple[bool, str | None]:
         """在应用启动前调用的钩子，用于执行前置检查."""
-        # 默认实现为总是允许启动
         return True, None
 
     @abstractmethod
@@ -74,10 +73,7 @@ class BaseAppBuilder(ABC):
     async def get_action_definitions(
         self, window_manager: WindowManager, container: ServiceContainer
     ) -> dict:
-        """返回此应用提供的、非UI绑定的、可供LLM调用的动作的JSON Schema.
-
-        这是一个动态方法，因为可用的动作可能取决于当前窗口状态。
-        """
+        """返回此应用提供的、非UI绑定的、可供LLM调用的动作的JSON Schema."""
         return {}
 
     @abstractmethod
@@ -87,7 +83,13 @@ class BaseAppBuilder(ABC):
         """处理由LLM决策的、分发到此应用的特定动作."""
         pass
 
-    # 抽象方法，用于处理通用的输入覆盖动作
+    @abstractmethod
+    async def handle_ui_command(
+        self, command: str, target_uid: str, container: ServiceContainer
+    ) -> None:
+        """处理由 UI Dispatcher 转发来的、通过点击触发的应用专属指令."""
+        pass
+
     @abstractmethod
     async def handle_input_override(
         self, target_id: str, content: str, container: ServiceContainer, thought_key: str
@@ -113,3 +115,4 @@ class BaseAppBuilder(ABC):
         默认实现为空，需要安检的平台应重写此方法。
         """
         pass
+
