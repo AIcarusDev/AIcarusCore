@@ -422,7 +422,7 @@ class QQBuilder(BaseAppBuilder, IApp):
         generate_semantic_id: callable,
         image_collector: list[dict],
         action_handler: callable,
-        file_system_manager: "FileSystemManager",
+        file_system_manager: FileSystemManager,
     ) -> None:
         """实现基类的渲染接口，委托给QQWindowRenderer处理."""
         renderer = self._get_renderer(
@@ -450,7 +450,7 @@ class QQBuilder(BaseAppBuilder, IApp):
         generate_semantic_id: callable,
         image_collector: list[dict],
         action_handler: callable,
-        file_system_manager: "FileSystemManager",
+        file_system_manager: FileSystemManager,
     ) -> None:
         """实现弹窗渲染，委托给QQWindowRenderer处理。."""
         renderer = self._get_renderer(
