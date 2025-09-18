@@ -186,10 +186,15 @@ class QQBuilder(BaseAppBuilder, IApp):
                 {"target_conversation_uid": target_uid}, container
             )
         elif command == "confirm_leave_group":
-            # 对于确认操作，我们需要一个 thought_key 来回写结果，但点击事件没有。
-            # 我们可以创建一个临时的，或者让 action_handler 返回结果。
-            # 这里我们简化，直接执行，结果只打印日志。
             await self._handle_confirm_leave_group(
+                {"target_conversation_uid": target_uid}, container, None
+            )
+        elif command == "initiate_delete_friend":
+            await self._handle_initiate_delete_friend(
+                {"target_conversation_uid": target_uid}, container
+            )
+        elif command == "confirm_delete_friend":
+            await self._handle_confirm_delete_friend(
                 {"target_conversation_uid": target_uid}, container, None
             )
         else:
@@ -200,16 +205,65 @@ class QQBuilder(BaseAppBuilder, IApp):
         self, target_id: str, content: str, container: ServiceContainer, thought_key: str
     ) -> None:
         """处理 QQ 应用专属的 input_override 动作."""
-        if "card_input" in target_id:
-            try:
-                parts = target_id.split('.')
-                conv_uid = parts[1].replace("conv_", "")
+        try:
+            # 通用化解析逻辑
+            parts = target_id.split('.')
+            # 约定格式: qq.sidebar.card_input.conv_qq_group_123
+            # 或       qq.sidebar.friend_remark_input.conv_qq_private_456
+            conv_uid = parts[3].replace("conv_", "")
+
+            if "card_input" in target_id:
                 params = {"target_conversation_uid": conv_uid, "new_card": content}
                 await self._handle_set_self_card(params, container, thought_key)
-            except IndexError:
-                logger.error(f"无法从 input target_id '{target_id}' 中解析出 conversation_uid。")
-        else:
-            logger.warning(f"QQBuilder 收到一个未知的 input_override target_id: {target_id}")
+            # --- 处理好友备注修改 ---
+            elif "friend_remark_input" in target_id:
+                params = {"target_conversation_uid": conv_uid, "new_remark": content}
+                await self._handle_set_friend_remark(params, container, thought_key)
+            else:
+                logger.warning(f"QQBuilder 收到一个未知的 input_override target_id: {target_id}")
+
+        except IndexError:
+            logger.error(f"无法从 input target_id '{target_id}' 中解析出 conversation_uid。")
+
+    async def _handle_set_friend_remark(
+        self, params: dict, container: ServiceContainer, thought_key: str | None
+    ) -> None:
+        """处理设置好友备注的逻辑."""
+        target_uid = params.get("target_conversation_uid")
+        new_remark = params.get("new_remark")
+        if not target_uid or new_remark is None:
+            return
+
+        _, _, friend_native_id = parse_entity_uid(target_uid)
+        bot_id = container.application_manager.get_self_bot_ids_map().get(self.app_name)
+        if not friend_native_id or not bot_id:
+            return
+
+        result = await container.action_handler.execute_simple_action(
+            platform_id=self.app_name,
+            action_name="set_friend_remark",
+            params={"user_id": friend_native_id, "remark": new_remark},
+            bot_id=bot_id,
+            description="修改好友备注"
+        )
+
+        result_text = f"修改好友备注操作完成。结果: {
+            '成功' if result.is_success else '失败: ' + (result.error_message or '未知错误')
+        }"
+
+        # 如果操作成功，则更新数据库
+        if result.is_success:
+            friend_account_uid = f"{self.app_name}_{friend_native_id}"
+            await container.entity_graph_service.update_friend_remark(
+                friend_account_uid, new_remark
+            )
+            logger.info(f"数据库中好友 '{friend_account_uid}' 的备注已更新。")
+
+        if thought_key:
+            await container.thought_storage_service.save_action_result_to_thought(
+                thought_key=thought_key, result_text=result_text
+            )
+        logger.info(result_text)
 
     # handle_llm_action 现在只处理参数驱动的动作
     async def handle_llm_action(
@@ -346,6 +400,85 @@ class QQBuilder(BaseAppBuilder, IApp):
             '成功' if result.is_success else '失败: ' + (result.error_message or '未知错误')
         }"
         if thought_key: # 如果是通过 LLM Action 触发的（虽然现在不会），则回写
+            await container.thought_storage_service.save_action_result_to_thought(
+                thought_key=thought_key, result_text=result_text
+            )
+        logger.info(result_text)
+
+
+    async def _handle_initiate_delete_friend(
+            self,
+            params: dict,
+            container: ServiceContainer
+        ) -> None:
+        """发起删除好友的确认流程，弹出一个模态窗口."""
+        target_uid = params.get("target_conversation_uid")
+        if not target_uid:
+            return
+
+        conv_doc = await container.entity_graph_service.get_entity_by_key(target_uid)
+        friend_name = conv_doc.details.name if conv_doc and conv_doc.details else target_uid
+
+        popup = Window(
+            name=f"win-modal-qq-delete-friend-{uuid.uuid4().hex[:6]}",
+            parent_app_id="app-qq",
+            title="确认操作",
+            window_class="qq_confirm_delete_friend_modal",
+            content_state={
+                "message": f"你确定要删除好友 '{friend_name}' 吗？此操作不可恢复。",
+                "target_conversation_uid": target_uid,
+            },
+            is_popup=True,
+            popup_type="modal",
+        )
+        container.window_manager.open_window(popup)
+
+    async def _handle_confirm_delete_friend(
+        self, params: dict, container: ServiceContainer, thought_key: str | None
+    ) -> None:
+        """执行确认删除好友的操作."""
+        target_uid = params.get("target_conversation_uid")
+        if not target_uid:
+            return
+
+        _, _, friend_native_id = parse_entity_uid(target_uid)
+        bot_id = container.application_manager.get_self_bot_ids_map().get(self.app_name)
+        if not friend_native_id or not bot_id:
+            return
+
+        result = await container.action_handler.execute_simple_action(
+            platform_id=self.app_name,
+            action_name="delete_friend",
+            params={"user_id": friend_native_id},
+            bot_id=bot_id,
+            description="确认删除好友"
+        )
+
+        result_text = f"删除好友操作完成。结果: {'成功' if result.is_success else '失败: ' + (
+            result.error_message or '未知错误'
+        )}"
+
+        if result.is_success:
+            # 1. 更新数据库
+            self_account = await container.entity_graph_service.get_self_entity_by_platform(
+                self.app_name
+            )
+            if self_account:
+                self_account_uid = self_account['entity_uid']
+                friend_account_uid = f"{self.app_name}_{friend_native_id}"
+                await container.entity_graph_service.remove_friendship(
+                    self_account_uid, friend_account_uid
+                )
+                logger.info(f"数据库好友关系 for '{friend_account_uid}' 已移除。")
+
+            # 2. 关闭相关窗口
+            window_to_close = f"conv_{target_uid}"
+            container.window_manager.close_window(window_to_close)
+            for w in container.window_manager.get_all_windows_sorted():
+                if w.window_class == "qq_confirm_delete_friend_modal":
+                    container.window_manager.close_window(w.name)
+
+        if thought_key:
             await container.thought_storage_service.save_action_result_to_thought(
                 thought_key=thought_key, result_text=result_text
             )
@@ -715,7 +848,8 @@ class QQBuilder(BaseAppBuilder, IApp):
             )
 
         elif action_name in [
-            "get_group_member_list", "set_member_card", "leave_conversation"
+            "get_group_member_list", "set_member_card", "leave_conversation",
+            "set_friend_remark", "delete_friend"
         ]:
             return Event(
                 event_id=str(uuid.uuid4()),

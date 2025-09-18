@@ -1315,3 +1315,63 @@ class EntityGraphService:
         except Exception as e:
             logger.error(f"获取群聊 {conversation_uid} 成员数量失败: {e}", exc_info=True)
             return 0
+
+    async def update_friend_remark(self, account_uid: str, new_remark: str) -> bool:
+        """更新指定账户的好友备注."""
+        driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
+        safe_remark = new_remark.replace('"', '\\"')
+
+        def db_write() -> bool:
+            with driver.transaction(db_name, TransactionType.WRITE) as tx:
+                # 1. 删除旧的备注属性（如果存在）
+                delete_query = f"""
+                match $acc isa account, has account-uid "{account_uid}";
+                $acc has friend-remark $old_remark;
+                delete has $old_remark of $acc;
+                """
+                tx.query(delete_query).resolve()
+
+                # 2. 插入新的备注属性
+                insert_query = f"""
+                match $acc isa account, has account-uid "{account_uid}";
+                insert $acc has friend-remark "{safe_remark}";
+                """
+                tx.query(insert_query).resolve()
+                tx.commit()
+                return True
+
+        try:
+            return await asyncio.to_thread(db_write)
+        except Exception as e:
+            logger.error(f"更新好友备注 for '{account_uid}' 失败: {e}", exc_info=True)
+            return False
+
+    # 删除好友关系的底层方法
+    async def remove_friendship(self, self_account_uid: str, friend_account_uid: str) -> bool:
+        """移除两个账户之间的好友关系."""
+        driver, db_name = self.conn_manager.get_driver(), self.conn_manager.database_name
+
+        def db_write() -> bool:
+            with driver.transaction(db_name, TransactionType.WRITE) as tx:
+                # TypeDB 的关系是无向的，所以一次查询即可删除
+                delete_query = f"""
+                match
+                    $me isa account, has account-uid "{self_account_uid}";
+                    $friend isa account, has account-uid "{friend_account_uid}";
+                    $fs (friend: $me, friend: $friend) isa friendship;
+                delete
+                    $fs;
+                """
+                tx.query(delete_query).resolve()
+                tx.commit()
+                return True
+
+        try:
+            return await asyncio.to_thread(db_write)
+        except Exception as e:
+            logger.error(
+                f"删除好友关系 {self_account_uid} <-> {friend_account_uid} 失败: {e}",
+                exc_info=True,
+            )
+            return False
+

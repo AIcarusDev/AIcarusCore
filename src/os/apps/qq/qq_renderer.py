@@ -87,6 +87,8 @@ class QQWindowRenderer:
         window_class = window.window_class
         content_node = parent_element
 
+        # --- 根据不同的弹窗类型，渲染不同的内容 ---
+        # 新消息通知弹窗
         if window_class == "qq_new_message_popup":
             content_node = SubElement(
                 parent_element, "content", attrib={"type": "new_message_alert"}
@@ -109,6 +111,8 @@ class QQWindowRenderer:
                 "action": "open_conversation_window",
                 "target_uid": state.get("target_conversation_uid"),
             }
+
+        # 退出群聊确认弹窗
         elif window_class == "qq_confirm_leave_group_modal":
             state = window.content_state
             SubElement(content_node, "message").text = state.get(
@@ -126,6 +130,26 @@ class QQWindowRenderer:
             self.ui_mapping[confirm_btn_id] = {
                 "action_type": "click",
                 "action": "confirm_leave_group", # 内部指令
+                "target_uid": state.get("target_conversation_uid"),
+            }
+
+        # 删除好友确认弹窗
+        elif window_class == "qq_confirm_delete_friend_modal":
+            state = window.content_state
+            SubElement(content_node, "message").text = state.get(
+                "message", "你确定要删除这个好友吗？"
+            )
+            actions_node = SubElement(content_node, "actions")
+
+            confirm_btn_id = self._generate_semantic_id([*current_path, "confirm_delete"])
+            SubElement(
+                actions_node,
+                "button",
+                attrib={"id": confirm_btn_id, "name": "confirm", "title": "确定删除"}
+            )
+            self.ui_mapping[confirm_btn_id] = {
+                "action_type": "click",
+                "action": "confirm_delete_friend", # 内部指令
                 "target_uid": state.get("target_conversation_uid"),
             }
 
@@ -405,7 +429,82 @@ class QQWindowRenderer:
                 "target_uid": conv_uid,
             }
 
-    # 侧边栏渲染
+    # 私聊侧边栏渲染
+    async def _render_private_chat_sidebar(
+        self,
+        parent_element: Element,
+        current_path: list[str],
+        window: Window,
+        self_entity: dict | None,
+    ) -> None:
+        """渲染私聊窗口的侧边栏，用于修改备注和删除好友."""
+        sidebar_visible = window.content_state.get("sidebar_visible", False)
+        conversation_uid = window.content_state.get("conversation_uid")
+        if not conversation_uid:
+            return
+
+        toggle_btn_id = self._generate_semantic_id([*current_path, "toggle_sidebar"])
+        toggle_title = "关闭侧边栏" if sidebar_visible else "打开侧边栏"
+        SubElement(
+            parent_element,
+            "button",
+            attrib={"id": toggle_btn_id, "name": "toggle_sidebar", "title": toggle_title}
+        )
+        self.ui_mapping[toggle_btn_id] = {
+            "action_type": "click",
+            "action": "toggle_sidebar",
+            "target_uid": window.name,
+        }
+
+        if not sidebar_visible:
+            return
+
+        sidebar_node = SubElement(parent_element, "sidebar", attrib={"status": "visible"})
+        sidebar_path = [*current_path, "sidebar"]
+
+        # --- 好友备注管理 ---
+        remark_section = SubElement(sidebar_node, "remark_management")
+        _, _, friend_native_id = parse_entity_uid(conversation_uid)
+        friend_account_uid = f"{self_entity['details']['platform']}_{friend_native_id}"
+
+        friend_doc = await self.entity_service.get_entity_by_key(friend_account_uid)
+        current_remark = (
+            friend_doc.details.friend_remark
+            if friend_doc and hasattr(friend_doc.details, 'friend_remark')
+            else ""
+        ) or "未设置"
+
+        # 使用唯一的 input_field ID，包含会话UID以确保唯一性
+        remark_input_id = self._generate_semantic_id(
+            [*sidebar_path, "friend_remark_input", f"conv_{conversation_uid}"]
+        )
+        SubElement(remark_section, "input_field", attrib={
+            "id": remark_input_id,
+            "name": "friend_remark",
+            "current_value": current_remark,
+            "title": "好友备注"
+        })
+        self.ui_mapping[remark_input_id] = {
+            "action_type": "input_override",
+            "target_uid": remark_input_id,
+        }
+        SubElement(remark_section, "desc").text = "你可以使用 'input_override' 动作来修改好友备注。"
+
+        # --- 好友操作 ---
+        friend_actions_section = SubElement(sidebar_node, "friend_actions")
+        delete_btn_id = self._generate_semantic_id([*sidebar_path, "delete_friend"])
+        SubElement(
+            friend_actions_section,
+            "button",
+            attrib={"id": delete_btn_id, "name": "delete_friend", "title": "删除好友"}
+        )
+        self.ui_mapping[delete_btn_id] = {
+            "action_type": "click",
+            "action": "initiate_delete_friend",
+            "target_uid": conversation_uid,
+        }
+
+    # 群聊侧边栏渲染
     async def _render_conversation_sidebar(
         self,
         parent_element: Element,
@@ -497,7 +596,12 @@ class QQWindowRenderer:
         )
         self_entity = await self.entity_service.get_self_entity_by_platform(platform)
 
-        if not is_private_chat:
+        if is_private_chat:
+            await self._render_private_chat_sidebar(
+                window_node, current_path, window, self_entity
+            )
+
+        else:
             await self._render_conversation_sidebar(
                 window_node,
                 current_path,
