@@ -11,6 +11,7 @@ from aicarus_protocols import ConversationInfo, Event, Seg
 from aicarus_protocols import Event as ProtocolEvent
 from src.common.custom_logging.logging_config import get_logger
 from src.common.utils import build_conversation_entity_uid, parse_entity_uid
+from src.domain.models import ActionMetadata
 from src.os.apps.interfaces import IApp, ISession
 from src.os.apps.qq.qq_chat_session_manager import QQChatSessionManager
 from src.os.apps.qq.qq_inspection_service import inspect_and_initialize_self_profile
@@ -281,7 +282,7 @@ class QQBuilder(BaseAppBuilder, IApp):
                 thought_key=thought_key, result_text=result_message
             )
 
-        # 2. 【新增】处理发送消息动作
+        # 2. 处理发送消息动作
         elif action_name == "send_message":
             target_uid = params.get("target_conversation_uid")
             steps = params.get("steps")
@@ -303,6 +304,29 @@ class QQBuilder(BaseAppBuilder, IApp):
 
             # 将执行结果写回思考链，形成闭环
             if sent_messages_info:
+                logger.info(
+                    f"动作 'send_message' 执行完毕，"
+                    f"正在处理 {len(sent_messages_info)} 条已发送消息的回写..."
+                )
+                # 遍历所有成功发送的消息，并将它们作为事件存入数据库
+                for action_result, sent_params in sent_messages_info:
+                    # 1. 构造 sent_dict (即原始的 action_event)
+                    sent_dict = {
+                        "platform": session.platform,
+                        "bot_id": session.bot_id,
+                        "conversation_info": {
+                            "type": sent_params["conversation_type"],
+                            "conversation_id": sent_params["conversation_id"],
+                        },
+                        "content": sent_params["content"],
+                        "event_type": "action.qq.send_message",
+                    }
+                    # 2. 构造 metadata
+                    metadata = ActionMetadata(motivation=motivation)
+                    # 3. 调用 ActionHandler 的内部方法来保存事件
+                    await container.action_handler._save_successful_action_as_event(
+                        action_result, sent_dict, metadata
+                    )
                 result_text = f"成功向会话 '{target_uid}' 发送了 {len(sent_messages_info)} 条消息。"
             else:
                 result_text = f"向会话 '{target_uid}' 发送消息失败。"

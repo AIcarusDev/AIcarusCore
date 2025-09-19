@@ -35,68 +35,92 @@ class EntityGraphService:
     async def get_sender_display_name_for_event(
         self, event: dict, conv_doc: "EntityDocument", self_bot_ids: dict
     ) -> str:
-        """根据复杂的业务规则，获取事件发送者在特定上下文中的最佳显示名称."""
+        """根据复杂的业务规则，获取事件发送者在特定上下文中的最佳显示名称.
+
+        此方法遵循严格的回退逻辑，如果最终无法确定一个有效的名称，将抛出 ValueError。
+
+        回退逻辑:
+        - 对于机器人自身: 优先使用在当前会话中的群名片，如果没有，则使用其在该平台的昵称。
+        - 对于其他用户: 优先使用好友备注，其次是群名片，最后是昵称。
+
+        Args:
+            event: 事件数据字典。
+            conv_doc: 当前会话的实体文档。
+            self_bot_ids: 包含机器人自身所有平台ID的字典。
+
+        Returns:
+            发送者的最佳显示名称字符串。
+
+        Raises:
+            ValueError: 如果无法从任何来源确定有效的显示名称。
+        """
+        # --- 1. 数据预处理和验证 ---
         event = event or {}
         user_info = (
             (event.get("user_info") or {}) if isinstance(event.get("user_info"), dict) else {}
         )
+        current_sender_id = str(user_info.get("user_id") or user_info.get("id") or "")
+        if not current_sender_id:
+            raise ValueError("事件数据中缺少有效的 'user_id'。")
 
         details = getattr(conv_doc, "details", None)
-        conv_type = getattr(details, "type", None) or (event.get("conversation_info") or {}).get(
-            "type"
-        )
+        conv_type = getattr(details, "type", None)
         platform = getattr(details, "platform", None)
+        if not platform:
+            raise ValueError("会话文档中缺少有效的 'platform' 信息。")
 
-        current_sender_id = user_info.get("user_id") or user_info.get("id") or ""
-        is_self_sender = bool(
-            platform and current_sender_id and self_bot_ids.get(platform) == str(current_sender_id)
-        )
+        is_self_sender = self_bot_ids.get(platform) == current_sender_id
 
-        # 将“是自己”的逻辑完全独立出来，确保它有正确的备用链。
+        # --- 2. 处理机器人自身的情况 ---
         if is_self_sender:
-            # 如果是自己，优先尝试获取在当前会话的身份信息（群名片）
-            if platform and conv_doc and conv_doc._key:
+            # 2.1 尝试获取群名片 (仅在群聊中)
+            if conv_type == "group" and conv_doc._key:
                 presence_info = await self.get_self_presence_in_conversation(
                     platform=platform,
                     conversation_entity_uid=conv_doc._key,
                 )
-                if (
-                    conv_type == "group"
-                    and presence_info
-                    and (group_cardname := presence_info.get("cardname"))
-                ):
+                if presence_info and (group_cardname := presence_info.get("cardname")):
                     return group_cardname
 
-            # 如果没有特定会话身份，或不是群聊，则获取在该平台的通用昵称
-            if platform:
-                self_entity = await self.get_self_entity_by_platform(platform)
-                if self_entity and (
-                    platform_nickname := self_entity.get("details", {}).get("nickname")
-                ):
-                    return platform_nickname
+            # 2.2 如果没有群名片或不是群聊，回退到获取平台昵称
+            self_entity = await self.get_self_entity_by_platform(platform)
+            if self_entity and (
+                platform_nickname := self_entity.get("details", {}).get("nickname")
+            ):
+                return platform_nickname
 
-            # 如果所有方法都失败了，则引发异常
-            raise ValueError(f"无法确定机器人自身在平台 '{platform}' 上的显示名称。")
+            # 2.3 如果连平台昵称都没有，这是严重错误
+            raise ValueError(
+                f"无法确定机器人自身 (ID: {current_sender_id}) 在平台 '{platform}' 上的显示名称。"
+            )
 
-        # 如果不是自己，则按原有逻辑处理
-        friend_remark = (
-            (user_info.get("extra") or {}).get("friend_remark")
-            if isinstance(user_info.get("extra"), dict)
-            else None
-        )
-        cardname = user_info.get("user_cardname")
-        nickname = user_info.get("user_nickname")
+        # --- 3. 处理其他用户的情况 ---
+        else:
+            account_uid = f"{platform}_{current_sender_id}"
 
-        if isinstance(friend_remark, str) and friend_remark.strip():
-            return friend_remark
-        if conv_type == "group" and isinstance(cardname, str) and cardname.strip():
-            return cardname
-        if isinstance(nickname, str) and nickname.strip():
-            return nickname
+            # 3.1 优先查询数据库中完整的 Account 实体信息，这可能包含好友备注
+            account_doc = await self.get_entity_by_key(account_uid)
+            if account_doc and account_doc.details and (
+                friend_remark := getattr(account_doc.details, 'friend_remark', None)
+            ):
+                return friend_remark
 
-        # 如果所有方法都失败了，则引发异常
-        user_id = user_info.get("user_id")
-        raise ValueError(f"无法确定用户 '{user_id}' 的显示名称。")
+            # 3.2 如果没有好友备注，再检查群名片 (从事件的原始数据中获取，因为这通常是最新的)
+            if conv_type == "group" and (cardname := user_info.get("user_cardname")):
+                return cardname
+
+            # 3.3 如果以上都没有，最后回退到昵称
+            # 优先使用事件中的昵称，因为它可能是最新的
+            if nickname := user_info.get("user_nickname"):
+                return nickname
+            # 如果事件中没有，再尝试从数据库的 Account 实体中获取
+            if account_doc and account_doc.details and (
+                db_nickname := getattr(account_doc.details, 'nickname', None)
+            ):
+                return db_nickname
+
+            # 3.4 如果连昵称都找不到，这是严重错误
+            raise ValueError(f"无法为用户 '{current_sender_id}' 确定任何有效的显示名称。")
 
     def _update_account_nickname_if_changed_sync(
         self, tx: Transaction, account_uid: str, new_nickname: str
