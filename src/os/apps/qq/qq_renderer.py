@@ -590,105 +590,71 @@ class QQWindowRenderer:
             is_private_chat = False
             logger.warning(f"无法从UID中判断会话类型: {conversation_uid}")
 
-        # 获取机器人在当前会话的身份信息
-        self_presence = await self.entity_service.get_self_presence_in_conversation(
-            platform=platform, conversation_entity_uid=conversation_uid
+        # --- [修改1：将群成员总数查询移到循环外部] ---
+        # 如果不是私聊（即群聊），则在渲染消息前只查询一次群成员总数
+        member_count = 0
+        if not is_private_chat:
+            member_count = await self.entity_service.get_group_member_count(conversation_uid)
+            if member_count > 0:
+                SubElement(window_node, "group_info", attrib={"count": str(member_count)})
+
+        # --- 分页与消息获取 ---
+        page_size = 50 if window.status == WindowStatus.MAXIMIZE else 25
+        current_page = window.content_state.get("chat_page", 1)
+        messages, current_page, total_pages = await self.event_service.get_paged_chat_history(
+            conversation_uid, current_page, page_size
         )
-        self_entity = await self.entity_service.get_self_entity_by_platform(platform)
+        window.content_state["chat_total_pages"] = total_pages
 
-        if is_private_chat:
-            await self._render_private_chat_sidebar(
-                window_node, current_path, window, self_entity
-            )
-
-        else:
-            await self._render_conversation_sidebar(
-                window_node,
-                current_path,
-                window,
-                self_presence
-            )
-
-        role_value = (
-            str(bot_id)
-            if is_private_chat
-            else (self_presence.get("permission_level", "成员") if self_presence else "成员")
-        )
-
-        self_profile_attrs = {
-            "name": self_entity.get("details", {}).get("nickname"),
-            "card": self_presence.get("cardname", "") if self_presence else "",
-            "role": role_value,
-        }
-        # 过滤掉空的属性
-        self_profile_attrs = {k: v for k, v in self_profile_attrs.items() if v}
-        SubElement(window_node, "self_profile_in_chat", attrib=self_profile_attrs)
-
-        # --- 判断会话类型，如果是私聊，则在顶部显示对方信息 ---
-        conversation_doc = await self.entity_service.get_entity_by_key(conversation_uid)
-
-        if is_private_chat:
-            participant_attrs = {
-                "name": conversation_doc.details.name,
-                "uid": conversation_doc.details.conversation_id,
-            }
-            SubElement(window_node, "participant_in_chat", attrib=participant_attrs)
-
-        # 分页与消息渲染
-        page = window.content_state.get("page", 1)
-        page_size = 30 if window.status == WindowStatus.MAXIMIZE else 15
-
-        (messages, current_page, total_pages) = await self.event_service.get_paged_chat_history(
-            conversation_uid, page, page_size
-        )
-        window.content_state["total_pages"] = total_pages
-
+        list_path = [*current_path, "messages"]
         list_node = SubElement(
             window_node,
-            "list",
+            "message_list",
             attrib={
-                "name": "chat_history",
                 "pagination": "true",
                 "page_current": str(current_page),
                 "page_total": str(total_pages),
-                "items_per_page": str(page_size),
             },
         )
-        list_path = [*current_path, "chat_history"]
-
-        # 渲染向上滚动按钮
-        if current_page > 1:
-            scroll_up_id = self._generate_semantic_id([*list_path, "scroll_up_button"])
-            SubElement(
-                list_node,
-                "button",
-                attrib={"id": scroll_up_id, "name": "scroll_up", "title": "向上滚动查看更早的消息"},
-            )
-            self.ui_mapping[scroll_up_id] = {
-                "action_type": "click",
-                "action": "scroll_chat_window",
-                "target_uid": window.name,
-                "direction": "up",
-            }
 
         # 渲染消息
         for msg in messages:
             msg_sender_id = msg.get("user_info", {}).get("user_id")
-
-            # "发言方向"自我识别
             align = "right" if str(msg_sender_id) == str(bot_id) else "left"
 
-            # 在这里提取正确的 message_id
-            platform_msg_id = None
-            for seg in msg.get("content", []):
-                if seg.get("type") == "message_metadata":
-                    platform_msg_id = seg.get("data", {}).get("message_id")
-                    break
-            if not platform_msg_id:
-                logger.error(f"致命错误：消息缺少 message_id: {msg}")
-                platform_msg_id = "未知错误，ID无法获取"
+            # --- [修改2：增加对非消息事件的处理] ---
+            event_type = msg.get("event_type", "")
+            
+            # 如果是通知类事件，进行特殊渲染
+            if "notice" in event_type:
+                if "poke" in event_type:
+                    # 渲染一个系统提示，而不是普通消息
+                    msg_node = SubElement(list_node, "div", attrib={"class": "system_notice"})
+                    
+                    sender_name = msg.get("user_info", {}).get("user_cardname") or msg.get("user_info", {}).get("user_nickname", "有人")
+                    target_name = msg.get("content", [{}])[0].get("data", {}).get("target_user_info", {}).get("user_nickname", "你")
+                    
+                    SubElement(msg_node, "content").text = f"{sender_name} 戳了戳 {target_name}"
+                continue # 处理完通知后，跳过后续的消息ID提取和渲染逻辑
 
-            # --- 根据是否为私聊，动态构建消息 div 的属性 ---
+            # --- [修改3：将 message_id 的提取放在消息事件的判断内] ---
+            platform_msg_id = None
+            if event_type.startswith("message."):
+                for seg in msg.get("content", []):
+                    if seg.get("type") == "message_metadata":
+                        platform_msg_id = seg.get("data", {}).get("message_id")
+                        break
+            
+            if not platform_msg_id:
+                # 对于消息事件，如果仍然找不到ID，才打印错误
+                if event_type.startswith("message."):
+                    logger.error(f"致命错误：消息缺少 message_id: {msg}")
+                    platform_msg_id = "未知错误，ID无法获取"
+                else:
+                    # 对于其他类型的事件，这是正常情况，直接跳过
+                    continue
+
+            # ... (后续的 msg_attrs 和渲染逻辑不变) ...
             msg_attrs = {
                 "class": "message",
                 "id": platform_msg_id,
@@ -698,24 +664,17 @@ class QQWindowRenderer:
                 msg_attrs["sender_id"] = str(msg_sender_id)
 
             msg_node = SubElement(list_node, "div", attrib=msg_attrs)
-
             timestamp = time.strftime("%H:%M:%S", time.localtime(msg.get("timestamp", 0) / 1000))
 
-            # 如果不是私聊（即群聊），则显示每个发言人的名字和群成员总数
             if not is_private_chat:
-                # 群成员总数可能会变动，因此每次都实时查询
-                member_count = await self.entity_service.get_group_member_count(conversation_uid)
-                if member_count > 0:
-                    # 渲染 <group_info> 节点
-                    SubElement(window_node, "group_info", attrib={"count": str(member_count)})
-                # 渲染发言人名字
+                # --- [修改4：不再在循环内查询，直接使用之前获取的 member_count] ---
+                # (此处原有的 get_group_member_count 调用已被移除)
                 sender_name = msg.get("user_info", {}).get("user_cardname") or msg.get(
                     "user_info", {}
                 ).get("user_nickname")
                 SubElement(msg_node, "sender").text = sender_name
 
             SubElement(msg_node, "timestamp").text = timestamp
-
             content_node = SubElement(msg_node, "content")
             await self._render_rich_content(
                 content_node, msg.get("content", []), image_collector, window, bot_ids_map

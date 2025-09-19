@@ -1303,11 +1303,11 @@ class EntityGraphService:
 
         def db_read() -> int:
             with driver.transaction(db_name, TransactionType.READ) as tx:
-                # 使用 .resolve().as_value() 来直接获取聚合结果
-                result_iterator = tx.query(query).resolve()
-                result_value = next(result_iterator, None)
-                if result_value:
-                    return result_value.as_value().get_integer()
+                answers = list(tx.query(query).resolve().as_concept_rows())
+                if answers:
+                    count_concept = answers[0].get("count")
+                    if count_concept:
+                        return count_concept.as_value().get_integer()
                 return 0
 
         try:
@@ -1374,4 +1374,3 @@ class EntityGraphService:
                 exc_info=True,
             )
             return False
-
